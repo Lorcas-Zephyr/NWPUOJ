@@ -9,9 +9,34 @@ SYZOJ_WEB_SECRET_SESSION=请替换为 64 位随机字符串
 SYZOJ_WEB_SECRET_JUDGE=请替换为 64 位随机字符串
 SYZOJ_WEB_SECRET_EMAIL=请替换为 64 位随机字符串
 
-# SMTP 邮件发送配置(用于邮箱验证)
+# 仅用于已有用户但尚未建立 site_security_state 的升级场景。
+# 指向一个现有全站管理员；全新部署留空，首个注册账号会自动成为站长。
+SYZOJ_SITE_OWNER_USER_ID=
+
+# SMTP 邮件发送配置（用于邮箱验证、注册确认和密码重置）
 SYZOJ_WEB_SMTP_HOST=smtp.zoho.com.cn
 SYZOJ_WEB_SMTP_PORT=465
 SYZOJ_WEB_SMTP_USER=你的发件邮箱地址
 SYZOJ_WEB_SMTP_PASS=你的应用专用密码(不是登录密码)
-SYZOJ_WEB_SMTP_FROM_NAME=AlgoBeat Online Judge
+SYZOJ_WEB_SMTP_FROM_NAME=NWPUOJ
+
+# UOJ VJudge（建议使用专用普通账号，密码仅保存在未提交的 env-app 中）
+SYZOJ_WEB_UOJ_ENDPOINT=https://uoj.ac
+SYZOJ_WEB_UOJ_USERNAME=
+SYZOJ_WEB_UOJ_PASSWORD=
+# 比赛提交可能在上游公开源码；确认风险后才可显式启用
+SYZOJ_WEB_UOJ_ALLOW_CONTESTS=false
+
+# HDU VJudge（建议使用专用普通账号，密码仅保存在未提交的 env-app 中）
+SYZOJ_WEB_HDU_ENDPOINT=https://acm.hdu.edu.cn
+SYZOJ_WEB_HDU_USERNAME=
+SYZOJ_WEB_HDU_PASSWORD=
+# 默认禁止比赛提交；确认上游账号和代码可见性策略后才可显式启用
+SYZOJ_WEB_HDU_ALLOW_CONTESTS=false
+
+# POJ VJudge（POJ 当前仅提供 HTTP，账号密码会由上游明文传输）
+SYZOJ_WEB_POJ_ENDPOINT=http://poj.org
+SYZOJ_WEB_POJ_USERNAME=
+SYZOJ_WEB_POJ_PASSWORD=
+# 默认禁止比赛提交；确认上游账号和代码可见性策略后才可显式启用
+SYZOJ_WEB_POJ_ALLOW_CONTESTS=false

@@ -1,5 +1,44 @@
 let Announcement = syzoj.model('announcement');
 
+const ANNOUNCEMENT_LEVEL_PRIORITY = {
+  important: 0,
+  warning: 1,
+  info: 2
+};
+
+function sortAnnouncements(announcements) {
+  return announcements.sort((a, b) => {
+    let aPriority = ANNOUNCEMENT_LEVEL_PRIORITY[a.level];
+    let bPriority = ANNOUNCEMENT_LEVEL_PRIORITY[b.level];
+    if (aPriority === undefined) aPriority = ANNOUNCEMENT_LEVEL_PRIORITY.info;
+    if (bPriority === undefined) bPriority = ANNOUNCEMENT_LEVEL_PRIORITY.info;
+    if (aPriority !== bPriority) return aPriority - bPriority;
+    return (b.public_time || b.start_time || 0) - (a.public_time || a.start_time || 0);
+  });
+}
+
+// ============ 前台:全部已启用公告 ============
+app.get('/announcements', async (req, res) => {
+  try {
+    let announcements = await Announcement.createQueryBuilder()
+      .where('is_active = 1')
+      .getMany();
+
+    sortAnnouncements(announcements);
+    for (let announcement of announcements) {
+      announcement.contentRendered = await syzoj.utils.markdown(announcement.content || '');
+    }
+
+    res.render('announcements', {
+      announcements: announcements,
+      now: parseInt((new Date()).getTime() / 1000)
+    });
+  } catch (e) {
+    syzoj.log(e);
+    res.render('error', { err: e });
+  }
+});
+
 // ============ 后台:公告管理列表 ============
 app.get('/admin/announcements', async (req, res) => {
   try {
@@ -174,6 +213,7 @@ app.get('/api/active-announcements', async (req, res) => {
       .orderBy('public_time', 'DESC');
 
     let list = await qb.getMany();
+    sortAnnouncements(list);
 
     // 渲染 markdown 内容,只把必要字段返回前端
     let result = [];
@@ -183,6 +223,7 @@ app.get('/api/active-announcements', async (req, res) => {
         title: a.title,
         contentRendered: await syzoj.utils.markdown(a.content || ''),
         level: a.level,
+        public_time: a.public_time || a.start_time,
         end_time: a.end_time
       });
     }

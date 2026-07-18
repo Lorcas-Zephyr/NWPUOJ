@@ -3,10 +3,28 @@ let User = syzoj.model('user');
 let fs = require('fs');
 let path = require('path');
 let crypto = require('crypto');
+let os = require('os');
+let multer = require('multer');
 
 const BANNER_UPLOAD_DIR = '/app/static/self/banner';
 const MAX_BANNER_SIZE = 5 * 1024 * 1024;  // 5MB
 const ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+const IMAGE_EXTENSIONS = {
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+  'image/gif': '.gif'
+};
+const bannerUpload = multer({
+  dest: os.tmpdir(),
+  limits: { fileSize: MAX_BANNER_SIZE, files: 1 },
+  fileFilter: (req, file, callback) => {
+    if (ALLOWED_MIME.includes(file.mimetype)) return callback(null, true);
+    const error = new Error('仅支持 JPG / PNG / WebP / GIF 格式。');
+    error.code = 'UNSAFE_FILE_TYPE';
+    callback(error);
+  }
+}).single('image');
 
 try { fs.mkdirSync(BANNER_UPLOAD_DIR, { recursive: true }); } catch (e) {}
 
@@ -16,14 +34,33 @@ function sanitizeLinkUrl(url) {
   url = url.trim();
   if (!url) return null;
   // 只允许 http://, https://, 或相对路径 /
-  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('/')) {
+  if (url.startsWith('http://') || url.startsWith('https://') || (url.startsWith('/') && !url.startsWith('//'))) {
     return url.substring(0, 500);
   }
   return null;
 }
 
+function requireBannerAdmin(req, res, next) {
+  if (!isAdmin(res.locals.user)) return res.status(403).render('error', { err: new ErrorMessage('您没有权限。') });
+  next();
+}
+
+function receiveBanner(req, res, next) {
+  bannerUpload(req, res, error => {
+    if (!error) return next();
+    const message = error.code === 'LIMIT_FILE_SIZE' ? '图片不能超过 5MB。' : (error.message || '图片上传失败。');
+    res.status(400).render('error', { err: new ErrorMessage(message) });
+  });
+}
+
 function isAdmin(user) {
   return user && user.is_admin;
+}
+
+function bannerInputError(message) {
+  const error = new ErrorMessage(message);
+  error.statusCode = 400;
+  return error;
 }
 
 // ============ 公开 API:活跃 banner 列表 ============
@@ -65,14 +102,12 @@ app.get('/admin/banners', async (req, res) => {
 });
 
 // ============ admin: 上传新 banner ============
-app.post('/admin/banner/new', app.multer.single('image'), async (req, res) => {
+app.post('/admin/banner/new', requireBannerAdmin, receiveBanner, async (req, res) => {
+  let targetPath = null;
   try {
-    if (!isAdmin(res.locals.user)) throw new ErrorMessage('您没有权限。');
-    if (!req.file) throw new ErrorMessage('请上传图片文件。');
-    if (req.file.size > MAX_BANNER_SIZE) throw new ErrorMessage('图片不能超过 5MB。');
-    if (!ALLOWED_MIME.includes(req.file.mimetype)) {
-      throw new ErrorMessage('仅支持 JPG / PNG / WebP / GIF 格式。');
-    }
+    if (!req.file) throw bannerInputError('请上传图片文件。');
+    const detectedMime = syzoj.utils.detectSafeRasterImage(req.file.path);
+    if (!detectedMime) throw bannerInputError('图片内容不是有效的 JPG / PNG / WebP / GIF。');
 
     let title = (req.body.title || '').trim().substring(0, 100);
     if (!title) title = '未命名 Banner';
@@ -80,10 +115,9 @@ app.post('/admin/banner/new', app.multer.single('image'), async (req, res) => {
     let sortOrder = parseInt(req.body.sort_order || 0) || 0;
 
     // 生成 uuid 文件名
-    let ext = path.extname(req.file.originalname).toLowerCase() || '.jpg';
-    if (!['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext)) ext = '.jpg';
+    let ext = IMAGE_EXTENSIONS[detectedMime];
     let filename = crypto.randomBytes(16).toString('hex') + ext;
-    let targetPath = path.join(BANNER_UPLOAD_DIR, filename);
+    targetPath = path.join(BANNER_UPLOAD_DIR, filename);
 
     // multer 默认存到 tmp,移动到目标目录
     fs.copyFileSync(req.file.path, targetPath);
@@ -98,11 +132,14 @@ app.post('/admin/banner/new', app.multer.single('image'), async (req, res) => {
     banner.created_by = res.locals.user.id;
     banner.created_at = Math.floor(Date.now() / 1000);
     await banner.save();
+    targetPath = null;
 
     res.redirect(syzoj.utils.makeUrl(['admin', 'banners']));
   } catch (e) {
     syzoj.log(e);
-    res.render('error', { err: e });
+    if (req.file && req.file.path) { try { fs.unlinkSync(req.file.path); } catch (cleanupError) {} }
+    if (targetPath) { try { fs.unlinkSync(targetPath); } catch (cleanupError) {} }
+    res.status(e.statusCode || 500).render('error', { err: e });
   }
 });
 

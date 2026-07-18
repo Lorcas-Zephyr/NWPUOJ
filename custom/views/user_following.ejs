@@ -41,7 +41,7 @@
       <% for (let u of users) { %>
         <div class="item" style="padding: 14px; border-radius: 6px;">
           <a class="ui avatar image" href="<%= syzoj.utils.makeUrl(['user', u.id]) %>" style="width: 48px; height: 48px;">
-            <img src="<%= syzoj.utils.gravatar(u.email, 48) %>" style="border-radius: 50%;">
+                          <img src="<%= syzoj.utils.avatar(u, 48) %>" style="border-radius: 50%;">
           </a>
           <div class="content" style="margin-left: 14px; flex: 1;">
             <a class="header" href="<%= syzoj.utils.makeUrl(['user', u.id]) %>" style="font-size: 1.1em;">

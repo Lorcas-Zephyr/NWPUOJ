@@ -1,0 +1,118 @@
+<% this.title = '比赛' %>
+<% include header %>
+<div class="padding">
+  <% if (contests.length) { %>
+    <div class="nwpuoj-toolbar" style="margin-bottom:16px;">
+      <span class="nwpuoj-meta">共 <%= contests.length %> 场比赛</span>
+      <% if (user && (user.is_admin || (user.privileges && user.privileges.includes('manage_contest')))) { %>
+      <div class="nwpuoj-toolbar-actions">
+        <a href="<%= syzoj.utils.makeUrl(['contest', 0, 'edit']) %>" class="ui small primary labeled icon button">
+          <i class="plus icon"></i>添加比赛
+        </a>
+      </div>
+      <% } %>
+    </div>
+
+    <div class="nwpuoj-table-region" role="region" aria-label="比赛列表" tabindex="0">
+    <table class="ui very basic center aligned table nwpuoj-contests-table">
+      <thead>
+        <tr>
+          <th scope="col">比赛名称</th>
+          <th class="nwpuoj-priority-3" scope="col">开始时间</th>
+          <th class="nwpuoj-priority-3" scope="col">结束时间</th>
+          <th class="one wide nwpuoj-priority-3" scope="col">已报名人数</th>
+          <th class="two wide" scope="col">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% for (let contest of contests) {
+          let now = syzoj.utils.getCurrentDate();
+          let statusLabel;
+          if (now < contest.start_time) {
+            statusLabel = '未开始';
+          } else if (now < contest.end_time) {
+            statusLabel = '进行中';
+          } else {
+            statusLabel = '已结束';
+          }
+
+          let typeLabel = '';
+          let typeColor = '';
+          if (contest.type === 'noi') { typeLabel = 'NOI'; typeColor = 'orange'; }
+          else if (contest.type === 'ioi') { typeLabel = 'IOI'; typeColor = 'teal'; }
+          else if (contest.type === 'acm') { typeLabel = 'ICPC'; typeColor = 'blue'; }
+          let registration = (typeof contestRegistrations !== 'undefined' && contestRegistrations)
+            ? contestRegistrations[contest.id]
+            : null;
+          let isRated = typeof contestRatedById !== 'undefined' && !!contestRatedById[contest.id];
+        %>
+          <tr>
+            <td>
+              <a href="<%= syzoj.utils.makeUrl(['contest', contest.id]) %>">
+                <%= contest.title %>
+                <% if (typeLabel) { %><span class="ui mini basic <%= typeColor %> label" style="margin-left:8px;"><%= typeLabel %></span><% } %>
+                <span class="nwpuoj-status <%= isRated ? 'nwpuoj-status-success' : 'nwpuoj-status-muted' %>"><%= isRated ? 'Rated' : 'Unrated' %></span>
+                <span class="nwpuoj-status <%= statusLabel === '进行中' ? 'nwpuoj-status-success' : (statusLabel === '未开始' ? 'nwpuoj-status-warning' : 'nwpuoj-status-muted') %>"><%= statusLabel %></span>
+              </a>
+              <div class="nwpuoj-mobile-meta">
+                <i class="clock outline icon"></i><%= syzoj.utils.formatDate(contest.start_time) %> - <%= syzoj.utils.formatDate(contest.end_time) %>
+                · <i class="users icon"></i><%= registration ? registration.registeredCount : 0 %>
+              </div>
+            </td>
+            <td class="nwpuoj-priority-3 nwpuoj-col-number"><%= syzoj.utils.formatDate(contest.start_time) %></td>
+            <td class="nwpuoj-priority-3 nwpuoj-col-number"><%= syzoj.utils.formatDate(contest.end_time) %></td>
+            <td class="nwpuoj-priority-3 nwpuoj-col-number">
+              <%= registration ? registration.registeredCount : 0 %>
+            </td>
+            <td>
+              <% if (!registration) { %>
+                -
+              <% } else if (registration.isSupervisior) { %>
+                <a class="ui mini basic labeled icon button" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'edit']) %>"><i class="settings icon"></i>比赛管理</a>
+              <% } else if (registration.canRegister) { %>
+                <form method="post" action="<%= syzoj.utils.makeUrl(['contest', contest.id, 'register']) %>" style="margin: 0;">
+                  <input type="hidden" name="csrf_token" value="<%= registration.csrfToken %>">
+                  <input type="hidden" name="return_url" value="<%= req.originalUrl %>">
+                  <button type="submit" class="ui mini primary labeled icon button"><i class="user plus icon"></i>报名</button>
+                </form>
+              <% } else if (registration.canCancel) { %>
+                <form method="post" action="<%= syzoj.utils.makeUrl(['contest', contest.id, 'unregister']) %>" style="margin: 0;" onsubmit="return confirm('确定取消报名吗？');">
+                  <input type="hidden" name="csrf_token" value="<%= registration.csrfToken %>">
+                  <input type="hidden" name="return_url" value="<%= req.originalUrl %>">
+                  <button type="submit" class="ui mini basic red labeled icon button"><i class="user times icon"></i>取消报名</button>
+                </form>
+              <% } else if (registration.registered) { %>
+                <span class="ui mini green label"><i class="check icon"></i>已报名</span>
+              <% } else if (registration.removedByAdmin) { %>
+                <span class="ui mini basic red label">已被移出报名</span>
+              <% } else if (registration.registrationOpen && !user) { %>
+                <a class="ui mini primary button" href="<%= syzoj.utils.makeUrl(['login'], { url: req.originalUrl }) %>">登录后报名</a>
+              <% } else if (registration.running) { %>
+                <span class="ui mini basic label">报名截止</span>
+              <% } else if (registration.ended) { %>
+                <span class="ui mini basic label">已结束</span>
+              <% } else { %>
+                -
+              <% } %>
+            </td>
+          </tr>
+        <% } %>
+      </tbody>
+    </table>
+    </div>
+  <% } else { %>
+    <div class="nwpuoj-empty-state">
+      <i class="calendar outline icon"></i>
+      <h3>暂无比赛</h3>
+      <% if (user && (user.is_admin || (user.privileges && user.privileges.includes('manage_contest')))) { %>
+        <a href="<%= syzoj.utils.makeUrl(['contest', 0, 'edit']) %>" class="ui primary labeled icon button">
+          <i class="ui icon write"></i>
+          添加第一场比赛
+        </a>
+      <% } %>
+    </div>
+  <% } %>
+  <br>
+  <% include page %>
+</div>
+<% include footer %>

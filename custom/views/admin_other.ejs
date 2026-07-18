@@ -1,0 +1,236 @@
+<% this.adminPage = 'other'; %>
+<% include admin_header %>
+<% if (typeof success !== "undefined" && success) { %>
+  <div class="ui success message" style="flex-grow: 0; ">
+    <p><%= typeof successMessage !== 'undefined' ? successMessage : '操作成功！' %></p>
+  </div>
+<% } %>
+<form method="post" class="ui form">
+  <p><button class="ui blue labeled icon button" name="type" value="reset_count" type="submit"><i class="ui repeat icon"></i>重新计算提交及 AC 数</button></p>
+  <p><button class="ui blue labeled icon button" name="type" value="reset_discussion" type="submit"><i class="ui repeat icon"></i>重新计算讨论版回复数和回复时间</button></p>
+  <p><button class="ui blue labeled icon button" name="type" value="reset_codelen" type="submit"><i class="ui repeat icon"></i>重新计算提交代码长度</button></p>
+  <p><button class="ui blue labeled icon button" name="type" value="import_luogu" type="submit"><i class="ui repeat icon"></i>导入洛谷 VJudge 题目</button></p>
+</form>
+
+<div class="ui divider"></div>
+<form method="post" action="/admin/uoj/import" class="ui form">
+  <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>">
+  <div class="inline fields">
+    <div class="field">
+      <label>UOJ 题号</label>
+      <input type="number" name="problem_id" min="1" required placeholder="例如 1">
+    </div>
+    <div class="field">
+      <div class="ui checkbox">
+        <input type="checkbox" name="is_public" checked>
+        <label>导入后公开</label>
+      </div>
+    </div>
+    <button class="ui primary labeled icon button" type="submit">
+      <i class="download icon"></i>导入 UOJ VJudge 题目
+    </button>
+  </div>
+</form>
+<form method="post" action="/admin/uoj/check" style="margin-top: 12px;">
+  <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>">
+  <button class="ui basic labeled icon button" type="submit">
+    <i class="plug icon"></i>测试 UOJ 账号连接
+  </button>
+</form>
+
+<div class="ui divider"></div>
+<form method="post" action="/admin/uoj/import-all" class="ui form" id="uoj-import-all-form"
+      onsubmit="return confirm('确认导入 UOJ 总题库中所有尚未添加的题目？');">
+  <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>">
+  <div class="inline fields">
+    <div class="field">
+      <div class="ui checkbox">
+        <input type="checkbox" name="is_public" checked>
+        <label>导入后公开</label>
+      </div>
+    </div>
+    <button class="ui primary labeled icon button" type="submit" id="uoj-import-all-button">
+      <i class="download icon"></i>导入全部 UOJ 题目
+    </button>
+  </div>
+</form>
+
+<div class="ui message" id="uoj-import-all-status" style="display: none; max-width: 760px;" aria-live="polite">
+  <div class="header" id="uoj-import-all-title"></div>
+  <p id="uoj-import-all-summary"></p>
+  <div class="ui tiny progress" id="uoj-import-all-progress" style="margin: 10px 0 0;">
+    <div class="bar" style="width: 0;"></div>
+  </div>
+  <div class="ui list" id="uoj-import-all-failures"></div>
+</div>
+
+<div class="ui divider"></div>
+<form method="post" action="/admin/hdu/import" class="ui form">
+  <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>">
+  <div class="inline fields">
+    <div class="field">
+      <label>HDU 题号</label>
+      <input type="number" name="problem_id" min="1000" required placeholder="例如 1000">
+    </div>
+    <div class="field">
+      <div class="ui checkbox">
+        <input type="checkbox" name="is_public" checked>
+        <label>导入后公开</label>
+      </div>
+    </div>
+    <button class="ui primary labeled icon button" type="submit">
+      <i class="download icon"></i>导入 HDU VJudge 题目
+    </button>
+  </div>
+</form>
+<form method="post" action="/admin/hdu/check" style="margin-top: 12px;">
+  <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>">
+  <button class="ui basic labeled icon button" type="submit">
+    <i class="plug icon"></i>测试 HDU 账号连接
+  </button>
+</form>
+
+<div style="margin-top: 18px;">
+  <form method="post" action="/admin/hdu/import-all" class="ui form" id="hdu-import-all-form"
+        onsubmit="return confirm('确认导入 HDU 总题库中所有尚未添加的题目？');">
+    <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>">
+    <div class="inline fields">
+      <div class="field">
+        <div class="ui checkbox">
+          <input type="checkbox" name="is_public" checked>
+          <label>导入后公开</label>
+        </div>
+      </div>
+      <button class="ui primary labeled icon button" type="submit" id="hdu-import-all-button">
+        <i class="download icon"></i>导入全部 HDU 题目
+      </button>
+    </div>
+  </form>
+</div>
+
+<div class="ui message" id="hdu-import-all-status" style="display: none; max-width: 760px;" aria-live="polite">
+  <div class="header" id="hdu-import-all-title"></div>
+  <p id="hdu-import-all-summary"></p>
+  <div class="ui tiny progress" id="hdu-import-all-progress" style="margin: 10px 0 0;">
+    <div class="bar" style="width: 0;"></div>
+  </div>
+  <div class="ui list" id="hdu-import-all-failures"></div>
+</div>
+
+<div class="ui divider"></div>
+<form method="post" action="/admin/poj/import" class="ui form">
+  <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>">
+  <div class="inline fields">
+    <div class="field">
+      <label>POJ 题号</label>
+      <input type="number" name="problem_id" min="1000" required placeholder="例如 1000">
+    </div>
+    <div class="field">
+      <div class="ui checkbox">
+        <input type="checkbox" name="is_public" checked>
+        <label>导入后公开</label>
+      </div>
+    </div>
+    <button class="ui primary labeled icon button" type="submit">
+      <i class="download icon"></i>导入 POJ VJudge 题目
+    </button>
+  </div>
+</form>
+<form method="post" action="/admin/poj/check" style="margin-top: 12px;">
+  <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>">
+  <button class="ui basic labeled icon button" type="submit">
+    <i class="plug icon"></i>测试 POJ 账号连接
+  </button>
+</form>
+
+<div style="margin-top: 18px;">
+  <form method="post" action="/admin/poj/import-all" class="ui form" id="poj-import-all-form"
+        onsubmit="return confirm('确认导入 POJ 总题库中所有尚未添加的题目？');">
+    <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>">
+    <div class="inline fields">
+      <div class="field">
+        <div class="ui checkbox">
+          <input type="checkbox" name="is_public" checked>
+          <label>导入后公开</label>
+        </div>
+      </div>
+      <button class="ui primary labeled icon button" type="submit" id="poj-import-all-button">
+        <i class="download icon"></i>导入全部 POJ 题目
+      </button>
+    </div>
+  </form>
+</div>
+
+<div class="ui message" id="poj-import-all-status" style="display: none; max-width: 760px;" aria-live="polite">
+  <div class="header" id="poj-import-all-title"></div>
+  <p id="poj-import-all-summary"></p>
+  <div class="ui tiny progress" id="poj-import-all-progress" style="margin: 10px 0 0;">
+    <div class="bar" style="width: 0;"></div>
+  </div>
+  <div class="ui list" id="poj-import-all-failures"></div>
+</div>
+
+<script>
+(function () {
+  function setupBulkImport(provider, prefix, name) {
+    var statusBox = document.getElementById(provider + '-import-all-status');
+    var title = document.getElementById(provider + '-import-all-title');
+    var summary = document.getElementById(provider + '-import-all-summary');
+    var progress = document.getElementById(provider + '-import-all-progress');
+    var failures = document.getElementById(provider + '-import-all-failures');
+    var button = document.getElementById(provider + '-import-all-button');
+
+    function render(status) {
+      if (!status || status.state === 'idle') return;
+      statusBox.style.display = '';
+      statusBox.className = 'ui message';
+      button.disabled = status.state === 'running';
+      failures.innerHTML = '';
+
+      if (status.state === 'running') {
+        title.textContent = status.phase === 'listing' ? '正在读取 ' + name + ' 题库' : '正在批量导入 ' + name + ' 题目';
+        summary.textContent = status.phase === 'listing'
+          ? '正在获取远端题目列表...'
+          : '总计 ' + status.total + '，已处理 ' + status.processed + '，导入 ' + status.imported +
+            '，跳过 ' + status.skipped + '，失败 ' + status.failed +
+            (status.currentRemoteId ? '，当前 ' + prefix + status.currentRemoteId : '');
+      } else if (status.state === 'completed') {
+        statusBox.className = 'ui positive message';
+        title.textContent = name + ' 批量导入完成';
+        summary.textContent = '总计 ' + status.total + '，导入 ' + status.imported +
+          '，跳过 ' + status.skipped + '，失败 ' + status.failed + '。';
+      } else {
+        statusBox.className = 'ui negative message';
+        title.textContent = name + ' 批量导入失败';
+        summary.textContent = status.error || '任务异常终止。';
+      }
+
+      var percent = status.total ? Math.min(100, Math.round(status.processed * 100 / status.total)) : 0;
+      progress.querySelector('.bar').style.width = percent + '%';
+      (status.failures || []).forEach(function (failure) {
+        var item = document.createElement('div');
+        item.className = 'item';
+        item.textContent = prefix + failure.remoteId + ': ' + failure.message;
+        failures.appendChild(item);
+      });
+    }
+
+    function poll() {
+      fetch('/admin/' + provider + '/import-all/status', { credentials: 'same-origin' })
+        .then(function (response) { return response.json(); })
+        .then(function (status) {
+          render(status);
+          if (status.state === 'running') setTimeout(poll, 2000);
+        })
+        .catch(function () {});
+    }
+
+    poll();
+  }
+
+  setupBulkImport('uoj', 'U', 'UOJ');
+  setupBulkImport('hdu', 'H', 'HDU');
+  setupBulkImport('poj', 'P', 'POJ');
+})();
+</script>
+<% include admin_footer %>

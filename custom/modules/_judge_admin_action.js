@@ -3,6 +3,9 @@
 let JudgeState = syzoj.model('judge_state');
 let JudgeStateAdminAction = syzoj.model('judge-state-admin-action');
 let User = syzoj.model('user');
+const TypeORM = require('typeorm');
+const contestMutation = require('../libs/contest-mutation');
+const judger = require('../libs/judger');
 
 // 全局缓存:被标记过的 judge_id 集合(给 Vue 组件 + judger.js 用)
 syzoj.cheatedJudgeIds = new Set();
@@ -29,7 +32,7 @@ async function refreshAdminActionCache() {
     syzoj.log('[judge-admin-action] cache refresh failed: ' + e.message);
   }
 }
-setTimeout(refreshAdminActionCache, 30 * 1000);
+setTimeout(refreshAdminActionCache, 1000);
 setInterval(refreshAdminActionCache, 60 * 1000);
 
 function canManageJudgeAction(user) {
@@ -45,10 +48,41 @@ async function hasOtherValidAcceptedSubmission(userId, problemId, excludeJudgeId
     .where('js.user_id = :uid', { uid: userId })
     .andWhere('js.problem_id = :pid', { pid: problemId })
     .andWhere('js.status = :st', { st: 'Accepted' })
+    .andWhere('js.type != :contestType', { contestType: 1 })
     .andWhere('js.id <> :ex', { ex: excludeJudgeId })
     .andWhere('a.judge_id IS NULL');
   let cnt = await qb.getCount();
   return cnt > 0;
+}
+
+async function rebuildAffectedStatistics(judge, skipContestLock) {
+  if (judge.type === 1) {
+    const rebuilt = await contestMutation.rebuildContestPlayer(
+      Number(judge.type_info),
+      Number(judge.user_id),
+      { skipLock: !!skipContestLock }
+    );
+    if (!rebuilt) throw new ErrorMessage('比赛排行榜已锁定，不能修改该提交。');
+    return;
+  }
+  const connection = TypeORM.getConnection();
+  await connection.query(
+    `UPDATE user SET ac_num=(
+       SELECT COUNT(DISTINCT js.problem_id) FROM judge_state js
+       LEFT JOIN judge_state_admin_action action ON action.judge_id=js.id
+       WHERE js.user_id=? AND js.type!=1 AND js.status='Accepted' AND action.judge_id IS NULL
+     ) WHERE id=?`,
+    [judge.user_id, judge.user_id]
+  );
+  await connection.query(
+    `UPDATE problem SET
+       submit_num=(SELECT COUNT(*) FROM judge_state js WHERE js.problem_id=? AND js.type!=1),
+       ac_num=(SELECT COUNT(*) FROM judge_state js
+         LEFT JOIN judge_state_admin_action action ON action.judge_id=js.id
+         WHERE js.problem_id=? AND js.type!=1 AND js.status='Accepted' AND action.judge_id IS NULL)
+     WHERE id=?`,
+    [judge.problem_id, judge.problem_id, judge.problem_id]
+  );
 }
 
 // ============ 判定作弊 / 取消评测 ============
@@ -101,7 +135,7 @@ app.post('/submission/:id/admin-action', async (req, res) => {
       }
     }
 
-    // [v1.5.1] 取消评测立即写库为 Cancelled, 防止 daemon 后续返回结果覆盖
+    // 取消评测立即写库为 Cancelled, 防止 daemon 后续返回结果覆盖
     if (actionType === 'cancelled') {
       judge.status = 'Cancelled';
       judge.pending = false;
@@ -109,6 +143,8 @@ app.post('/submission/:id/admin-action', async (req, res) => {
       judge.result = null;
       await judge.save();
     }
+    judger.emitJudgeStateChange(judge.task_id);
+    await rebuildAffectedStatistics(judge, res.locals.contestMutationLockHeld);
 
     // 立刻刷新缓存
     await refreshAdminActionCache();
@@ -151,10 +187,12 @@ app.post('/submission/:id/admin-action/revoke', async (req, res) => {
     }
 
     await action.destroy();
+    judger.emitJudgeStateChange(judge.task_id);
+    await rebuildAffectedStatistics(judge, res.locals.contestMutationLockHeld);
     await refreshAdminActionCache();
     if (syzoj.utils.refreshContestCheaterCache) await syzoj.utils.refreshContestCheaterCache();
 
-    // [v1.5.1] 撤销 cancelled 标记后,db 状态保持 Cancelled
+    // 撤销 cancelled 标记后,db 状态保持 Cancelled
     // 因为评测结果已经在取消时被丢弃,无法恢复。用户需要重新提交。
     // 这里不做任何 status 操作,保留 Cancelled 状态作为历史记录。
 
@@ -186,7 +224,7 @@ syzoj.utils.getJudgeAdminActions = async function(judgeIds) {
 
 // ============ 重新评测(Cancelled 状态恢复) ============
 // 仅适用于 Cancelled 状态的提交
-// 权限:提交作者 OR admin
+// 取消标记属于管理员操作，只能由管理员清除。
 app.post('/submission/:id/restore-and-rejudge', async (req, res) => {
   try {
     if (!res.locals.user) throw new ErrorMessage('请先登录。');
@@ -195,9 +233,8 @@ app.post('/submission/:id/restore-and-rejudge', async (req, res) => {
     let judge = await JudgeState.findById(id);
     if (!judge) throw new ErrorMessage('无此提交记录。');
 
-    let isOwner = (judge.user_id === res.locals.user.id);
     let isAdmin = canManageJudgeAction(res.locals.user);
-    if (!isOwner && !isAdmin) {
+    if (!isAdmin) {
       throw new ErrorMessage('您没有权限重新评测此提交。');
     }
 
@@ -215,6 +252,7 @@ app.post('/submission/:id/restore-and-rejudge', async (req, res) => {
     // 调用 SYZOJ 自带的 rejudge model 方法
     await judge.loadRelationships();
     await judge.rejudge();
+    await rebuildAffectedStatistics(judge, res.locals.contestMutationLockHeld);
 
     res.redirect(syzoj.utils.makeUrl(['submission', id]));
   } catch (e) {

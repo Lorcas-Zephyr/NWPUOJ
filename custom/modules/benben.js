@@ -5,14 +5,58 @@ let User = syzoj.model('user');
 let fs = require('fs');
 let path = require('path');
 let crypto = require('crypto');
+let os = require('os');
+let multer = require('multer');
 
 const BENBEN_UPLOAD_DIR = '/app/static/self/benben';
 const MAX_BENBEN_LENGTH = 500;
 const MAX_IMAGES = 9;
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;  // 5MB
 const ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+const IMAGE_EXTENSIONS = {
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+  'image/gif': '.gif'
+};
+const benbenUpload = multer({
+  dest: os.tmpdir(),
+  limits: { fileSize: MAX_IMAGE_SIZE, files: MAX_IMAGES },
+  fileFilter: (req, file, callback) => {
+    if (ALLOWED_MIME.includes(file.mimetype)) return callback(null, true);
+    const error = new Error('仅支持 JPG / PNG / WebP / GIF 格式。');
+    error.code = 'UNSAFE_FILE_TYPE';
+    callback(error);
+  }
+}).array('images', MAX_IMAGES);
 
 try { fs.mkdirSync(BENBEN_UPLOAD_DIR, { recursive: true }); } catch (e) {}
+
+function cleanupTemporaryImages(files) {
+  for (const file of files || []) {
+    if (file.path) { try { fs.unlinkSync(file.path); } catch (error) {} }
+  }
+}
+
+function benbenInputError(message) {
+  const error = new ErrorMessage(message);
+  error.statusCode = 400;
+  return error;
+}
+
+function requireBenbenLogin(req, res, next) {
+  if (!res.locals.user) return res.status(401).render('error', { err: new ErrorMessage('请先登录。') });
+  next();
+}
+
+function receiveBenbenImages(req, res, next) {
+  benbenUpload(req, res, error => {
+    if (!error) return next();
+    cleanupTemporaryImages(req.files);
+    const message = error.code === 'LIMIT_FILE_SIZE' ? '单张图片不能超过 5MB。' : (error.message || '图片上传失败。');
+    res.status(400).render('error', { err: new ErrorMessage(message) });
+  });
+}
 
 // ============ 工具:能否查看所有犇犇(admin + manage_user) ============
 function canSeeAllBenben(user) {
@@ -95,9 +139,8 @@ async function enrichPost(post) {
 }
 
 // ============ POST /benben/new:发布 ============
-app.post('/benben/new', app.multer.array('images', MAX_IMAGES), async (req, res) => {
+app.post('/benben/new', requireBenbenLogin, receiveBenbenImages, async (req, res) => {
   try {
-    if (!res.locals.user) throw new ErrorMessage('请先登录。');
     let content = (req.body.content || '').trim();
     if (!content) throw new ErrorMessage('内容不能为空。');
     if (content.length > MAX_BENBEN_LENGTH) throw new ErrorMessage('内容超过 ' + MAX_BENBEN_LENGTH + ' 字。');
@@ -108,6 +151,11 @@ app.post('/benben/new', app.multer.array('images', MAX_IMAGES), async (req, res)
       if (!parent || parent.is_deleted) throw new ErrorMessage('被回复的犇犇不存在或已删除。');
       // 不允许嵌套:如果父级已经是回复,把 reply_to 改为父级的 reply_to(回到原创)
       if (parent.reply_to) replyTo = parent.reply_to;
+    }
+    if (replyTo && req.files && req.files.length) throw benbenInputError('回复不支持上传图片。');
+    for (const file of req.files || []) {
+      file.safeMime = syzoj.utils.detectSafeRasterImage(file.path);
+      if (!file.safeMime) throw benbenInputError('上传内容不是有效的 JPG / PNG / WebP / GIF 图片。');
     }
 
     // 创建犇犇
@@ -123,24 +171,14 @@ app.post('/benben/new', app.multer.array('images', MAX_IMAGES), async (req, res)
     if (!replyTo && req.files && req.files.length > 0) {
       for (let i = 0; i < Math.min(req.files.length, MAX_IMAGES); i++) {
         let file = req.files[i];
-        if (file.size > MAX_IMAGE_SIZE) {
-          try { fs.unlinkSync(file.path); } catch (e) {}
-          continue;
-        }
-        if (!ALLOWED_MIME.includes(file.mimetype)) {
-          try { fs.unlinkSync(file.path); } catch (e) {}
-          continue;
-        }
-        let ext = path.extname(file.originalname).toLowerCase() || '.jpg';
-        if (!['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext)) ext = '.jpg';
+        let ext = IMAGE_EXTENSIONS[file.safeMime];
         let filename = crypto.randomBytes(16).toString('hex') + ext;
         let targetPath = path.join(BENBEN_UPLOAD_DIR, filename);
         try {
           fs.copyFileSync(file.path, targetPath);
           fs.unlinkSync(file.path);
         } catch (e) {
-          syzoj.log('[benben] image copy failed: ' + e.message);
-          continue;
+          throw new Error('图片保存失败：' + e.message);
         }
         let img = await BenbenImage.create();
         img.post_id = post.id;
@@ -188,10 +226,12 @@ app.post('/benben/new', app.multer.array('images', MAX_IMAGES), async (req, res)
       } catch (e) { syzoj.log('[benben] reply notify failed: ' + e.message); }
     }
 
-    res.redirect(req.body.return_url || '/');
+    cleanupTemporaryImages(req.files);
+    res.redirect(syzoj.utils.safeLocalUrl(req.body.return_url, '/'));
   } catch (e) {
     syzoj.log(e);
-    res.render('error', { err: e });
+    cleanupTemporaryImages(req.files);
+    res.status(e.statusCode || 500).render('error', { err: e });
   }
 });
 
@@ -205,7 +245,7 @@ app.post('/benben/:id/delete', async (req, res) => {
     if (!canDeleteBenben(res.locals.user, post)) throw new ErrorMessage('您没有权限删除。');
     post.is_deleted = 1;
     await post.save();
-    res.redirect(req.body.return_url || '/');
+    res.redirect(syzoj.utils.safeLocalUrl(req.body.return_url, '/'));
   } catch (e) {
     syzoj.log(e);
     res.render('error', { err: e });
@@ -341,7 +381,7 @@ app.get('/api/benben/feed', async (req, res) => {
           id: p.user.id,
           username: p.user.username,
           usernameHtml: syzoj.utils.renderUsername(p.user),
-          avatar: syzoj.utils.gravatar(p.user.email, 48)
+          avatar: syzoj.utils.avatar(p.user, 48)
         } : null,
         images: p.images || []
       }))
@@ -351,4 +391,3 @@ app.get('/api/benben/feed', async (req, res) => {
     res.json({ posts: [], error: e.message });
   }
 });
-

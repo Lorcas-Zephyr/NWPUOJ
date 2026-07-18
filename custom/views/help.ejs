@@ -1,0 +1,27 @@
+<% this.title = '帮助'; %>
+<% include header %>
+<div class="padding">
+  <div class="nwpuoj-page-header">
+    <div>
+      <h1 class="nwpuoj-page-title"><i class="help circle icon"></i>帮助</h1>
+      <% if (helpPage.updated_by) { %><div class="nwpuoj-meta">最后更新：<%= helpPage.updater_name || '账户已删除' %> · <%= syzoj.utils.formatDate(helpPage.updated_at) %></div><% } %>
+    </div>
+    <% if (user && user.is_admin) { %>
+      <a class="ui basic labeled icon button" href="<%= syzoj.utils.makeUrl(['admin', 'help']) %>"><i class="edit icon"></i>编辑帮助页</a>
+    <% } %>
+  </div>
+  <article class="font-content nwpuoj-help-content"><%- helpContentRendered %></article>
+</div>
+<script>
+(function () {
+  var headings = document.querySelectorAll('.nwpuoj-help-content h2');
+  for (var i = 0; i < headings.length; i++) {
+    if (headings[i].textContent.trim() === 'ZIP 批量导入严格格式') {
+      headings[i].id = 'zip-bulk-import-format';
+      if (window.location.hash === '#zip-bulk-import-format') headings[i].scrollIntoView();
+      break;
+    }
+  }
+})();
+</script>
+<% include footer %>

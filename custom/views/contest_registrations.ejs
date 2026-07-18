@@ -1,0 +1,89 @@
+<% this.title = '比赛管理 - ' + contest.title; %>
+<% include header %>
+<div class="padding">
+  <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;">
+    <h1 class="ui header" style="margin: 0;">比赛管理</h1>
+    <a class="ui basic labeled icon button" href="<%= syzoj.utils.makeUrl(['contest', contest.id]) %>"><i class="angle left icon"></i>返回比赛</a>
+  </div>
+  <h3 class="ui header" style="margin-top:0;"><%= contest.title %></h3>
+  <div class="ui secondary pointing menu" style="margin-bottom:24px;">
+    <a class="item" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'edit']) %>"><i class="edit outline icon"></i>比赛内容</a>
+    <a class="active item" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'registrations']) %>"><i class="users icon"></i>报名管理 <span class="ui small label"><%= registrations.length %> 人</span></a>
+  </div>
+  <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px;">
+    <a class="ui small basic labeled icon button" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'registrations', 'export']) %>"><i class="download icon"></i>一键导出报名信息</a>
+    <form method="post" action="<%= syzoj.utils.makeUrl(['contest', contest.id, 'rebuild-standings']) %>" style="margin:0;" onsubmit="return confirm('将根据有效比赛提交重建选手分数和排行榜，确定继续吗？');">
+      <input type="hidden" name="csrf_token" value="<%= registrationManagementCsrfToken %>">
+      <button type="submit" class="ui small basic labeled icon button"><i class="refresh icon"></i>校验并重建排行榜</button>
+    </form>
+  </div>
+
+  <% if (registrations.length) { %>
+    <div style="overflow-x: auto; width: 100%;">
+    <table class="ui very basic center aligned table">
+      <thead>
+        <tr>
+          <th>UID</th>
+          <th>用户名</th>
+          <th>姓名</th>
+          <th>学号</th>
+          <th>学院</th>
+          <th class="one wide">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% registrations.forEach(function (registration) { %>
+          <tr>
+            <td><%= registration.user_id %></td>
+            <td><a href="<%= syzoj.utils.makeUrl(['user', registration.user_id]) %>"><%= registration.username %></a></td>
+            <td><%= registration.real_name || '-' %></td>
+            <td><%= registration.student_id || '-' %></td>
+            <td><%= registration.college || '-' %></td>
+            <td>
+              <% if (!contest.isEnded()) { %>
+              <form method="post" action="<%= syzoj.utils.makeUrl(['contest', contest.id, 'registrations', registration.user_id, 'remove']) %>" style="margin: 0;" onsubmit="return confirm('确定取消该用户的比赛报名吗？');">
+                <input type="hidden" name="csrf_token" value="<%= registrationManagementCsrfToken %>">
+                <button type="submit" class="ui mini basic red icon button" title="取消报名" aria-label="取消报名"><i class="times icon"></i></button>
+              </form>
+              <% } else { %>-<% } %>
+            </td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+    </div>
+  <% } else { %>
+    <div class="ui placeholder segment">
+      <div class="ui icon header"><i class="users icon"></i>暂无报名用户</div>
+    </div>
+  <% } %>
+
+  <% if (removedRegistrations && removedRegistrations.length) { %>
+    <h3 class="ui header" style="margin-top: 28px;">已移出用户 <span class="ui small label"><%= removedRegistrations.length %> 人</span></h3>
+    <div style="overflow-x: auto; width: 100%;">
+    <table class="ui very basic center aligned table">
+      <thead><tr><th>UID</th><th>用户名</th><th>姓名</th><th>学号</th><th>移出时间</th><th>操作</th></tr></thead>
+      <tbody>
+      <% removedRegistrations.forEach(function (registration) { %>
+        <tr>
+          <td><%= registration.user_id %></td>
+          <td><a href="<%= syzoj.utils.makeUrl(['user', registration.user_id]) %>"><%= registration.username %></a></td>
+          <td><%= registration.real_name || '-' %></td>
+          <td><%= registration.student_id || '-' %></td>
+          <td><%= syzoj.utils.formatDate(registration.removed_at) %></td>
+          <td>
+            <% if (!contest.isEnded()) { %>
+            <form method="post" action="<%= syzoj.utils.makeUrl(['contest', contest.id, 'registrations', registration.user_id, 'restore']) %>" style="margin: 0;">
+              <input type="hidden" name="csrf_token" value="<%= registrationManagementCsrfToken %>">
+              <button type="submit" class="ui mini basic green labeled icon button"><i class="undo icon"></i>恢复</button>
+            </form>
+            <% } else { %>-<% } %>
+          </td>
+        </tr>
+      <% }); %>
+      </tbody>
+    </table>
+    </div>
+  <% } %>
+</div>
+<% include footer %>

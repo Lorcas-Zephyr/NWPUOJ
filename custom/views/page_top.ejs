@@ -1,0 +1,49 @@
+<% if (paginate.pageCnt > 1) { %>
+<nav class="nwpuoj-pagination nwpuoj-pagination-top" aria-label="Top pagination">
+  <div class="ui pagination menu">
+    <a class="<% if (paginate.currPage === 1) { %>disabled <% } %>icon item"
+       <% if (paginate.currPage !== 1) { %>href="<%= syzoj.utils.makeUrl(req, Object.assign({}, req.query, { page: paginate.currPage - 1 })) %>"<% } %>
+       id="page_top_prev" aria-label="Previous page">
+      <i class="left chevron icon"></i>
+    </a>
+    <%
+    let topLeftCnt = paginate.currPage - 2;
+    let topRightCnt = paginate.pageCnt - paginate.currPage;
+    let topOmitLeft = false;
+    let topOmitRight = false;
+    if (topLeftCnt + topRightCnt > 15) {
+      if (topLeftCnt <= 7) {
+        topRightCnt = 14 - topLeftCnt;
+        topOmitRight = true;
+      } else if (topRightCnt <= 7) {
+        topLeftCnt = 14 - topRightCnt;
+        topOmitLeft = true;
+      } else {
+        topRightCnt = topLeftCnt = 7;
+        topOmitLeft = topOmitRight = true;
+      }
+    }
+    %>
+    <% if (paginate.currPage !== 1) { %>
+      <a class="item" href="<%= syzoj.utils.makeUrl(req, Object.assign({}, req.query, { page: 1 })) %>">1</a>
+    <% } %>
+    <% if (topOmitLeft) { %><span class="disabled item">...</span><% } %>
+    <% for (let pageNumber = paginate.currPage - topLeftCnt; pageNumber < paginate.currPage; pageNumber++) { %>
+      <a class="item" href="<%= syzoj.utils.makeUrl(req, Object.assign({}, req.query, { page: pageNumber })) %>"><%= pageNumber %></a>
+    <% } %>
+    <a class="active item" aria-current="page" href="<%= syzoj.utils.makeUrl(req, Object.assign({}, req.query, { page: paginate.currPage })) %>"><%= paginate.currPage %></a>
+    <% for (let pageNumber = paginate.currPage + 1; pageNumber <= paginate.currPage + topRightCnt - 1; pageNumber++) { %>
+      <a class="item" href="<%= syzoj.utils.makeUrl(req, Object.assign({}, req.query, { page: pageNumber })) %>"><%= pageNumber %></a>
+    <% } %>
+    <% if (topOmitRight) { %><span class="disabled item">...</span><% } %>
+    <% if (paginate.currPage !== paginate.pageCnt) { %>
+      <a class="item" href="<%= syzoj.utils.makeUrl(req, Object.assign({}, req.query, { page: paginate.pageCnt })) %>"><%= paginate.pageCnt %></a>
+    <% } %>
+    <a class="<% if (paginate.currPage === paginate.pageCnt) { %>disabled <% } %>icon item"
+       <% if (paginate.currPage !== paginate.pageCnt) { %>href="<%= syzoj.utils.makeUrl(req, Object.assign({}, req.query, { page: paginate.currPage + 1 })) %>"<% } %>
+       id="page_top_next" aria-label="Next page">
+      <i class="right chevron icon"></i>
+    </a>
+  </div>
+</nav>
+<% } %>

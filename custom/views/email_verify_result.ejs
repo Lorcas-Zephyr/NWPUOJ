@@ -17,6 +17,8 @@
       <a class="ui primary button" href="/">返回首页</a>
       <% if (!success && user) { %>
         <a class="ui button" href="<%= syzoj.utils.makeUrl(['user', user.id, 'edit']) %>">前往个人资料重新发送</a>
+      <% } else if (!success) { %>
+        <a class="ui button" href="<%= syzoj.utils.makeUrl(['login']) %>">登录后重新发送</a>
       <% } %>
     </div>
   </div>

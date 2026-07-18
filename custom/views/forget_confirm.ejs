@@ -1,0 +1,71 @@
+<% this.title = '重设密码'; %>
+<% include header %>
+<div class="ui message" id="reset-message" hidden><p id="reset-message-content"></p></div>
+<div class="ui middle aligned center aligned grid">
+  <div class="row">
+    <div class="column" style="max-width: 450px">
+      <h2 class="ui image header"><div class="content">重设密码</div></h2>
+      <form class="ui large form" id="reset-form">
+        <div class="ui existing segment">
+          <div class="field">
+            <div class="ui left icon input">
+              <i class="lock icon"></i>
+              <input type="password" placeholder="新密码（至少 10 个字符）" id="password1" minlength="10" maxlength="128" autocomplete="new-password" required>
+            </div>
+          </div>
+          <div class="field">
+            <div class="ui left icon input">
+              <i class="undo icon"></i>
+              <input type="password" placeholder="确认密码" id="password2" minlength="10" maxlength="128" autocomplete="new-password" required>
+            </div>
+          </div>
+          <button type="submit" class="ui fluid large submit button" id="reset-button">重设</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var form = document.getElementById('reset-form');
+  var button = document.getElementById('reset-button');
+  var message = document.getElementById('reset-message');
+  var content = document.getElementById('reset-message-content');
+  var token = <%- serializejs(token) %>;
+
+  function show(type, text) {
+    message.className = 'ui ' + type + ' message';
+    content.textContent = text;
+    message.hidden = false;
+  }
+
+  form.addEventListener('submit', function (event) {
+    event.preventDefault();
+    var first = document.getElementById('password1').value;
+    if (first !== document.getElementById('password2').value) {
+      return show('error', '两次输入的密码不一致。');
+    }
+    button.classList.add('loading');
+    var params = new URLSearchParams();
+    params.append('token', token);
+    params.append('password', first);
+    fetch('/api/reset_password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString()
+    }).then(function (response) { return response.json(); }).then(function (data) {
+      if (data.error_code === 1) {
+        form.hidden = true;
+        show('positive', '密码重置成功，请重新登录。');
+      } else {
+        show('error', data.message || '密码重置链接无效或已过期。');
+      }
+      button.classList.remove('loading');
+    }).catch(function () {
+      show('error', '密码重置服务暂时不可用。');
+      button.classList.remove('loading');
+    });
+  });
+})();
+</script>
+<% include footer %>

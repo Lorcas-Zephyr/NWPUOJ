@@ -2,6 +2,8 @@
 let UserTag = syzoj.model('user-tag');
 let User = syzoj.model('user');
 
+const USER_TAGS_ENABLED = false;
+syzoj.userTagsEnabled = USER_TAGS_ENABLED;
 syzoj.userTags = new Map();
 
 function hasAdminRole(user) {
@@ -10,6 +12,7 @@ function hasAdminRole(user) {
   if (user.privileges && (
     user.privileges.includes('manage_problem') ||
     user.privileges.includes('manage_problem_tag') ||
+    user.privileges.includes('manage_contest') ||
     user.privileges.includes('manage_user')
   )) return true;
   return false;
@@ -31,6 +34,10 @@ function calcUserTier(userId, isAdminFlag) {
 }
 
 async function refreshUserTagsCache() {
+  if (!USER_TAGS_ENABLED) {
+    syzoj.userTags = new Map();
+    return;
+  }
   try {
     // 拿所有未禁用的记录(包括 is_visible=false 的,用于判断"显式存在")
     let allRows = await UserTag.createQueryBuilder()
@@ -59,6 +66,9 @@ async function refreshUserTagsCache() {
         }
       }
     }
+    if (syzoj.siteOwnerUserId) {
+      newCache.set(syzoj.siteOwnerUserId, { text: '站长', tier: 'admin' });
+    }
 
     syzoj.userTags = newCache;
     syzoj.log('[user-tag-cache] Refreshed: ' + newCache.size + ' user tags');
@@ -71,6 +81,7 @@ setTimeout(refreshUserTagsCache, 8 * 1000);
 setInterval(refreshUserTagsCache, 60 * 1000);
 
 async function getUserTagState(user) {
+  if (!USER_TAGS_ENABLED) return { hasPermission: false, isAutoFromAdmin: false, record: null, isDisabled: false };
   if (!user) return { hasPermission: false, isAutoFromAdmin: false, record: null };
 
   let record = await UserTag.findOne({ where: { user_id: user.id } });
@@ -94,6 +105,7 @@ syzoj.utils.refreshUserTagsCache = refreshUserTagsCache;
 
 app.post('/api/my-tag', async (req, res) => {
   try {
+    if (!USER_TAGS_ENABLED) return res.status(404).json({ ok: false, message: '账户牌子功能已关闭。' });
     if (!res.locals.user) {
       return res.status(401).json({ ok: false, message: '请先登录。' });
     }
@@ -133,6 +145,7 @@ app.post('/api/my-tag', async (req, res) => {
 
 app.get('/admin/user-tags', async (req, res) => {
   try {
+    if (!USER_TAGS_ENABLED) return res.status(404).render('error', { err: new ErrorMessage('账户牌子功能已关闭。') });
     if (!res.locals.user || !res.locals.user.is_admin) {
       throw new ErrorMessage('仅超级管理员可访问。');
     }
@@ -166,6 +179,7 @@ app.get('/admin/user-tags', async (req, res) => {
 
 app.post('/admin/user-tags/grant', async (req, res) => {
   try {
+    if (!USER_TAGS_ENABLED) return res.status(404).render('error', { err: new ErrorMessage('账户牌子功能已关闭。') });
     if (!res.locals.user || !res.locals.user.is_admin) {
       throw new ErrorMessage('仅超级管理员可操作。');
     }
@@ -219,6 +233,7 @@ app.post('/admin/user-tags/grant', async (req, res) => {
 
 app.post('/admin/user-tags/:uid/disable', async (req, res) => {
   try {
+    if (!USER_TAGS_ENABLED) return res.status(404).render('error', { err: new ErrorMessage('账户牌子功能已关闭。') });
     if (!res.locals.user || !res.locals.user.is_admin) {
       throw new ErrorMessage('仅超级管理员可操作。');
     }
@@ -261,6 +276,7 @@ app.post('/admin/user-tags/:uid/disable', async (req, res) => {
 
 app.post('/admin/user-tags/:uid/enable', async (req, res) => {
   try {
+    if (!USER_TAGS_ENABLED) return res.status(404).render('error', { err: new ErrorMessage('账户牌子功能已关闭。') });
     if (!res.locals.user || !res.locals.user.is_admin) {
       throw new ErrorMessage('仅超级管理员可操作。');
     }

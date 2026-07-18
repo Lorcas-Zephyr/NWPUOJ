@@ -44,6 +44,11 @@ var UserEmailStatus = /** @class */ (function (_super) {
     ], UserEmailStatus.prototype, "is_email_verified");
 
     __decorate([
+        TypeORM.Column({ nullable: true, type: "varchar", length: 120 }),
+        __metadata("design:type", String)
+    ], UserEmailStatus.prototype, "verified_email");
+
+    __decorate([
         TypeORM.Column({ nullable: true, type: "integer" }),
         __metadata("design:type", Number)
     ], UserEmailStatus.prototype, "verified_at");

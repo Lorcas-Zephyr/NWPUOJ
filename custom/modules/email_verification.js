@@ -1,196 +1,230 @@
-let EmailVerificationToken = syzoj.model('email-verification-token');
-let UserEmailStatus = syzoj.model('user-email-status');
-let User = syzoj.model('user');
+const crypto = require('crypto');
+const TypeORM = require('typeorm');
+const { sendSiteMail } = require('../libs/site-mail');
 
-// nodemailer 从挂载的 custom/node_modules 加载
-let nodemailer = require('/app/custom-node-modules/nodemailer');
+const User = syzoj.model('user');
+const TOKEN_TTL_SECONDS = 24 * 60 * 60;
+const RESEND_COOLDOWN_SECONDS = 60;
+const TOKEN_VERSION = 1;
 
-const TOKEN_TTL_HOURS = 24;
-const RESEND_COOLDOWN_SEC = 60; // 60 秒内不能重发
-
-// 创建 SMTP transporter(每次按需创建,因为配置可能从环境变量动态读)
-function createTransporter() {
-  return nodemailer.createTransport({
-    host: process.env.SYZOJ_WEB_SMTP_HOST || 'smtp.zoho.com.cn',
-    port: parseInt(process.env.SYZOJ_WEB_SMTP_PORT || '465'),
-    secure: parseInt(process.env.SYZOJ_WEB_SMTP_PORT || '465') === 465,
-    auth: {
-      user: process.env.SYZOJ_WEB_SMTP_USER,
-      pass: process.env.SYZOJ_WEB_SMTP_PASS
-    }
-  });
-}
-
-// 生成验证 token
-function genToken() {
-  let crypto = require('crypto');
-  return crypto.randomBytes(32).toString('hex');
-}
-
-// 计算外部访问 URL(从请求中拼)
-function makeAbsoluteUrl(req, path) {
-  let proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-  let host = req.headers['x-forwarded-host'] || req.get('host');
-  return proto + '://' + host + path;
-}
-
-// 实际发送邮件
-async function sendVerificationEmail(req, user, email, token) {
-  let transporter = createTransporter();
-  let verifyUrl = makeAbsoluteUrl(req, '/email/verify/' + token);
-  let fromName = process.env.SYZOJ_WEB_SMTP_FROM_NAME || 'AlgoBeat Online Judge';
-  let fromAddr = process.env.SYZOJ_WEB_SMTP_USER;
-
-  let html = `
-    <div style="font-family: -apple-system, sans-serif; max-width: 560px; margin: 0 auto; padding: 30px;">
-      <h2 style="color: #2185d0;">邮箱验证</h2>
-      <p>你好 <b>${user.username}</b>，</p>
-      <p>感谢你注册 AlgoBeat Online Judge！请点击下方按钮完成邮箱验证：</p>
-      <p style="text-align: center; margin: 30px 0;">
-        <a href="${verifyUrl}" style="display: inline-block; padding: 12px 28px; background: #2185d0; color: #fff; text-decoration: none; border-radius: 4px; font-weight: bold;">
-          验证邮箱
-        </a>
-      </p>
-      <p style="color: #888; font-size: 0.9em;">如果按钮无法点击，请复制以下链接到浏览器访问：<br>
-      <code style="word-break: break-all;">${verifyUrl}</code></p>
-      <p style="color: #888; font-size: 0.9em;">此链接将于 <b>${TOKEN_TTL_HOURS} 小时</b>后过期。</p>
-      <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
-      <p style="color: #999; font-size: 0.85em;">如果不是你本人操作，请忽略本邮件。</p>
-    </div>
-  `;
-
-  await transporter.sendMail({
-    from: '"' + fromName + '" <' + fromAddr + '>',
-    to: email,
-    subject: '【AlgoBeat OJ】请验证你的邮箱',
-    html: html
-  });
-}
-
-// 工具:获取或创建 user_email_status 记录
-async function getOrCreateStatus(userId) {
-  let s = await UserEmailStatus.findOne({ where: { user_id: userId } });
-  if (!s) {
-    s = await UserEmailStatus.create();
-    s.user_id = userId;
-    s.is_email_verified = false;
+let schemaPromise = null;
+function ensureEmailVerificationSchema() {
+  if (!schemaPromise) {
+    const connection = TypeORM.getConnection();
+    schemaPromise = (async () => {
+      await connection.query(
+        'ALTER TABLE user_email_status ADD COLUMN IF NOT EXISTS verified_email VARCHAR(120) NULL AFTER is_email_verified'
+      );
+      await connection.query(
+        'ALTER TABLE email_verification_token ADD COLUMN IF NOT EXISTS token_version TINYINT NOT NULL DEFAULT 0 AFTER purpose'
+      );
+      await connection.query(`
+        UPDATE user_email_status s
+        INNER JOIN user u ON u.id = s.user_id
+        SET s.verified_email = LOWER(TRIM(u.email))
+        WHERE s.is_email_verified = 1 AND (s.verified_email IS NULL OR s.verified_email = '')
+      `);
+      await connection.query(
+        'DELETE FROM email_verification_token WHERE expires_at < ? AND used = 1',
+        [Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60]
+      );
+    })().catch(error => {
+      schemaPromise = null;
+      throw error;
+    });
   }
-  return s;
+  return schemaPromise;
 }
 
-// ============ 用户主动请求发送验证邮件 ============
+ensureEmailVerificationSchema().catch(error => {
+  syzoj.log('[email-verification] ' + (error.stack || error));
+  process.exit(1);
+});
+
+function normalizeEmail(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function tokenHash(token) {
+  return crypto.createHash('sha256').update(String(token || '')).digest('hex');
+}
+
+function escapeHtml(value) {
+  return String(value || '').replace(/[&<>"']/g, character => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[character]);
+}
+
+async function deliverVerificationEmail(req, user, email, token) {
+  const verifyUrl = syzoj.utils.getPublicBaseUrl(req) + '/email/verify/' + encodeURIComponent(token);
+  const siteName = String(process.env.SYZOJ_WEB_SMTP_FROM_NAME || syzoj.config.title || 'Online Judge');
+  await sendSiteMail({
+    to: email,
+    subject: `【${siteName}】请验证你的邮箱`,
+    html: `<p>你好 <strong>${escapeHtml(user.username)}</strong>，</p>` +
+      `<p>请点击下方链接验证邮箱：</p>` +
+      `<p><a href="${escapeHtml(verifyUrl)}">${escapeHtml(verifyUrl)}</a></p>` +
+      '<p>链接将在 24 小时后失效，且只能使用一次。</p>'
+  });
+}
+
+async function reserveVerificationToken(userId, email) {
+  const now = Math.floor(Date.now() / 1000);
+  const token = crypto.randomBytes(32).toString('hex');
+  const hash = tokenHash(token);
+  const result = await TypeORM.getConnection().transaction(async manager => {
+    await manager.query(
+      `INSERT INTO user_email_status
+        (user_id,is_email_verified,verified_email,verified_at,last_send_at)
+       VALUES (?,0,NULL,NULL,NULL)
+       ON DUPLICATE KEY UPDATE user_id = VALUES(user_id)`,
+      [userId]
+    );
+    const statusRows = await manager.query(
+      'SELECT is_email_verified,verified_email,last_send_at FROM user_email_status WHERE user_id = ? FOR UPDATE',
+      [userId]
+    );
+    const status = statusRows[0];
+    if (status.is_email_verified && normalizeEmail(status.verified_email) === email) {
+      return { alreadyVerified: true };
+    }
+    if (status.last_send_at && now - Number(status.last_send_at) < RESEND_COOLDOWN_SECONDS) {
+      return { retryAfter: RESEND_COOLDOWN_SECONDS - (now - Number(status.last_send_at)) };
+    }
+    await manager.query(
+      `UPDATE user_email_status
+       SET is_email_verified = IF(verified_email = ?, is_email_verified, 0),
+           verified_email = IF(verified_email = ?, verified_email, NULL),
+           verified_at = IF(verified_email = ?, verified_at, NULL),
+           last_send_at = ?
+       WHERE user_id = ?`,
+      [email, email, email, now, userId]
+    );
+    await manager.query(
+      `UPDATE email_verification_token SET used = 1
+       WHERE user_id = ? AND purpose = 'verify_email' AND token_version = ? AND used = 0`,
+      [userId, TOKEN_VERSION]
+    );
+    await manager.query(
+      `INSERT INTO email_verification_token
+        (token,user_id,email,purpose,token_version,created_at,expires_at,used)
+       VALUES (?,?,?,'verify_email',?,?,?,0)`,
+      [hash, userId, email, TOKEN_VERSION, now, now + TOKEN_TTL_SECONDS]
+    );
+    return { token, tokenHash: hash, reservedAt: now };
+  });
+  return result;
+}
+
+async function sendEmailVerification(req, user) {
+  await ensureEmailVerificationSchema();
+  const email = normalizeEmail(user && user.email);
+  if (!email) throw new ErrorMessage('您的账号没有邮箱地址，请先完善个人资料。');
+  const reservation = await reserveVerificationToken(user.id, email);
+  if (reservation.alreadyVerified) throw new ErrorMessage('您的邮箱已验证。');
+  if (reservation.retryAfter) {
+    throw new ErrorMessage(`请求过于频繁，请 ${reservation.retryAfter} 秒后重试。`);
+  }
+  try {
+    await deliverVerificationEmail(req, user, email, reservation.token);
+  } catch (error) {
+    await TypeORM.getConnection().transaction(async manager => {
+      await manager.query('DELETE FROM email_verification_token WHERE token = ?', [reservation.tokenHash]);
+      await manager.query(
+        'UPDATE user_email_status SET last_send_at = NULL WHERE user_id = ? AND last_send_at = ?',
+        [user.id, reservation.reservedAt]
+      );
+    });
+    throw error;
+  }
+  return email;
+}
+
+async function isEmailVerified(userId) {
+  if (!userId) return false;
+  await ensureEmailVerificationSchema();
+  const rows = await TypeORM.getConnection().query(
+    `SELECT s.user_id FROM user_email_status s
+     INNER JOIN user u ON u.id = s.user_id
+     WHERE s.user_id = ? AND s.is_email_verified = 1
+       AND s.verified_email = LOWER(TRIM(u.email)) LIMIT 1`,
+    [userId]
+  );
+  return rows.length > 0;
+}
+
+syzoj.utils.sendEmailVerification = sendEmailVerification;
+syzoj.utils.isEmailVerified = isEmailVerified;
+syzoj.utils.normalizeEmail = normalizeEmail;
+
 app.post('/email/send-verification', async (req, res) => {
   try {
     if (!res.locals.user) throw new ErrorMessage('请登录后继续。');
-
-    let user = res.locals.user;
-    let status = await getOrCreateStatus(user.id);
-
-    if (status.is_email_verified) {
-      throw new ErrorMessage('您的邮箱已验证。');
-    }
-
-    let now = parseInt((new Date()).getTime() / 1000);
-
-    // 防刷:60 秒内不能重发
-    if (status.last_send_at && now - status.last_send_at < RESEND_COOLDOWN_SEC) {
-      let remaining = RESEND_COOLDOWN_SEC - (now - status.last_send_at);
-      throw new ErrorMessage('请求过于频繁,请 ' + remaining + ' 秒后重试。');
-    }
-
-    if (!user.email) {
-      throw new ErrorMessage('您的账号没有邮箱地址,请先完善个人资料。');
-    }
-
-    // 创建 token
-    let token = genToken();
-    let record = await EmailVerificationToken.create();
-    record.token = token;
-    record.user_id = user.id;
-    record.email = user.email;
-    record.purpose = 'register';
-    record.created_at = now;
-    record.expires_at = now + TOKEN_TTL_HOURS * 3600;
-    record.used = false;
-    await record.save();
-
-    // 发邮件
-    try {
-      await sendVerificationEmail(req, user, user.email, token);
-    } catch (mailErr) {
-      syzoj.log(mailErr);
-      throw new ErrorMessage('邮件发送失败:' + (mailErr.message || mailErr));
-    }
-
-    // 更新最后发送时间
-    status.last_send_at = now;
-    await status.save();
-
-    res.render('email_verify_pending', {
-      email: user.email
-    });
-  } catch (e) {
-    syzoj.log(e);
-    res.render('error', { err: e });
+    const email = await sendEmailVerification(req, res.locals.user);
+    res.render('email_verify_pending', { email });
+  } catch (error) {
+    syzoj.log(error);
+    res.status(error && error.code ? 500 : 400).render('error', { err: error });
   }
 });
 
-// ============ 用户点击邮件中的链接 ============
+app.get('/email/verification-pending', async (req, res) => {
+  if (!res.locals.user) {
+    return res.redirect(syzoj.utils.makeUrl(['login'], { url: req.originalUrl }));
+  }
+  res.render('email_verify_pending', {
+    email: normalizeEmail(res.locals.user.email),
+    verificationEmailSent: req.query.sent !== '0',
+    continueUrl: syzoj.utils.safeLocalUrl(req.session.postVerificationRedirect, '/')
+  });
+});
+
 app.get('/email/verify/:token', async (req, res) => {
   try {
-    let tokenStr = String(req.params.token || '').trim();
-    if (!tokenStr) throw new ErrorMessage('无效的验证链接。');
-
-    let record = await EmailVerificationToken.findOne({ where: { token: tokenStr } });
-    if (!record) {
-      return res.render('email_verify_result', {
+    await ensureEmailVerificationSchema();
+    const rawToken = String(req.params.token || '');
+    if (!/^[a-f0-9]{64}$/i.test(rawToken)) {
+      return res.status(410).render('email_verify_result', {
         success: false,
         message: '此验证链接无效或已被使用。'
       });
     }
-
-    let now = parseInt((new Date()).getTime() / 1000);
-
-    if (record.used) {
-      return res.render('email_verify_result', {
-        success: false,
-        message: '此验证链接已被使用。'
-      });
-    }
-    if (now > record.expires_at) {
-      return res.render('email_verify_result', {
-        success: false,
-        message: '验证链接已过期,请回到页面重新发送验证邮件。'
-      });
-    }
-
-    // 标记 token 已使用
-    record.used = true;
-    await record.save();
-
-    // 更新用户状态
-    let status = await getOrCreateStatus(record.user_id);
-    status.is_email_verified = true;
-    status.verified_at = now;
-    await status.save();
-    if (syzoj.utils.refreshVerifiedCache) await syzoj.utils.refreshVerifiedCache();
-
-    res.render('email_verify_result', {
-      success: true,
-      message: '邮箱验证成功!欢迎使用 AlgoBeat Online Judge。'
+    const now = Math.floor(Date.now() / 1000);
+    const outcome = await TypeORM.getConnection().transaction(async manager => {
+      const records = await manager.query(
+        `SELECT token,user_id,email FROM email_verification_token
+         WHERE token = ? AND purpose = 'verify_email' AND token_version = ?
+           AND used = 0 AND expires_at >= ? FOR UPDATE`,
+        [tokenHash(rawToken), TOKEN_VERSION, now]
+      );
+      if (!records.length) return { success: false, message: '此验证链接无效、已过期或已被使用。' };
+      const record = records[0];
+      const users = await manager.query('SELECT email FROM user WHERE id = ? FOR UPDATE', [record.user_id]);
+      if (!users.length || normalizeEmail(users[0].email) !== normalizeEmail(record.email)) {
+        await manager.query('UPDATE email_verification_token SET used = 1 WHERE token = ?', [record.token]);
+        return { success: false, message: '账号邮箱已变更，请重新发送验证邮件。' };
+      }
+      await manager.query(
+        `INSERT INTO user_email_status
+          (user_id,is_email_verified,verified_email,verified_at,last_send_at)
+         VALUES (?,1,?,?,NULL)
+         ON DUPLICATE KEY UPDATE is_email_verified=1,verified_email=VALUES(verified_email),verified_at=VALUES(verified_at)`,
+        [record.user_id, normalizeEmail(record.email), now]
+      );
+      await manager.query(
+        `UPDATE email_verification_token SET used = 1
+         WHERE user_id = ? AND purpose = 'verify_email' AND token_version = ?`,
+        [record.user_id, TOKEN_VERSION]
+      );
+      return { success: true, message: '邮箱验证成功。' };
     });
-  } catch (e) {
-    syzoj.log(e);
-    res.render('email_verify_result', {
+    if (outcome.success && syzoj.utils.refreshVerifiedCache) await syzoj.utils.refreshVerifiedCache();
+    res.status(outcome.success ? 200 : 410).render('email_verify_result', outcome);
+  } catch (error) {
+    syzoj.log(error);
+    res.status(410).render('email_verify_result', {
       success: false,
-      message: '验证过程发生错误:' + (e.message || String(e))
+      message: error.message || '验证过程发生错误。'
     });
   }
 });
-
-// 暴露给其他模块用的工具函数
-syzoj.utils.isEmailVerified = async function(userId) {
-  if (!userId) return false;
-  let status = await UserEmailStatus.findOne({ where: { user_id: userId } });
-  return !!(status && status.is_email_verified);
-};

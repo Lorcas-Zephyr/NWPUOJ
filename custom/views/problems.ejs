@@ -1,0 +1,345 @@
+<% this.title = '题库' %>
+<% include header %>
+<%
+let tagIDs = [];
+if (typeof tags !== 'undefined') tagIDs = tags.map(x => x.id);
+const canBulkDelete = !!(user && user.is_admin);
+const currentRepository = typeof repository !== 'undefined' && ['all', 'main', 'uoj', 'hdu', 'poj'].includes(repository) ? repository : 'all';
+const currentProgress = typeof progress !== 'undefined' ? progress : 'all';
+const currentOrder = curOrder ? 'asc' : 'desc';
+const knownTagColors = ['red', 'orange', 'yellow', 'olive', 'green', 'teal', 'blue', 'violet', 'purple', 'pink', 'black'];
+const tagFilterGroups = [
+  { key: 'source', label: '题目来源', icon: 'flag', items: [] },
+  { key: 'category', label: '算法大类', icon: 'sitemap', items: [] },
+  { key: 'algorithm', label: '算法细目', icon: 'cogs', items: [] },
+  { key: 'type', label: '题目类型', icon: 'tasks', items: [] },
+  { key: 'difficulty', label: '题目难度', icon: 'star', items: [] }
+];
+for (const tag of allProblemTags || []) {
+  let key = 'algorithm';
+  if (tag.color === 'pink') key = 'source';
+  else if (tag.color === 'teal') key = 'category';
+  else if (tag.color === 'olive') key = 'type';
+  else if (['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'black'].includes(tag.color) || tag.name === '暂无评定') key = 'difficulty';
+  tagFilterGroups.find(group => group.key === key).items.push(tag);
+}
+function problemGroup(displayId) {
+  const value = String(displayId || '');
+  if (value.startsWith('H')) return 'H';
+  if (value.startsWith('P')) return 'P';
+  if (value.startsWith('U')) return 'U';
+  return '#';
+}
+const visibleProblems = problems.filter(problem => problem.is_public || problem.allowedEdit);
+const problemGroupCounts = visibleProblems.reduce((counts, problem) => {
+  const group = problemGroup(problem.getDisplayId());
+  counts[group] = (counts[group] || 0) + 1;
+  return counts;
+}, {});
+const problemColumnCount = 6 + (user ? 1 : 0) + (canBulkDelete ? 1 : 0);
+function makeProblemFilterUrl(changes, nextTagIDs) {
+  const query = {};
+  if (currentRepository !== 'all') query.repository = currentRepository;
+  if (req.query.keyword) query.keyword = req.query.keyword;
+  if (curSort) query.sort = curSort;
+  if (currentOrder) query.order = currentOrder;
+  if (currentProgress !== 'all') query.progress = currentProgress;
+  Object.keys(changes || {}).forEach(key => {
+    if (changes[key] === null || changes[key] === '' || changes[key] === 'all') delete query[key];
+    else query[key] = changes[key];
+  });
+  const selectedTags = typeof nextTagIDs === 'undefined' ? tagIDs : nextTagIDs;
+  const path = selectedTags.length
+    ? ['problems', 'tag', selectedTags.slice().sort((a, b) => a - b).join(',')]
+    : (query.keyword ? ['problems', 'search'] : ['problems']);
+  return syzoj.utils.makeUrl(path, query);
+}
+%>
+<div class="padding">
+  <% if (canBulkDelete && Number(req.query.bulk_deleted) > 0) { %>
+    <div class="ui success message">
+      已删除 <b><%= Number(req.query.bulk_deleted) %></b> 道题目。
+    </div>
+  <% } %>
+  <style>
+    .problem-filter-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+    .problem-filter-bar .problem-filter-spacer { flex: 1 1 auto; }
+    @media (max-width: 767px) {
+      .problem-filter-bar > .nwpuoj-segmented { max-width: 100%; }
+      .problem-filter-bar .problem-filter-spacer { display: none; }
+    }
+  </style>
+  <script data-cfasync="false">
+    if (localStorage.getItem('show_problem_tags') === '1') document.documentElement.classList.add('show-problem-tags');
+  </script>
+  <div class="problem-filter-bar" aria-label="题库筛选">
+    <% if (user) { %>
+    <div class="nwpuoj-segmented" aria-label="按做题状态筛选">
+      <% for (const option of [
+        { key: 'all', label: '全部状态' },
+        { key: 'solved', label: '已通过' },
+        { key: 'attempted', label: '尝试过' },
+        { key: 'unattempted', label: '未尝试' }
+      ]) { %>
+      <a class="nwpuoj-segment <%= currentProgress === option.key ? 'active' : '' %>"
+         aria-current="<%= currentProgress === option.key ? 'page' : 'false' %>"
+         href="<%= makeProblemFilterUrl({ progress: option.key }) %>"><%= option.label %></a>
+      <% } %>
+    </div>
+    <% } %>
+
+    <div class="ui small multiple search selection dropdown problem-tag-filter" id="problem_tag_filter" aria-label="按题目标签筛选">
+      <input type="hidden" value="<%= tagIDs.join(',') %>">
+      <i class="dropdown icon"></i>
+      <div class="default text">筛选标签</div>
+      <div class="menu">
+        <% for (const group of tagFilterGroups) { %>
+          <% if (!group.items.length) continue; %>
+          <div class="header"><i class="<%= group.icon %> icon"></i><%= group.label %></div>
+          <% for (const tag of group.items) { %>
+            <div class="item" data-value="<%= tag.id %>">
+              <span class="ui empty circular label <%= knownTagColors.includes(tag.color) ? tag.color : '' %>"></span><%= tag.name %>
+            </div>
+          <% } %>
+        <% } %>
+      </div>
+    </div>
+
+    <div class="problem-filter-spacer"></div>
+    <div class="ui toggle checkbox" id="show_problem_tags">
+      <input type="checkbox" aria-label="显示题目标签">
+      <label>显示标签</label>
+    </div>
+    <% if (currentRepository !== 'all' || req.query.keyword || tagIDs.length || currentProgress !== 'all') { %>
+      <a class="ui small basic labeled icon button" href="<%= syzoj.utils.makeUrl(['problems']) %>">
+        <i class="remove icon"></i>清除筛选
+      </a>
+    <% } %>
+    <div>
+          <% if (allowedManageTag) { %>
+            <% if (typeof tags !== 'undefined' && tags.length === 1) { %>
+              <a style="margin-left: 10px; " href="<%= syzoj.utils.makeUrl(['problems', 'tag', tags[0].id, 'edit']) %>" class="ui labeled icon mini blue button"><i class="write icon"></i> 编辑标签</a>
+            <% } %>
+            <a style="margin-left: 10px; " href="<%= syzoj.utils.makeUrl(['problems', 'tag', 0, 'edit']) %>" class="ui labeled icon mini green button"><i class="plus icon"></i> 添加标签</a>
+          <% } %>
+          <% if (currentRepository === 'all' || currentRepository === 'main') { %>
+          <div style="margin-left: 10px; " class="ui mini buttons">
+            <div class="ui labeled icon mini dropdown button" id="add_problem_dropdown"><i class="plus icon"></i> 添加题目
+            <div class="menu">
+              <a class="item" href="<%= syzoj.utils.makeUrl(['problem', 0, 'edit']) %>"><i class="file icon"></i> 新建题目</a>
+               <a class="item" href="<%= syzoj.utils.makeUrl(['problem', 0, 'import']) %>"><i class="file archive outline icon"></i> ZIP 批量导入</a>
+            </div>
+            </div>
+          </div>
+          <% } %>
+    </div>
+  </div>
+
+  <% if (problems.length) { %>
+  <% include page_top %>
+  <% if (canBulkDelete) { %>
+  <form method="post" action="/problems/bulk-delete" id="problem-bulk-delete-form">
+    <input type="hidden" name="repository" value="<%= currentRepository %>">
+    <input type="hidden" name="csrf_token" value="<%= bulkDeleteCsrfToken %>">
+    <div style="display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-bottom: 8px; min-height: 36px;">
+      <span id="problem-selected-count" style="color: #767676;">已选择 0 题</span>
+      <button class="ui small red labeled icon disabled button" type="button" id="problem-bulk-delete-button">
+        <i class="trash icon"></i>批量删除
+      </button>
+    </div>
+  <% } %>
+  <div class="nwpuoj-table-region" role="region" aria-label="题目列表" tabindex="0">
+  <table class="ui very basic center aligned table nwpuoj-problems-table">
+    <thead>
+      <tr>
+        <% if (canBulkDelete) { %>
+        <th class="one wide" style="min-width: 76px;">
+          <div class="ui checkbox" title="选择当前页全部题目">
+            <input type="checkbox" id="problem-select-all" aria-label="选择当前页全部题目">
+            <label for="problem-select-all">选择</label>
+          </div>
+        </th>
+        <% } %>
+        <% if (user) { %>
+        <th class="one wide">提交状态</th>
+        <% } %>
+        <th class="one wide"><%- createSortableTitle('id', '编号', true) %></th>
+        <th class="left aligned"><%- createSortableTitle('title', '题目名称', true) %></th>
+        <th class="left aligned nwpuoj-priority-2 nwpuoj-problem-tags-column">题目标签</th>
+        <th class="one wide nwpuoj-priority-2 nwpuoj-col-number"><%- createSortableTitle('ac_num', '通过', false) %></th>
+        <th class="one wide nwpuoj-priority-3 nwpuoj-col-number"><%- createSortableTitle('submit_num', '提交', false) %></th>
+        <th class="one wide nwpuoj-priority-2 nwpuoj-col-number"><%- createSortableTitle('ac_rate', '通过率', false) %></th>
+      </tr>
+    </thead>
+    <tbody>
+    <% let previousProblemGroup = null; %>
+    <% for (let problem of problems) { %>
+        <% if (problem.is_public || problem.allowedEdit) { %>
+        <% const currentProblemGroup = problemGroup(problem.getDisplayId()); %>
+        <% if (currentProblemGroup !== previousProblemGroup) { previousProblemGroup = currentProblemGroup; %>
+        <tr class="nwpuoj-problem-group-row">
+          <td colspan="<%= problemColumnCount %>"><%= currentProblemGroup %><span class="nwpuoj-problem-group-count"><%= problemGroupCounts[currentProblemGroup] %> 题</span></td>
+        </tr>
+        <% } %>
+        <tr>
+            <% if (canBulkDelete) { %>
+            <td>
+              <div class="ui checkbox">
+                <input type="checkbox" name="problem_ids" value="<%= problem.id %>" id="problem-select-<%= problem.id %>" class="problem-select" aria-label="选择 <%= problem.getDisplayId() %> <%= problem.title %>">
+                <label for="problem-select-<%= problem.id %>" aria-hidden="true"></label>
+              </div>
+            </td>
+            <% } %>
+            <% if (user) { %>
+                <td>
+                <% if (problem.judge_state) { %>
+                  <a href="<%= syzoj.utils.makeUrl(['submission', problem.judge_state.id]) %>">
+                    <span class="status <%= problem.judge_state.status.toLowerCase().split(' ').join('_') %>">
+                      <i class="<%= icon[problem.judge_state.status] || 'remove' %> icon"></i>
+                    </span>
+                  </a>
+                <% } %>
+                </td>
+            <% } %>
+            <td class="nwpuoj-col-number"><b><%= problem.getDisplayId() %></b></td>
+            <td class="left aligned nwpuoj-problem-title-cell">
+              <a style="vertical-align: middle; " href="<%= syzoj.utils.makeUrl(['problem', problem.id]) %>"><%= problem.title %>
+                <% if (!problem.is_public) { %><span class="ui header"><span class="ui tiny red label">未公开</span></span><% } %>
+              </a>
+            </td>
+            <td class="left aligned nwpuoj-priority-2 nwpuoj-problem-tags-column">
+              <div class="nwpuoj-problem-tags">
+                <% for (const tag of problem.tags || []) { %>
+                  <% const nextTagIDs = tagIDs.includes(tag.id) ? tagIDs.filter(id => id !== tag.id) : tagIDs.concat(tag.id); %>
+                  <a href="<%= makeProblemFilterUrl({}, nextTagIDs) %>" class="ui tiny <%= tag.color %> label"><%= tag.name %></a>
+                <% } %>
+              </div>
+            </td>
+            <td class="nwpuoj-priority-2 nwpuoj-col-number"><%= problem.ac_num %></td>
+            <td class="nwpuoj-priority-3 nwpuoj-col-number"><%= problem.submit_num %></td>
+            <td class="nwpuoj-priority-2 nwpuoj-col-number"><%= problem.submit_num != 0 ? (((problem.ac_num / problem.submit_num * 100) || 0).toFixed(2) + '%') : '-' %></td>
+        </tr>
+        <% } %>
+    <% } %>
+    </tbody>
+  </table>
+  </div><br>
+  <% if (canBulkDelete) { %>
+    <div class="ui basic modal" id="problem-bulk-delete-modal">
+      <div class="ui icon header">
+        <i class="trash icon"></i>
+        <p style="margin-top: 15px;">批量删除题目</p>
+      </div>
+      <div class="content" style="text-align: center;">
+        <p>将永久删除选中的题目及其提交、讨论、题解、统计和测试数据。仍被比赛使用的题目不会被删除。</p>
+        <div class="ui input" style="width: min(320px, 100%);">
+          <input type="text" name="confirmation" id="problem-delete-confirmation" form="problem-bulk-delete-form" autocomplete="off" placeholder="输入 DELETE 确认">
+        </div>
+      </div>
+      <div class="actions">
+        <button class="ui basic cancel inverted button" type="button">
+          <i class="remove icon"></i>取消
+        </button>
+        <button class="ui red ok inverted button" type="submit" form="problem-bulk-delete-form" id="problem-bulk-delete-confirm" disabled>
+          <i class="trash icon"></i>永久删除
+        </button>
+      </div>
+    </div>
+  </form>
+  <% } %>
+  <% include page  %>
+  <% } else { %>
+  <div class="nwpuoj-empty-state">
+      <% if (typeof req.query.keyword !== 'undefined') { %>
+      <i class="search icon"></i>
+      找不到符合条件的题目
+      <% } else { %>
+      <i class="list icon"></i>
+      暂无题目
+      <% } %>
+  </div>
+  <% } %>
+<script>
+document.addEventListener('keydown', function (event) {
+  var target = event.target;
+  if (target && (target.matches('input, textarea, select') || target.isContentEditable)) return;
+  var link = event.keyCode === 39 ? document.getElementById('page_next')
+    : event.keyCode === 37 ? document.getElementById('page_prev') : null;
+  if (link) link.click();
+});
+
+$(function () {
+  $('#add_problem_dropdown').dropdown();
+  var tagFilter = $('#problem_tag_filter');
+  var tagFilterReady = false;
+  var selectedTagIDs = <%- serializejs(tagIDs.map(Number).sort((a, b) => a - b)) %>;
+  var noTagFilterUrl = <%- serializejs(makeProblemFilterUrl({}, [])) %>;
+  var tagFilterUrlTemplate = <%- serializejs(makeProblemFilterUrl({}, [2147483647]).replace('2147483647', '__TAG_IDS__')) %>;
+  tagFilter.dropdown({
+    fullTextSearch: true,
+    clearable: true,
+    forceSelection: false,
+    message: { noResults: '没有匹配的标签' },
+    onChange: function (value) {
+      if (!tagFilterReady) return;
+      var ids = String(value || '').split(',').filter(function (id) { return /^[1-9]\d*$/.test(id); })
+        .map(Number).filter(function (id, index, values) { return values.indexOf(id) === index; })
+        .sort(function (a, b) { return a - b; });
+      if (JSON.stringify(ids) === JSON.stringify(selectedTagIDs)) return;
+      window.location.assign(ids.length ? tagFilterUrlTemplate.replace('__TAG_IDS__', ids.join(',')) : noTagFilterUrl);
+    }
+  });
+  tagFilterReady = true;
+  var showTags = $('#show_problem_tags');
+  showTags.checkbox();
+  showTags.checkbox('set ' + (localStorage.getItem('show_problem_tags') === '1' ? 'checked' : 'unchecked'));
+  showTags.checkbox('setting', 'onChange', function () {
+    var checked = showTags.checkbox('is checked');
+    localStorage.setItem('show_problem_tags', checked ? '1' : '0');
+    document.documentElement.classList.toggle('show-problem-tags', checked);
+  });
+  $('thead a').each(function () {
+    var url = new URL(this.href, window.location.origin);
+    url.searchParams.delete('page');
+    this.href = url.pathname + url.search;
+  });
+
+  <% if (canBulkDelete) { %>
+  var selections = $('.problem-select');
+  var selectAll = $('#problem-select-all');
+  var deleteButton = $('#problem-bulk-delete-button');
+  var selectedCount = $('#problem-selected-count');
+  var confirmation = $('#problem-delete-confirmation');
+  var confirmButton = $('#problem-bulk-delete-confirm');
+
+  function updateBulkDeleteState() {
+    var count = selections.filter(':checked').length;
+    selectedCount.text('已选择 ' + count + ' 题');
+    deleteButton.toggleClass('disabled', count === 0);
+    selectAll.prop('checked', count > 0 && count === selections.length);
+    selectAll.prop('indeterminate', count > 0 && count < selections.length);
+  }
+
+  selections.on('change', updateBulkDeleteState);
+  selectAll.on('change', function () {
+    selections.prop('checked', this.checked);
+    updateBulkDeleteState();
+  });
+  deleteButton.on('click', function () {
+    if ($(this).hasClass('disabled')) return;
+    confirmation.val('');
+    confirmButton.prop('disabled', true);
+    $('#problem-bulk-delete-modal').modal('show');
+    setTimeout(function () { confirmation.focus(); }, 100);
+  });
+  confirmation.on('input', function () {
+    confirmButton.prop('disabled', this.value !== 'DELETE');
+  });
+  $('#problem-bulk-delete-form').on('submit', function (event) {
+    if (!selections.filter(':checked').length || confirmation.val() !== 'DELETE') event.preventDefault();
+  });
+  <% } %>
+});
+</script>
+</div>
+<% include footer %>

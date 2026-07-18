@@ -57,6 +57,7 @@ function renderTagHtml(user, tier) {
     return ' <span class="user-name-tag tag-tier-cheater">作弊者</span>';
   }
 
+  if (syzoj.userTagsEnabled === false) return '';
   if (!syzoj.userTags || !syzoj.userTags.has(user.id)) return '';
   let t = syzoj.userTags.get(user.id);
   if (!t || !t.text) return '';
@@ -74,7 +75,7 @@ syzoj.utils.renderUsername = function(user, options) {
   let tier = calcTier(user);
   let url = '/user/' + user.id;
   let username = escapeHtml(user.username || '');
-  let nameplate = user.nameplate || '';
+  let nameplate = syzoj.userTagsEnabled === false ? '' : (user.nameplate || '');
   let tagHtml = options.noTag ? '' : renderTagHtml(user, tier);
 
   if (options.noLink) {

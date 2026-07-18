@@ -64,7 +64,7 @@
             <td>
               <% if (sol.problem) { %>
                 <a href="<%= syzoj.utils.makeUrl(['problem', sol.problem.id]) %>" target="_blank">
-                  #<%= sol.problem.id %>. <%= sol.problem.title %>
+                  <%= sol.problem.getDisplayId() %>. <%= sol.problem.title %>
                 </a>
               <% } else { %>
                 <i>题目已删除</i>

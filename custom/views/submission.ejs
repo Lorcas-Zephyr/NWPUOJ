@@ -54,8 +54,7 @@ let isCheated = (typeof judgeAdminAction !== 'undefined' && judgeAdminAction && 
           <br><span style="color: #555;">原因：<%= markedDetail.reason %></span>
         <% } %>
       </span>
-      <% if (markedDetail.action_type === 'cancelled' && res.locals.user 
-             && (res.locals.user.id === markedDetail.affected_user_id || canManageAction)) { %>
+      <% if (markedDetail.action_type === 'cancelled' && canManageAction) { %>
         <div style="margin-top: 12px;">
           <form method="post" action="<%= syzoj.utils.makeUrl(['submission', info.submissionId, 'restore-and-rejudge']) %>"
                 onsubmit="return confirm('确定要重新评测这条提交吗？\n\n这会清除取消标记，重新放回评测队列。');"
@@ -142,7 +141,7 @@ let isCheated = (typeof judgeAdminAction !== 'undefined' && judgeAdminAction && 
       </a>
     <% } %>
   </code-box>
-  <code-box v-if="detailResult && detailResult.compile" no-escape title="编译信息" v-bind:content="detailResult.compile.message"></code-box>
+  <code-box v-if="detailResult && detailResult.compile" title="编译信息" v-bind:content="detailResult.compile.message"></code-box>
   <code-box v-if="detailResult" title="系统信息" v-bind:content="detailResult.systemMessage"></code-box>
 
   <div class="ui styled fluid accordion" :class="singleSubtask ? 'single-subtask' : '' " v-if="detailResult && detailResult.judge && detailResult.judge.subtasks">
@@ -188,7 +187,7 @@ let isCheated = (typeof judgeAdminAction !== 'undefined' && judgeAdminAction && 
             </div>
               <div class="content">
                 <template v-if="checkTestcaseOK(curCase)">
-                  <code-box v-if="curCase.result.input" :title="'输入文件（<span style=\'font-family: monospace; \'>'+ curCase.result.input.name +'</span>）'" :content="curCase.result.input.content" :download="<%= serializejs(syzoj.utils.makeUrl(['problem', info.problemId, 'testdata', 'download'])) %> + '/' + curCase.result.input.name"></code-box>
+                  <code-box v-if="curCase.result.input" :title="'输入文件（<span style=\'font-family: monospace; \'>'+ curCase.result.input.name +'</span>）'" :content="curCase.result.input.content" :download="curCase.result.input.remote ? null : <%= serializejs(syzoj.utils.makeUrl(['problem', info.problemId, 'testdata', 'download'])) %> + '/' + curCase.result.input.name"></code-box>
                   <code-box v-if="curCase.result.output" :title="'答案文件（<span style=\'font-family: monospace; \'>'+ curCase.result.output.name +'</span>）'" :content="curCase.result.output.content" :download="<%= serializejs(syzoj.utils.makeUrl(['problem', info.problemId, 'testdata', 'download'])) %> + '/' + curCase.result.output.name"></code-box>
                   <code-box title="用户输出" :content="curCase.result.userOutput"></code-box>
                   <code-box title="标准错误流" :content="curCase.result.userError"></code-box>
@@ -204,15 +203,13 @@ let isCheated = (typeof judgeAdminAction !== 'undefined' && judgeAdminAction && 
   </div>
 </div>
 <script src="<%- lib('vue/2.5.21/vue.min.js') %>"></script>
-<script src="<%- lib('socket.io/2.2.0/socket.io.js') %>"></script>
-<script src="<%- lib('jsondiffpatch/0.2.5/jsondiffpatch.min.js') %>"></script>
 
 <% include submissions_item %>
 
 <script type="text/x-template" id="codeBoxTemplate">
     <div style="margin-top: 0px; margin-bottom: 14px; " v-if="content != null && content !== ''">
         <p v-if="title" class="transition visible">
-           <strong v-html="title"></strong>
+           <strong>{{ plainTitle }}</strong>
            <a v-if="download" style="color: #000; " :href="download"><i class="download icon"></i></a>
         </p>
         <div class="ui existing segment">
@@ -233,12 +230,15 @@ Vue.component("code-box", {
             type: Boolean,
             default: false
         },
-        download: String
+    download: String
+    },
+    computed: {
+      plainTitle() {
+        return String(this.title || '').replace(/<span[^>]*>/gi, '').replace(/<\/span>/gi, '');
+      }
     }
 });
-const socketUrl = "/detail";
 const displayConfig = <%- serializejs(displayConfig) %>;
-const token = <%- serializejs(socketToken) %>;
 
 const TestcaseResultType = {};
 (function (TestcaseResultType) {
@@ -294,7 +294,7 @@ const vueApp = new Vue({
     roughData: {
       info: <%- serializejs(info) %>,
       result: <%- serializejs(roughResult) %>,
-      running: false,
+      running: <%- serializejs(!!submissionPending) %>,
       displayConfig: displayConfig
     },
     code: <%- serializejs(preferFormattedCode && formattedCode !== null) -%> ? formattedCode : unformattedCode,
@@ -305,13 +305,16 @@ const vueApp = new Vue({
   },
   computed: {
     singleSubtask() {
-      return this.detailResult.judge.subtasks.length === 1;
+      return !!(this.detailResult && this.detailResult.judge && this.detailResult.judge.subtasks && this.detailResult.judge.subtasks.length === 1);
     },
     showRejudge() {
       return this.displayConfig.showRejudge && (!this.roughData.running);
     }
   },
   methods: {
+    testdataDownload(name) {
+      return <%- serializejs(syzoj.utils.makeUrl(['problem', info.sourceProblemId || info.problemId, 'testdata', 'download'])) %> + '/' + encodeURIComponent(name);
+    },
     getStatusString(statusCode) {
       return statusToString[statusCode];
     },
@@ -323,10 +326,16 @@ const vueApp = new Vue({
       }
     },
     getSubtaskResult(t) {
-      if (t.cases.some(function(c){ return c.status === TaskStatus.Running;})) {
+      if (t.resultStatus === 'Skipped') {
+        return 'Skipped';
+      } else if (t.resultType != null) {
+        return this.getStatusString(t.resultType);
+      } else if (t.cases.some(function(c){ return c.status === TaskStatus.Running;})) {
         return "Running";
       } else if (t.cases.some(function(c) { return c.status === TaskStatus.Waiting;})) {
         return "Waiting";
+      } else if (t.cases.every(function(c) { return c.status === TaskStatus.Skipped;})) {
+        return "Skipped";
       } else if (t.cases.every(function(c){ return c.status === TaskStatus.Done || c.status === TaskStatus.Skipped;})) {
         return this.getStatusString(this.firstNonAC(t.cases.filter(function(c) { return c.result; })
           .map(function(c) { return c.result.type;})));
@@ -386,59 +395,42 @@ const vueApp = new Vue({
     $('.ui.accordion').off().accordion({ selector: { trigger: '.title:not(.unexpandable)' } });
   }
 });
-if (token != null) {
-  const loadSocketIO = function () {
-    let currentVersion = 0;
-    const socket = io(socketUrl);
-    socket.on('connect', function () {
-      socket.on('start', function () {
-        vueApp.roughData.running = true;
-        console.log("Judge start!");
-        vueApp.detailResult = {};
-      });
-      socket.on('update', function (p) {
-        console.log("Delta: ", p);
-        if (p.from === currentVersion) {
-          currentVersion = p.to;
-          jsondiffpatch.patch(vueApp.detailResult, p.delta);
-          vueApp.detailResult = JSON.parse(JSON.stringify(vueApp.detailResult));// WTF?
-          vueApp.roughData.result = p.roughResult;
-        } else { // Some packets are dropped. Let's reset.
-          socket.close();
-          setTimeout(loadSocketIO, 0);
-        }
-      });
-      socket.on('finish', function (p) {
-        console.log("Judge finished");
-        vueApp.roughData.running = false;
-        vueApp.roughData.result = p.roughResult;
-        vueApp.detailResult = p.result;
-        socket.close();
-      });
-      socket.emit('join', token, function (data) {
-        console.log("join! ", data);
-        if (data && data.ok) {
-          if (data.finished) {
-            vueApp.roughData.result = data.roughResult;
-            if (!data.result) location.reload(true);
-            vueApp.detailResult = data.result;
-            socket.close();
-          } else {
-            if (data.running) {
-              // vueApp.roughData.running = true;
-              vueApp.detailResult = data.current.content;
-              // vueApp.roughData.result = data.roughResult;
-              currentVersion = data.current.version;
-            }
-          }
-        } else {
-          alert("ERROR: " + JSON.stringify(data));
-        }
-      });
-    });
+let submissionEvents;
+let submissionRetryDelay = 1000;
+function connectSubmissionEvents() {
+  const connectedAt = Date.now();
+  let receivedStatus = false;
+  let failed = false;
+  submissionEvents = new EventSource('/api/submission/<%= info.submissionId %>/events');
+  submissionEvents.addEventListener('status', function (event) {
+    receivedStatus = true;
+    const status = JSON.parse(event.data);
+    if (JSON.stringify(vueApp.roughData.result) !== JSON.stringify(status.result)) {
+      vueApp.roughData.result = status.result;
+    }
+    const running = !!status.pending;
+    if (vueApp.roughData.running !== running) vueApp.roughData.running = running;
+    if (Object.prototype.hasOwnProperty.call(status, 'detailResult') &&
+      JSON.stringify(vueApp.detailResult) !== JSON.stringify(status.detailResult)) {
+      vueApp.detailResult = status.detailResult;
+    }
+    if (!running) submissionEvents.close();
+  });
+  submissionEvents.addEventListener('unavailable', function () {
+    submissionEvents.close();
+    location.reload();
+  });
+  submissionEvents.onerror = function () {
+    if (failed || !vueApp.roughData.running) return;
+    failed = true;
+    submissionEvents.close();
+    if (receivedStatus && Date.now() - connectedAt > 30000) submissionRetryDelay = 1000;
+    const delay = submissionRetryDelay;
+    submissionRetryDelay = Math.min(submissionRetryDelay * 2, 30000);
+    setTimeout(connectSubmissionEvents, delay);
   };
-  loadSocketIO();
 }
+if (vueApp.roughData.running) connectSubmissionEvents();
 </script>
 <script>
   document.addEventListener('keydown', function (event) {

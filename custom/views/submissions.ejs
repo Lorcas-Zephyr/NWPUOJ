@@ -1,0 +1,202 @@
+<% this.title = '提交记录' %>
+<% include header %>
+<% include util %>
+<script src="<%- lib('textfit/2.3.1/textFit.min.js') %>"></script>
+<div class="padding">
+  <% if (displayConfig.inContest) { %>
+    <div class="ui info message">
+      <div class="header"><%= contest.title %></div>
+      <p><%= displayConfig.showOthers ? '当前可查看参赛者提交。' : '当前仅可查看自己的提交。' %></p>
+    </div>
+  <% } %>
+
+  <form action="<%= syzoj.utils.makeUrl(displayConfig.inContest ? ['contest', contest.id, 'submissions'] : ['submissions']) %>"
+        class="ui small form" method="get" id="submission-filter-form">
+    <% if (!displayConfig.inContest && form.contest) { %><input type="hidden" name="contest" value="<%= form.contest %>"><% } %>
+    <div class="nwpuoj-filter-grid nwpuoj-submission-filter-grid">
+      <div class="field">
+        <label>题目编号</label>
+        <input name="problem_id" inputmode="numeric" value="<%= form.problem_id || '' %>">
+      </div>
+      <% if (displayConfig.showOthers) { %>
+      <div class="field">
+        <label>提交者</label>
+        <input name="submitter" value="<%= form.submitter || '' %>">
+      </div>
+      <% } %>
+      <% if (displayConfig.showScore) { %>
+      <div class="field">
+        <label>最低分</label>
+        <input name="min_score" type="number" min="0" max="100" placeholder="0" value="<%= form.min_score || '' %>">
+      </div>
+      <div class="field">
+        <label>最高分</label>
+        <input name="max_score" type="number" min="0" max="100" placeholder="100" value="<%= form.max_score || '' %>">
+      </div>
+      <% } %>
+      <div class="field">
+        <label>语言</label>
+        <div class="ui selection dropdown" id="select_language">
+          <input type="hidden" name="language" value="<%= form.language || '' %>">
+          <i class="dropdown icon"></i><div class="default text">不限</div>
+          <div class="menu">
+            <div class="item" data-value="">不限</div>
+            <div class="item" data-value="submit-answer">提交答案</div>
+            <div class="item" data-value="non-submit-answer">非提交答案</div>
+            <% for (const lang of syzoj.config.filter_enabled_languages) { %>
+              <div class="item" data-value="<%= lang %>"><%= syzoj.languages[lang].show %></div>
+            <% } %>
+            <% for (const provider of Object.keys(vjudge.languages)) { %>
+              <div class="header"><%= provider %></div>
+              <% for (const lang of Object.keys(vjudge.languages[provider]).sort((a, b) => vjudge.languages[provider][a].index - vjudge.languages[provider][b].index)) { %>
+                <div class="item" data-value="<%= lang %>"><%= vjudge.languages[provider][lang].show %></div>
+              <% } %>
+            <% } %>
+          </div>
+        </div>
+      </div>
+      <% if (displayConfig.showResult) { %>
+      <div class="field">
+        <label>状态</label>
+        <div class="ui selection dropdown" id="select_status">
+          <input type="hidden" name="status" value="<%= form.status || '' %>">
+          <i class="dropdown icon"></i><div class="default text">不限</div>
+          <div class="menu">
+            <div class="item" data-value="">不限</div>
+            <% for (const status of ['Accepted', 'Wrong Answer', 'Partially Correct', 'Compile Error', 'Runtime Error', 'Time Limit Exceeded', 'Memory Limit Exceeded', 'Output Limit Exceeded', 'System Error', 'Cancelled', 'Cheated']) { %>
+              <div class="item" data-value="<%= status %>"><%= status %></div>
+            <% } %>
+          </div>
+        </div>
+      </div>
+      <% } %>
+    </div>
+    <div class="nwpuoj-toolbar nwpuoj-submission-filter-toolbar">
+      <% if (user && displayConfig.showOthers) { %>
+      <% const showingMine = form.submitter === user.username; %>
+      <div class="nwpuoj-segmented" aria-label="提交范围">
+        <button class="ui button<%= !form.submitter ? ' active' : '' %>" type="button" id="submission_scope_all" aria-pressed="<%= !form.submitter ? 'true' : 'false' %>">
+          全部
+        </button>
+        <button class="ui button<%= showingMine ? ' active' : '' %>" type="button" id="submission_scope_mine" aria-pressed="<%= showingMine ? 'true' : 'false' %>">
+          <i class="user icon"></i>我的
+        </button>
+      </div>
+      <% } else { %><span></span><% } %>
+      <div class="nwpuoj-toolbar-actions">
+        <button class="ui small primary labeled icon button" type="submit">
+          <i class="search icon"></i>筛选
+        </button>
+        <% if (isFiltered) { %>
+        <a class="ui small basic button" href="<%= syzoj.utils.makeUrl(displayConfig.inContest ? ['contest', contest.id, 'submissions'] : ['submissions'], displayConfig.inContest ? {} : (form.contest ? { contest: form.contest } : {})) %>">清除</a>
+        <% } %>
+      </div>
+    </div>
+  </form>
+
+  <div class="nwpuoj-table-region" role="region" aria-label="评测记录" tabindex="0">
+  <table id="submission-list" class="ui very basic center aligned table nwpuoj-submissions-table" style="white-space: nowrap;">
+    <thead><tr>
+      <th class="nwpuoj-col-number" scope="col">编号</th><th scope="col">题目</th><th scope="col">状态</th>
+      <th class="nwpuoj-col-number" scope="col" v-if="displayConfig.showScore">分数</th>
+      <th class="nwpuoj-priority-3 nwpuoj-col-number" scope="col" v-if="displayConfig.showUsage">总时间</th>
+      <th class="nwpuoj-priority-3 nwpuoj-col-number" scope="col" v-if="displayConfig.showUsage">内存</th>
+      <th class="nwpuoj-priority-3" scope="col" v-if="displayConfig.showCode">代码 / 答案文件</th>
+      <th class="nwpuoj-priority-2" scope="col">提交者</th><th class="nwpuoj-priority-3" scope="col">提交时间</th>
+    </tr></thead>
+    <tbody>
+      <tr v-for="item in items" :config="displayConfig" :show-rejudge="false" :data="item" is="submission-item" :rough="true"></tr>
+    </tbody>
+  </table>
+  </div>
+  <% if (!items.length) { %>
+    <div class="ui placeholder segment">
+      <div class="ui icon header"><i class="<%= isFiltered ? 'search' : 'file' %> icon"></i><%= isFiltered ? '找不到符合条件的提交' : '暂无提交' %></div>
+    </div>
+  <% } else { %>
+    <br><% include page %>
+  <% } %>
+</div>
+
+<script src="<%- lib('vue/2.5.21/vue.min.js') %>"></script>
+<% include submissions_item %>
+<script>
+$(function () {
+  $('#select_language, #select_status').dropdown();
+  $('#submission_scope_all').on('click', function () {
+    $('[name=submitter]').val('');
+    $('#submission-filter-form').submit();
+  });
+  $('#submission_scope_mine').on('click', function () {
+    $('[name=submitter]').val(<%- serializejs(user ? user.username : '') %>);
+    $('#submission-filter-form').submit();
+  });
+});
+
+const itemList = <%- serializejs(items) %>;
+const displayConfig = <%- serializejs(displayConfig) %>;
+const vueApp = new Vue({ el: '#submission-list', data: { items: itemList, displayConfig: displayConfig } });
+const pendingTasks = new Set(itemList.filter(item => item.token).map(item => item.info.taskId));
+
+if (pendingTasks.size) {
+  let retryDelay = 1000;
+  const applyStatus = function (status) {
+    const item = itemList.find(entry => entry.info.submissionId === status.submissionId);
+    if (!item) return;
+    if (JSON.stringify(item.result) !== JSON.stringify(status.result)) item.result = status.result;
+    const running = !!status.pending;
+    if (item.running !== running) item.running = running;
+    if (!running) pendingTasks.delete(item.info.taskId);
+  };
+  const connectStatusStream = async function () {
+    const pendingItems = itemList.filter(item => pendingTasks.has(item.info.taskId) && item.token);
+    if (!pendingItems.length) return;
+    const body = new URLSearchParams({ tokens: JSON.stringify(pendingItems.map(item => item.token)) });
+    const connectedAt = Date.now();
+    let receivedStatus = false;
+    try {
+      const response = await fetch('/api/submissions/events', {
+        method: 'POST',
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': <%- serializejs(csrfToken) %> },
+        body: body
+      });
+      if (response.status === 403) return location.reload();
+      if (!response.ok || !response.body) throw new Error('status stream unavailable');
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        buffer += decoder.decode(chunk.value, { stream: true }).replace(/\r\n/g, '\n');
+        let boundary;
+        while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+          const message = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          let event = 'message';
+          let data = '';
+          message.split('\n').forEach(line => {
+            if (line.startsWith('event:')) event = line.slice(6).trim();
+            if (line.startsWith('data:')) data += line.slice(5).trim();
+          });
+          if (event === 'refresh-required') return location.reload();
+          if (event === 'status' && data) {
+            receivedStatus = true;
+            applyStatus(JSON.parse(data));
+          }
+        }
+      }
+    } catch (error) {}
+    if (pendingTasks.size) {
+      if (receivedStatus && Date.now() - connectedAt > 30000) retryDelay = 1000;
+      const delay = retryDelay;
+      retryDelay = Math.min(retryDelay * 2, 30000);
+      setTimeout(connectStatusStream, delay);
+    }
+  };
+  connectStatusStream();
+}
+</script>
+<% include footer %>

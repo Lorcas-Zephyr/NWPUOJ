@@ -1,12 +1,7 @@
 <% this.title = article.title + ' - 帖子'; %>
 <% include header %>
-<style type="text/css" xmlns:style="http://www.w3.org/1999/xhtml">
-.small{
-  font-size: 0.7em;
-}
-</style>
 <div class="padding">
-  <div class="ui breadcrumb">
+  <div class="ui breadcrumb nwpuoj-meta">
     <div class="section">讨论</div>
     <i class="right angle icon divider"></i>
     <% if (problem) { %>
@@ -17,37 +12,33 @@
       <a href="<%= syzoj.utils.makeUrl(['discussion', 'global']) %>" class="section">全局板块</a>
     <% } %>
   </div>
-  <h1><%= article.title %></h1>
- 	<p style="margin-bottom: -5px; ">
-	<img style="vertical-align: middle; margin-bottom: 2px; margin-right: 2px; " src="<%= syzoj.utils.gravatar(article.user.email, 34) %>" width="17" height="17">
-	<b style="margin-right: 30px; "><%- syzoj.utils.renderUsername(article.user) %></b>
-	<b style="margin-right: 30px; "><i class="calendar icon"></i> <%= syzoj.utils.formatDate(article.public_time) %></b>
-	<% if (article.public_time !== article.update_time) { %><b style="margin-right: 30px; "><i class="edit icon"></i> <%= syzoj.utils.formatDate(article.update_time) %></b><% } %>
-        <% if (article.allowedEdit) { %>
-        <a style="margin-top: -4px; " class="ui mini right floated labeled icon button" href="<%= syzoj.utils.makeUrl(['article', article.id, 'edit']) %>"><i class="ui edit icon"></i>编辑</a>
-        <a style="margin-top: -4px; margin-right: 3px; " class="ui mini red right floated labeled icon button" onclick="$('#modal-delete').modal('show')"><i class="ui trash icon"></i>删除</a>
-        <div class="ui basic modal right floated" id="modal-delete">
-          <div class="ui icon header">
-            <i class="trash icon"></i>
-            <p style="margin-top: 15px; ">删除文章</p>
-          </div>
-          <div class="content" style="text-align: center; ">
-            <p>确认删除这篇文章吗？</p>
-          </div>
-          <div class="actions">
-            <div class="ui red basic cancel inverted button">
-              <i class="remove icon"></i>
-              否
-            </div>
-            <a class="ui green ok inverted button" href-post="<%= syzoj.utils.makeUrl(['article', article.id, 'delete']) %>">
-              <i class="checkmark icon"></i>
-              是
-            </a>
-          </div>
-        </div>
-        <% } %>
- 	</p>
-  <div class="ui existing segment">
+  <header class="nwpuoj-content-header">
+    <div>
+      <h1 class="nwpuoj-content-title"><%= article.title %></h1>
+      <div class="nwpuoj-content-meta">
+        <span class="nwpuoj-user-cell"><img class="nwpuoj-user-avatar" src="<%= syzoj.utils.avatar(article.user, 40) %>"><%- syzoj.utils.renderUsername(article.user) %></span>
+        <span><i class="calendar outline icon"></i><%= syzoj.utils.formatDate(article.public_time) %></span>
+        <% if (article.public_time !== article.update_time) { %><span><i class="edit outline icon"></i><%= syzoj.utils.formatDate(article.update_time) %></span><% } %>
+      </div>
+    </div>
+    <% if (article.allowedEdit) { %>
+    <div class="nwpuoj-page-actions">
+      <a class="ui small basic labeled icon button" href="<%= syzoj.utils.makeUrl(['article', article.id, 'edit']) %>"><i class="edit icon"></i>编辑</a>
+      <button type="button" class="ui small basic red labeled icon button" onclick="$('#modal-delete').modal('show')"><i class="trash icon"></i>删除</button>
+    </div>
+    <% } %>
+  </header>
+  <% if (article.allowedEdit) { %>
+  <div class="ui basic modal" id="modal-delete">
+    <div class="ui icon header"><i class="trash icon"></i><p>删除文章</p></div>
+    <div class="content" style="text-align:center;"><p>确认删除这篇文章吗？</p></div>
+    <div class="actions">
+      <button type="button" class="ui red basic cancel inverted button"><i class="remove icon"></i>否</button>
+      <a class="ui green ok inverted button" href-post="<%= syzoj.utils.makeUrl(['article', article.id, 'delete']) %>"><i class="checkmark icon"></i>是</a>
+    </div>
+  </div>
+  <% } %>
+  <div class="nwpuoj-content-surface">
 	  <div id="content" class="font-content"><%- article.content %></div>
   </div>
   <% if (comments.length) { %>
@@ -56,7 +47,7 @@
     <% for (let comment of comments) { %>
       <div class="comment">
         <a class="avatar">
-          <img src="<%= syzoj.utils.gravatar(comment.user.email, 120) %>">
+          <img src="<%= syzoj.utils.avatar(comment.user, 120) %>">
         </a>
         <div class="content">
           <%- syzoj.utils.renderUsername(comment.user) %>
@@ -96,11 +87,12 @@
   <% } %>
     <% if (article.allowedComment) { %>
     <form class="ui reply form" method="post" action="<%= syzoj.utils.makeUrl(['article', article.id, 'comment']) %>">
+      <input type="hidden" name="_content_token" value="<%= contentFormTokens.articleComment %>">
       <div class="field">
         <textarea name="comment" class="markdown-edit"></textarea>
       </div>
       <div style="text-align: center; ">
-      <button id="submit_button" type="submit" class="ui labeled submit icon button">
+      <button id="submit_button" type="submit" class="ui primary labeled submit icon button">
         <i class="icon edit"></i> 回复
       </button>
       </div>

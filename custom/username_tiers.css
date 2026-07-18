@@ -19,7 +19,7 @@ a.username-tier-green:hover,
 a.username-tier-orange:hover,
 a.username-tier-red:hover,
 a.username-tier-gray:hover { text-decoration: underline; }
-/* ============ 用户名 tag(v1.5.0) ============ */
+/* ============ 用户名 tag ============ */
 .user-name-tag {
   display: inline-block;
   padding: 1px 7px;
@@ -40,7 +40,7 @@ a.username-tier-gray:hover { text-decoration: underline; }
 .user-name-tag.tag-tier-orange  { background: #f2711c; }
 .user-name-tag.tag-tier-red     { background: #db2828; }
 .user-name-tag.tag-tier-admin   { background: #a333c8; }
-/* ============ 作弊者(v1.5.0) ============ */
+/* ============ 作弊者 ============ */
 .username-tier-cheater {
   color: #8B4513; /* 棕色 */
   font-weight: bold;
@@ -51,7 +51,7 @@ a.username-tier-cheater:hover {
   text-decoration: line-through underline;
 }
 
-/* ============ 用户名 tag(v1.5.0) ============ */
+/* ============ 用户名 tag ============ */
 .user-name-tag {
   display: inline-block;
   padding: 1px 7px;

@@ -1,3 +1,5 @@
+name: nwpuoj
+
 # Components:
 # - SYZOJ Web
 # - MariaDB
@@ -17,13 +19,16 @@ services:
   web:
     image: menci/syzoj-web
     restart: unless-stopped
+    depends_on:
+      judge-control: { condition: service_healthy }
     ports:
-      - "4567:80"
+      - "${SYZOJ_WEB_BIND:-0.0.0.0}:${SYZOJ_WEB_PORT:-80}:80"
     tmpfs:
       - /app/sessions
     volumes:
       - config:/app/config
       - uploads:/app/uploads
+      - judge-control-auth:/run/judge-control:ro
       - ./custom/favicon.png:/app/static/self/favicon.png:ro
       - ./custom/header.ejs:/app/views/header.ejs:ro
       - ./custom/views/tags.ejs:/app/views/tags.ejs:ro
@@ -35,20 +40,55 @@ services:
       - ./custom/views/solution.ejs:/app/views/solution.ejs:ro
       - ./custom/views/solution_edit.ejs:/app/views/solution_edit.ejs:ro
       - ./custom/views/problem.ejs:/app/views/problem.ejs:ro
+      - ./custom/views/problems.ejs:/app/views/problems.ejs:ro
+      - ./custom/views/page_top.ejs:/app/views/page_top.ejs:ro
+      - ./custom/views/problem_context.ejs:/app/views/problem_context.ejs:ro
+      - ./custom/views/problem_submit.ejs:/app/views/problem_submit.ejs:ro
+      - ./custom/views/problem_submit_form.ejs:/app/views/problem_submit_form.ejs:ro
+      - ./custom/views/problem_import.ejs:/app/views/problem_import.ejs:ro
+      - ./custom/views/problem_import_result.ejs:/app/views/problem_import_result.ejs:ro
       - ./custom/views/admin_solutions.ejs:/app/views/admin_solutions.ejs:ro
+      - ./custom/views/admin_info.ejs:/app/views/admin_info.ejs:ro
+      - ./custom/views/admin_help_edit.ejs:/app/views/admin_help_edit.ejs:ro
+      - ./custom/views/help.ejs:/app/views/help.ejs:ro
+      - ./custom/views/admin_users.ejs:/app/views/admin_users.ejs:ro
+      - ./custom/views/admin_judge_workers.ejs:/app/views/admin_judge_workers.ejs:ro
+      - ./custom/views/admin_privilege.ejs:/app/views/admin_privilege.ejs:ro
+      - ./custom/modules/_request_security.js:/app/modules/_request_security.js:ro
+      - ./custom/modules/_admin_overview.js:/app/modules/_admin_overview.js:ro
+      - ./custom/modules/_admin_users.js:/app/modules/_admin_users.js:ro
+      - ./custom/modules/_judge_workers_admin.js:/app/modules/_judge_workers_admin.js:ro
+      - ./custom/modules/api_v2.js:/app/modules/api_v2.js:ro
+      - ./custom/modules/_auth_security.js:/app/modules/_auth_security.js:ro
+      - ./custom/modules/_password_verify_worker.js:/app/modules/_password_verify_worker.js:ro
+      - ./custom/modules/_identity_gate.js:/app/modules/_identity_gate.js:ro
+      - ./custom/modules/_user_avatar.js:/app/modules/_user_avatar.js:ro
+      - ./custom/modules/_contest_rating.js:/app/modules/_contest_rating.js:ro
       - ./custom/modules/_user_privilege_loader.js:/app/modules/_user_privilege_loader.js:ro
+      - ./custom/modules/_problem_bulk_import.js:/app/modules/_problem_bulk_import.js:ro
+      - ./custom/modules/_help_page.js:/app/modules/_help_page.js:ro
+      - ./custom/modules/_contest_registration.js:/app/modules/_contest_registration.js:ro
+      - ./custom/modules/_registration_identity.js:/app/modules/_registration_identity.js:ro
+      - ./custom/modules/_submission_visibility.js:/app/modules/_submission_visibility.js:ro
+      - ./custom/modules/_submission_routes.js:/app/modules/_submission_routes.js:ro
+      - ./custom/modules/_problem_lifecycle_guard.js:/app/modules/_problem_lifecycle_guard.js:ro
+      - ./custom/modules/_contest_interactions.js:/app/modules/_contest_interactions.js:ro
+      - ./custom/modules/_content_security.js:/app/modules/_content_security.js:ro
+      - ./custom/module-order.js:/app/module-order.js:ro
       - ./custom/logo.png:/app/static/self/logo.png:ro
       - ./custom/views/footer.ejs:/app/views/footer.ejs:ro
       - ./custom/web.json:/app/config/web.json
       - ./custom/models-built/problem-solution-comment.js:/app/models-built/problem-solution-comment.js:ro
       - ./custom/models/problem-solution-comment.ts:/app/models/problem-solution-comment.ts:ro
       - ./custom/views/index.ejs:/app/views/index.ejs:ro
+      - ./custom/views/announcements.ejs:/app/views/announcements.ejs:ro
       - ./custom/models-built/announcement.js:/app/models-built/announcement.js:ro
       - ./custom/models/announcement.ts:/app/models/announcement.ts:ro
       - ./custom/models/notification.ts:/app/models/notification.ts:ro
       - ./custom/models-built/homepage-banner.js:/app/models-built/homepage-banner.js:ro
       - ./custom/models/homepage-banner.ts:/app/models/homepage-banner.ts:ro
       - ./custom/uploads/banner:/app/static/self/banner
+      - ./custom/uploads/avatar:/app/static/self/avatar
       - ./custom/static-libs:/app/static/self/lib
       - ./custom/models-built/user-follow.js:/app/models-built/user-follow.js:ro
       - ./custom/models/user-follow.ts:/app/models/user-follow.ts:ro
@@ -93,16 +133,28 @@ services:
       - ./custom/views/email_verify_pending.ejs:/app/views/email_verify_pending.ejs:ro
       - ./custom/views/email_verify_result.ejs:/app/views/email_verify_result.ejs:ro
       - ./custom/views/user_edit.ejs:/app/views/user_edit.ejs:ro
+      - ./custom/views/sign_up.ejs:/app/views/sign_up.ejs:ro
+      - ./custom/views/login.ejs:/app/views/login.ejs:ro
+      - ./custom/views/forget.ejs:/app/views/forget.ejs:ro
+      - ./custom/views/forget_confirm.ejs:/app/views/forget_confirm.ejs:ro
       - ./custom/node_modules:/app/custom-node-modules:ro
+      - ./custom/node_modules/markdown-it:/app/node_modules/markdown-it:ro
+      - ./custom/tesseract-globals.d.ts:/app/tesseract-globals.d.ts:ro
       - ./custom/modules/_username_renderer.js:/app/modules/_username_renderer.js:ro
       - ./custom/username_tiers.css:/app/static/self/username_tiers.css:ro
       - ./custom/sidebar.css:/app/static/self/sidebar.css:ro
+      - ./custom/ui-system.css:/app/static/self/ui-system.css:ro
       - ./custom/sidebar.js:/app/static/self/sidebar.js:ro
       - ./custom/mobile.css:/app/static/self/mobile.css:ro
       - ./custom/views/ranklist.ejs:/app/views/ranklist.ejs:ro
       - ./custom/views/discussion.ejs:/app/views/discussion.ejs:ro
       - ./custom/views/article.ejs:/app/views/article.ejs:ro
+      - ./custom/views/article_edit.ejs:/app/views/article_edit.ejs:ro
+      - ./custom/views/markdown_editor_script.ejs:/app/views/markdown_editor_script.ejs:ro
       - ./custom/views/contest_ranklist.ejs:/app/views/contest_ranklist.ejs:ro
+      - ./custom/views/contest.ejs:/app/views/contest.ejs:ro
+      - ./custom/views/contest_context.ejs:/app/views/contest_context.ejs:ro
+      - ./custom/views/contests.ejs:/app/views/contests.ejs:ro
       - ./custom/views/user.ejs:/app/views/user.ejs:ro
       - ./custom/views/statistics.ejs:/app/views/statistics.ejs:ro
       - ./custom/modules/_username_cache.js:/app/modules/_username_cache.js:ro
@@ -115,9 +167,12 @@ services:
       - ./custom/models/user-hit-setting.ts:/app/models/user-hit-setting.ts:ro
       - ./custom/views/help_hit_value.ejs:/app/views/help_hit_value.ejs:ro
       - ./custom/views/submissions_item.ejs:/app/views/submissions_item.ejs:ro
+      - ./custom/views/submissions.ejs:/app/views/submissions.ejs:ro
+      - ./custom/views/status_label.ejs:/app/views/status_label.ejs:ro
       - ./custom/modules/_ranklist.js:/app/modules/_ranklist.js:ro
       - ./custom/modules/_contest_delete.js:/app/modules/_contest_delete.js:ro
       - ./custom/views/contest_edit.ejs:/app/views/contest_edit.ejs:ro
+      - ./custom/views/contest_registrations.ejs:/app/views/contest_registrations.ejs:ro
       - ./custom/models-built/judge-state-admin-action.js:/app/models-built/judge-state-admin-action.js:ro
       - ./custom/models/judge-state-admin-action.ts:/app/models/judge-state-admin-action.ts:ro
       - ./custom/modules/_judge_admin_action.js:/app/modules/_judge_admin_action.js:ro
@@ -140,9 +195,31 @@ services:
       - ./custom/modules/_user_tag_loader.js:/app/modules/_user_tag_loader.js:ro
       - ./custom/views/admin_user_tags.ejs:/app/views/admin_user_tags.ejs:ro
       - ./custom/libs-built/judger.js:/app/libs/judger.js:ro
+      - ./custom/libs-built/vjudge.js:/app/libs/vjudge.js:ro
+      - ./custom/libs-built/vjudge/uoj.js:/app/libs/vjudge/uoj.js:ro
+      - ./custom/libs-built/vjudge/hdu.js:/app/libs/vjudge/hdu.js:ro
+      - ./custom/libs-built/vjudge/poj.js:/app/libs/vjudge/poj.js:ro
+      - ./custom/libs-built/submissions_process.js:/app/libs/submissions_process.js:ro
+      - ./custom/libs-built/problem_repositories.js:/app/libs/problem_repositories.js:ro
+      - ./custom/libs/site-mail.js:/app/libs/site-mail.js:ro
+      - ./custom/libs/contest-mutation.js:/app/libs/contest-mutation.js:ro
+      - ./custom/libs/rating.js:/app/libs/rating.js:ro
+      - ./custom/libs/contest-rating.js:/app/libs/contest-rating.js:ro
+      - ./custom/libs/problem-bulk-import.js:/app/libs/problem-bulk-import.js:ro
+      - ./custom/libs/vjudge-import-status.js:/app/libs/vjudge-import-status.js:ro
+      - ./custom/content/default-help.md:/app/default-help.md:ro
+      - ./custom/models/problem.ts:/app/models/problem.ts:ro
+      - ./custom/models-built/problem.js:/app/models-built/problem.js:ro
+      - ./custom/modules/uoj_vjudge.js:/app/modules/uoj_vjudge.js:ro
+      - ./custom/modules/hdu_vjudge.js:/app/modules/hdu_vjudge.js:ro
+      - ./custom/modules/poj_vjudge.js:/app/modules/poj_vjudge.js:ro
+      - ./custom/views/admin_other.ejs:/app/views/admin_other.ejs:ro
+      - ./custom/views/admin_header.ejs:/app/views/admin_header.ejs:ro
+      - ./custom/views/admin_rating.ejs:/app/views/admin_rating.ejs:ro
       - ./custom/models-built/judge_state.js:/app/models-built/judge_state.js:ro
       - ./custom/modules/_email_verified_cache.js:/app/modules/_email_verified_cache.js:ro
       - ./custom/modules/_contest_cheater_cache.js:/app/modules/_contest_cheater_cache.js:ro
+      - ./custom/modules/_problem_bulk_delete.js:/app/modules/_problem_bulk_delete.js:ro
       - ./custom/views/success.ejs:/app/views/success.ejs:ro
       - ./custom/models-built/notification.js:/app/models-built/notification.js:ro
       - ./custom/modules/notification.js:/app/modules/notification.js:ro
@@ -156,6 +233,47 @@ services:
       - SYZOJ_WEB_DB_DATABASE=syzoj
       - SYZOJ_WEB_DB_USERNAME=syzoj
       - SYZOJ_WEB_DB_PASSWORD=syzoj
+      - SYZOJ_SECURE_COOKIES=${SYZOJ_SECURE_COOKIES:-false}
+      - SYZOJ_PUBLIC_URL=${SYZOJ_PUBLIC_URL:-}
+      - SYZOJ_AUTH_VERIFY_WORKERS=${SYZOJ_AUTH_VERIFY_WORKERS:-16}
+      - JUDGE_CONTROL_URL=http://judge-control:3000
+      - JUDGE_CONTROL_TOKEN_FILE=/run/judge-control/token
+      - NODE_PATH=/app/custom-node-modules:/app/node_modules
+      - NODE_OPTIONS=--require=/app/module-order.js
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:80/',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
+      start_period: 15s
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      - default
+      - judge-control
+  judge-control:
+    image: menci/syzoj-web
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    environment:
+      - TZ=Asia/Shanghai
+      - JUDGE_CONTROL_PORT=3000
+      - JUDGE_CONTROL_TOKEN_FILE=/run/judge-control/token
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./custom/judge-control.js:/app/judge-control.js:ro
+      - judge-control-auth:/run/judge-control
+    command: node /app/judge-control.js
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      start_period: 5s
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - judge-control
   mariadb:
     image: mariadb
     restart: unless-stopped
@@ -169,7 +287,7 @@ services:
       - MYSQL_USER=syzoj
       - MYSQL_PASSWORD=syzoj
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost"]
       start_period: 10s
       interval: 5s
       timeout: 30s
@@ -186,6 +304,7 @@ services:
   judge-daemon:
     image: menci/syzoj-judge
     restart: unless-stopped
+    scale: 16
     volumes:
       - config:/app/config
       - uploads:/app/testdata
@@ -195,6 +314,12 @@ services:
     env_file: env-app # For SYZOJ_WEB_SECRET_JUDGE
     environment:
       - TZ=Asia/Shanghai
+      - SYZOJ_WEB_UOJ_USERNAME=
+      - SYZOJ_WEB_UOJ_PASSWORD=
+      - SYZOJ_WEB_HDU_USERNAME=
+      - SYZOJ_WEB_HDU_PASSWORD=
+      - SYZOJ_WEB_POJ_USERNAME=
+      - SYZOJ_WEB_POJ_PASSWORD=
       - SYZOJ_JUDGE_WEB_URL=http://web
       - SYZOJ_JUDGE_RABBITMQ_URI=amqp://rabbitmq/
       - SYZOJ_JUDGE_TESTDATA_PATH=/app/testdata/testdata # "uploads" is mounted on /app/testdata
@@ -212,6 +337,7 @@ services:
   judge-runner-1:
     image: menci/syzoj-judge
     restart: unless-stopped
+    scale: 16
     privileged: true
     tmpfs:
       - /tmp
@@ -231,5 +357,13 @@ services:
     command: runner
 volumes:
   config:
+    name: nwpuoj_config
   uploads:
+    name: nwpuoj_uploads
   database:
+    name: nwpuoj_database
+  judge-control-auth:
+    name: nwpuoj_judge-control-auth
+networks:
+  judge-control:
+    internal: true

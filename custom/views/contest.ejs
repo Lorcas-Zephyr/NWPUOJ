@@ -1,0 +1,89 @@
+<%
+this.title = contest.title + ' - 比赛';
+let registrationState = (typeof contestRegistration !== 'undefined' && contestRegistration) ? contestRegistration : null;
+let unveiled = registrationState ? registrationState.canViewProblems : (isSupervisior || contest.ended);
+%>
+<% include header %>
+
+<div class="padding">
+  <div class="ui grid">
+    <% if (contest.information) { %>
+      <div class="row">
+        <div class="column">
+          <h4 class="ui top attached block header">信息与公告</h4>
+          <div class="ui bottom attached segment font-content"><%- contest.information %></div>
+        </div>
+      </div>
+    <% } %>
+
+    <% if (unveiled) { %>
+      <div class="row">
+        <div class="column">
+          <div style="overflow-x: auto; width: 100%;">
+          <table class="ui selectable celled table">
+            <thead>
+              <tr>
+                <th class="one wide" style="text-align: center;">状态</th>
+                <th>题目</th>
+                <% if (hasStatistics) { %>
+                  <th class="one wide center aligned">统计</th>
+                <% } %>
+              </tr>
+            </thead>
+            <tbody>
+              <%
+              let i = 0;
+              for (let problem of problems) {
+                i++;
+              %>
+                <tr>
+                  <td class="center aligned" style="white-space: nowrap;">
+                    <% if (problem.judge_id) { %>
+                      <a href="<%= syzoj.utils.makeUrl(['contest', 'submission', problem.judge_id]) %>">
+                        <% if (typeof problem.status === 'string') { %>
+                          <span class="status <%= problem.status.toLowerCase().split(' ').join('_') %>">
+                            <b><i class="<%= icon[getStatusMeta(problem.status)] || 'remove' %> icon"></i><%= problem.feedback || problem.status %></b>
+                          </span>
+                        <% } else if (typeof problem.status === 'object') { %>
+                          <% if (problem.status.accepted) { %>
+                            <span class="score score_10">+<%= problem.status.unacceptedCount || '' %></span>
+                          <% } else if (problem.status.unacceptedCount) { %>
+                            <span class="score score_0">-<%= problem.status.unacceptedCount %></span>
+                          <% } %>
+                        <% } %>
+                      </a>
+                    <% } %>
+                  </td>
+                  <td><a href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'problem', i]) %>"><%= syzoj.utils.removeTitleTag(problem.problem.title) %></a></td>
+                  <% if (hasStatistics) { %>
+                    <td class="center aligned" style="white-space: nowrap;">
+                      <% if (contest.type === 'acm') { %>
+                        <span title="通过人数"><%= problem.statistics.accepted %></span> /
+                        <span title="尝试人数"><%= problem.statistics.attempt %></span>
+                      <% } else { %>
+                        <span title="满分人数"><%= problem.statistics.accepted %></span> /
+                        <span title="部分得分人数"><%= problem.statistics.partially || 0 %></span> /
+                        <span title="尝试人数"><%= problem.statistics.attempt %></span>
+                      <% } %>
+                    </td>
+                  <% } %>
+                </tr>
+              <% } %>
+            </tbody>
+          </table>
+          </div>
+        </div>
+      </div>
+    <% } else { %>
+      <div class="row">
+        <div class="column">
+          <div class="ui info message">
+            <%= contest.running ? '仅已报名选手可以查看比赛题目。' : '比赛开始后开放题目。' %>
+          </div>
+        </div>
+      </div>
+    <% } %>
+  </div>
+</div>
+
+<% include footer %>

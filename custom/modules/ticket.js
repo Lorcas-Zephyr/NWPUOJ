@@ -10,13 +10,40 @@ let Article = syzoj.model('article');
 let path = require('path');
 let fs = require('fs');
 let crypto = require('crypto');
+let os = require('os');
+let multer = require('multer');
 
 const TICKET_UPLOAD_DIR = '/app/custom-uploads/tickets';
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
 const MAX_FILES_PER_TICKET = 10;
+const SAFE_INLINE_IMAGES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+const BLOCKED_ATTACHMENT_EXTENSIONS = new Set(['.svg', '.svgz', '.html', '.htm', '.xhtml', '.xml', '.js', '.mjs']);
+const BLOCKED_ATTACHMENT_MIME = new Set(['image/svg+xml', 'text/html', 'application/xhtml+xml', 'application/xml', 'text/xml', 'text/javascript', 'application/javascript']);
+const ticketUpload = multer({
+  dest: os.tmpdir(),
+  limits: { fileSize: MAX_FILE_SIZE, files: MAX_FILES_PER_TICKET },
+  fileFilter: (req, file, callback) => {
+    const extension = path.extname(file.originalname || '').toLowerCase();
+    if (BLOCKED_ATTACHMENT_EXTENSIONS.has(extension) || BLOCKED_ATTACHMENT_MIME.has(file.mimetype)) {
+      const error = new Error('不支持可能包含可执行内容的附件格式。');
+      error.code = 'UNSAFE_FILE_TYPE';
+      return callback(error);
+    }
+    callback(null, true);
+  }
+}).array('attachments', MAX_FILES_PER_TICKET);
 
 // 确保目录存在
 try { fs.mkdirSync(TICKET_UPLOAD_DIR, { recursive: true }); } catch (e) {}
+require('typeorm').getConnection().query(
+  "UPDATE ticket SET subtype = 'general' WHERE category = 'contest' AND subtype = 'public_apply'"
+).catch(error => syzoj.log('[ticket] migrate contest subtype failed: ' + error.message));
+
+function cleanupTicketUploads(files) {
+  for (const file of files || []) {
+    if (file.path) { try { fs.unlinkSync(file.path); } catch (error) {} }
+  }
+}
 
 // ============ 6 大类工单元数据 ============
 const TICKET_CATEGORIES = {
@@ -37,7 +64,7 @@ const TICKET_CATEGORIES = {
     relation: 'contest',
     relation_required: true,
     subtypes: [
-      { value: 'public_apply', label: '申请公开赛' }
+      { value: 'general', label: '比赛综合' }
     ]
   },
   article: {
@@ -110,6 +137,34 @@ function canViewTicket(user, ticket) {
   if (user.id === ticket.creator_id) return true;
   if (isTicketAdmin(user)) return true;
   return false;
+}
+
+async function authorizeTicketUpload(req, res, next) {
+  try {
+    if (!res.locals.user) return res.status(401).json({ ok: false, message: '请先登录。' });
+    const ticketId = Number(req.params.id);
+    const ticket = Number.isSafeInteger(ticketId) && ticketId > 0 ? await Ticket.findById(ticketId) : null;
+    if (!ticket) return res.status(404).json({ ok: false, message: '工单不存在。' });
+    if (!canViewTicket(res.locals.user, ticket)) return res.status(403).json({ ok: false, message: '无权限。' });
+    if (['resolved', 'rejected', 'closed'].includes(ticket.status) && !isTicketAdmin(res.locals.user)) {
+      return res.status(409).json({ ok: false, message: '该工单当前状态不允许继续上传附件。' });
+    }
+    req.ticketUploadTarget = ticket;
+    next();
+  } catch (error) {
+    next(error);
+  }
+}
+
+function receiveTicketAttachments(req, res, next) {
+  ticketUpload(req, res, error => {
+    if (!error) return next();
+    cleanupTicketUploads(req.files);
+    let message = error.message || '附件上传失败。';
+    if (error.code === 'LIMIT_FILE_SIZE') message = '单个附件不能超过 20MB。';
+    if (error.code === 'LIMIT_FILE_COUNT' || error.code === 'LIMIT_UNEXPECTED_FILE') message = '单次最多上传 10 个附件。';
+    res.status(400).json({ ok: false, message: message });
+  });
 }
 
 async function validateRelation(category, relationId) {
@@ -483,7 +538,7 @@ app.post('/ticket/:id/reply', async (req, res) => {
     }
     await ticket.save();
 
-    // [v1.6.0] 通知工单创建者(仅公开回复)
+    // 通知工单创建者(仅公开回复)
     if (!isInternal && ticket.creator_id !== res.locals.user.id) {
       try {
         await syzoj.utils.createNotification({
@@ -542,7 +597,7 @@ app.post('/ticket/:id/status', async (req, res) => {
     sysReply.created_at = now;
     await sysReply.save();
 
-    // [v1.6.0] 通知工单创建者
+    // 通知工单创建者
     if (ticket.creator_id !== res.locals.user.id) {
       try {
         await syzoj.utils.createNotification({
@@ -754,36 +809,15 @@ app.get('/api/ticket-relation-search', async (req, res) => {
 });
 
 // ============ 10. 上传附件(用 SYZOJ 自带的 app.multer) ============
-app.post('/ticket/:id/upload', app.multer.array('attachments', MAX_FILES_PER_TICKET), async (req, res) => {
+app.post('/ticket/:id/upload', authorizeTicketUpload, receiveTicketAttachments, async (req, res) => {
   let savedFiles = [];
+  let savedAttachments = [];
   try {
-    if (!res.locals.user) {
-      if (req.files) for (let f of req.files) { try { fs.unlinkSync(f.path); } catch(e){} }
-      return res.status(401).json({ ok: false, message: '请先登录。' });
-    }
-
     let ticketId = parseInt(req.params.id);
-    let ticket = await Ticket.findById(ticketId);
-    if (!ticket) {
-      if (req.files) for (let f of req.files) { try { fs.unlinkSync(f.path); } catch(e){} }
-      return res.status(404).json({ ok: false, message: '工单不存在。' });
-    }
-
-    if (!canViewTicket(res.locals.user, ticket)) {
-      if (req.files) for (let f of req.files) { try { fs.unlinkSync(f.path); } catch(e){} }
-      return res.status(403).json({ ok: false, message: '无权限。' });
-    }
+    let ticket = req.ticketUploadTarget;
 
     if (!req.files || req.files.length === 0) {
       return res.json({ ok: false, message: '未上传文件。' });
-    }
-
-    // 校验单文件大小
-    for (let f of req.files) {
-      if (f.size > MAX_FILE_SIZE) {
-        for (let f2 of req.files) { try { fs.unlinkSync(f2.path); } catch(e){} }
-        return res.json({ ok: false, message: '文件「' + f.originalname + '」超过 ' + (MAX_FILE_SIZE / 1024 / 1024) + ' MB 限制。' });
-      }
     }
 
     let existing = await TicketAttachment.count({ where: 'ticket_id = ' + ticketId });
@@ -795,6 +829,12 @@ app.post('/ticket/:id/upload', app.multer.array('attachments', MAX_FILES_PER_TIC
     let now = parseInt((new Date()).getTime() / 1000);
     let savedIds = [];
     for (let f of req.files) {
+      const detectedImageMime = syzoj.utils.detectSafeRasterImage(f.path);
+      if (f.mimetype && f.mimetype.startsWith('image/') && !detectedImageMime) {
+        const error = new ErrorMessage('附件「' + f.originalname + '」不是有效的位图文件。');
+        error.statusCode = 400;
+        throw error;
+      }
       let ext = path.extname(f.originalname).slice(0, 10).replace(/[^a-zA-Z0-9.]/g, '');
       let randomName = crypto.randomBytes(16).toString('hex');
       let finalName = randomName + (ext || '');
@@ -816,21 +856,24 @@ app.post('/ticket/:id/upload', app.multer.array('attachments', MAX_FILES_PER_TIC
       att.filename = finalName;
       att.original_name = f.originalname;
       att.file_size = f.size;
-      att.mime_type = f.mimetype || null;
+      att.mime_type = detectedImageMime || 'application/octet-stream';
       att.created_at = now;
       await att.save();
+      savedAttachments.push(att);
       savedIds.push(att.id);
     }
 
     ticket.updated_at = now;
     await ticket.save();
 
+    cleanupTicketUploads(req.files);
     res.json({ ok: true, attachment_ids: savedIds });
   } catch (e) {
     syzoj.log(e);
     for (let p of savedFiles) { try { fs.unlinkSync(p); } catch(err){} }
-    if (req.files) for (let f of req.files) { try { fs.unlinkSync(f.path); } catch(err){} }
-    res.status(500).json({ ok: false, message: e.message || '上传失败' });
+    for (let attachment of savedAttachments) { try { await attachment.destroy(); } catch (cleanupError) {} }
+    cleanupTicketUploads(req.files);
+    res.status(e.statusCode || 500).json({ ok: false, message: e.message || '上传失败' });
   }
 });
 
@@ -854,13 +897,17 @@ app.get('/ticket-attachment/:id', async (req, res) => {
       throw new ErrorMessage('附件文件已丢失。');
     }
 
-    let isImage = att.mime_type && att.mime_type.startsWith('image/');
+    const detectedImageMime = syzoj.utils.detectSafeRasterImage(filePath);
+    let isImage = detectedImageMime && SAFE_INLINE_IMAGES.has(detectedImageMime);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', 'sandbox');
+    res.setHeader('Cache-Control', 'private, no-store');
     if (isImage) {
-      res.setHeader('Content-Type', att.mime_type);
-      res.setHeader('Content-Disposition', 'inline; filename="' + encodeURIComponent(att.original_name) + '"');
+      res.setHeader('Content-Type', detectedImageMime);
+      res.setHeader('Content-Disposition', "inline; filename*=UTF-8''" + encodeURIComponent(att.original_name));
     } else {
-      res.setHeader('Content-Type', att.mime_type || 'application/octet-stream');
-      res.setHeader('Content-Disposition', 'attachment; filename="' + encodeURIComponent(att.original_name) + '"');
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('Content-Disposition', "attachment; filename*=UTF-8''" + encodeURIComponent(att.original_name));
     }
     res.setHeader('Content-Length', att.file_size);
     fs.createReadStream(filePath).pipe(res);

@@ -6,10 +6,22 @@ if (contest) {
 } else {
   this.title = problem.title + ' - 题目';
 }
-const isVJudge = problem.type.startsWith("vjudge:");
+const isVJudge = typeof problem.type === 'string' && problem.type.startsWith('vjudge:');
+const problemRepository = {
+  'vjudge:uoj': 'uoj',
+  'vjudge:hdu': 'hdu',
+  'vjudge:poj': 'poj'
+}[problem.type] || 'main';
 if (isVJudge) testcases = [];
+const noSubmit = true;
+const hasSubmissionEntry = testcases && !testcases.error;
+const contestParticipationAvailable = typeof contestRegistration !== 'undefined' && contestRegistration
+  ? contestRegistration.canParticipate
+  : !!(contest && contest.isRunning());
+const contestSubmissionAvailable = !contest || (contestParticipationAvailable && syzoj.utils.contestSubmissionEnabled(problem));
 %>
 <% include header %>
+<% if (!noSubmit) { %>
 <style>
 #languages-menu::-webkit-scrollbar, #testcase-menu::-webkit-scrollbar {
     width: 0px;
@@ -22,6 +34,7 @@ if (isVJudge) testcases = [];
 </style>
 
 <% include monaco-editor %>
+<% } %>
 
 <div class="ui center aligned grid">
     <div class="row">
@@ -29,7 +42,7 @@ if (isVJudge) testcases = [];
         <% if (contest) { %>
           <%= this.alpha(pid) %>. <%= syzoj.utils.removeTitleTag(problem.title) %>
         <% } else { %>
-          #<%= problem.id %>. <%= problem.title %><% if (problem.allowedEdit && !problem.is_public) { %><span class="ui tiny red label">未公开</span><% } %>
+          <%= problem.getDisplayId() %>. <%= problem.title %><% if (problem.allowedEdit && !problem.is_public) { %><span class="ui tiny red label">未公开</span><% } %>
         <% } %>
       </h1>
     </div>
@@ -54,7 +67,10 @@ if (isVJudge) testcases = [];
               'submit-answer': '答案提交',
               'interaction': '交互',
               'traditional': '传统',
-              'vjudge:luogu': 'VJudge（洛谷）'
+              'vjudge:luogu': 'VJudge（洛谷）',
+              'vjudge:uoj': 'VJudge（UOJ）',
+              'vjudge:hdu': 'VJudge（HDU）',
+              'vjudge:poj': 'VJudge（POJ）'
             }[problem.type]
           %></span>
           <span class="ui label">评测方式：<%= isVJudge ? "VJudge" : (testcases && !testcases.error) ? (testcases.spj ? 'Special Judge' : '文本比较') : '无测试数据' %></span>
@@ -86,21 +102,23 @@ if (isVJudge) testcases = [];
     <div class="column">
       <div class="ui buttons">
         <% if (typeof contest !== 'undefined' && contest) { %>
-          <% if (!contest.ended) { %>
-            <a class="small ui primary button" href="#submit_code">提交</a>
-          <% } else { %>
-            <a class="small ui primary button" href="<%= syzoj.utils.makeUrl(['problem', problem.id]) %>">转到题库</a>
+          <a class="small ui blue active button" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'problem', pid]) %>">题目</a>
+          <% if (contestSubmissionAvailable) { %>
+            <a class="small ui primary button" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'problem', pid, 'submit']) %>">提交</a>
           <% } %>
-          <a class="small ui positive button" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'submissions'], { problem_id: pid }) %>">提交记录</a>
+          <a class="small ui positive button" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'problem', pid, 'submissions']) %>">提交记录</a>
           <% if (problem.additional_file) { %>
             <a class="small ui teal button" href="<%= syzoj.utils.makeUrl(['contest', contest.id, pid, 'download', 'additional_file']) %>">附加文件</a>
           <% } %>
           <a href="<%= syzoj.utils.makeUrl(['contest', contest.id]) %>" class="ui orange button">返回比赛</a>
         <% } else { %>
-          <% if (testcases && !testcases.error) { %>
-            <a class="small ui primary button" href="#submit_code">提交</a>
+          <a class="small ui blue active button" href="<%= syzoj.utils.makeUrl(['problem', problem.id]) %>">题目</a>
+          <% if (hasSubmissionEntry && user) { %>
+            <a class="small ui primary button" href="<%= syzoj.utils.makeUrl(['problem', problem.id, 'submit']) %>">提交</a>
+          <% } else if (hasSubmissionEntry) { %>
+            <a class="small ui primary button" href="<%= syzoj.utils.makeUrl(['login'], { url: syzoj.utils.makeUrl(['problem', problem.id, 'submit']) }) %>">登录后提交</a>
           <% } %>
-          <a class="small ui positive button" href="<%= syzoj.utils.makeUrl(['submissions'], { problem_id: problem.id }) %>">提交记录</a>
+          <a class="small ui positive button" href="<%= syzoj.utils.makeUrl(['problem', problem.id, 'submissions']) %>">提交记录</a>
           <a class="small ui orange button" href="<%= syzoj.utils.makeUrl(['problem', problem.id, 'statistics', problem.type === 'submit-answer' ? 'shortest' : 'fastest']) %>">统计</a>
           <% if (!isVJudge) { %>
           <a class="small ui yellow button" href="<%= syzoj.utils.makeUrl(['problem', problem.id, 'testdata']) %>">测试数据</a>
@@ -206,7 +224,7 @@ if (isVJudge) testcases = [];
         <h4 class="ui block header" id="show_tag_title_div" style="margin-bottom: 0; margin-left: -1px; margin-right: -1px; "><a href="#" id="show_tag_button" style="color: #000; ">显示分类标签</a></h4>
         <div class="ui bottom attached segment" style="display: none; " id="show_tag_div">
           <% for (let tag of problem.tags) { %>
-            <a href="<%= syzoj.utils.makeUrl(['problems', 'tag', tag.id]) %>" class="ui medium <%= tag.color %> label">
+            <a href="<%= syzoj.utils.makeUrl(['problems', 'tag', tag.id], { repository: problemRepository }) %>" class="ui medium <%= tag.color %> label">
               <%= tag.name %>
             </a>
           <% } %>
@@ -225,12 +243,6 @@ if (isVJudge) testcases = [];
     });
     </script>
   <% } %>
-    <% let noSubmit = false; %>
-    <%
-    if (typeof contest !== 'undefined' && contest && contest.ended || (!testcases || testcases.error)) {
-      noSubmit = true;
-    }
-    %>
     <% if (!noSubmit) { %>
     <div class="row">
         <div class="column">
@@ -360,6 +372,7 @@ if (isVJudge) testcases = [];
     <% } %>
 </div>
 
+<% if (!noSubmit) { %>
 <% if (problem.type !== 'submit-answer') { %>
 <script type="text/javascript">
   var editor;
@@ -410,5 +423,6 @@ if (isVJudge) testcases = [];
     $('#answer_by_editor').val(JSON.stringify(a));
   }
   </script>
+<% } %>
 <% } %>
 <% include footer %>

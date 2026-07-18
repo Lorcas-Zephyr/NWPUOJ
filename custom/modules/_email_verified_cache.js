@@ -7,7 +7,11 @@ async function refreshVerifiedCache() {
   try {
     // 用 raw SQL 绕过 typeorm boolean 在 mariadb 上的怪行为
     let conn = require('typeorm').getConnection();
-    let rows = await conn.query('SELECT user_id FROM user_email_status WHERE is_email_verified = 1');
+    let rows = await conn.query(`
+      SELECT s.user_id FROM user_email_status s
+      INNER JOIN user u ON u.id = s.user_id
+      WHERE s.is_email_verified = 1 AND s.verified_email = LOWER(TRIM(u.email))
+    `);
     let s = new Set();
     for (let r of rows) s.add(r.user_id);
     syzoj.verifiedUserIds = s;

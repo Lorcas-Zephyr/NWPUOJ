@@ -1,3 +1,4 @@
+const TypeORM = require('typeorm');
 let Problem = syzoj.model('problem');
 let ProblemSolutionComment = syzoj.model('problem-solution-comment');
 let ProblemSolution = syzoj.model('problem-solution');
@@ -51,7 +52,7 @@ app.get('/problem/:pid/solutions', async (req, res) => {
 
     // 当前用户能否投稿(登录 + 没禁用 || 是审核者)
     // 审核者也无法投稿,但他能看到关闭状态并切换
-    let allowedPost = !!user && !submissionDisabled;
+    let allowedPost = !!user && !submissionDisabled && await syzoj.utils.isEmailVerified(user.id);
 
     res.render('solutions', {
       problem: problem,
@@ -122,7 +123,7 @@ app.get('/solution/:id', async (req, res) => {
     }
 
     solution.user = await User.findById(solution.user_id);
-    // [v1.6.0] 加载审核员信息
+    // 加载审核员信息
     if (solution.reviewer_id) {
       solution.reviewer = await User.findById(solution.reviewer_id);
     }
@@ -174,6 +175,9 @@ app.get('/solution/:id/edit', async (req, res) => {
 
     if (id === 0) {
       // 新建
+      if (!await syzoj.utils.isEmailVerified(res.locals.user.id)) {
+        throw new ErrorMessage('请先验证邮箱后再投稿题解。');
+      }
       let pid = parseInt(req.query.pid);
       problem = await Problem.findById(pid);
       if (!problem) throw new ErrorMessage('无此题目。');
@@ -196,7 +200,7 @@ app.get('/solution/:id/edit', async (req, res) => {
       solution = await ProblemSolution.findById(id);
       if (!solution) throw new ErrorMessage('无此题解。');
 
-      if (!solution.isAllowedEditBy(res.locals.user)) {
+      if (!await solution.isAllowedEditBy(res.locals.user)) {
         throw new ErrorMessage('您没有权限编辑此题解。');
       }
 
@@ -226,11 +230,18 @@ app.post('/solution/:id/edit', async (req, res) => {
 
     if (id === 0) {
       // 新建
+      if (!await syzoj.utils.isEmailVerified(res.locals.user.id)) {
+        throw new ErrorMessage('请先验证邮箱后再投稿题解。');
+      }
       let pid = parseInt(req.body.problem_id);
       let problem = await Problem.findById(pid);
       if (!problem) throw new ErrorMessage('无此题目。');
       if (!await problem.isAllowedUseBy(res.locals.user)) {
         throw new ErrorMessage('您没有权限进行此操作。');
+      }
+      let setting = await ProblemSolutionSetting.findOne({ where: { problem_id: pid } });
+      if (setting && setting.disable_submission) {
+        throw new ErrorMessage('该题已关闭题解提交。');
       }
 
       solution = await ProblemSolution.create();
@@ -243,12 +254,8 @@ app.post('/solution/:id/edit', async (req, res) => {
     } else {
       solution = await ProblemSolution.findById(id);
       if (!solution) throw new ErrorMessage('无此题解。');
-      if (!solution.isAllowedEditBy(res.locals.user)) {
+      if (!await solution.isAllowedEditBy(res.locals.user)) {
         throw new ErrorMessage('您没有权限编辑此题解。');
-      }
-      // 普通用户编辑后回到 pending,管理员编辑保持原状态
-      if (!res.locals.user.is_admin && solution.status !== 'pending') {
-        solution.status = 'pending';
       }
     }
 
@@ -259,11 +266,32 @@ app.post('/solution/:id/edit', async (req, res) => {
     if (title.length > 80) throw new ErrorMessage('标题过长(最多 80 字符)。');
     if (!content) throw new ErrorMessage('内容不能为空。');
 
-    solution.title = title;
-    solution.content = content;
-    solution.update_time = parseInt((new Date()).getTime() / 1000);
-    solution.allow_comment = req.body.allow_comment === 'on' || req.body.allow_comment === 'true';
-    await solution.save();
+    const updateTime = parseInt((new Date()).getTime() / 1000);
+    const allowComment = req.body.allow_comment === 'on' || req.body.allow_comment === 'true';
+    if (isNew) {
+      solution.title = title;
+      solution.content = content;
+      solution.update_time = updateTime;
+      solution.allow_comment = allowComment;
+      await solution.save();
+    } else {
+      if (res.locals.user.is_admin) {
+        await TypeORM.getConnection().query(`
+          UPDATE problem_solution
+          SET title=?,content=?,update_time=?,allow_comment=?
+          WHERE id=?
+        `, [title, content, updateTime, allowComment, solution.id]);
+      } else {
+        await TypeORM.getConnection().query(`
+          UPDATE problem_solution
+          SET title=?,content=?,update_time=?,allow_comment=?,status='pending',
+              reviewer_id=NULL,reviewed_at=NULL,reject_reason=NULL
+          WHERE id=? AND user_id=?
+        `, [title, content, updateTime, allowComment, solution.id, res.locals.user.id]);
+      }
+      solution = await ProblemSolution.findById(solution.id);
+      if (!solution) throw new ErrorMessage('题解已被删除。');
+    }
 
     res.redirect(syzoj.utils.makeUrl(['solution', solution.id]));
   } catch (e) {
@@ -286,9 +314,11 @@ app.post('/solution/:id/withdraw', async (req, res) => {
       throw new ErrorMessage('您没有权限撤回此题解。');
     }
 
-    solution.status = 'withdrawn';
-    solution.update_time = parseInt((new Date()).getTime() / 1000);
-    await solution.save();
+    const result = await TypeORM.getConnection().query(`
+      UPDATE problem_solution SET status='withdrawn',update_time=?
+      WHERE id=? AND user_id=? AND status<>'withdrawn'
+    `, [parseInt((new Date()).getTime() / 1000), id, res.locals.user.id]);
+    if (!result || result.affectedRows !== 1) throw new ErrorMessage('题解状态已变更，请刷新页面。');
 
     res.redirect(syzoj.utils.makeUrl(['problem', solution.problem_id, 'solutions']));
   } catch (e) {
@@ -306,7 +336,7 @@ app.post('/solution/:id/delete', async (req, res) => {
     let solution = await ProblemSolution.findById(id);
     if (!solution) throw new ErrorMessage('无此题解。');
 
-    if (!solution.isAllowedEditBy(res.locals.user)) {
+    if (!await solution.isAllowedEditBy(res.locals.user)) {
       throw new ErrorMessage('您没有权限删除此题解。');
     }
 
@@ -344,7 +374,7 @@ app.get('/admin/solutions', async (req, res) => {
     for (let sol of solutions) {
       sol.user = await User.findById(sol.user_id);
       sol.problem = await Problem.findById(sol.problem_id);
-      // [v1.6.0] 加载审核员信息
+      // 加载审核员信息
       if (sol.reviewer_id) {
         sol.reviewer = await User.findById(sol.reviewer_id);
       }
@@ -381,13 +411,15 @@ app.post('/solution/:id/approve', async (req, res) => {
     let solution = await ProblemSolution.findById(id);
     if (!solution) throw new ErrorMessage('无此题解。');
 
-    solution.status = 'accepted';
-    solution.reviewer_id = res.locals.user.id;
-    solution.reviewed_at = parseInt((new Date()).getTime() / 1000);
-    solution.reject_reason = null;
-    solution.update_time = parseInt((new Date()).getTime() / 1000);
-    await solution.save();
-    // [v1.6.0] 通知作者
+    const reviewedAt = parseInt((new Date()).getTime() / 1000);
+    const result = await TypeORM.getConnection().query(`
+      UPDATE problem_solution
+      SET status='accepted',reviewer_id=?,reviewed_at=?,reject_reason=NULL,update_time=?
+      WHERE id=? AND status IN ('pending','rejected')
+    `, [res.locals.user.id, reviewedAt, reviewedAt, id]);
+    if (!result || result.affectedRows !== 1) throw new ErrorMessage('题解状态已被其他审核操作更新，请刷新页面。');
+    solution = await ProblemSolution.findById(id);
+    // 通知作者
     try {
       await syzoj.utils.createNotification({
         recipientId: solution.user_id,
@@ -418,17 +450,16 @@ app.post('/solution/:id/reject', async (req, res) => {
     let solution = await ProblemSolution.findById(id);
     if (!solution) throw new ErrorMessage('无此题解。');
 
-    let reason = (req.body.reason || '').trim();
-    if (!reason) reason = '管理员未通过此题解，未提供原因。';
-    if (reason.length > 255) reason = reason.substring(0, 255);
-
-    solution.status = 'rejected';
-    solution.reviewer_id = res.locals.user.id;
-    solution.reviewed_at = parseInt((new Date()).getTime() / 1000);
-    solution.reject_reason = reason;
-    solution.update_time = parseInt((new Date()).getTime() / 1000);
-    await solution.save();
-    // [v1.6.0] 通知作者
+    const reason = (req.body.reason || '').trim();
+    const reviewedAt = parseInt((new Date()).getTime() / 1000);
+    const result = await TypeORM.getConnection().query(`
+      UPDATE problem_solution
+      SET status='rejected',reviewer_id=?,reviewed_at=?,reject_reason=?,update_time=?
+      WHERE id=? AND status='pending'
+    `, [res.locals.user.id, reviewedAt, reason, reviewedAt, id]);
+    if (!result || result.affectedRows !== 1) throw new ErrorMessage('题解状态已被其他审核操作更新，请刷新页面。');
+    solution = await ProblemSolution.findById(id);
+    // 通知作者
     try {
       await syzoj.utils.createNotification({
         recipientId: solution.user_id,
@@ -467,15 +498,27 @@ app.post('/solution/:id/comment', async (req, res) => {
     if (!content) throw new ErrorMessage('评论内容不能为空。');
     if (content.length > 5000) throw new ErrorMessage('评论内容过长(最多 5000 字)。');
 
-    let comment = await ProblemSolutionComment.create({
-      content: content,
-      solution_id: id,
-      user_id: res.locals.user.id,
-      public_time: parseInt((new Date()).getTime() / 1000)
+    const publicTime = parseInt((new Date()).getTime() / 1000);
+    await TypeORM.getConnection().transaction(async manager => {
+      const rows = await manager.query(`
+        SELECT id,user_id,status,allow_comment FROM problem_solution WHERE id=? FOR UPDATE
+      `, [id]);
+      if (!rows.length) throw new ErrorMessage('无此题解。');
+      const current = rows[0];
+      const canComment = current.status === 'accepted' && (
+        current.allow_comment || res.locals.user.is_admin || current.user_id === res.locals.user.id
+      );
+      if (!canComment) throw new ErrorMessage('您没有权限评论此题解。');
+      await manager.query(
+        'INSERT INTO problem_solution_comment (content,solution_id,user_id,public_time) VALUES (?,?,?,?)',
+        [content, id, res.locals.user.id, publicTime]
+      );
+      await manager.query(`
+        UPDATE problem_solution
+        SET comments_num=(SELECT COUNT(*) FROM problem_solution_comment WHERE solution_id=?)
+        WHERE id=?
+      `, [id, id]);
     });
-    await comment.save();
-
-    await solution.resetCommentsNum();
 
     // ============ 通知逻辑 ============
     let viewerId = res.locals.user.id;
@@ -532,17 +575,24 @@ app.post('/solution/:sid/comment/:cid/delete', async (req, res) => {
 
     let sid = parseInt(req.params.sid);
     let cid = parseInt(req.params.cid);
-    let comment = await ProblemSolutionComment.findById(cid);
-    if (!comment || comment.solution_id !== sid) throw new ErrorMessage('无此评论。');
-
-    if (!(await comment.isAllowedEditBy(res.locals.user))) {
-      throw new ErrorMessage('您没有权限删除此评论。');
-    }
-
-    await comment.destroy();
-
-    let solution = await ProblemSolution.findById(sid);
-    if (solution) await solution.resetCommentsNum();
+    const canManage = res.locals.user.is_admin || await res.locals.user.hasPrivilege('manage_problem');
+    await TypeORM.getConnection().transaction(async manager => {
+      const rows = await manager.query(`
+        SELECT psc.user_id,ps.user_id AS solution_user_id
+        FROM problem_solution_comment psc
+        INNER JOIN problem_solution ps ON ps.id=psc.solution_id
+        WHERE psc.id=? AND psc.solution_id=? FOR UPDATE
+      `, [cid, sid]);
+      if (!rows.length) throw new ErrorMessage('无此评论。');
+      const allowed = canManage || rows[0].user_id === res.locals.user.id || rows[0].solution_user_id === res.locals.user.id;
+      if (!allowed) throw new ErrorMessage('您没有权限删除此评论。');
+      await manager.query('DELETE FROM problem_solution_comment WHERE id=? AND solution_id=?', [cid, sid]);
+      await manager.query(`
+        UPDATE problem_solution
+        SET comments_num=(SELECT COUNT(*) FROM problem_solution_comment WHERE solution_id=?)
+        WHERE id=?
+      `, [sid, sid]);
+    });
 
     res.redirect(syzoj.utils.makeUrl(['solution', sid]));
   } catch (e) {

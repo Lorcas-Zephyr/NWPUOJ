@@ -2,7 +2,7 @@
 // 每 60 秒自动刷新一次
 let UserPrivilege = syzoj.model('user_privilege');
 let User = syzoj.model('user');
-const MGMT_PRIVS = ['manage_problem', 'manage_problem_tag', 'manage_user'];
+const MGMT_PRIVS = ['manage_problem', 'manage_problem_tag', 'manage_contest', 'manage_user'];
 const REFRESH_INTERVAL_MS = 60 * 1000;
 
 syzoj.adminUserIds = new Set();

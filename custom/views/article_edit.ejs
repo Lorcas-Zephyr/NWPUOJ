@@ -1,0 +1,47 @@
+<% this.title = article.id ? '编辑帖子' : '发表帖子'; %>
+<% include header %>
+<div class="padding">
+  <div class="nwpuoj-page-header">
+    <h2 class="nwpuoj-page-title"><%= article.id ? '编辑帖子' : '发表帖子' %></h2>
+    <span class="nwpuoj-meta">Markdown 编辑器</span>
+  </div>
+  <form class="ui form" method="post" data-markdown-editor
+        data-draft-key="content-draft:article:<%= user.id %>:<%= article.id %>:<%= article.problem_id || req.query.problem_id || 'global' %>">
+    <input type="hidden" name="_content_token" value="<%= contentFormTokens.articleEdit %>">
+    <div class="ui top attached tabular menu nwpuoj-editor-mode" role="tablist">
+      <a class="active item" role="tab" aria-selected="true" data-tab="edit"><i class="edit icon"></i>编辑</a>
+      <a class="item" role="tab" aria-selected="false" data-tab="preview" data-preview-tab><i class="eye icon"></i>预览</a>
+    </div>
+    <div class="ui bottom attached active tab segment" data-tab="edit">
+      <div class="field">
+        <label for="title">标题</label>
+        <input type="text" id="title" name="title" value="<%= article.title || '' %>" maxlength="80" required>
+      </div>
+      <div class="field">
+        <label for="content">内容</label>
+        <textarea rows="18" id="content" name="content" class="markdown-edit" required><%= article.content || '' %></textarea>
+      </div>
+      <% if (user && user.is_admin) { %>
+      <div class="ui checkbox">
+        <input <% if (article.is_notice) { %>checked<% } %> name="is_notice" type="checkbox">
+        <label>公告</label>
+      </div>
+      <% } %>
+    </div>
+    <div class="ui bottom attached tab segment" data-tab="preview">
+      <h3 class="ui header" data-preview-title></h3>
+      <div class="font-content" data-preview-content></div>
+    </div>
+    <div class="nwpuoj-editor-actions">
+      <button type="button" class="ui basic labeled icon button" data-save-draft>
+        <i class="save icon"></i>保存草稿
+      </button>
+      <button type="submit" class="ui primary labeled icon button">
+        <i class="check icon"></i>提交
+      </button>
+      <span class="nwpuoj-draft-status" data-draft-status aria-live="polite"></span>
+    </div>
+  </form>
+</div>
+<% include markdown_editor_script %>
+<% include footer %>

@@ -1,4 +1,5 @@
 env-app
+.env
 *.log
 docker.log
 web-mariadb-redis-judge-rabbitmq/

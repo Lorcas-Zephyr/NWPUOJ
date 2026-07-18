@@ -1,6 +1,25 @@
 <% this.title = '修改资料'; %>
 <% include header %>
+<%
+let allowedManagePrivilege = user && user.is_admin;
+let currentUserIsSiteOwner = typeof isSiteOwner !== 'undefined' && isSiteOwner;
+let editedUserIsSiteOwner = !!(syzoj.siteOwnerUserId && edited_user.id === syzoj.siteOwnerUserId);
+let canManageSiteAdmin = currentUserIsSiteOwner && !editedUserIsSiteOwner;
+let identityProfile = (typeof registrationProfile !== 'undefined' && registrationProfile) ? registrationProfile : {};
+let identityColleges = (typeof registrationColleges !== 'undefined') ? registrationColleges : [];
+let savedStudentId = identityProfile.student_id || '';
+let savedRealName = identityProfile.real_name || '';
+let savedCollege = identityProfile.college || '';
+let canManageIdentity = !!(user && user.allowedManage);
+let requiresIdentityCompletion = typeof identityProfileComplete !== 'undefined' && !identityProfileComplete && edited_user.id === user.id;
+%>
 <div class="padding">
+    <% if (requiresIdentityCompletion) { %>
+      <div class="ui warning message" role="alert" aria-live="assertive">
+        <div class="header">请先补全实名资料</div>
+        <p>填写学号、姓名和学院并保存后，方可继续使用其他功能。</p>
+      </div>
+    <% } %>
     <div class="ui <% if (error_info === '') { %>success<% } else { %>error<% } %> message" id="error" <% if (error_info === null) { %>hidden<% } %>>
       <% if (error_info !== null) {
           if (error_info === '') error_info = '修改成功。';
@@ -8,11 +27,44 @@
       	<p id="error_info"><%= error_info %></p>
       <% } %>
     </div>
+    <% if (req.query && (req.query.avatar === 'uploaded' || req.query.avatar === 'removed')) { %>
+      <div class="ui positive message">
+        <i class="check circle icon"></i>
+        <%= req.query.avatar === 'uploaded' ? '头像上传成功。' : '已恢复默认头像。' %>
+      </div>
+    <% } %>
+    <section class="ui segment" aria-labelledby="avatar-title">
+      <h3 id="avatar-title" class="ui header" style="margin-top:0;">头像</h3>
+      <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap;">
+        <img src="<%= syzoj.utils.avatar(edited_user, 160) %>" alt="当前头像" style="width:112px;height:112px;object-fit:cover;border-radius:50%;border:1px solid #dfe3e8;background:#f7f8fa;">
+        <div>
+          <form method="post" action="<%= syzoj.utils.makeUrl(['user', edited_user.id, 'avatar']) %>" enctype="multipart/form-data" style="margin:0;">
+            <input type="hidden" name="avatar_csrf_token" value="<%= avatarCsrfToken %>">
+            <div class="field" style="margin-bottom:10px;">
+              <label for="avatar-upload">选择图片</label>
+              <input id="avatar-upload" type="file" name="avatar" accept="image/jpeg,image/png,image/webp" required>
+            </div>
+            <button type="submit" class="ui primary labeled icon button"><i class="upload icon"></i>上传头像</button>
+          </form>
+          <% if (syzoj.utils.hasCustomAvatar(edited_user)) { %>
+            <form method="post" action="<%= syzoj.utils.makeUrl(['user', edited_user.id, 'avatar', 'delete']) %>" style="display:inline-block;margin-top:10px;" onsubmit="return confirm('确定恢复默认头像吗？');">
+              <input type="hidden" name="avatar_csrf_token" value="<%= avatarCsrfToken %>">
+              <button type="submit" class="ui basic labeled icon button"><i class="undo icon"></i>恢复默认头像</button>
+            </form>
+          <% } %>
+          <div class="nwpuoj-meta" style="margin-top:8px;">支持 JPG、PNG、WebP，文件大小不超过 2MB。</div>
+        </div>
+      </div>
+    </section>
 		<form id="form" action="<%= syzoj.utils.makeUrl(['user', edited_user.id, 'edit']) %>" method="post" onsubmit="return check()">
+      <% if (canManageSiteAdmin) { %>
+        <input type="hidden" name="site_admin_control" value="1">
+        <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>">
+      <% } %>
       <div class="ui form">
       <div class="field">
 	    	<label for="username">用户名</label>
-	    	<input type="text" id="username" name="username" value="<%= edited_user.username %>"<% if (!user.allowedManage) { %> readonly<% } %>>
+		<input type="text" id="username" name="username" value="<%= edited_user.username %>"<% if (!user.allowedManage || editedUserIsSiteOwner) { %> readonly<% } %>>
 	    </div>
       <div class="field">
 	    	<label for="sex">性别</label>
@@ -23,8 +75,30 @@
         </select>
 	    </div>
 	    <div class="field">
-	    	<label for="email">Email</label>
-	    	<input class="font-content" type="email" id="email" name="email" value="<%= edited_user.email %>"<% if (!user.allowedManage) { %> readonly<% } %>>
+		<label for="email">Email</label>
+        <input class="font-content" type="email" id="email" name="email" value="<%= edited_user.email %>" required<% if (edited_user.id !== user.id && !user.allowedManage) { %> readonly<% } %>>
+	    </div>
+	    <div class="field">
+		<label for="student_id">学号</label>
+		<input type="text" id="student_id" name="student_id" inputmode="numeric" pattern="\d{10}" minlength="10" maxlength="10" value="<%= savedStudentId %>" required<% if (savedStudentId && !canManageIdentity) { %> readonly<% } %>>
+	    </div>
+	    <div class="field">
+		<label for="real_name">姓名</label>
+		<input type="text" id="real_name" name="real_name" maxlength="64" value="<%= savedRealName %>" required<% if (savedRealName && !canManageIdentity) { %> readonly<% } %>>
+	    </div>
+	    <div class="field">
+		<label for="college">学院</label>
+		<% if (savedCollege && !canManageIdentity) { %>
+		  <input type="text" id="college" value="<%= savedCollege %>" readonly>
+		<% } else { %>
+		  <select class="ui search dropdown" id="college" name="college" required>
+		    <option value="">请选择学院</option>
+		    <% identityColleges.forEach(function (college) { %>
+		      <option value="<%= college %>"<% if (college === savedCollege) { %> selected<% } %>><%= college %></option>
+		    <% }); %>
+		  </select>
+		<% } %>
+		<% if (canManageIdentity) { %><div class="nwpuoj-meta" style="margin-top:6px;">拥有用户管理权限，可修正该用户的实名资料。</div><% } %>
 	    </div>
 	    <% if (typeof edited_user !== 'undefined' && edited_user.id === user.id) { %>
             <div class="field">
@@ -68,24 +142,21 @@
       </div>
       <div class="field">
       <label class="ui header">密码</label>
-        <input type="password" placeholder="原密码（留空则不修改）" name="old_password" id="old_password">
+        <input type="password" placeholder="原密码（留空则不修改）" name="old_password" id="old_password" maxlength="128" autocomplete="current-password">
       </div>
       <div class="two fields" id="new_password_field">
         <div class="field">
-          <input type="password" placeholder="新密码" name="new_password" id="password1">
+          <input type="password" placeholder="新密码（至少 10 个字符）" name="new_password" id="password1" minlength="10" maxlength="128" autocomplete="new-password">
         </div>
         <div class="field">
-          <input type="password" placeholder="确认密码" id="password2">
+          <input type="password" placeholder="确认密码" id="password2" minlength="10" maxlength="128" autocomplete="new-password">
         </div>
       </div>
-      <%
-      let allowedManagePrivilege = user && user.is_admin;
-      %>
       <div class="inline field">
         <label class="ui header">权限</label>
-        <div class="ui toggle disabled checkbox" style="margin-right: 20px; ">
-          <input disabled="disabled" type="checkbox" <% if (edited_user.is_admin) { %> checked<% } %>>
-          <label>全站管理员</label>
+        <div class="ui toggle <% if (!canManageSiteAdmin) { %>disabled <% } %>checkbox" id="site-admin-checkbox" style="margin-right: 20px; ">
+          <input <% if (!canManageSiteAdmin) { %>disabled="disabled" <% } %>type="checkbox"<% if (canManageSiteAdmin) { %> name="is_admin"<% } %><% if (edited_user.is_admin) { %> checked<% } %>>
+          <label><%= editedUserIsSiteOwner ? '站长' : '全站管理员' %></label>
         </div>
         <div class="ui toggle <% if (!allowedManagePrivilege) { %>disabled <% } %>checkbox checkbox_privilege" data-name="manage_problem" style="margin-right: 20px; ">
           <input <% if (!allowedManagePrivilege) { %>disabled="disabled" <% } %>type="checkbox"<% if (edited_user.privileges.includes('manage_problem')) { %> checked<% } %>>
@@ -94,6 +165,10 @@
         <div class="ui toggle <% if (!allowedManagePrivilege) { %>disabled <% } %>checkbox checkbox_privilege" data-name="manage_problem_tag" style="margin-right: 20px; ">
           <input <% if (!allowedManagePrivilege) { %>disabled="disabled" <% } %>type="checkbox"<% if (edited_user.privileges.includes('manage_problem_tag')) { %> checked<% } %>>
           <label>管理题目标签</label>
+        </div>
+        <div class="ui toggle <% if (!allowedManagePrivilege) { %>disabled <% } %>checkbox checkbox_privilege" data-name="manage_contest" style="margin-right: 20px; ">
+          <input <% if (!allowedManagePrivilege) { %>disabled="disabled" <% } %>type="checkbox"<% if (edited_user.privileges.includes('manage_contest')) { %> checked<% } %>>
+          <label>管理比赛</label>
         </div>
         <div class="ui toggle <% if (!allowedManagePrivilege) { %>disabled <% } %>checkbox checkbox_privilege" data-name="manage_user">
           <input <% if (!allowedManagePrivilege) { %>disabled="disabled" <% } %>type="checkbox"<% if (edited_user.privileges.includes('manage_user')) { %> checked<% } %>>
@@ -134,7 +209,7 @@
             <div class="field">
               <label>牌子文字</label>
               <input type="text" id="my-tag-text-input" maxlength="12"
-                     value="<%= _tagState.record ? (_tagState.record.tag_text || '') : '管理员' %>"
+                     value="<%= _tagState.record ? (_tagState.record.tag_text || '') : (editedUserIsSiteOwner ? '站长' : '管理员') %>"
                      placeholder="<%= _tagState.isAutoFromAdmin ? '管理员' : '请填写要显示的文字...' %>"
                      style="max-width: 220px;">
               <span style="margin-left: 10px; color: #999; font-size: 0.85em;">
@@ -235,20 +310,7 @@
     <% } %>
 	</div>
 </div>
-<script>
-var bakDefine = (typeof define !== "undefined") ? define : undefined;
-define = undefined;
-</script>
-<script src="<%- lib('blueimp-md5/2.10.0/js/md5.min.js') %>"></script>
-<script>
-define = bakDefine;
-</script>
 <script type="text/javascript">
-function make_md5(tag) {
-	if (tag.val()) {
-		tag.val(md5(tag.val() + "syzoj2_xxx"));
-	}
-}
 function check() {
 	old_password = $("#old_password");
 	password1 = $("#password1");
@@ -261,10 +323,6 @@ function check() {
 		$("#error").show();
 		return false;
 	}
-	make_md5(old_password);
-	make_md5(password1);
-	make_md5(password2);
-
 <% if (allowedManagePrivilege) { %>
   $('.checkbox_privilege').each(function () {
     if ($(this).checkbox('is checked')) {

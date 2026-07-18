@@ -4,9 +4,14 @@
 <head>
     <meta charset="utf-8">
     <meta content="IE=edge" http-equiv="X-UA-Compatible">
-    <meta name="viewport" content="width=1200">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
+    <meta name="application-name" content="NWPUOJ">
+    <meta property="og:site_name" content="NWPUOJ">
     <title><%= title %> - <%= syzoj.config.title %></title>
-    <link rel="icon" type="image/png" href="/self/favicon.png">
+    <link rel="icon" type="image/png" href="/self/favicon.png?v=<%= encodeURIComponent(syzoj.config.nwpuoj_version || '1.0.0') %>">
+    <link rel="shortcut icon" type="image/png" href="/self/favicon.png?v=<%= encodeURIComponent(syzoj.config.nwpuoj_version || '1.0.0') %>">
+    <link rel="apple-touch-icon" href="/self/favicon.png?v=<%= encodeURIComponent(syzoj.config.nwpuoj_version || '1.0.0') %>">
     <!-- Google Analytics 4 -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-5S5PF5SMBP"></script>
     <script>
@@ -17,11 +22,25 @@
     </script>
     <link href="<%- lib('semantic-ui/2.4.1/semantic.min.css') %>" rel="stylesheet">
     <link href="<%- selfLib('syntect-tomorrow.css') %>?20220512" rel="stylesheet">
-    <link href="/self/username_tiers.css?v=1" rel="stylesheet">
+    <link href="/self/username_tiers.css?v=<%= encodeURIComponent(syzoj.config.nwpuoj_version || '1.0.0') %>" rel="stylesheet">
     <link href="<%- selfLib('style.css') %>?20181212" rel="stylesheet">
     <link href="<%- lib('morris.js/0.5.1/morris.css') %>" rel="stylesheet">
-    <link href="/self/sidebar.css?v=1.6.0" rel="stylesheet">
-    <link href="/self/mobile.css?v=1.6.0" rel="stylesheet">
+    <link href="/self/ui-system.css?v=<%= encodeURIComponent(syzoj.config.nwpuoj_version || '1.0.0') %>" rel="stylesheet">
+    <link href="/self/sidebar.css?v=<%= encodeURIComponent(syzoj.config.nwpuoj_version || '1.0.0') %>" rel="stylesheet">
+    <link href="/self/mobile.css?v=<%= encodeURIComponent(syzoj.config.nwpuoj_version || '1.0.0') %>" rel="stylesheet">
+    <script>
+    (function () {
+      document.documentElement.setAttribute('data-nwpuoj-sidebar-initializing', 'true');
+      try {
+        if (window.innerWidth > 768 && localStorage.getItem('nwpuoj_sidebar_collapsed') === 'true') {
+          document.documentElement.setAttribute('data-nwpuoj-sidebar-collapsed', 'true');
+        }
+      } catch (error) {}
+    })();
+    </script>
+    <% if (!user || !(user.is_admin || (user.privileges && user.privileges.includes('manage_problem')))) { %>
+      <style>#add_problem_dropdown { display: none !important; }</style>
+    <% } %>
     <% if (useLocalLibs || !syzoj.config.google_fonts || !['like-google-fonts', 'like-local', 'built-in'].includes(syzoj.config.google_fonts.type)) { %>
       <link href="<%- syzoj.utils.makeUrl(['google-fonts', 'fira-mono.css']) %>" rel="stylesheet">
       <link href="<%- syzoj.utils.makeUrl(['google-fonts', 'lato.css']) %>" rel="stylesheet">
@@ -44,9 +63,55 @@
       <link href="<%- this.builtInCdnUrl %>/google-fonts/exo-2.css" rel="stylesheet">
     <% } %>
     <script data-cfasync="false" src="<%- lib('jquery/3.3.1/jquery.min.js') %>"></script>
+    <script>
+    (function () {
+      var token = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+      function sameOrigin(url) {
+        try { return new URL(url || location.href, location.href).origin === location.origin; }
+        catch (error) { return false; }
+      }
+      function protectForm(form) {
+        if (!token || String(form.method || 'get').toLowerCase() === 'get' || !sameOrigin(form.action)) return;
+        var input = form.querySelector('input[name="_csrf"]');
+        if (!input) {
+          input = document.createElement('input');
+          input.type = 'hidden';
+          input.name = '_csrf';
+          form.appendChild(input);
+        }
+        input.value = token;
+      }
+      document.addEventListener('DOMContentLoaded', function () {
+        Array.prototype.forEach.call(document.forms, protectForm);
+      });
+      document.addEventListener('submit', function (event) { protectForm(event.target); }, true);
+
+      if (window.jQuery) {
+        window.jQuery.ajaxPrefilter(function (options, originalOptions, xhr) {
+          if (token && sameOrigin(options.url) && !/^(GET|HEAD|OPTIONS)$/i.test(options.type || 'GET')) {
+            xhr.setRequestHeader('X-CSRF-Token', token);
+          }
+        });
+      }
+      if (window.fetch) {
+        var originalFetch = window.fetch;
+        window.fetch = function (input, options) {
+          var requestOptions = Object.assign({}, options || {});
+          var url = typeof input === 'string' ? input : input.url;
+          var method = String(requestOptions.method || (typeof input !== 'string' && input.method) || 'GET').toUpperCase();
+          if (token && sameOrigin(url) && !/^(GET|HEAD|OPTIONS)$/.test(method)) {
+            var headers = new Headers(requestOptions.headers || (typeof input !== 'string' ? input.headers : undefined));
+            headers.set('X-CSRF-Token', token);
+            requestOptions.headers = headers;
+          }
+          return originalFetch.call(window, input, requestOptions);
+        };
+      }
+    })();
+    </script>
     <%
     // ============ 用户名颜色 tier 注入 ============
-    let _tierMap = {};
+    let _tierMap;
     function _calcTier(userId, isAdminUser) {
         if (isAdminUser) return 'admin';
         if (syzoj.adminUserIds && syzoj.adminUserIds.has(userId)) return 'admin';
@@ -61,71 +126,75 @@
         }
         return 'default';
     }
-    if (syzoj.adminUserIds) {
-        for (let uid of syzoj.adminUserIds) _tierMap[uid] = 'admin';
-    }
-    if (syzoj.userHitScores) {
-        for (let [uid, scoreData] of syzoj.userHitScores) {
-            if (_tierMap[uid] === 'admin') continue;
-            let t = _calcTier(uid, false);
-            if (t !== 'default' && t !== 'gray') _tierMap[uid] = t;
+    if (syzoj.clientUserTierMapHitSource !== syzoj.userHitScores ||
+        syzoj.clientUserTierMapAdminSource !== syzoj.adminUserIds) {
+        syzoj.clientUserTierMap = {};
+        if (syzoj.adminUserIds) {
+            for (let uid of syzoj.adminUserIds) syzoj.clientUserTierMap[uid] = 'admin';
         }
+        if (syzoj.userHitScores) {
+            for (let [uid, scoreData] of syzoj.userHitScores) {
+                if (syzoj.clientUserTierMap[uid] === 'admin') continue;
+                let t = _calcTier(uid, false);
+                if (t !== 'default' && t !== 'gray') syzoj.clientUserTierMap[uid] = t;
+            }
+        }
+        syzoj.clientUserTierMapHitSource = syzoj.userHitScores;
+        syzoj.clientUserTierMapAdminSource = syzoj.adminUserIds;
     }
+    _tierMap = syzoj.clientUserTierMap || {};
     let _cheatedIds = [];
     let _cancelledIds = [];
     let _cheaterUids = [];
-    if (syzoj.cheatedJudgeIds) for (let id of syzoj.cheatedJudgeIds) _cheatedIds.push(id);
-    if (syzoj.cancelledJudgeIds) for (let id of syzoj.cancelledJudgeIds) _cancelledIds.push(id);
+    if (typeof info !== 'undefined' && info && info.submissionId) {
+      if (syzoj.cheatedJudgeIds && syzoj.cheatedJudgeIds.has(info.submissionId)) _cheatedIds.push(info.submissionId);
+      if (syzoj.cancelledJudgeIds && syzoj.cancelledJudgeIds.has(info.submissionId)) _cancelledIds.push(info.submissionId);
+    }
     if (syzoj.cheaterUserIds) for (let id of syzoj.cheaterUserIds) _cheaterUids.push(id);
     let _userTagsObj = {};
-    if (syzoj.userTags) {
+    if (syzoj.userTagsEnabled !== false && syzoj.userTags) {
       for (let [uid, info] of syzoj.userTags) {
         _userTagsObj[uid] = { text: info.text, tier: info.tier };
       }
     }
     %>
     <script>
-    window.__SYZOJ_USER_TIERS = <%- JSON.stringify(_tierMap) %>;
-    window.__SYZOJ_CHEATED_JUDGE_IDS = <%- JSON.stringify(_cheatedIds) %>;
-    window.__SYZOJ_CANCELLED_JUDGE_IDS = <%- JSON.stringify(_cancelledIds) %>;
-    window.__SYZOJ_CHEATER_USER_IDS = <%- JSON.stringify(_cheaterUids) %>;
-    window.__SYZOJ_USER_TAGS = <%- JSON.stringify(_userTagsObj) %>;
+    window.__SYZOJ_USER_TIERS = <%- serializejs(_tierMap) %>;
+    window.__SYZOJ_CHEATED_JUDGE_IDS = <%- serializejs(_cheatedIds) %>;
+    window.__SYZOJ_CANCELLED_JUDGE_IDS = <%- serializejs(_cancelledIds) %>;
+    window.__SYZOJ_CHEATER_USER_IDS = <%- serializejs(_cheaterUids) %>;
+    window.__SYZOJ_USER_TAGS = <%- serializejs(_userTagsObj) %>;
     </script>
 </head>
-<body class="algobeat-sidebar-layout">
+<body class="nwpuoj-sidebar-layout">
 
     <!-- ============ Top Bar ============ -->
-    <div class="ab-topbar">
-      <div class="ab-topbar-left">
-        <button type="button" class="ab-topbar-toggle" title="折叠/展开侧栏">
+    <div class="nwpuoj-topbar">
+      <div class="nwpuoj-topbar-left">
+        <button type="button" class="nwpuoj-topbar-toggle" title="折叠/展开侧栏" aria-label="折叠或展开侧栏" aria-controls="nwpuoj-sidebar" aria-expanded="true">
           <i class="bars icon"></i>
         </button>
-        <a href="/" class="ab-topbar-brand">
-          <img src="/self/logo.png" alt="logo">
-          <span class="ab-topbar-brand-name"><%= syzoj.config.title %></span>
+        <a href="/" class="nwpuoj-topbar-brand">
+          <img src="/self/logo.png?v=<%= encodeURIComponent(syzoj.config.nwpuoj_version || '1.0.0') %>" alt="NWPUOJ" width="32" height="32">
+          <span class="nwpuoj-topbar-brand-name"><%= syzoj.config.title %></span>
         </a>
-        <% if (typeof contest !== 'undefined' && contest && contest.id) { %>
-          <a class="ab-topbar-contest-back" href="<%= syzoj.utils.makeUrl(['contest', contest.id]) %>">
-            <i class="arrow left icon"></i>返回比赛
-          </a>
-        <% } %>
       </div>
-      <div class="ab-topbar-right">
+      <div class="nwpuoj-topbar-right">
         <% if (user) { %>
-          <a class="ab-topbar-icon" href="<%= syzoj.utils.makeUrl(['notifications']) %>" title="通知中心">
+          <a class="nwpuoj-topbar-icon" href="<%= syzoj.utils.makeUrl(['notifications']) %>" title="通知中心">
             <i class="bell outline icon"></i>
             <% if (typeof unreadNotificationsCount !== 'undefined' && unreadNotificationsCount > 0) { %>
-              <span class="ab-topbar-badge"><%= unreadNotificationsCount > 99 ? '99+' : unreadNotificationsCount %></span>
+              <span class="nwpuoj-topbar-badge"><%= unreadNotificationsCount > 99 ? '99+' : unreadNotificationsCount %></span>
             <% } %>
           </a>
-          <a class="ab-topbar-icon" href="/messages" title="站内信">
+          <a class="nwpuoj-topbar-icon" href="/messages" title="站内信">
             <i class="envelope outline icon"></i>
             <% if (typeof unreadMessagesCount !== 'undefined' && unreadMessagesCount > 0) { %>
-              <span class="ab-topbar-badge"><%= unreadMessagesCount > 99 ? '99+' : unreadMessagesCount %></span>
+              <span class="nwpuoj-topbar-badge"><%= unreadMessagesCount > 99 ? '99+' : unreadMessagesCount %></span>
             <% } %>
           </a>
-          <div class="ui simple dropdown ab-topbar-user-dropdown">
-            <%= user.username %><% if (user.nameplate) { %><%- user.nameplate %><% } %>
+          <div class="ui simple dropdown nwpuoj-topbar-user-dropdown">
+            <%= user.username %>
             <i class="dropdown icon"></i>
             <div class="menu">
               <a class="item" href="<%= syzoj.utils.makeUrl(['user', user.id]) %>"><i class="user icon"></i>我的主页</a>
@@ -165,7 +234,6 @@
               <% } %>
               <% if (user.is_admin) { %>
                 <a class="item" href="<%= syzoj.utils.makeUrl(['admin', 'announcements']) %>"><i class="bullhorn icon"></i>公告管理</a>
-                <a class="item" href="<%= syzoj.utils.makeUrl(['admin', 'user-tags']) %>"><i class="id badge icon"></i>牌子管理</a>
                 <a class="item" href="<%= syzoj.utils.makeUrl(['admin', 'banners']) %>"><i class="audio description icon"></i>轮播管理</a>
               <% } %>
               <div class="ui divider"></div>
@@ -173,53 +241,138 @@
             </div>
           </div>
         <% } else { %>
-          <a class="ab-topbar-icon" href="<%= syzoj.utils.makeUrl(['login'], { url: req.query['url'] || req.originalUrl }) %>" style="padding: 6px 14px;">登录</a>
-          <a class="ab-topbar-icon" href="<%= syzoj.utils.makeUrl(['sign_up'], { url: req.query['url'] || req.originalUrl }) %>" style="padding: 6px 14px; background: #2185d0; color: white !important;">注册</a>
+          <a class="nwpuoj-topbar-icon" href="<%= syzoj.utils.makeUrl(['login'], { url: req.query['url'] || req.originalUrl }) %>" style="padding: 6px 14px;">登录</a>
+          <a class="nwpuoj-topbar-icon" href="<%= syzoj.utils.makeUrl(['sign_up'], { url: req.query['url'] || req.originalUrl }) %>" style="padding: 6px 14px; background: #2185d0; color: white !important;">注册</a>
         <% } %>
       </div>
     </div>
 
     <!-- ============ Side Bar ============ -->
-    <aside class="ab-sidebar">
-      <a href="/" class="ab-sidebar-header">
-        <img src="/self/logo.png" alt="logo">
-      </a>
-      <nav class="ab-sidebar-nav">
-        <a class="ab-sidebar-item<% if (active === '') { %> active<% } %>" href="/">
-          <i class="home icon"></i><span class="ab-sidebar-label">首页</span>
+    <aside class="nwpuoj-sidebar" id="nwpuoj-sidebar">
+      <nav class="nwpuoj-sidebar-nav">
+        <a class="nwpuoj-sidebar-item<% if (active === '') { %> active<% } %>" href="/">
+          <i class="home icon"></i><span class="nwpuoj-sidebar-label">首页</span>
         </a>
-        <a class="ab-sidebar-item<% if (active.startsWith('problem')) { %> active<% } %>" href="/problems">
-          <i class="list icon"></i><span class="ab-sidebar-label">题库</span>
+        <a class="nwpuoj-sidebar-item<% if (active.startsWith('announcement')) { %> active<% } %>" href="<%= syzoj.utils.makeUrl(['announcements']) %>">
+          <i class="bullhorn icon"></i><span class="nwpuoj-sidebar-label">公告</span>
         </a>
-        <a class="ab-sidebar-item<% if (active.startsWith('contest')) { %> active<% } %>" href="/contests">
-          <i class="calendar icon"></i><span class="ab-sidebar-label">比赛</span>
+        <a class="nwpuoj-sidebar-item<% if (active.startsWith('problem')) { %> active<% } %>" href="/problems">
+          <i class="list icon"></i><span class="nwpuoj-sidebar-label">题库</span>
         </a>
-        <a class="ab-sidebar-item<% if (active.startsWith('submission')) { %> active<% } %>" href="/submissions">
-          <i class="tasks icon"></i><span class="ab-sidebar-label">评测</span>
+        <a class="nwpuoj-sidebar-item<% if (active.startsWith('contest')) { %> active<% } %>" href="/contests">
+          <i class="calendar icon"></i><span class="nwpuoj-sidebar-label">比赛</span>
         </a>
-        <a class="ab-sidebar-item<% if (active.startsWith('ranklist')) { %> active<% } %>" href="/ranklist">
-          <i class="signal icon"></i><span class="ab-sidebar-label">排名</span>
+        <a class="nwpuoj-sidebar-item<% if (active.startsWith('submission')) { %> active<% } %>" href="/submissions">
+          <i class="tasks icon"></i><span class="nwpuoj-sidebar-label">评测</span>
         </a>
-        <a class="ab-sidebar-item<% if (active.startsWith('discussion') || active.startsWith('article')) { %> active<% } %>" href="/discussion/global">
-          <i class="comments icon"></i><span class="ab-sidebar-label">讨论</span>
+        <a class="nwpuoj-sidebar-item<% if (active.startsWith('ranklist')) { %> active<% } %>" href="/ranklist">
+          <i class="signal icon"></i><span class="nwpuoj-sidebar-label">排名</span>
         </a>
-        <a class="ab-sidebar-item<% if (active.startsWith('tags')) { %> active<% } %>" href="/tags">
-          <i class="tags icon"></i><span class="ab-sidebar-label">标签</span>
+        <a class="nwpuoj-sidebar-item<% if (active.startsWith('discussion') || active.startsWith('article')) { %> active<% } %>" href="/discussion/global">
+          <i class="comments icon"></i><span class="nwpuoj-sidebar-label">讨论</span>
+        </a>
+        <a class="nwpuoj-sidebar-item<% if (active.startsWith('tags')) { %> active<% } %>" href="/tags">
+          <i class="tags icon"></i><span class="nwpuoj-sidebar-label">标签</span>
         </a>
         <% if (user) { %>
-          <a class="ab-sidebar-item" href="<%= syzoj.utils.makeUrl(['tickets']) %>">
-            <i class="ticket icon"></i><span class="ab-sidebar-label">工单</span>
+          <a class="nwpuoj-sidebar-item" href="<%= syzoj.utils.makeUrl(['tickets']) %>">
+            <i class="ticket icon"></i><span class="nwpuoj-sidebar-label">工单</span>
           </a>
         <% } %>
-        <a class="ab-sidebar-item<% if (active.startsWith('help')) { %> active<% } %>" href="/help">
-          <i class="help circle icon"></i><span class="ab-sidebar-label">帮助</span>
+        <a class="nwpuoj-sidebar-item<% if (active.startsWith('help')) { %> active<% } %>" href="/help">
+          <i class="help circle icon"></i><span class="nwpuoj-sidebar-label">帮助</span>
         </a>
       </nav>
     </aside>
 
     <!-- ============ Backdrop (移动端遮罩) ============ -->
-    <div class="ab-backdrop"></div>
+    <div class="nwpuoj-backdrop"></div>
 
     <!-- ============ Main Content ============ -->
     <div style="margin-top: 0;">
     <div class="ui main container">
+    <% if (typeof contestHeader !== 'undefined' && contestHeader) { %>
+      <% include contest_context %>
+    <% } %>
+    <% if (typeof problemContext !== 'undefined' && problemContext) { %>
+      <% include problem_context %>
+    <% } %>
+    <%
+    let standardPageHeading = null;
+    let hasPageContext = (typeof contestHeader !== 'undefined' && contestHeader) ||
+      (typeof problemContext !== 'undefined' && problemContext);
+    if (!hasPageContext) {
+      if (/^\/problems(?:\/|$)/.test(req.path)) standardPageHeading = { title: '题库', icon: 'list' };
+      else if (/^\/contests(?:\/|$)/.test(req.path)) standardPageHeading = { title: '比赛', icon: 'calendar' };
+      else if (req.path === '/submissions') standardPageHeading = { title: '评测', icon: 'tasks' };
+      else if (req.path === '/ranklist') standardPageHeading = { title: '排名', icon: 'signal' };
+      else if (/^\/discussion\/(?:global|problems)\/?$/.test(req.path)) standardPageHeading = { title: '讨论', icon: 'comments' };
+    }
+    %>
+    <% if (standardPageHeading) { %>
+      <div class="padding nwpuoj-standard-page-heading">
+        <% if (standardPageHeading.title === '题库') { %>
+          <%
+          const headingRepository = typeof repository !== 'undefined' && ['all', 'main', 'uoj', 'hdu', 'poj'].includes(repository)
+            ? repository
+            : (['main', 'uoj', 'hdu', 'poj'].includes(req.query.repository) ? req.query.repository : 'all');
+          const headingRepositories = [
+            { key: 'all', label: '全部题库' },
+            { key: 'main', label: '主题库' },
+            { key: 'uoj', label: 'UOJ' },
+            { key: 'hdu', label: 'HDU' },
+            { key: 'poj', label: 'POJ' }
+          ];
+          const headingFilterParams = {};
+          if (req.query.keyword) headingFilterParams.keyword = req.query.keyword;
+          if (req.query.sort) headingFilterParams.sort = req.query.sort;
+          if (req.query.order) headingFilterParams.order = req.query.order;
+          if (req.query.progress) headingFilterParams.progress = req.query.progress;
+          const headingTagIDs = req.params && req.params.tagIDs;
+          const headingPath = headingTagIDs
+            ? ['problems', 'tag', headingTagIDs]
+            : (req.path === '/problems/search' ? ['problems', 'search'] : ['problems']);
+          const headingSearchPath = headingTagIDs ? ['problems', 'tag', headingTagIDs] : ['problems', 'search'];
+          %>
+          <style>
+            .problem-repository-heading { display: block; }
+            .problem-repository-heading h2 { margin: 0; }
+            .problem-repository-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 0.5cm; }
+            .problem-repository-search { margin-left: auto; width: 280px; max-width: 100%; }
+            @media (max-width: 767px) {
+              .problem-repository-controls { align-items: stretch; }
+              .problem-repository-search { margin-left: 0; width: 100%; }
+            }
+          </style>
+          <div class="problem-repository-heading">
+            <h2 class="nwpuoj-page-title"><i class="list icon"></i>题库</h2>
+            <div class="problem-repository-controls">
+              <div class="nwpuoj-segmented" aria-label="切换题库">
+                <% for (const option of headingRepositories) { %>
+                  <a class="nwpuoj-segment <%= headingRepository === option.key ? 'active' : '' %>"
+                     aria-current="<%= headingRepository === option.key ? 'page' : 'false' %>"
+                     href="<%= syzoj.utils.makeUrl(headingPath, Object.assign({}, headingFilterParams, option.key === 'all' ? {} : { repository: option.key })) %>">
+                    <%= option.label %>
+                  </a>
+                <% } %>
+              </div>
+              <form action="<%= syzoj.utils.makeUrl(headingSearchPath) %>" method="get" class="problem-repository-search">
+                <% if (headingRepository !== 'all') { %><input type="hidden" name="repository" value="<%= headingRepository %>"><% } %>
+                <% if (req.query.sort) { %><input type="hidden" name="sort" value="<%= req.query.sort %>"><% } %>
+                <% if (req.query.order) { %><input type="hidden" name="order" value="<%= req.query.order %>"><% } %>
+                <% if (req.query.progress) { %><input type="hidden" name="progress" value="<%= req.query.progress %>"><% } %>
+                <div class="ui search" style="width: 100%;">
+                  <div class="ui left icon input" style="width: 100%;">
+                    <input class="prompt" style="width: 100%;" type="text" value="<%= req.query.keyword || '' %>" placeholder="ID / 题目名 …" name="keyword">
+                    <i class="search icon"></i>
+                  </div>
+                  <div class="results" style="width: 100%;"></div>
+                </div>
+              </form>
+            </div>
+          </div>
+        <% } else { %>
+          <h2 class="nwpuoj-page-title"><i class="<%= standardPageHeading.icon %> icon"></i><%= standardPageHeading.title %></h2>
+        <% } %>
+      </div>
+    <% } %>

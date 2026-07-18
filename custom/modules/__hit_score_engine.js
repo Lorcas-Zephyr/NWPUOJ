@@ -1,7 +1,7 @@
 // ============================================================
 // Hit 值计算引擎
 // - 启动时延后 30 秒做首次计算(等数据库连接稳定)
-// - 每 24 小时全量重算 + 写入历史
+// - 每天 00:00 全量重算 + 写入历史
 // - 每 60 秒从 user_hit_score 表刷新内存 Map
 // - 维护 syzoj.userHitScores 给 username helper 用
 // - 暴露 syzoj.recalcHitScores() 给后台手动触发
@@ -19,7 +19,6 @@ let UserHitSetting = syzoj.model('user-hit-setting');
 let Contest = syzoj.model('contest');
 
 const CACHE_REFRESH_INTERVAL_MS = 60 * 1000;
-const FULL_RECALC_INTERVAL_MS = 24 * 3600 * 1000;
 const INITIAL_DELAY_MS = 30 * 1000;
 const HISTORY_RETENTION_DAYS = 90;
 
@@ -40,8 +39,7 @@ async function calcOneUser(user) {
   // -------- 基础信用分(满分 100,无保底)--------
   let basic = 0;
   try {
-    let emailStatus = await UserEmailStatus.findOne({ where: { user_id: user.id } });
-    if (emailStatus && emailStatus.is_email_verified) basic += 60;
+    if (await syzoj.utils.isEmailVerified(user.id)) basic += 60;
   } catch (e) {}
 
   if (user.information && String(user.information).trim().length > 0) basic += 10;
@@ -74,7 +72,7 @@ async function calcOneUser(user) {
     .where('cp.user_id = :uid', { uid: user.id })
     .andWhere('cp.score > 0')
     .getMany();
-    // [v1.5.1] 排除作弊比赛: 该用户在该比赛中有过 cheated 提交,则该比赛对其 Hit 比赛分无贡献
+    // 排除作弊比赛: 该用户在该比赛中有过 cheated 提交,则该比赛对其 Hit 比赛分无贡献
   const _cheaterMap = syzoj.contestCheaterMap || new Map();
   activeCps = activeCps.filter(cp => {
     const cset = _cheaterMap.get(cp.contest_id);
@@ -177,7 +175,7 @@ async function calcOneUser(user) {
 }
 
 // ============ 全量计算 ============
-async function fullRecalc() {
+async function runFullRecalc() {
   let started = Date.now();
   syzoj.log('[hit-engine] Full recalc started');
 
@@ -247,6 +245,57 @@ async function fullRecalc() {
   await refreshMemoryCache();
 }
 
+let fullRecalcPromise = null;
+function fullRecalc() {
+  if (!fullRecalcPromise) {
+    fullRecalcPromise = runFullRecalc().finally(() => { fullRecalcPromise = null; });
+  }
+  return fullRecalcPromise;
+}
+
+function startOfTodaySeconds() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.floor(today.getTime() / 1000);
+}
+
+async function needsStartupCatchup() {
+  const [scoreStats, userCount] = await Promise.all([
+    UserHitScore.createQueryBuilder('score')
+      .select('COUNT(*)', 'count')
+      .addSelect('MIN(score.last_calc_at)', 'oldest_calc')
+      .getRawOne(),
+    User.count()
+  ]);
+  const scoreCount = Number(scoreStats && scoreStats.count || 0);
+  const oldestCalculation = Number(scoreStats && scoreStats.oldest_calc || 0);
+  return scoreCount < Number(userCount || 0) ||
+    (scoreCount > 0 && oldestCalculation < startOfTodaySeconds());
+}
+
+function formatLocalScheduleTime(date) {
+  const pad = value => String(value).padStart(2, '0');
+  return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate()) + ' ' +
+    pad(date.getHours()) + ':' + pad(date.getMinutes()) + ':' + pad(date.getSeconds());
+}
+
+function scheduleNextDailyRecalc() {
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(24, 0, 0, 0);
+  syzoj.hitNextRecalcAt = Math.floor(next.getTime() / 1000);
+  syzoj.log('[hit-engine] Next daily recalc scheduled at ' + formatLocalScheduleTime(next));
+  setTimeout(async () => {
+    try {
+      await fullRecalc();
+    } catch (error) {
+      syzoj.log('[hit-engine] Daily recalc failed: ' + error.message);
+    } finally {
+      scheduleNextDailyRecalc();
+    }
+  }, Math.max(1000, next.getTime() - now.getTime()));
+}
+
 // ============ 刷新内存缓存 ============
 async function refreshMemoryCache() {
   try {
@@ -276,15 +325,15 @@ setTimeout(async () => {
     await refreshMemoryCache();
     syzoj.log('[hit-engine] Memory cache loaded: ' + syzoj.userHitScores.size + ' users');
 
-    // 如果缓存表是空的,立刻做一次全量计算
-    if (syzoj.userHitScores.size === 0) {
-      syzoj.log('[hit-engine] Cache table empty, doing initial calculation...');
+    // 重启错过零点任务或存在尚未计算的新用户时立即补算。
+    if (await needsStartupCatchup()) {
+      syzoj.log('[hit-engine] Today\'s calculation is missing, doing startup catch-up...');
       await fullRecalc();
     }
 
-    // 周期任务
+    // 内存缓存按分钟刷新，全量计算固定在本地时区每天 00:00。
     setInterval(refreshMemoryCache, CACHE_REFRESH_INTERVAL_MS);
-    setInterval(fullRecalc, FULL_RECALC_INTERVAL_MS);
+    scheduleNextDailyRecalc();
   } catch (e) {
     syzoj.log('[hit-engine] Init failed: ' + e.message);
   }

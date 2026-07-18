@@ -2,46 +2,45 @@
 <% include header %>
 
 <div class="padding">
-  <div class="ui breadcrumb" style="margin-bottom: 15px;">
+  <div class="ui breadcrumb nwpuoj-meta" style="margin-bottom:15px;">
     <a class="section" href="<%= syzoj.utils.makeUrl(['problems']) %>">题库</a>
     <i class="right angle icon divider"></i>
-    <a class="section" href="<%= syzoj.utils.makeUrl(['problem', problem.id]) %>">#<%= problem.id %>. <%= problem.title %></a>
+    <a class="section" href="<%= syzoj.utils.makeUrl(['problem', problem.id]) %>"><%= problem.getDisplayId() %>. <%= problem.title %></a>
     <i class="right angle icon divider"></i>
     <a class="section" href="<%= syzoj.utils.makeUrl(['problem', problem.id, 'solutions']) %>">题解</a>
     <i class="right angle icon divider"></i>
     <div class="active section"><%= solution.title %></div>
   </div>
 
-  <div class="ui segment">
-    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+  <div class="nwpuoj-content-surface">
+    <div class="nwpuoj-content-header" style="margin-top:0;">
       <div>
-        <h2 style="margin: 0 0 8px 0;"><%= solution.title %></h2>
-        <div style="color: #888; font-size: 0.9em;">
+        <h1 class="nwpuoj-content-title"><%= solution.title %></h1>
+        <div class="nwpuoj-content-meta">
           作者：
           <% if (solution.user) { %>
             <%- syzoj.utils.renderUsername(solution.user) %>
           <% } else { %>
             <i>已删除</i>
           <% } %>
-          &nbsp;·&nbsp;
-          发布于 <%= syzoj.utils.formatDate(solution.public_time) %>
+          <span><i class="calendar outline icon"></i><%= syzoj.utils.formatDate(solution.public_time) %></span>
           <% if (solution.update_time && solution.update_time !== solution.public_time) { %>
-            &nbsp;·&nbsp; 最后修改于 <%= syzoj.utils.formatDate(solution.update_time) %>
+            <span><i class="edit outline icon"></i><%= syzoj.utils.formatDate(solution.update_time) %></span>
           <% } %>
         </div>
       </div>
       <div>
         <% if (solution.status === 'accepted') { %>
-          <span class="ui green label">已通过</span>
+          <span class="nwpuoj-status nwpuoj-status-success">已通过</span>
         <% } else if (solution.status === 'pending') { %>
-          <span class="ui yellow label">待审核</span>
+          <span class="nwpuoj-status nwpuoj-status-warning">待审核</span>
         <% } else if (solution.status === 'rejected') { %>
-          <span class="ui red label">已拒绝</span>
+          <span class="nwpuoj-status nwpuoj-status-danger">已拒绝</span>
         <% } else if (solution.status === 'withdrawn') { %>
-          <span class="ui grey label">已撤回</span>
+          <span class="nwpuoj-status nwpuoj-status-muted">已撤回</span>
         <% } %>
         <% if ((solution.status === 'accepted' || solution.status === 'rejected') && solution.reviewer) { %>
-          <div style="color: #888; font-size: 0.85em; margin-top: 6px;">
+          <div class="nwpuoj-meta" style="margin-top:6px;">
             审核员：<%- syzoj.utils.renderUsername(solution.reviewer) %>
             <% if (solution.reviewed_at) { %>
               · <%= syzoj.utils.formatDate(solution.reviewed_at) %>
@@ -72,7 +71,7 @@
   </div>
 
   <% if (solution.allowedEdit) { %>
-    <div style="margin-top: 15px;">
+    <div class="nwpuoj-page-actions" style="margin-top:15px;">
       <a class="ui button" href="<%= syzoj.utils.makeUrl(['solution', solution.id, 'edit']) %>">
         <i class="edit icon"></i> 编辑
       </a>
@@ -91,24 +90,27 @@
     </div>
   <% } %>
   <% if (canReview && solution.status === 'pending') { %>
-    <div class="ui segment" style="margin-top: 15px; background-color: #fffde7;">
+    <div class="nwpuoj-review-panel">
       <h4 style="margin-top: 0;">
         <i class="gavel icon"></i> 题解审核
       </h4>
-      <p style="color: #888; margin-bottom: 15px;">
+      <p class="nwpuoj-meta" style="margin-bottom:15px;">
         此题解处于待审核状态。审核通过后所有用户可见。
       </p>
 
-      <div style="display: flex; gap: 10px; align-items: flex-start;">
-        <a class="ui green button" href-post="<%= syzoj.utils.makeUrl(['solution', solution.id, 'approve']) %>"
-           onclick="return confirm('确定审核通过这篇题解吗？');">
-          <i class="checkmark icon"></i> 通过
-        </a>
+      <div class="nwpuoj-review-actions">
+        <form method="post" action="<%= syzoj.utils.makeUrl(['solution', solution.id, 'approve']) %>"
+              onsubmit="return confirm('确定审核通过这篇题解吗？');">
+          <input type="hidden" name="_content_token" value="<%= contentFormTokens.solutionReview %>">
+          <button type="submit" class="ui green button">
+            <i class="checkmark icon"></i> 通过
+          </button>
+        </form>
 
-        <form class="ui form" action="<%= syzoj.utils.makeUrl(['solution', solution.id, 'reject']) %>" method="post"
-              style="display: flex; gap: 8px; flex: 1;"
+        <form class="ui form nwpuoj-review-reject-form" action="<%= syzoj.utils.makeUrl(['solution', solution.id, 'reject']) %>" method="post"
               onsubmit="return confirm('确定拒绝这篇题解吗？');">
-          <input type="text" name="reason" placeholder="拒绝原因（必填，将展示给作者）" maxlength="255" required style="flex: 1;">
+          <input type="hidden" name="_content_token" value="<%= contentFormTokens.solutionReview %>">
+          <input type="text" name="reason" placeholder="拒绝原因（必填，将展示给作者）" maxlength="255" required>
           <button type="submit" class="ui red button">
             <i class="times icon"></i> 拒绝
           </button>
@@ -119,22 +121,24 @@
 
   <% if (canReview && solution.status === 'rejected') { %>
     <div style="margin-top: 15px;">
-      <a class="ui green button" href-post="<%= syzoj.utils.makeUrl(['solution', solution.id, 'approve']) %>"
-         onclick="return confirm('改判此题解为已通过？');">
-        <i class="checkmark icon"></i> 改判通过
-      </a>
+      <form method="post" action="<%= syzoj.utils.makeUrl(['solution', solution.id, 'approve']) %>"
+            onsubmit="return confirm('改判此题解为已通过？');">
+        <input type="hidden" name="_content_token" value="<%= contentFormTokens.solutionReview %>">
+        <button type="submit" class="ui green button">
+          <i class="checkmark icon"></i> 改判通过
+        </button>
+      </form>
     </div>
   <% } %>
-</div>
 <!-- ============ 评论区 ============ -->
-  <div style="margin-top: 20px;" id="comments">
+  <div style="margin-top:20px;" id="comments">
     <% if (commentsCount > 0) { %>
       <h3>共 <%= commentsCount %> 条评论</h3>
       <div class="ui comments" style="max-width: none;">
         <% for (let c of comments) { %>
           <div class="comment">
             <a class="avatar">
-              <img src="<%= syzoj.utils.gravatar(c.user.email, 120) %>">
+              <img src="<%= syzoj.utils.avatar(c.user, 120) %>">
             </a>
             <div class="content">
               <%- syzoj.utils.renderUsername(c.user) %>
@@ -159,6 +163,7 @@
 
     <% if (solution.allowedComment) { %>
       <form class="ui reply form" method="post" action="<%= syzoj.utils.makeUrl(['solution', solution.id, 'comment']) %>" style="margin-top: 15px;">
+        <input type="hidden" name="_content_token" value="<%= contentFormTokens.solutionComment %>">
         <div class="field">
           <textarea name="comment" placeholder="发表评论(支持 Markdown,最多 5000 字)..." rows="4"></textarea>
         </div>
@@ -182,4 +187,5 @@
       </div>
     <% } %>
   </div>
+</div>
 <% include footer %>

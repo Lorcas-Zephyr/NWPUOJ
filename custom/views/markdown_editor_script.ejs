@@ -1,0 +1,96 @@
+<script>
+$(function () {
+  const form = document.querySelector('[data-markdown-editor]');
+  if (!form) return;
+  const title = form.querySelector('[name="title"]');
+  const content = form.querySelector('[name="content"]');
+  const allowComment = form.querySelector('[name="allow_comment"]');
+  const submitButton = form.querySelector('[type="submit"]');
+  const draftStatus = form.querySelector('[data-draft-status]');
+  const draftKey = form.getAttribute('data-draft-key');
+  let submitted = false;
+  let saveTimer;
+
+  function snapshot() {
+    return {
+      title: title ? title.value : '',
+      content: content ? content.value : '',
+      allowComment: allowComment ? allowComment.checked : null
+    };
+  }
+
+  function sameDraft(left, right) {
+    return left && right && left.title === right.title && left.content === right.content && left.allowComment === right.allowComment;
+  }
+
+  const serverDraft = snapshot();
+  try {
+    const savedDraft = JSON.parse(localStorage.getItem(draftKey));
+    if (savedDraft && sameDraft(savedDraft, serverDraft)) {
+      localStorage.removeItem(draftKey);
+    } else if (savedDraft && typeof savedDraft.content === 'string' && window.confirm('检测到未提交的本地草稿，是否恢复？')) {
+      if (title) title.value = savedDraft.title || '';
+      content.value = savedDraft.content || '';
+      if (allowComment && savedDraft.allowComment !== null) allowComment.checked = !!savedDraft.allowComment;
+      if (draftStatus) draftStatus.textContent = '已恢复本地草稿';
+    }
+  } catch (error) {}
+
+  function saveDraft() {
+    try {
+      const draft = snapshot();
+      draft.savedAt = Date.now();
+      localStorage.setItem(draftKey, JSON.stringify(draft));
+      if (draftStatus) draftStatus.textContent = '草稿已保存';
+    } catch (error) {
+      if (draftStatus) draftStatus.textContent = '草稿保存失败';
+    }
+  }
+
+  form.addEventListener('input', function () {
+    if (draftStatus) draftStatus.textContent = '正在保存...';
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveDraft, 800);
+  });
+  const saveButton = form.querySelector('[data-save-draft]');
+  if (saveButton) saveButton.addEventListener('click', saveDraft);
+
+  const previewTab = form.querySelector('[data-preview-tab]');
+  const editorTabs = form.querySelectorAll('[role="tab"]');
+  editorTabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      editorTabs.forEach(function (item) { item.setAttribute('aria-selected', item === tab ? 'true' : 'false'); });
+    });
+  });
+  if (previewTab) {
+    previewTab.addEventListener('click', function () {
+      const previewTitle = form.querySelector('[data-preview-title]');
+      const previewContent = form.querySelector('[data-preview-content]');
+      if (previewTitle) previewTitle.textContent = title ? title.value : '';
+      previewContent.textContent = '正在生成预览...';
+      $.post('/api/markdown', { s: content.value })
+        .done(function (html) { previewContent.innerHTML = html; })
+        .fail(function (xhr) { previewContent.textContent = xhr.responseText || '预览暂时不可用。'; });
+    });
+  }
+  form.querySelectorAll('.tabular.menu .item').forEach(function (item) { $(item).tab(); });
+
+  form.addEventListener('submit', function () {
+    clearTimeout(saveTimer);
+    saveDraft();
+    submitted = true;
+    setTimeout(function () {
+      if (submitButton) {
+        submitButton.disabled = true;
+        submitButton.classList.add('loading');
+      }
+    }, 0);
+  });
+  window.addEventListener('beforeunload', function (event) {
+    if (!submitted && !sameDraft(snapshot(), serverDraft)) {
+      event.preventDefault();
+      event.returnValue = '';
+    }
+  });
+});
+</script>

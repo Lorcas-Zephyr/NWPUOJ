@@ -1,0 +1,129 @@
+<%
+const headerContest = contestHeader.contest;
+const contestServerNow = syzoj.utils.getCurrentDate();
+const contestIsRunning = contestServerNow >= headerContest.start_time && contestServerNow < headerContest.end_time;
+let contestStart = syzoj.utils.formatDate(headerContest.start_time);
+let contestEnd = syzoj.utils.formatDate(headerContest.end_time);
+if (contestIsRunning && contestStart.split(' ')[0] === contestEnd.split(' ')[0]) {
+  contestStart = contestStart.split(' ')[1];
+  contestEnd = contestEnd.split(' ')[1];
+}
+const contestDuration = Math.max(1, headerContest.end_time - headerContest.start_time);
+const contestElapsed = contestServerNow - headerContest.start_time;
+const contestPercentage = Math.floor(Math.max(0, Math.min(1, contestElapsed / contestDuration)) * 100);
+const registration = (typeof contestRegistration !== 'undefined' && contestRegistration) ? contestRegistration : null;
+const contestContentAvailable = !registration || registration.canViewProblems;
+const contestParticipationAvailable = !registration || registration.ended || registration.canParticipate;
+const timerOnly = !!contestHeader.timerOnly;
+%>
+
+<style>
+.nwpuoj-contest-context .ui.label.pointing.below.left::before { left: 12%; }
+.nwpuoj-contest-context .ui.label.pointing.below.right::before { left: 88%; }
+.nwpuoj-contest-context .ui.label.pointing.below.left { margin-bottom: 0; }
+.nwpuoj-contest-context .ui.label.pointing.below.right { margin-bottom: 0; float: right; }
+.nwpuoj-contest-context ~ .padding > .ui.large.info.message { display: none; }
+.nwpuoj-contest-phase { margin-top: 8px; text-align: center; color: #555; min-height: 20px; }
+</style>
+
+<div class="padding nwpuoj-contest-context" style="margin-bottom: <%= timerOnly ? '0.25cm' : '0.7cm' %>;">
+  <% if (!timerOnly) { %>
+    <h1 class="ui center aligned header">
+      <%= headerContest.title %>
+      <span class="nwpuoj-status <%= typeof contestRated !== 'undefined' && contestRated ? 'nwpuoj-status-success' : 'nwpuoj-status-muted' %>" style="vertical-align:middle;"><%= typeof contestRated !== 'undefined' && contestRated ? 'Rated' : 'Unrated' %></span>
+    </h1>
+    <div class="ui pointing below left label"><%= contestStart %></div>
+    <div class="ui pointing below right label"><%= contestEnd %></div>
+  <% } %>
+  <div id="timer-progress" class="ui tiny indicating progress<% if (contestPercentage === 100) { %> success<% } %>" data-percent="<%= contestPercentage %>">
+    <div class="bar" style="width: <%= contestPercentage %>%;"></div>
+  </div>
+  <div class="nwpuoj-contest-phase" id="contest-phase" aria-live="polite"></div>
+
+  <% if (!timerOnly) { %>
+  <div class="ui grid" style="margin-top: 15px;">
+    <div class="row">
+      <div class="column" style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+        <div class="ui buttons">
+          <a class="ui small blue <%= contestHeader.section === 'problems' ? 'active ' : '' %>button" href="<%= syzoj.utils.makeUrl(['contest', headerContest.id]) %>">题目列表</a>
+          <% if (contestHeader.seeRanklist && contestContentAvailable) { %>
+            <a class="ui small blue <%= contestHeader.section === 'ranklist' ? 'active ' : '' %>button" href="<%= syzoj.utils.makeUrl(['contest', headerContest.id, 'ranklist']) %>">排行榜</a>
+          <% } %>
+          <% if (contestParticipationAvailable) { %>
+            <a class="ui small positive <%= contestHeader.section === 'submissions' ? 'active ' : '' %>button" href="<%= contestHeader.submissionsUrl %>">提交记录</a>
+          <% } %>
+          <% if (contestHeader.isSupervisior) { %>
+            <a class="ui small labeled icon button" href="<%= syzoj.utils.makeUrl(['contest', headerContest.id, 'edit']) %>"><i class="settings icon"></i>比赛管理</a>
+          <% } %>
+        </div>
+        <% if (registration && !registration.ended && !registration.isSupervisior) { %>
+          <div>
+            <% if (registration.canRegister) { %>
+              <form method="post" action="<%= syzoj.utils.makeUrl(['contest', headerContest.id, 'register']) %>" style="margin: 0;">
+                <input type="hidden" name="csrf_token" value="<%= registration.csrfToken %>">
+                <button type="submit" class="ui small primary labeled icon button"><i class="user plus icon"></i>报名</button>
+              </form>
+            <% } else if (registration.canCancel) { %>
+              <form method="post" action="<%= syzoj.utils.makeUrl(['contest', headerContest.id, 'unregister']) %>" style="margin: 0;" onsubmit="return confirm('确定取消报名吗？');">
+                <input type="hidden" name="csrf_token" value="<%= registration.csrfToken %>">
+                <button type="submit" class="ui small basic red labeled icon button"><i class="user times icon"></i>取消报名</button>
+              </form>
+            <% } else if (registration.registered) { %>
+              <button type="button" class="ui small positive labeled icon disabled button"><i class="check icon"></i>已报名</button>
+            <% } else if (registration.removedByAdmin) { %>
+              <button type="button" class="ui small basic red disabled button">已被移出报名</button>
+            <% } else if (registration.registrationOpen && !user) { %>
+              <a class="ui small primary button" href="<%= syzoj.utils.makeUrl(['login'], { url: req.originalUrl }) %>">登录后报名</a>
+            <% } else if (registration.running) { %>
+              <button type="button" class="ui small disabled button">报名已截止</button>
+            <% } %>
+          </div>
+        <% } %>
+      </div>
+    </div>
+  </div>
+
+  <% if (contestHeader.section === 'problems') { %>
+    <div style="margin-top: 15px;">
+      <h4 class="ui top attached block header">比赛描述</h4>
+      <div class="ui bottom attached segment font-content"><%- contestHeader.subtitle %></div>
+    </div>
+  <% } %>
+  <% } %>
+</div>
+
+<script>
+$(function () {
+  var serverOffset = <%= contestServerNow * 1000 %> - Date.now();
+  var initialPhase = <%= contestServerNow < headerContest.start_time ? 0 : contestServerNow < headerContest.end_time ? 1 : 2 %>;
+  var reloading = false;
+  function duration(value) {
+    value = Math.max(0, Math.floor(value));
+    var days = Math.floor(value / 86400);
+    var hours = Math.floor(value % 86400 / 3600);
+    var minutes = Math.floor(value % 3600 / 60);
+    var seconds = value % 60;
+    return (days ? days + '天 ' : '') + [hours, minutes, seconds].map(function (part) { return String(part).padStart(2, '0'); }).join(':');
+  }
+  function updateContestClock() {
+    var now = (Date.now() + serverOffset) / 1000;
+    var phase = now < <%= headerContest.start_time %> ? 0 : now < <%= headerContest.end_time %> ? 1 : 2;
+    var text = phase === 0
+      ? '未开始 · 距开始 ' + duration(<%= headerContest.start_time %> - now)
+      : phase === 1
+        ? '进行中 · 剩余 ' + duration(<%= headerContest.end_time %> - now)
+        : '已结束';
+    $('#contest-phase').text(text);
+    $('#timer-progress').progress({
+      value: now - <%= headerContest.start_time %>,
+      total: <%= contestDuration %>
+    });
+    if (phase !== initialPhase && !reloading) {
+      reloading = true;
+      location.reload();
+    }
+  }
+  updateContestClock();
+  setInterval(updateContestClock, 1000);
+});
+</script>

@@ -1,0 +1,24 @@
+<% this.adminPage = 'rating'; %>
+<% include admin_header %>
+<div class="ui info message">
+  <div class="header">Rating 自动结算</div>
+  <p>Rated 比赛将在结束且所有提交完成评测后自动结算。单场比赛手动计算已关闭。</p>
+</div>
+
+<h3>已完成的 Rating 记录</h3>
+<% if (calcs && calcs.length) { %>
+  <div class="ui relaxed divided list">
+    <% for (const calc of calcs) { %>
+      <div class="item">
+        <i class="check circle green icon"></i>
+        <div class="content"><%= calc.contest ? calc.contest.title : '已删除的比赛' %></div>
+      </div>
+    <% } %>
+  </div>
+<% } else { %>
+  <div class="nwpuoj-empty-state">
+    <i class="star outline icon"></i>
+    <h3>暂无 Rating 结算记录</h3>
+  </div>
+<% } %>
+<% include admin_footer %>

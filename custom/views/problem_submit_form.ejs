@@ -1,0 +1,172 @@
+<%
+const formUrl = syzoj.utils.makeUrl(['problem', problem.id, 'submit'], {
+  contest_id: contest ? contest.id : undefined
+});
+%>
+<form action="<%= formUrl %>" method="post" onsubmit="return submit_code()" id="submit_code" enctype="multipart/form-data">
+  <div class="ui error message" id="submit-error" role="alert" aria-live="polite" hidden></div>
+  <% if (problem.type === 'submit-answer') { %>
+    <%
+    let cases = [];
+    if (testcases && !testcases.error) {
+      for (let subtasks of testcases) {
+        for (let testcase of subtasks.cases) cases.push(testcase.answer);
+      }
+    }
+    %>
+    <script>
+    var cases = <%- serializejs(cases) %>, currCase = 0;
+    </script>
+    <div class="ui grid">
+      <% if (testcases) { %>
+        <div class="four wide column" style="margin-right: -25px;">
+          <div class="ui attached vertical fluid pointing menu" id="testcase-menu" style="height: 370px; overflow-y: scroll; overflow-x: hidden;">
+            <% for (let i = 0; i < cases.length; i++) { %>
+              <a style="border-radius: 0;" class="item<%= i === 0 ? ' active' : '' %>" data-value="<%= i %>"><%= cases[i] %></a>
+            <% } %>
+          </div>
+        </div>
+        <div class="twelve wide stretched column" style="position: relative; padding-left: 0; margin-left: calc(-1rem - 1px); width: calc(75% + 1rem + 13px) !important;">
+          <% for (let i = 0; i < cases.length; i++) { %>
+            <div id="editor-<%= i %>" class="editor" style="position: absolute; width: 100%; height: calc(100% - 28px); border: 1px solid #D4D4D5; overflow: hidden; <%= i === 0 ? '' : 'visibility: hidden;' %>" contenteditable>
+              <%- this.showLoadingEditor() %>
+            </div>
+          <% } %>
+        </div>
+      <% } %>
+      <input id="answer_by_editor" name="answer_by_editor" type="hidden">
+      <script>
+      window.onEditorLoaded(function () {
+        window.editors = [];
+        for (var i = 0; i < cases.length; i++) {
+          editors[i] = window.createCodeEditor(document.getElementById('editor-' + i));
+        }
+        $(function () {
+          $('#testcase-menu .item').click(function () {
+            $(this).addClass('active').closest('.ui.menu').find('.item').not($(this)).removeClass('active');
+            var nextCase = $(this).attr('data-value');
+            if (currCase != nextCase) {
+              $('#editor-' + currCase).css('visibility', 'hidden');
+              $('#editor-' + nextCase).css('visibility', 'visible');
+              currCase = nextCase;
+            }
+          });
+        });
+      });
+      </script>
+      <div class="ui form" style="width: 100%;">
+        <div class="inline fields" style="width: 100%;">
+          <div class="field" style="margin: 0 auto;">
+            <label for="answer">或者，上传答案（请使用 ZIP 格式压缩）</label>
+            <input type="file" id="answer" name="answer">
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="ui center aligned vertical segment" style="padding-bottom: 0;">
+      <button type="submit" class="ui labeled icon button submit-code-button"><i class="ui edit icon"></i>提交</button>
+    </div>
+  <% } else { %>
+    <input name="language" type="hidden" id="form">
+    <input name="code" type="hidden">
+    <div class="ui grid">
+      <div class="four wide column" style="margin-right: -25px;">
+        <div class="ui attached vertical fluid pointing menu" id="languages-menu" style="height: 370px; overflow-y: scroll; overflow-x: hidden;">
+          <%
+          const languageList = languages ? Object.keys(languages) : syzoj.config.enabled_languages;
+          if (languages && languageList[0] && languages[languageList[0]].index != null) {
+            languageList.sort((a, b) => languages[a].index - languages[b].index);
+          }
+          let language = languageList[0];
+          if (state) language = state.language;
+          else if (lastLanguage) language = lastLanguage;
+          if (!languageList.includes(language)) language = languageList[0];
+          const languageMap = languages || syzoj.languages;
+          %>
+          <% for (let lang of languageList) { %>
+            <a href="#" role="button" style="border-radius: 0;" class="item<%= lang === language ? ' active' : '' %>" data-value="<%= lang %>" data-mode="<%= languageMap[lang].editor %>">
+              <%= languageMap[lang].show %>
+              <% if (languageMap[lang].version) { %>
+                <span class="ui right floated" style="opacity: 0.4; margin-top: 8px; font-size: 0.7em;"><%= languageMap[lang].version %></span>
+              <% } %>
+            </a>
+          <% } %>
+        </div>
+      </div>
+      <div class="twelve wide stretched column" style="position: relative; padding-left: 0; margin-left: calc(-1rem - 1px); width: calc(75% + 1rem + 13px) !important;">
+        <div id="editor" style="position: absolute; width: 100%; height: calc(100% - 28px); border: 1px solid #D4D4D5; overflow: hidden;" class="editor" contenteditable>
+          <%- this.showLoadingEditor() %>
+        </div>
+      </div>
+      <div class="ui form" style="width: 100%;">
+        <div class="inline fields" style="width: 100%;">
+          <div class="field" style="margin: 0 auto;">
+            <label for="answer">或者，上传代码文件</label>
+            <input type="file" id="answer" name="answer">
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="ui center aligned vertical segment" style="padding-bottom: 0;">
+      <button type="submit" class="ui labeled icon button submit-code-button"><i class="ui edit icon"></i>提交</button>
+    </div>
+  <% } %>
+</form>
+
+<% if (problem.type !== 'submit-answer') { %>
+  <script>
+  var editor;
+  window.onEditorLoaded(function () {
+    var editorElement = document.getElementById('editor');
+    var content = '';
+    <% if (state) { %>content = <%- serializejs(state.code) %>;<% } %>
+    editor = window.createCodeEditor(editorElement, $('#languages-menu .item.active').data('mode'), content);
+    window.editor = editor;
+  });
+
+  function submit_code() {
+    var source = editor.getValue();
+    if (!$('#submit_code input[name=answer]').val().trim() && !source.trim()) {
+      $('#submit-error').text('请输入代码或上传代码文件。').prop('hidden', false);
+      return false;
+    }
+    var sourceLimit = <%= problem.type === 'vjudge:uoj' ? 50 * 1024 : ['vjudge:hdu', 'vjudge:poj'].includes(problem.type) ? 64 * 1024 : 0 %>;
+    if (sourceLimit && new Blob([source]).size > sourceLimit) {
+      $('#submit-error').text('代码长度超过远程题库限制。').prop('hidden', false);
+      return false;
+    }
+    $('#submit_code input[name=language]').val($('#languages-menu .item.active').data('value'));
+    $('#submit_code input[name=code]').val(source);
+    $('.submit-code-button').prop('disabled', true).addClass('loading');
+    return true;
+  }
+
+  $('#languages-menu')[0].scrollTop = $('#languages-menu .active')[0].offsetTop - $('#languages-menu')[0].firstElementChild.offsetTop;
+  $(function () {
+    $('#languages-menu .item').click(function (event) {
+      event.preventDefault();
+      $(this).addClass('active').closest('.ui.menu').find('.item').not($(this)).removeClass('active');
+      monaco.editor.setModelLanguage(editor.getModel(), $(this).data('mode'));
+    });
+  });
+  </script>
+<% } else { %>
+  <script>
+  function submit_code() {
+    var answers = [];
+    var hasAnswer = $('#answer').val().trim() !== '';
+    for (var i = 0; i < cases.length; i++) {
+      var value = editors[i].getValue();
+      if (value.trim()) hasAnswer = true;
+      answers.push({ filename: cases[i], data: value });
+    }
+    if (!hasAnswer) {
+      $('#submit-error').text('请填写答案或上传 ZIP 文件。').prop('hidden', false);
+      return false;
+    }
+    $('#answer_by_editor').val(JSON.stringify(answers));
+    $('.submit-code-button').prop('disabled', true).addClass('loading');
+    return true;
+  }
+  </script>
+<% } %>

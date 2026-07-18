@@ -29,7 +29,7 @@ app.use('/submission/:id', async (req, res, next) => {
       operator_id: action.operator_id,
       operator_time: action.operator_time,
       reason: action.reason,
-      affected_user_id: action.affected_user_id  // [v1.5.1] 暴露给重评按钮判断作者身份
+      affected_user_id: action.affected_user_id  // 暴露给重评按钮判断作者身份
     };
     next();
   } catch (e) {

@@ -10,7 +10,7 @@
   </div>
   <div class="ui bottom attached segment">
     <p style="color: #666;">
-      管理员(super admin 或拥有 manage_problem/manage_problem_tag/manage_user 权限的用户)
+      管理员（全站管理员或拥有 manage_problem/manage_problem_tag/manage_contest/manage_user 权限的用户）
       <b>自动获得</b> tag 权限，无需手动授予。这里仅用于授权普通用户。
     </p>
     <form method="post" action="<%= syzoj.utils.makeUrl(['admin', 'user-tags', 'grant']) %>" class="ui form">

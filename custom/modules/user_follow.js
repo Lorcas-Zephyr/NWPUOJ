@@ -49,7 +49,7 @@ app.post('/user/:id/follow', async (req, res) => {
     });
     if (existing) {
       // 已关注 → 不重复创建,直接跳转
-      return res.redirect(req.body.return_url || syzoj.utils.makeUrl(['user', targetId]));
+      return res.redirect(syzoj.utils.safeLocalUrl(req.body.return_url, syzoj.utils.makeUrl(['user', targetId])));
     }
 
     let f = await UserFollow.create();
@@ -58,7 +58,7 @@ app.post('/user/:id/follow', async (req, res) => {
     f.created_at = parseInt((new Date()).getTime() / 1000);
     await f.save();
 
-    res.redirect(req.body.return_url || syzoj.utils.makeUrl(['user', targetId]));
+    res.redirect(syzoj.utils.safeLocalUrl(req.body.return_url, syzoj.utils.makeUrl(['user', targetId])));
   } catch (e) {
     syzoj.log(e);
     res.render('error', { err: e });
@@ -79,7 +79,7 @@ app.post('/user/:id/unfollow', async (req, res) => {
       await existing.destroy();
     }
 
-    res.redirect(req.body.return_url || syzoj.utils.makeUrl(['user', targetId]));
+    res.redirect(syzoj.utils.safeLocalUrl(req.body.return_url, syzoj.utils.makeUrl(['user', targetId])));
   } catch (e) {
     syzoj.log(e);
     res.render('error', { err: e });
@@ -149,4 +149,3 @@ app.get('/user/:id/followers', async (req, res) => {
     res.render('error', { err: e });
   }
 });
-

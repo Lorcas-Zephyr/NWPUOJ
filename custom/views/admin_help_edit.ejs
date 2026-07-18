@@ -1,0 +1,34 @@
+<% this.adminPage = 'help'; %>
+<% include admin_header %>
+<div class="nwpuoj-page-header">
+  <div>
+    <h2 class="nwpuoj-page-title"><i class="help circle icon"></i>编辑帮助页</h2>
+    <div class="nwpuoj-meta">当前修订 <%= helpPage.revision %></div>
+  </div>
+  <a class="ui basic labeled icon button" href="<%= syzoj.utils.makeUrl(['help']) %>"><i class="eye icon"></i>查看帮助页</a>
+</div>
+
+<form class="ui form" method="post" data-markdown-editor data-draft-key="content-draft:admin-help:<%= user.id %>">
+  <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>">
+  <input type="hidden" name="revision" value="<%= helpPage.revision %>">
+  <div class="ui top attached tabular menu nwpuoj-editor-mode" role="tablist">
+    <a class="active item" role="tab" aria-selected="true" data-tab="edit"><i class="edit icon"></i>编辑</a>
+    <a class="item" role="tab" aria-selected="false" data-tab="preview" data-preview-tab><i class="eye icon"></i>预览</a>
+  </div>
+  <div class="ui bottom attached active tab segment" data-tab="edit">
+    <div class="field">
+      <label for="content">Markdown 内容</label>
+      <textarea rows="30" id="content" name="content" class="markdown-edit" required><%= helpPage.content %></textarea>
+    </div>
+  </div>
+  <div class="ui bottom attached tab segment" data-tab="preview">
+    <div class="font-content" data-preview-content></div>
+  </div>
+  <div class="nwpuoj-editor-actions">
+    <button type="button" class="ui basic labeled icon button" data-save-draft><i class="save icon"></i>保存草稿</button>
+    <button type="submit" class="ui primary labeled icon button"><i class="check icon"></i>发布帮助页</button>
+    <span class="nwpuoj-draft-status" data-draft-status aria-live="polite"></span>
+  </div>
+</form>
+<% include markdown_editor_script %>
+<% include admin_footer %>

@@ -1,0 +1,48 @@
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    '' close;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name oj.example.edu;
+    return 301 https://oj.example.edu$request_uri;
+}
+
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    return 444;
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name oj.example.edu;
+
+    ssl_certificate /etc/letsencrypt/live/oj.example.edu/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/oj.example.edu/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:TLS:10m;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    client_max_body_size 250m;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host oj.example.edu;
+        proxy_set_header X-Forwarded-Host oj.example.edu;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_read_timeout 300s;
+
+        proxy_cookie_flags connect.sid secure httponly samesite=lax;
+        proxy_cookie_flags login secure httponly samesite=lax;
+    }
+}

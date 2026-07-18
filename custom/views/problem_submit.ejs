@@ -1,0 +1,22 @@
+<% include util %>
+<%
+this.title = problem.title + ' - 提交';
+if (typeof contest === 'undefined') contest = null;
+%>
+<% include header %>
+
+<style>
+#languages-menu::-webkit-scrollbar, #testcase-menu::-webkit-scrollbar {
+  width: 0;
+  background: transparent;
+}
+#languages-menu .item::after, #testcase-menu .item::after { display: none; }
+</style>
+
+<% include monaco-editor %>
+
+<div class="padding">
+  <% include problem_submit_form %>
+</div>
+
+<% include footer %>

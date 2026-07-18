@@ -1,5 +1,10 @@
 <% include util %>
 <% include status_label %>
+<%
+const isSubmissionList = active === 'submissions' ||
+  displayConfig.inContest ||
+  (typeof problemContext !== 'undefined' && problemContext && problemContext.section === 'submissions');
+%>
 
 <script>
 function formatSize(x, precision) {
@@ -32,6 +37,9 @@ Vue.component('submission-item', {
         if (this.compiling) return 'Compiling';
         return 'Running';
       } else return 'Waiting';
+    },
+    canViewDetail() {
+      return this.data.info.canViewDetail !== false;
     },
     submissionLink() {
       return submissionUrl.replace('20000528', this.data.info.submissionId);
@@ -75,6 +83,8 @@ Vue.component('submission-item', {
       return '<span class="user-name-tag tag-tier-' + (t.tier || 'default') + '">' + safeText + '</span>';
     },
     cheatedClass() {
+      if (this.data.info.adminActionType === 'cheated') return 'cheated';
+      if (this.data.info.adminActionType === 'cancelled') return 'cancelled';
       var ids = window.__SYZOJ_CHEATED_JUDGE_IDS || [];
       if (ids.indexOf(this.data.info.submissionId) !== -1) return 'cheated';
       var cs = window.__SYZOJ_CANCELLED_JUDGE_IDS || [];
@@ -82,6 +92,8 @@ Vue.component('submission-item', {
       return '';
     },
     cheatedLabel() {
+      if (this.data.info.adminActionType === 'cheated') return '作弊';
+      if (this.data.info.adminActionType === 'cancelled') return '已取消';
       var ids = window.__SYZOJ_CHEATED_JUDGE_IDS || [];
       if (ids.indexOf(this.data.info.submissionId) !== -1) return '作弊';
       var cs = window.__SYZOJ_CANCELLED_JUDGE_IDS || [];
@@ -89,6 +101,7 @@ Vue.component('submission-item', {
       return '';
     },
     displayScore() {
+      if (this.data.info.adminActionType) return 0;
       var ids = window.__SYZOJ_CHEATED_JUDGE_IDS || [];
       if (ids.indexOf(this.data.info.submissionId) !== -1) return 0;
       var cs = window.__SYZOJ_CANCELLED_JUDGE_IDS || [];
@@ -96,6 +109,7 @@ Vue.component('submission-item', {
       return Math.floor(this.data.result.score || 0);
     },
     scoreClass() {
+      if (this.data.info.adminActionType) return 'score_0';
       var ids = window.__SYZOJ_CHEATED_JUDGE_IDS || [];
       if (ids.indexOf(this.data.info.submissionId) !== -1) return "score_0";
       var cs = window.__SYZOJ_CANCELLED_JUDGE_IDS || [];
@@ -116,21 +130,25 @@ Vue.component('submission-item', {
 
 <script id="submissionItemTemplate" type="text/x-template">
 <tr>
-  <% if (active === 'submissions') { %>
-  <td><a :href="submissionLink"><b>#{{ data.info.submissionId }}</b></a></td>
+  <% if (isSubmissionList) { %>
+  <td class="nwpuoj-col-number"><a v-if="canViewDetail" :href="submissionLink"><b>#{{ data.info.submissionId }}</b></a><b v-else>#{{ data.info.submissionId }}</b></td>
   <% } else { %>
-  <td><b>#{{ data.info.submissionId }}</b></td>
+  <td class="nwpuoj-col-number"><b>#{{ data.info.submissionId }}</b></td>
   <% } %>
-  <td ref="problemLabel"><a ref="problemLabelTextFit" style="width: 230px; height: 22px; display: block; margin: 0 auto; line-height: 22px;" :href="problemLink"><b>#{{ config.inContest ? alpha(data.info.problemId) : data.info.problemId }}.</b> {{ data.info.problemName }}</a></td>
-  <% if (active === 'submissions') { %>
+  <td ref="problemLabel"><a ref="problemLabelTextFit" style="width: 230px; height: 22px; display: block; margin: 0 auto; line-height: 22px;" :href="problemLink"><b>{{ config.inContest ? alpha(data.info.problemId) : data.info.problemDisplayId }}.</b> {{ data.info.problemName }}</a></td>
+  <% if (isSubmissionList) { %>
   <td>
     <template v-if="cheatedLabel">
-      <span class="ui small label" :class="cheatedClass === 'cheated' ? 'red' : 'grey'" style="margin: 0;">
+      <a v-if="canViewDetail" :href="submissionLink" class="ui small label" :class="cheatedClass === 'cheated' ? 'red' : 'grey'" style="margin: 0;">
+        <i class="ban icon"></i>{{ cheatedLabel }}
+      </a>
+      <span v-else class="ui small label" :class="cheatedClass === 'cheated' ? 'red' : 'grey'" style="margin: 0;">
         <i class="ban icon"></i>{{ cheatedLabel }}
       </span>
     </template>
     <template v-else>
-      <a :href="submissionLink"><b><status-label :status="statusString" :progress="progress"></status-label></b></a>
+      <a v-if="canViewDetail" :href="submissionLink"><b><status-label :status="statusString" :progress="progress"></status-label></b></a>
+      <b v-else><status-label :status="statusString" :progress="progress"></status-label></b>
     </template>
   </td>
   <% } else { %>
@@ -147,37 +165,37 @@ Vue.component('submission-item', {
   <% } %>
 
   <template v-if="data.result">
-  <% if (active === 'submissions') { %>
-  <td v-if="config.showScore"><a :href="submissionLink"><span class="score" :class="scoreClass">{{ displayScore }}</span></a></td>
+  <% if (isSubmissionList) { %>
+  <td class="nwpuoj-col-number" v-if="config.showScore"><a v-if="canViewDetail" :href="submissionLink"><span class="score" :class="scoreClass">{{ displayScore }}</span></a><span v-else class="score" :class="scoreClass">{{ displayScore }}</span></td>
   <% } else { %>
-  <td v-if="config.showScore"><span class="score" :class="scoreClass">{{ displayScore }}</span></td>
+  <td class="nwpuoj-col-number" v-if="config.showScore"><span class="score" :class="scoreClass">{{ displayScore }}</span></td>
   <% } %>
-  <td v-if="config.showUsage">{{ (data.result.time || 0).toString() + ' ms' }}</td>
+  <td class="nwpuoj-priority-3 nwpuoj-col-number" v-if="config.showUsage">{{ (data.result.time || 0).toString() + ' ms' }}</td>
 
-  <% if (active === 'submissions') { %>
-  <td v-if="config.showUsage">{{ formatSize(data.result.memory * 1024, 2) }}</td>
+  <% if (isSubmissionList) { %>
+  <td class="nwpuoj-priority-3 nwpuoj-col-number" v-if="config.showUsage">{{ formatSize(data.result.memory * 1024, 2) }}</td>
   <% } else { %>
-  <td v-if="config.showUsage">{{ (data.result.memory || 0).toString() + ' K'}}</td>
+  <td class="nwpuoj-priority-3 nwpuoj-col-number" v-if="config.showUsage">{{ (data.result.memory || 0).toString() + ' K'}}</td>
   <% } %>
 
   </template> <template v-else>
-  <td v-if="config.showScore"><a :href="submissionLink"><span class="score score_0">0</span></a></td>
-  <td v-if="config.showUsage">0 ms</td>
-  <td v-if="config.showUsage">0 B</td>
+  <td class="nwpuoj-col-number" v-if="config.showScore"><a :href="submissionLink"><span class="score score_0">0</span></a></td>
+  <td class="nwpuoj-priority-3 nwpuoj-col-number" v-if="config.showUsage">0 ms</td>
+  <td class="nwpuoj-priority-3 nwpuoj-col-number" v-if="config.showUsage">0 B</td>
   </template>
 
-  <td v-if="config.showCode">
-    <% if (active === 'submissions') { %>
-    <span v-if="data.info.language"><a :href="submissionLink"><b>{{ data.info.language }}</b></a> / </span>
+  <td class="nwpuoj-priority-3" v-if="config.showCode">
+    <% if (isSubmissionList) { %>
+    <span v-if="data.info.language"><a v-if="canViewDetail" :href="submissionLink"><b>{{ data.info.language }}</b></a><b v-else>{{ data.info.language }}</b> / </span>
     <% } else { %>
     <span v-if="data.info.language"><b>{{ data.info.language }}</b> / </span>
     <% } %>
     {{ formatSize(data.info.codeSize, 1) }}
   </td>
-  <td>
+  <td class="nwpuoj-priority-2">
     <a :href="userLink" :class="userTierClass">{{ data.info.user }}</a><span v-html="userTagHtml"></span>
   </td>
-  <td>{{ data.info.submitTime }}</td>
+  <td class="nwpuoj-priority-3">{{ data.info.submitTime }}</td>
   <td v-if="showRejudge">
     <a id="rejudge-button" :onclick="'check_rejudge(' + (statusString === 'Waiting' || statusString.startsWith('Running')).toString() + ')'" style="color: #000; " href="#"><i class="repeat icon"></i></a>
     <% if (active === 'submission') { %>

@@ -1,0 +1,63 @@
+<% this.title = '注册'; %>
+<% include header %>
+<%
+var formValues = (typeof registrationValues !== 'undefined' && registrationValues) ? registrationValues : {};
+var initialError = (typeof registrationErrorInfo !== 'undefined') ? registrationErrorInfo : null;
+var initialNotice = (typeof registrationNotice !== 'undefined') ? registrationNotice : null;
+%>
+<div class="nwpuoj-auth-page">
+  <div class="nwpuoj-auth-panel nwpuoj-auth-panel--wide">
+  <h2 class="ui center aligned header">注册</h2>
+  <form class="ui form nwpuoj-auth-form-panel" id="sign-up-form" action="/sign_up" method="post" novalidate>
+    <input type="hidden" id="registration_csrf_token" name="registration_csrf_token" value="<%= registrationCsrfToken %>">
+    <input type="hidden" name="prevUrl" value="<%= registrationPrevUrl %>">
+    <div class="field">
+      <label for="username">用户名</label>
+      <input type="text" id="username" name="username" value="<%= formValues.username || '' %>" autocomplete="username" required>
+    </div>
+    <div class="field">
+      <label for="student_id">学号</label>
+      <input type="text" id="student_id" name="student_id" value="<%= formValues.student_id || '' %>" inputmode="numeric" pattern="\d{10}" minlength="10" maxlength="10" autocomplete="off" required>
+    </div>
+    <div class="field">
+      <label for="real_name">姓名</label>
+      <input type="text" id="real_name" name="real_name" value="<%= formValues.real_name || '' %>" maxlength="64" autocomplete="name" required>
+    </div>
+    <div class="field">
+      <label for="college">学院</label>
+      <select class="ui search dropdown" id="college" name="college" required>
+        <option value="">请选择学院</option>
+        <% colleges.forEach(function (college) { %>
+          <option value="<%= college %>"<% if (formValues.college === college) { %> selected<% } %>><%= college %></option>
+        <% }); %>
+      </select>
+    </div>
+    <div class="field">
+      <label for="email">邮箱</label>
+      <input type="email" id="email" name="email" value="<%= formValues.email || '' %>" autocomplete="email" required>
+    </div>
+    <div class="two fields">
+      <div class="field">
+        <label for="password1">密码</label>
+        <input type="password" id="password1" name="password" minlength="10" maxlength="128" autocomplete="new-password" required>
+      </div>
+      <div class="field">
+        <label for="password2">确认密码</label>
+        <input type="password" id="password2" name="confirm_password" minlength="10" maxlength="128" autocomplete="new-password" required>
+      </div>
+    </div>
+    <div class="ui <%= initialNotice ? 'success' : 'error' %> message" id="error" role="alert" aria-live="polite"<% if (!initialError && !initialNotice) { %> hidden<% } %>>
+      <p id="error_info"><%= initialError || initialNotice || '' %></p>
+    </div>
+    <button id="sign_up" class="ui primary labeled icon button" type="submit">
+      <i class="user plus icon"></i>注册
+    </button>
+  </form>
+  </div>
+</div>
+<script type="text/javascript">
+$(function () {
+  $('#college').dropdown();
+});
+</script>
+<% include footer %>

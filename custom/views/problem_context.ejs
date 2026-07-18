@@ -1,0 +1,151 @@
+<%
+const contextProblem = problemContext.problem;
+const contextSection = problemContext.section;
+const contextTestcases = problemContext.testcases;
+const contextIsVJudge = typeof contextProblem.type === 'string' && contextProblem.type.startsWith('vjudge:');
+const contextContest = problemContext.contest || null;
+const contextContestProblemId = problemContext.contestProblemId || null;
+const contextCanParticipate = !contextContest || (
+  typeof contestRegistration !== 'undefined' && contestRegistration
+    ? contestRegistration.canParticipate
+    : contextContest.isRunning()
+);
+const contextCanViewSubmissions = !contextContest || contextContest.isEnded() || contextCanParticipate;
+const contextTypeNames = {
+  'submit-answer': '答案提交',
+  'interaction': '交互',
+  'traditional': '传统',
+  'vjudge:luogu': 'VJudge（洛谷）',
+  'vjudge:uoj': 'VJudge（UOJ）',
+  'vjudge:hdu': 'VJudge（HDU）',
+  'vjudge:poj': 'VJudge（POJ）'
+};
+%>
+
+<div class="nwpuoj-problem-context" style="margin-bottom: 0.7cm;">
+  <div class="padding" style="padding-bottom: 0;">
+    <div class="ui center aligned grid" style="margin-bottom: 0;">
+    <div class="row">
+      <h1 class="ui header">
+        <% if (contextContest) { %>
+          <%= this.alpha(contextContestProblemId) %>. <%= syzoj.utils.removeTitleTag(contextProblem.title) %>
+        <% } else { %>
+          <%= contextProblem.getDisplayId() %>. <%= contextProblem.title %>
+        <% } %>
+      </h1>
+    </div>
+
+    <% if (contextProblem.type !== 'submit-answer') { %>
+      <div class="row" style="margin-top: -15px;">
+        <span class="ui label">内存限制：<%= contextProblem.memory_limit %> MiB</span>
+        <span class="ui label">时间限制：<%= contextProblem.time_limit %> ms</span>
+        <% if (contextProblem.type === 'interaction') { %>
+          <span class="ui label">题目类型：交互</span>
+        <% } else if (contextProblem.file_io) { %>
+          <span class="ui label">输入文件：<%= contextProblem.file_io_input_name %></span>
+          <span class="ui label">输出文件：<%= contextProblem.file_io_output_name %></span>
+        <% } else { %>
+          <span class="ui label">标准输入输出</span>
+        <% } %>
+      </div>
+    <% } %>
+
+    <% if (contextProblem.type !== 'interaction') { %>
+      <div class="row" style="margin-top: -<%= contextProblem.type === 'submit-answer' ? 15 : 23 %>px;">
+        <span class="ui label">题目类型：<%= contextTypeNames[contextProblem.type] || contextProblem.type %></span>
+        <span class="ui label">评测方式：<%=
+          contextIsVJudge
+            ? 'VJudge'
+            : (contextTestcases && !contextTestcases.error)
+              ? (contextTestcases.spj ? 'Special Judge' : '文本比较')
+              : '无测试数据'
+        %></span>
+      </div>
+    <% } %>
+
+    <% if (!contextContest) { %>
+    <div class="row" style="margin-top: -23px;">
+      <span class="ui label">上传者：
+        <% if (contextProblem.is_anonymous && !contextProblem.allowedManage) { %>
+          匿名
+        <% } else if (contextProblem.user) { %>
+          <%- syzoj.utils.renderUsername(contextProblem.user) %>
+        <% } else { %>
+          未知
+        <% } %>
+      </span>
+      <% if (contextProblem.allowedManage) { %>
+        <span class="ui label">公开者：
+          <% if (contextProblem.publicizer) { %>
+            <%- syzoj.utils.renderUsername(contextProblem.publicizer) %>
+          <% } else { %>
+            未知
+          <% } %>
+        </span>
+      <% } %>
+    </div>
+    <% } %>
+    </div>
+  </div>
+
+  <div class="ui grid" style="margin-top: 0;">
+    <div class="row">
+      <div class="column">
+        <div class="ui buttons">
+          <% if (contextContest) { %>
+            <a class="small ui blue button" href="<%= syzoj.utils.makeUrl(['contest', contextContest.id, 'problem', contextContestProblemId]) %>">题目</a>
+            <% if (contextCanParticipate && syzoj.utils.contestSubmissionEnabled(contextProblem)) { %>
+              <a class="small ui primary active button" href="<%= syzoj.utils.makeUrl(['contest', contextContest.id, 'problem', contextContestProblemId, 'submit']) %>">提交</a>
+            <% } %>
+            <% if (contextCanViewSubmissions) { %><a class="small ui positive <%= contextSection === 'submissions' ? 'active ' : '' %>button"
+               href="<%= syzoj.utils.makeUrl(['contest', contextContest.id, 'problem', contextContestProblemId, 'submissions']) %>">提交记录</a>
+            <% } %>
+            <% if (contextProblem.additional_file) { %>
+              <a class="small ui teal button" href="<%= syzoj.utils.makeUrl(['contest', contextContest.id, contextContestProblemId, 'download', 'additional_file']) %>">附加文件</a>
+            <% } %>
+            <a class="small ui orange button" href="<%= syzoj.utils.makeUrl(['contest', contextContest.id]) %>">返回比赛</a>
+          <% } else { %>
+          <a class="small ui blue button" href="<%= syzoj.utils.makeUrl(['problem', contextProblem.id]) %>">题目</a>
+          <% if (contextTestcases && !contextTestcases.error && user) { %>
+            <a class="small ui primary <%= contextSection === 'submit' ? 'active ' : '' %>button"
+               href="<%= syzoj.utils.makeUrl(['problem', contextProblem.id, 'submit']) %>">提交</a>
+          <% } else if (contextTestcases && !contextTestcases.error) { %>
+            <a class="small ui primary button" href="<%= syzoj.utils.makeUrl(['login'], { url: syzoj.utils.makeUrl(['problem', contextProblem.id, 'submit']) }) %>">登录后提交</a>
+          <% } %>
+          <a class="small ui positive <%= contextSection === 'submissions' ? 'active ' : '' %>button"
+             href="<%= syzoj.utils.makeUrl(['problem', contextProblem.id, 'submissions']) %>">提交记录</a>
+          <a class="small ui orange <%= contextSection === 'statistics' ? 'active ' : '' %>button"
+             href="<%= syzoj.utils.makeUrl(['problem', contextProblem.id, 'statistics', contextProblem.type === 'submit-answer' ? 'shortest' : 'fastest']) %>">统计</a>
+          <% if (!contextIsVJudge) { %>
+            <a class="small ui yellow <%= contextSection === 'testdata' ? 'active ' : '' %>button"
+               href="<%= syzoj.utils.makeUrl(['problem', contextProblem.id, 'testdata']) %>">测试数据</a>
+          <% } %>
+          <% if (contextProblem.additional_file) { %>
+            <a class="small ui teal button" href="<%= syzoj.utils.makeUrl(['problem', contextProblem.id, 'download', 'additional_file']) %>">附加文件</a>
+          <% } %>
+          <a class="small ui brown <%= contextSection === 'discussion' ? 'active ' : '' %>button"
+             href="<%= syzoj.utils.makeUrl(['discussion', 'problem', contextProblem.id]) %>" style="position: relative;">
+            讨论
+            <% if (problemContext.discussionCount) { %>
+              <span class="floating ui red tiny circular label" style="background-color: #8c5633 !important; top: -0.6em;"><%= problemContext.discussionCount %></span>
+            <% } %>
+          </a>
+          <a class="small ui olive <%= contextSection === 'solutions' ? 'active ' : '' %>button"
+             href="<%= syzoj.utils.makeUrl(['problem', contextProblem.id, 'solutions']) %>">题解</a>
+          <% } %>
+        </div>
+      </div>
+    </div>
+  </div>
+  <% if (contextSection === 'submissions') { %>
+    <script>
+    $(function () {
+      $('form#form').attr('action', <%- JSON.stringify(
+        contextContest
+          ? syzoj.utils.makeUrl(['contest', contextContest.id, 'problem', contextContestProblemId, 'submissions'])
+          : syzoj.utils.makeUrl(['problem', contextProblem.id, 'submissions'])
+      ) %>);
+    });
+    </script>
+  <% } %>
+</div>

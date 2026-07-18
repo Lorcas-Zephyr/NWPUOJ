@@ -1,0 +1,63 @@
+<%
+this.adminPage = 'privilege';
+let privileges = {
+  manage_problem: '管理题目',
+  manage_problem_tag: '管理题目标签',
+  manage_contest: '管理比赛',
+  manage_user: '管理用户'
+};
+%>
+<% include admin_header %>
+<div class="nwpuoj-meta" style="margin-bottom:12px;">在用户管理页进入资料编辑可为新用户授予首个权限；此处用于批量调整已有权限用户。</div>
+<div class="nwpuoj-table-region" role="region" aria-label="权限管理" tabindex="0">
+  <table class="ui center aligned celled table">
+    <thead>
+      <tr>
+        <th>UID</th>
+        <th>用户名</th>
+        <% for (let privilege in privileges) { %>
+          <th style="min-width:120px;"><%= privileges[privilege] %></th>
+        <% } %>
+      </tr>
+    </thead>
+    <tbody>
+      <% for (let item of users) { %>
+        <tr>
+          <td><%= item.user.id %></td>
+          <td><a href="<%= syzoj.utils.makeUrl(['user', item.user.id, 'edit']) %>"><%= item.user.username %></a></td>
+          <% for (let privilege in privileges) { %>
+            <td>
+              <div class="ui fitted toggle checkbox checkbox_privilege" data-user="<%= item.user.id %>" data-name="<%= privilege %>">
+                <input type="checkbox"<% if (item.privileges.includes(privilege)) { %> checked<% } %>>
+                <label aria-label="<%= privileges[privilege] %>"></label>
+              </div>
+            </td>
+          <% } %>
+        </tr>
+      <% } %>
+    </tbody>
+  </table>
+</div>
+
+<div style="text-align:center;margin-top:16px;">
+  <button type="button" class="ui blue labeled icon button" onclick="submitPrivileges()"><i class="save icon"></i>保存权限</button>
+</div>
+
+<form method="post" id="submit_form">
+  <input type="hidden" name="data" id="submit_data">
+</form>
+
+<script>
+function submitPrivileges() {
+  var users = {};
+  $('.checkbox_privilege').each(function () {
+    var user = $(this).data('user');
+    var name = $(this).data('name');
+    if (!users[user]) users[user] = [];
+    if ($(this).checkbox('is checked')) users[user].push(name);
+  });
+  $('#submit_data').val(JSON.stringify(users));
+  $('#submit_form').submit();
+}
+</script>
+<% include admin_footer %>

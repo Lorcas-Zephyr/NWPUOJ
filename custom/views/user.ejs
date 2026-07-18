@@ -12,27 +12,18 @@
     <div class="row">
         <div class="five wide column">
             <div class="ui card" style="width: 100%; " id="user_card">
-                <div class="blurring dimmable image" id="avatar_container">
-                    <% if (show_user.allowedEdit) { %>
-                    <div class="ui dimmer transition hidden">
-                        <div class="content">
-                            <div class="center">
-                                <a class="ui inverted button" href="<%= syzoj.utils.makeUrl(['user', show_user.id, 'edit']) %>"><i class="edit icon"></i>修改资料</a>
-                            </div>
-                        </div>
-                    </div>
-                    <% } %>
-                    <img style="margin-top: -100%; " src="<%= syzoj.utils.gravatar(show_user.email, 1000) %>">
+                <div class="image" id="avatar_container">
+                    <img style="margin-top: -100%; " src="<%= syzoj.utils.avatar(show_user, 1000) %>">
                 </div>
                 <div class="content">
                     <div class="header"><%- syzoj.utils.renderUsername(show_user, { noLink: true }) %> <% if (show_user.sex == 1) { %><i class="man icon"></i><% } else if (show_user.sex == -1) { %><i class="woman icon"></i><% } %></div>
                     <div class="meta">
-                        <a class="group"><%= show_user.is_admin ? '管理员' : '普通用户' %></a>
+                        <a class="group"><%= syzoj.siteOwnerUserId === show_user.id ? '站长' : show_user.is_admin ? '管理员' : '普通用户' %></a>
                     </div>
                 </div>
                 <div class="extra content">
                     <a><i class="check icon"></i>通过 <%= show_user.ac_problems.length %> 题</a>
-                    <a style="float: right; "><i class="star icon"></i>积分 <%= show_user.rating %></a>
+                    <a style="float: right; "><i class="star icon"></i>Rating <%= show_user.rating %></a>
                 </div>
                 <% if (typeof followStats !== 'undefined' && followStats) { %>
                 <div class="extra content" style="display: flex; gap: 0; padding: 8px 0;">
@@ -69,6 +60,12 @@
                         <i class="plus icon"></i>关注
                       </button>
                     </form>
+                  <% } %>
+                  <% if (res.locals.user.is_admin && show_user.id !== syzoj.siteOwnerUserId) { %>
+                    <a href="<%= syzoj.utils.makeUrl(['user', show_user.id, 'edit']) %>"
+                       class="ui small basic fluid labeled icon button" style="margin-top: 8px;">
+                      <i class="edit icon"></i>修改信息
+                    </a>
                   <% } %>
                 </div>
                 <% } %>
@@ -114,9 +111,9 @@
                                         <div class="column">
                                             <h4 class="ui top attached block header">通过的题目</h4>
                                             <div class="ui bottom attached segment">
-                                                <% for (let problem of show_user.ac_problems) { %>
-                                                    <a href="<%= syzoj.utils.makeUrl(['problem', problem]) %>"><%= problem %></a>
-                                                <% } %>
+                                                 <% for (let problem of show_user.ac_problems) { %>
+                                                     <a href="<%= syzoj.utils.makeUrl(['problem', problem.id]) %>"><%= problem.displayId %></a>
+                                                 <% } %>
                                             </div>
                                         </div>
                                     </div>
@@ -354,16 +351,22 @@
                                     <tr>
                                         <th>比赛</th>
                                         <th>名次</th>
-                                        <th>积分</th>
+                                        <th>Rating</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <% for (const history of ratingHistories) { %>
                                     <tr>
-                                        <td><%= history.contestName %></td>
+                                        <td>
+                                          <% if (history.contestId) { %>
+                                            <a href="<%= syzoj.utils.makeUrl(['contest', history.contestId, 'ranklist']) %>"><%= history.contestName %></a>
+                                          <% } else { %>
+                                            <%= history.contestName %>
+                                          <% } %>
+                                        </td>
                                         <td><%= history.rank != null ? history.rank + " / " + history.participants : '' %></td>
-                                        <td><%= history.value %> 
-                                            <% if(history.delta != null) { %> 
+                                        <td><%= history.value %>
+                                            <% if(history.delta != null) { %>
                                                 <span class="<%= history.delta >= 0 ? 'rating_up' : 'rating_down' %>">
                                                 (<%= (history.delta < 0 ? '' : '+') + history.delta %>)
                                             <% } %>
@@ -382,12 +385,6 @@
 </div>
 <script>
 $(function () {
-<% if (show_user.allowedEdit) { %>
-  $('#user_card .image').dimmer({
-    on: 'hover'
-  });
-<% } %>
-
   var pie = new Chart(document.getElementById('pie_chart').getContext('2d'), {
     aspectRatio: 1,
     type: 'pie',

@@ -1,0 +1,288 @@
+const crypto = require('crypto');
+
+const REPOSITORIES = {
+  all: null,
+  main: null,
+  uoj: 'vjudge:uoj',
+  hdu: 'vjudge:hdu',
+  poj: 'vjudge:poj'
+};
+
+function normalizeRepository(value) {
+  return Object.prototype.hasOwnProperty.call(REPOSITORIES, value) ? value : 'all';
+}
+
+function applyRepository(query, repository) {
+  if (repository === 'all') {
+    return;
+  } else if (repository === 'main') {
+    query.andWhere("(`type` IS NULL OR `type` NOT LIKE 'vjudge:%')");
+  } else {
+    query.andWhere('`type` = :repositoryType', { repositoryType: REPOSITORIES[repository] });
+  }
+}
+
+function normalizeProgress(value, user) {
+  if (!user) return 'all';
+  return ['all', 'solved', 'attempted', 'unattempted'].includes(value) ? value : 'all';
+}
+
+function applyProgress(query, progress, user) {
+  if (!user || progress === 'all') return;
+  const alias = '`' + String(query.alias || 'problem').replace(/`/g, '') + '`';
+  const submitted = `EXISTS (
+    SELECT 1 FROM judge_state progress_state
+    WHERE progress_state.user_id = :progressUserId
+      AND progress_state.problem_id = ${alias}.id
+  )`;
+  const solved = `EXISTS (
+    SELECT 1 FROM judge_state progress_state
+    WHERE progress_state.user_id = :progressUserId
+      AND progress_state.problem_id = ${alias}.id
+      AND progress_state.status = 'Accepted'
+      AND NOT EXISTS (
+        SELECT 1 FROM judge_state_admin_action progress_action
+        WHERE progress_action.judge_id = progress_state.id
+      )
+  )`;
+  query.setParameter('progressUserId', user.id);
+  if (progress === 'solved') query.andWhere(solved);
+  if (progress === 'attempted') query.andWhere(`${submitted} AND NOT ${solved}`);
+  if (progress === 'unattempted') query.andWhere(`NOT ${submitted}`);
+}
+
+async function applyVisibility(query, user) {
+  if (user && await user.hasPrivilege('manage_problem')) return;
+  if (user) {
+    query.andWhere(new TypeORM.Brackets(qb => {
+      qb.where('is_public = 1').orWhere('user_id = :viewerId', { viewerId: user.id });
+    }));
+  } else {
+    query.andWhere('is_public = 1');
+  }
+  const alias = '`' + String(query.alias || 'problem').replace(/`/g, '') + '`';
+  query.andWhere(`NOT EXISTS (
+    SELECT 1 FROM contest active_contest
+    WHERE active_contest.end_time > UNIX_TIMESTAMP()
+      AND CONCAT('|',COALESCE(active_contest.problems,''),'|')
+        LIKE CONCAT('%|',${alias}.id,'|%')
+  )`);
+}
+
+function orderExpression(sort, repository) {
+  if (sort === 'ac_rate') return 'ac_num / submit_num';
+  if (sort === 'id' && ['uoj', 'hdu', 'poj'].includes(repository)) return 'CAST(vjudge_config AS UNSIGNED)';
+  return sort;
+}
+
+async function hydrateProblems(problems, user) {
+  for (const problem of problems) {
+    problem.allowedEdit = await problem.isAllowedEditBy(user);
+    problem.judge_state = await problem.getJudgeState(user, true);
+    problem.tags = await problem.getTags();
+  }
+}
+
+function validateSort(req, allowPublicizeTime) {
+  const sort = req.query.sort || syzoj.config.sorting.problem.field;
+  const order = req.query.order || syzoj.config.sorting.problem.order;
+  const fields = ['id', 'title', 'ac_num', 'submit_num', 'ac_rate'];
+  if (allowPublicizeTime) fields.push('publicize_time');
+  if (!fields.includes(sort) || !['asc', 'desc'].includes(order)) {
+    throw new ErrorMessage('错误的排序参数。');
+  }
+  return { sort: sort, order: order };
+}
+
+function applyKeyword(query, repository, keyword) {
+  if (!keyword) return null;
+  const displayMatch = /^([UHP])([1-9]\d*)$/i.exec(keyword);
+  const prefixes = { uoj: 'U', hdu: 'H', poj: 'P' };
+  const displayTypes = { U: 'vjudge:uoj', H: 'vjudge:hdu', P: 'vjudge:poj' };
+  const expectedPrefix = prefixes[repository] || null;
+  const numericKeyword = /^\d+$/.test(keyword);
+  const numericId = numericKeyword && Number.isSafeInteger(Number(keyword)) && Number(keyword) <= 2147483647
+    ? Number(keyword)
+    : null;
+  if (displayMatch) {
+    const displayPrefix = displayMatch[1].toUpperCase();
+    if (repository === 'all') {
+      query.andWhere('`type` = :displayType', {
+        displayType: displayTypes[displayPrefix]
+      });
+      query.andWhere('vjudge_config = :remoteId', { remoteId: displayMatch[2] });
+    } else if (displayPrefix !== expectedPrefix) {
+      query.andWhere('1 = 0');
+    } else {
+      query.andWhere('vjudge_config = :remoteId', { remoteId: displayMatch[2] });
+    }
+    return null;
+  }
+
+  query.andWhere(new TypeORM.Brackets(qb => {
+    qb.where('title LIKE :title', { title: '%' + keyword + '%' });
+    if ((repository === 'main' || repository === 'all') && numericId !== null) {
+      qb.orWhere('id = :problemId', { problemId: numericId });
+    }
+    if (repository === 'all' && numericKeyword) {
+      qb.orWhere("(`type` IN ('vjudge:uoj', 'vjudge:hdu', 'vjudge:poj') AND vjudge_config = :remoteId)", {
+        remoteId: keyword
+      });
+    } else if (repository !== 'main' && numericKeyword) {
+      qb.orWhere('vjudge_config = :remoteId', { remoteId: keyword });
+    }
+  }));
+  if (!numericKeyword) return null;
+  if (repository === 'all') {
+    return numericId === null
+      ? "CASE WHEN `type` IN ('vjudge:uoj', 'vjudge:hdu', 'vjudge:poj') AND vjudge_config = :remoteId THEN 0 ELSE 1 END"
+      : "CASE WHEN `type` IN ('vjudge:uoj', 'vjudge:hdu', 'vjudge:poj') AND vjudge_config = :remoteId THEN 0 WHEN id = :problemId THEN 1 ELSE 2 END";
+  }
+  if (repository === 'main' && numericId !== null) return 'CASE WHEN id = :problemId THEN 0 ELSE 1 END';
+  if (repository !== 'main') return 'CASE WHEN vjudge_config = :remoteId THEN 0 ELSE 1 END';
+  return null;
+}
+
+async function renderProblems(req, res, query, repository, sortConfig, extra, priorityOrder) {
+  const Problem = syzoj.model('problem');
+  const displayNumberOrder = repository === 'all' && sortConfig.sort === 'id';
+  if (priorityOrder) {
+    query.orderBy(priorityOrder, 'ASC');
+    if (!displayNumberOrder) {
+      query.addOrderBy(orderExpression(sortConfig.sort, repository), sortConfig.order.toUpperCase());
+    }
+  } else {
+    if (!displayNumberOrder) {
+      query.orderBy(orderExpression(sortConfig.sort, repository), sortConfig.order.toUpperCase());
+    }
+  }
+  if (displayNumberOrder) {
+    const addOrder = priorityOrder ? 'addOrderBy' : 'orderBy';
+    query[addOrder](
+      "CASE WHEN `type` = 'vjudge:hdu' THEN 1 WHEN `type` = 'vjudge:poj' THEN 2 WHEN `type` = 'vjudge:uoj' THEN 3 ELSE 0 END",
+      sortConfig.order.toUpperCase()
+    );
+    query.addOrderBy(
+      "CASE WHEN `type` IN ('vjudge:uoj', 'vjudge:hdu', 'vjudge:poj') THEN CAST(vjudge_config AS UNSIGNED) ELSE id END",
+      sortConfig.order.toUpperCase()
+    );
+    query.addOrderBy('id', sortConfig.order.toUpperCase());
+  }
+  if (sortConfig.sort !== 'id') query.addOrderBy('id', 'ASC');
+  const paginate = syzoj.utils.paginate(
+    await Problem.countForPagination(query),
+    req.query.page,
+    syzoj.config.page.problem
+  );
+  const problems = await Problem.queryPage(paginate, query);
+  await hydrateProblems(problems, res.locals.user);
+  const allProblemTags = await syzoj.model('problem_tag').find({});
+  allProblemTags.sort((left, right) => {
+    const colorOrder = ['pink', 'teal', '', 'olive', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'black'];
+    const leftColor = colorOrder.indexOf(left.color || '');
+    const rightColor = colorOrder.indexOf(right.color || '');
+    if (leftColor !== rightColor) return (leftColor === -1 ? colorOrder.length : leftColor) - (rightColor === -1 ? colorOrder.length : rightColor);
+    return String(left.name || '').localeCompare(String(right.name || ''), 'zh-CN');
+  });
+
+  let bulkDeleteCsrfToken = null;
+  if (res.locals.user && res.locals.user.is_admin) {
+    if (!req.session.problemBulkDeleteCsrfToken) {
+      req.session.problemBulkDeleteCsrfToken = crypto.randomBytes(32).toString('hex');
+    }
+    bulkDeleteCsrfToken = req.session.problemBulkDeleteCsrfToken;
+  }
+
+  res.render('problems', Object.assign({
+    allowedManageTag: res.locals.user && await res.locals.user.hasPrivilege('manage_problem_tag'),
+    problems: problems,
+    paginate: paginate,
+    curSort: sortConfig.sort,
+    curOrder: sortConfig.order === 'asc',
+    repository: repository,
+    progress: normalizeProgress(req.query.progress, res.locals.user),
+    allProblemTags: allProblemTags,
+    bulkDeleteCsrfToken: bulkDeleteCsrfToken
+  }, extra || {}));
+}
+
+module.exports = function registerProblemRepositories() {
+  const Problem = syzoj.model('problem');
+  const ProblemTag = syzoj.model('problem_tag');
+
+  app.get('/problems', async (req, res) => {
+    try {
+      const repository = normalizeRepository(req.query.repository);
+      const progress = normalizeProgress(req.query.progress, res.locals.user);
+      const sortConfig = validateSort(req, true);
+      const query = Problem.createQueryBuilder();
+      applyRepository(query, repository);
+      await applyVisibility(query, res.locals.user);
+      applyProgress(query, progress, res.locals.user);
+      const keyword = String(req.query.keyword || '').trim();
+      const priorityOrder = applyKeyword(query, repository, keyword);
+      await renderProblems(req, res, query, repository, sortConfig, null, priorityOrder);
+    } catch (e) {
+      syzoj.log(e);
+      res.render('error', { err: e });
+    }
+  });
+
+  app.get('/problems/search', async (req, res) => {
+    try {
+      const repository = normalizeRepository(req.query.repository);
+      const progress = normalizeProgress(req.query.progress, res.locals.user);
+      const sortConfig = validateSort(req, false);
+      const keyword = String(req.query.keyword || '').trim();
+      const query = Problem.createQueryBuilder();
+      applyRepository(query, repository);
+      await applyVisibility(query, res.locals.user);
+      applyProgress(query, progress, res.locals.user);
+      const priorityOrder = applyKeyword(query, repository, keyword);
+      await renderProblems(req, res, query, repository, sortConfig, null, priorityOrder);
+    } catch (e) {
+      syzoj.log(e);
+      res.render('error', { err: e });
+    }
+  });
+
+  app.get('/problems/tag/:tagIDs', async (req, res) => {
+    try {
+      const repository = normalizeRepository(req.query.repository);
+      const progress = normalizeProgress(req.query.progress, res.locals.user);
+      const sortConfig = validateSort(req, false);
+      const tagIDs = Array.from(new Set(req.params.tagIDs.split(',').map(value => parseInt(value))));
+      if (!tagIDs.length || tagIDs.some(tagID => !Number.isSafeInteger(tagID) || tagID <= 0)) {
+        return res.redirect(syzoj.utils.makeUrl(['problems'], repository === 'all' ? {} : { repository: repository }));
+      }
+
+      const tags = [];
+      for (const tagID of tagIDs) {
+        const tag = await ProblemTag.findById(tagID);
+        if (!tag) return res.redirect(syzoj.utils.makeUrl(['problems'], repository === 'all' ? {} : { repository: repository }));
+        tags.push(tag);
+      }
+
+      const query = Problem.createQueryBuilder();
+      applyRepository(query, repository);
+      await applyVisibility(query, res.locals.user);
+      applyProgress(query, progress, res.locals.user);
+      const keyword = String(req.query.keyword || '').trim();
+      const priorityOrder = applyKeyword(query, repository, keyword);
+      tagIDs.forEach((tagID, index) => {
+        const parameters = {};
+        parameters['tagId' + index] = tagID;
+        query.andWhere(
+          '`id` IN (SELECT `problem_id` FROM `problem_tag_map` WHERE `tag_id` = :tagId' + index + ')',
+          parameters
+        );
+      });
+      await renderProblems(req, res, query, repository, sortConfig, { tags: tags }, priorityOrder);
+    } catch (e) {
+      syzoj.log(e);
+      res.render('error', { err: e });
+    }
+  });
+};
+
+module.exports.normalizeRepository = normalizeRepository;

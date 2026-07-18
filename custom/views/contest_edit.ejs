@@ -1,7 +1,32 @@
-<% this.title = contest.id ? '编辑比赛' : '新建比赛' %>
+<% this.title = contest.id ? '比赛管理 - ' + contest.title : '新建比赛' %>
 <% include header %>
+<%
+const unavailableContestProblems = problems.filter(problem =>
+  syzoj.utils.contestSubmissionEnabled && !syzoj.utils.contestSubmissionEnabled(problem)
+);
+%>
 <div class="padding">
+        <% if (contest.id) { %>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
+            <h1 class="ui header" style="margin:0;">比赛管理</h1>
+            <a class="ui basic labeled icon button" href="<%= syzoj.utils.makeUrl(['contest', contest.id]) %>"><i class="angle left icon"></i>返回比赛</a>
+          </div>
+          <h3 class="ui header" style="margin-top:0;"><%= contest.title %></h3>
+          <div class="ui secondary pointing menu" style="margin-bottom:24px;">
+            <a class="active item" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'edit']) %>"><i class="edit outline icon"></i>比赛内容</a>
+            <a class="item" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'registrations']) %>"><i class="users icon"></i>报名管理</a>
+          </div>
+          <% if (req.query && req.query.rating_recalculated === '1') { %>
+            <div class="ui positive message">
+              <div class="header">Rating 已重新计算</div>
+              <p>已级联处理 <%= Math.max(0, Number(req.query.rating_contests) || 0) %> 场 Rated 比赛，更新 <%= Math.max(0, Number(req.query.rating_users) || 0) %> 名用户。</p>
+            </div>
+          <% } %>
+        <% } else { %>
+          <h1 class="ui header">新建比赛</h1>
+        <% } %>
         <form action="<%= syzoj.utils.makeUrl(['contest', contest.id, 'edit']) %>" method="post">
+          <input type="hidden" name="contest_revision" value="<%= typeof contestRegistration !== 'undefined' && contestRegistration ? contestRegistration.revision : 0 %>">
           <div class="ui form">
               <div class="field">
                 <label>比赛名称</label>
@@ -15,9 +40,14 @@
                 <label>试题列表</label>
                 <select class="ui fluid search dropdown" multiple="" id="search_problems" name="problems">
                 <% for (let problem of problems) { %>
-                <option value="<%= problem.id %>" selected>#<%= problem.id %>. <%= problem.title %></option>
+                <option value="<%= problem.id %>" selected><%= problem.getDisplayId() %>. <%= problem.title %><% if (unavailableContestProblems.includes(problem)) { %>（比赛不可用）<% } %></option>
                 <% } %>
                 </select>
+                <% if (unavailableContestProblems.length) { %>
+                  <div class="ui warning message" style="margin-top:8px;">
+                    当前包含 <%= unavailableContestProblems.length %> 道未启用比赛提交的 VJudge 题目，请移除后再保存。
+                  </div>
+                <% } %>
             </div>
             <div class="field">
                 <label>比赛管理员</label>
@@ -65,18 +95,31 @@
                 <input type="text" name="end_time" value="<%= syzoj.utils.formatDate(contest.end_time || syzoj.utils.getCurrentDate()) %>">
             </div>
             <div class="inline field">
-              <label class="ui header">公开</label>
-              <div class="ui toggle checkbox">
-                <input type="checkbox"<% if (contest.is_public) { %> checked<% } %> name="is_public">
-                <label><span style="visibility: hidden; ">　</span></label>
-              </div>
-            </div>
-            <div class="inline field">
               <label class="ui header">隐藏统计信息</label>
               <div class="ui toggle checkbox">
                 <input type="checkbox"<% if (contest.hide_statistics) { %> checked<% } %> name="hide_statistics">
                 <label><span style="visibility: hidden; ">　</span></label>
               </div>
+            </div>
+            <div class="inline field">
+              <label class="ui header">允许开赛后报名</label>
+              <div class="ui toggle checkbox">
+                <input type="checkbox"<% if (typeof contestRegistration !== 'undefined' && contestRegistration && contestRegistration.allowLateRegistration) { %> checked<% } %> name="allow_late_registration">
+                <label><span style="visibility: hidden; ">　</span></label>
+              </div>
+            </div>
+            <div class="inline field">
+              <label class="ui header">Rated 比赛</label>
+              <div class="ui toggle checkbox<%= typeof contestRatingLocked !== 'undefined' && contestRatingLocked ? ' disabled' : '' %>">
+                <input type="checkbox" name="is_rated"<% if (typeof contestRated !== 'undefined' && contestRated) { %> checked<% } %><% if (typeof contestRatingLocked !== 'undefined' && contestRatingLocked) { %> disabled<% } %>>
+                <label>比赛结束后自动计算参赛者 Rating</label>
+              </div>
+              <% if (typeof contestRatingLocked !== 'undefined' && contestRatingLocked && typeof contestRated !== 'undefined' && contestRated) { %>
+                <input type="hidden" name="is_rated" value="on">
+              <% } %>
+              <% if (typeof contestRatingLocked !== 'undefined' && contestRatingLocked) { %>
+                <div class="nwpuoj-meta" style="margin-top:6px;">比赛开始后不能修改 Rated 状态。</div>
+              <% } %>
             </div>
             <div style="text-align: center; "><button id="submit_button" type="submit" class="ui labeled icon blue button"><i class="ui edit icon"></i>提交</button></div>
           </div>
@@ -104,7 +147,7 @@ $(function () {
       debug: true,
       saveRemoteData: false,
       apiSettings: {
-        url: '/api/v2/search/problems/{query}',
+        url: '/api/v2/search/problems/{query}?contest=1',
         onResponse: function (response) {
           var a = $('#search_problems').val().map(function (x) { return parseInt(x) });
           if (response.results) {
@@ -118,7 +161,29 @@ $(function () {
 });
 </script>
 <% if (contest.id) { %>
-<div class="padding" style="padding-top: 0;">
+  <div class="ui divider" style="margin-top:30px;"></div>
+  <section aria-labelledby="contest-rating-management-title">
+    <h3 id="contest-rating-management-title" class="ui header">Rating 管理</h3>
+    <% if (typeof contestRatingCanRecalculate !== 'undefined' && contestRatingCanRecalculate && typeof contestRated !== 'undefined' && contestRated && contest.isEnded()) { %>
+      <p>当前状态：<strong><%= contestRatingFinalizationStatus === 'completed' ? '已结算' : (contestRatingFinalizationStatus === 'skipped' ? '未产生 Rating 变更' : '等待结算') %></strong></p>
+      <form method="post"
+            action="<%= syzoj.utils.makeUrl(['contest', contest.id, 'rating', 'recalculate']) %>"
+            onsubmit="return confirm('将从本场比赛开始，按时间顺序重新计算所有后续 Rated 比赛，并覆盖相关用户的 Rating 历史。确定继续吗？');"
+            style="margin:0;">
+        <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>">
+        <button type="submit" class="ui basic labeled icon button">
+          <i class="refresh icon"></i>重新计算 Rating
+        </button>
+      </form>
+      <div class="nwpuoj-meta" style="margin-top:8px;">后续 Rated 比赛会同步级联重算，避免 Rating 基线不一致。</div>
+    <% } else if (typeof contestRated !== 'undefined' && !contestRated) { %>
+      <p class="nwpuoj-meta">Unrated 比赛不计算 Rating。</p>
+    <% } else if (!contest.isEnded()) { %>
+      <p class="nwpuoj-meta">比赛结束后可重新计算 Rating。</p>
+    <% } else { %>
+      <p class="nwpuoj-meta">只有站点管理员可以重新计算 Rating。</p>
+    <% } %>
+  </section>
   <div class="ui divider" style="margin-top: 30px;"></div>
   <div class="ui red segment">
     <h4 style="margin-top: 0; color: #db2828;">
@@ -126,17 +191,18 @@ $(function () {
     </h4>
     <p style="color: #666;">
       删除比赛后，该比赛所有<b>报名记录</b>和<b>排行榜数据</b>将一并清除，此操作不可撤销。
-      用户的 rating 历史变化将保留(避免影响用户主页比赛历史展示)。
+      用户的 Rating 历史变化将保留（避免影响用户主页比赛历史展示）。
     </p>
     <form method="post"
           action="<%= syzoj.utils.makeUrl(['contest', contest.id, 'delete']) %>"
           onsubmit="return confirm('真的要删除比赛「<%= contest.title %>」吗？\n\n此操作将删除：\n - 该比赛所有报名记录\n - 该比赛排行榜数据\n\n此操作不可撤销！');"
           style="margin: 0;">
+      <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>">
       <button type="submit" class="ui red button">
         <i class="trash icon"></i> 删除此比赛
       </button>
     </form>
   </div>
-</div>
 <% } %>
+</div>
 <% include footer %>

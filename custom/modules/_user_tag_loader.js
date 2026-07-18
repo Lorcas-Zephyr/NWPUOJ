@@ -3,6 +3,11 @@ let UserTag = syzoj.model('user-tag');
 
 app.use('/user/:id/edit', async (req, res, next) => {
   try {
+    if (syzoj.userTagsEnabled === false) {
+      res.locals.myTagState = null;
+      res.locals.myTagIsCheater = false;
+      return next();
+    }
     if (req.method !== 'GET') return next();
     if (!res.locals.user) return next();
 

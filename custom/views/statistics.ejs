@@ -72,7 +72,7 @@ function getColorOfScore(score) {
           <% include util %>
           <tr>
               <td><a href="<%= syzoj.utils.makeUrl(['submission', judge.id]) %>"><b>#<%= judge.id %></b></a></td>
-              <td><a href="<%= syzoj.utils.makeUrl(['problem', judge.problem_id]) %>"><b>#<%= judge.problem_id %>.</b> <%= judge.problem.title %></a></td>
+              <td><a href="<%= syzoj.utils.makeUrl(['problem', judge.problem_id]) %>"><b><%= judge.problem.getDisplayId() %>.</b> <%= judge.problem.title %></a></td>
               <td><a href="<%= syzoj.utils.makeUrl(['submission', judge.id]) %>">
                   <b>
                   <span class="status <%= getStatusMeta(judge.status).toLowerCase().split(' ').join('_') %>">

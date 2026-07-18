@@ -1,0 +1,28 @@
+<% this.title = 'ZIP 批量导入题目'; %>
+<% include header %>
+<div class="padding">
+  <div class="nwpuoj-page-header">
+    <div>
+      <h2 class="nwpuoj-page-title"><i class="file archive outline icon"></i>ZIP 批量导入题目</h2>
+      <div class="nwpuoj-meta" style="margin-top:4px;">ZIP 根目录下的每个一级子文件夹会生成一道传统题。</div>
+    </div>
+    <a class="ui basic labeled icon button" href="<%= syzoj.utils.makeUrl(['help']) %>#zip-bulk-import-format"><i class="help circle icon"></i>查看严格格式</a>
+  </div>
+
+  <form class="ui form" action="<%= syzoj.utils.makeUrl(['problem', 0, 'import']) %>" method="post" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="<%= problemImportCsrfToken %>">
+    <div class="field">
+      <label for="problem-import-archive">题目 ZIP</label>
+      <input id="problem-import-archive" type="file" name="archive" accept=".zip,application/zip" required>
+      <div class="nwpuoj-meta" style="margin-top:6px;">压缩文件最大 <%= maximumArchiveSizeMiB %> MiB，最多 50 道题，解压后总计不超过 200 MiB。</div>
+    </div>
+    <div class="inline field">
+      <div class="ui toggle checkbox">
+        <input type="checkbox" name="is_public" checked>
+        <label>校验全部通过后公开题目</label>
+      </div>
+    </div>
+    <button type="submit" class="ui primary labeled icon button"><i class="upload icon"></i>上传并导入</button>
+  </form>
+</div>
+<% include footer %>

@@ -17,7 +17,7 @@
   <script>
   (function () {
     'use strict';
-    var STORAGE_KEY = 'algobeat_dismissed_announcements';
+    var STORAGE_KEY = 'nwpuoj_dismissed_announcements';
     function getDismissed() {
       try { var raw = localStorage.getItem(STORAGE_KEY); return raw ? JSON.parse(raw) : {}; }
       catch (e) { return {}; }
@@ -47,6 +47,49 @@
     function escapeHtml(s) {
       return String(s).replace(/[&<>"']/g, function (m) {
         return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m];
+      });
+    }
+    function formatAnnouncementTime(timestamp) {
+      if (!timestamp) return '-';
+      var date = new Date(timestamp * 1000);
+      var pad = function (value) { return value < 10 ? '0' + value : String(value); };
+      return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate()) +
+        ' ' + pad(date.getHours()) + ':' + pad(date.getMinutes());
+    }
+    function renderAnnouncementList(announcements) {
+      var $list = $('#active-announcement-list');
+      if (!$list.length) return;
+      $list.empty();
+
+      if (announcements.length === 0) {
+        $list.append('<tr><td colspan="2" class="center aligned" style="color: #999;">暂无生效中的公告</td></tr>');
+        return;
+      }
+
+      announcements.forEach(function (a) {
+        var color = levelToColor(a.level);
+        var levelText = a.level === 'important' ? '重要' : (a.level === 'warning' ? '警告' : '公告');
+        var $chevron = $('<i class="angle right icon" style="margin-right: 4px;"></i>');
+        var $details = $('<tr class="announcement-detail-row" style="display: none;"></tr>')
+          .append($('<td colspan="2" style="padding: 14px 18px; background: #fafafa;"></td>')
+            .append($('<div class="font-content"></div>').html(a.contentRendered)));
+        var $title = $('<a href="#" aria-expanded="false"></a>')
+          .append($chevron)
+          .append($('<span></span>').text(a.title))
+          .on('click', function (event) {
+            event.preventDefault();
+            var expanded = !$details.is(':visible');
+            $details.toggle(expanded);
+            $title.attr('aria-expanded', expanded ? 'true' : 'false');
+            $chevron.toggleClass('right', !expanded).toggleClass('down', expanded);
+          });
+        var $titleCell = $('<td></td>')
+          .append($('<span class="ui mini label"></span>').addClass(color).text(levelText))
+          .append(' ')
+          .append($title);
+        var $timeCell = $('<td></td>').text(formatAnnouncementTime(a.public_time));
+        $list.append($('<tr></tr>').append($titleCell, $timeCell));
+        $list.append($details);
       });
     }
     function showAnnouncement(a, onClose) {
@@ -91,82 +134,24 @@
     }
     $(function () {
       $.getJSON('/api/active-announcements', function (data) {
-        if (!data || !data.announcements) return;
-        var all = data.announcements;
+        var all = data && data.announcements ? data.announcements : [];
+        renderAnnouncementList(all);
         cleanExpiredDismissed(all);
         var dict = getDismissed();
-        var toShow = all.filter(function (a) { return !dict[a.id]; });
+        var toShow = all.filter(function (a) {
+          return (a.level === 'important' || a.level === 'warning') && !dict[a.id];
+        });
         if (toShow.length === 0) return;
         showQueue(toShow);
+      }).fail(function () {
+        $('#active-announcement-list').html('<tr><td colspan="2" class="center aligned" style="color: #db2828;">公告加载失败</td></tr>');
       });
     });
   })();
   </script>
 
-  <!-- ============ 顶部:Banner 轮播 + 今日运势 + 近期比赛 ============ -->
-  <div class="ui grid ab-home-top-grid" style="margin-bottom: 8px;">
-    <div class="eleven wide column">
-      <div class="ab-banner-wrap" id="ab-banner-wrap">
-        <div class="ab-banner-empty" id="ab-banner-empty">加载中...</div>
-        <button class="ab-banner-arrow left" id="ab-banner-prev" type="button" aria-label="上一张">‹</button>
-        <button class="ab-banner-arrow right" id="ab-banner-next" type="button" aria-label="下一张">›</button>
-        <div class="ab-banner-dots" id="ab-banner-dots"></div>
-      </div>
-    </div>
-
-    <div class="five wide column">
-
-      <!-- 近期比赛(紧凑版) -->
-      <h4 class="ui top attached block header" style="margin-top: 14px;"><i class="ui calendar icon"></i>近期比赛</h4>
-      <div class="ui bottom attached segment" style="padding: 10px 12px; flex: 2;">
-        <% if (!contests || !contests.length) { %>
-          <div style="text-align: center; color: #999; padding: 8px 0;">暂无比赛</div>
-        <% } else { %>
-          <% for (let contest of contests) {
-            let now = syzoj.utils.getCurrentDate();
-            let statusLabel, statusColor;
-            if (now < contest.start_time) { statusLabel = '未开始'; statusColor = 'red'; }
-            else if (now < contest.end_time) { statusLabel = '进行中'; statusColor = 'green'; }
-            else { statusLabel = '已结束'; statusColor = 'grey'; }
-            let typeLabel = '';
-            if (contest.type === 'noi') typeLabel = 'NOI';
-            else if (contest.type === 'ioi') typeLabel = 'IOI';
-            else if (contest.type === 'acm') typeLabel = 'ICPC';
-          %>
-            <a class="ab-contest-mini" href="<%= syzoj.utils.makeUrl(['contest', contest.id]) %>">
-              <div class="ab-contest-mini-title"><%= contest.title %></div>
-              <div class="ab-contest-mini-meta">
-                <% if (typeLabel) { %><span class="ui mini label" style="background: #1565c0; color: white;"><%= typeLabel %></span><% } %>
-                <span class="ui mini <%= statusColor %> label"><%= statusLabel %></span>
-                <span class="ab-contest-mini-time"><%= syzoj.utils.formatDate(contest.start_time) %></span>
-              </div>
-            </a>
-          <% } %>
-        <% } %>
-      </div>
-
-      <!-- 一言 -->
-      <h4 class="ui top attached block header" style="margin-top: 14px;"><i class="ui quote left icon"></i>一言（ヒトコト）</h4>
-      <div class="ui bottom attached center aligned segment" style="padding: 14px; flex: 1; display: flex; flex-direction: column; justify-content: center; min-height: 0;">
-        <div class="ui active centered inline loader" id="hitokoto-loader"></div>
-        <script>
-        $.get('https://v1.hitokoto.cn/?c=a', function (data) {
-          if (typeof data === 'string') data = JSON.parse(data);
-          $('#hitokoto-loader').removeClass('active');
-          $('#hitokoto-content').css('display', '').text(data.hitokoto);
-          if (data.from) $('#hitokoto-from').css('display', '').text('——' + data.from);
-        });
-        </script>
-        <div style="font-size: 1em; line-height: 1.5em; display: none;" id="hitokoto-content"></div>
-        <div style="text-align: right; margin-top: 10px; font-size: 0.9em; color: #666; display: none;" id="hitokoto-from"></div>
-      </div>
-    </div>
-  </div>
-
-
-
   <!-- ============ 公告 + 右侧栏 ============ -->
-  <div class="ui grid" style="margin-top: 8px;">
+  <div class="ui grid" style="margin-top: 0;">
     <div class="eleven wide column">
       <h4 class="ui top attached block header"><i class="ui info icon"></i>公告</h4>
       <div class="ui bottom attached segment">
@@ -177,22 +162,48 @@
               <th style="width: 180px;">时间</th>
             </tr>
           </thead>
-          <tbody>
-            <% for (let item of notices) { %>
-              <tr>
-                <td><a href="<%= item.url %>"><%= item.title %></a></td>
-                <td><%= item.date %></td>
-              </tr>
-            <% } %>
+          <tbody id="active-announcement-list">
+            <tr>
+              <td colspan="2" class="center aligned" style="color: #999;">公告加载中...</td>
+            </tr>
           </tbody>
         </table>
+      </div>
+
+      <h4 class="ui top attached block header" style="margin-top: 14px;"><i class="ui calendar icon"></i>近期比赛</h4>
+      <div class="ui bottom attached segment" style="padding: 10px 12px;">
+        <% if (!contests || !contests.length) { %>
+          <div style="text-align: center; color: #999; padding: 8px 0;">暂无比赛</div>
+        <% } else { %>
+          <% for (let contest of contests) {
+            let now = syzoj.utils.getCurrentDate();
+            let statusLabel, statusColor;
+            if (now < contest.start_time) { statusLabel = '未开始'; statusColor = 'red'; }
+            else if (now < contest.end_time) { statusLabel = '进行中'; statusColor = 'green'; }
+            else { statusLabel = '已结束'; statusColor = 'grey'; }
+            let typeLabel = '', typeColor = '';
+            if (contest.type === 'noi') { typeLabel = 'NOI'; typeColor = 'orange'; }
+            else if (contest.type === 'ioi') { typeLabel = 'IOI'; typeColor = 'teal'; }
+            else if (contest.type === 'acm') { typeLabel = 'ICPC'; typeColor = 'blue'; }
+          %>
+            <a class="nwpuoj-contest-mini" href="<%= syzoj.utils.makeUrl(['contest', contest.id]) %>">
+              <div class="nwpuoj-contest-mini-title"><%= contest.title %></div>
+              <div class="nwpuoj-contest-mini-meta">
+                <% if (typeLabel) { %><span class="ui mini <%= typeColor %> label"><%= typeLabel %></span><% } %>
+                <span class="ui mini <%= statusColor %> label"><%= statusLabel %></span>
+                <span class="nwpuoj-contest-mini-time"><%= syzoj.utils.formatDate(contest.start_time) %></span>
+              </div>
+            </a>
+          <% } %>
+        <% } %>
       </div>
     </div>
 
     <div class="five wide column">
       <h4 class="ui top attached block header"><i class="ui search icon"></i>搜索题目</h4>
       <div class="ui bottom attached segment">
-        <form action="<%= syzoj.utils.makeUrl(['problems', 'search']) %>" method="get">
+        <form action="<%= syzoj.utils.makeUrl(['problems', 'search']) %>" method="get" id="home-problem-search-form">
+          <input type="hidden" name="repository" value="all">
           <div class="ui search" style="width: 100%;">
             <div class="ui left icon input" style="width: 100%;">
               <input class="prompt" style="width: 100%;" type="text" placeholder="ID / 题目名 …" name="keyword">
@@ -204,7 +215,7 @@
       </div>
 
       <% if (typeof links !== 'undefined' && links && links.length) { %>
-        <h4 class="ui top attached block header font-content"><i class="ui linkify icon"></i>友情链接</h4>
+        <h4 class="ui top attached block header font-content" style="margin-top: 14px;"><i class="ui linkify icon"></i>友情链接</h4>
         <div class="ui bottom attached segment">
           <ul style="margin: 0; padding-left: 20px;">
             <% for (let link of links) { %>
@@ -216,104 +227,10 @@
     </div>
   </div>
 
-  <!-- ============ 犇犇 widget ============ -->
-  <h4 class="ui top attached block header" style="margin-top: 8px;"><i class="ui comments icon"></i>犇犇</h4>
-  <div class="ui bottom attached segment" style="padding: 14px;">
-    <% include benben_feed %>
-  </div>
-
 </div>
 
-<!-- ============ Banner 轮播 JS ============ -->
+<!-- ============ 搜索框初始化 ============ -->
 <script>
-(function () {
-  'use strict';
-  var wrap = document.getElementById('ab-banner-wrap');
-  var emptyEl = document.getElementById('ab-banner-empty');
-  var dotsEl = document.getElementById('ab-banner-dots');
-  var prevBtn = document.getElementById('ab-banner-prev');
-  var nextBtn = document.getElementById('ab-banner-next');
-  if (!wrap) return;
-
-  var slides = [];
-  var current = 0;
-  var timer = null;
-
-  function escapeAttr(s) {
-    return String(s).replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  }
-
-  function render(banners) {
-    if (!banners || banners.length === 0) {
-      emptyEl.style.display = 'flex';
-      emptyEl.textContent = '暂无 Banner';
-      prevBtn.style.display = 'none';
-      nextBtn.style.display = 'none';
-      return;
-    }
-    emptyEl.style.display = 'none';
-    banners.forEach(function (b, i) {
-      var slide = document.createElement(b.link_url ? 'a' : 'div');
-      slide.className = 'ab-banner-slide' + (i === 0 ? ' active' : '');
-      if (b.link_url) {
-        slide.href = b.link_url;
-        if (b.link_url.indexOf('http') === 0) slide.target = '_blank';
-      }
-      slide.innerHTML = '<img src="' + escapeAttr(b.image_path) + '" alt="' + escapeAttr(b.title || '') + '">';
-      wrap.insertBefore(slide, dotsEl);
-      slides.push(slide);
-
-      var dot = document.createElement('div');
-      dot.className = 'ab-banner-dot' + (i === 0 ? ' active' : '');
-      dot.addEventListener('click', function () { goto(i); });
-      dotsEl.appendChild(dot);
-    });
-
-    if (banners.length <= 1) {
-      prevBtn.style.display = 'none';
-      nextBtn.style.display = 'none';
-    } else {
-      startAutoplay();
-    }
-  }
-
-  function goto(i) {
-    if (slides.length === 0) return;
-    current = (i + slides.length) % slides.length;
-    slides.forEach(function (s, idx) {
-      s.classList.toggle('active', idx === current);
-    });
-    var dots = dotsEl.querySelectorAll('.ab-banner-dot');
-    dots.forEach(function (d, idx) {
-      d.classList.toggle('active', idx === current);
-    });
-  }
-
-  function next() { goto(current + 1); }
-  function prev() { goto(current - 1); }
-
-  function startAutoplay() {
-    stopAutoplay();
-    timer = setInterval(next, 5000);
-  }
-  function stopAutoplay() {
-    if (timer) clearInterval(timer);
-    timer = null;
-  }
-
-  prevBtn.addEventListener('click', function () { prev(); stopAutoplay(); startAutoplay(); });
-  nextBtn.addEventListener('click', function () { next(); stopAutoplay(); startAutoplay(); });
-  wrap.addEventListener('mouseenter', stopAutoplay);
-  wrap.addEventListener('mouseleave', startAutoplay);
-
-  $.getJSON('/api/active-banners', function (data) {
-    render((data && data.banners) || []);
-  }).fail(function () {
-    render([]);
-  });
-})();
-
-// 搜索框初始化(原有)
 $(function () {
   $('.ui.search').search({
     debug: true,
@@ -321,6 +238,12 @@ $(function () {
     apiSettings: { url: '/api/v2/search/problems/{query}', cache: false },
     fields: { title: 'name' }
   });
+  document.querySelector('#home-problem-search-form .prompt').addEventListener('keydown', function (event) {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    document.getElementById('home-problem-search-form').submit();
+  }, true);
 });
 </script>
 

@@ -2,22 +2,16 @@
 <% include header %>
 
 <div class="padding">
-  <div class="ui breadcrumb" style="margin-bottom: 15px;">
-    <a class="section" href="<%= syzoj.utils.makeUrl(['problems']) %>">题库</a>
-    <i class="right angle icon divider"></i>
-    <a class="section" href="<%= syzoj.utils.makeUrl(['problem', problem.id]) %>">#<%= problem.id %>. <%= problem.title %></a>
-    <i class="right angle icon divider"></i>
-    <div class="active section">题解</div>
-  </div>
-
-  <div style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-    <h2 style="margin: 0;">「<%= problem.title %>」的题解</h2>
+  <div class="nwpuoj-page-header">
     <div>
+      <h2 class="nwpuoj-page-title">题解</h2>
+      <div class="nwpuoj-meta">共 <%= solutions.length %> 篇当前可见题解</div>
+    </div>
+    <div class="nwpuoj-page-actions">
       <% if (typeof submissionDisabled !== 'undefined' && submissionDisabled) { %>
-        <a class="ui button" href="javascript:alert('该题已关闭题解提交。');"
-           style="background-color: #f8f8f8; color: #999; cursor: not-allowed;">
+        <span class="ui disabled button" aria-disabled="true">
           <i class="ban icon"></i> 已关闭投稿
-        </a>
+        </span>
       <% } else if (allowedPost) { %>
         <a class="ui primary button" href="<%= syzoj.utils.makeUrl(['problem', problem.id, 'solution', 'new']) %>">
           <i class="edit icon"></i> 投稿题解
@@ -33,7 +27,7 @@
           <form method="post"
                 action="<%= syzoj.utils.makeUrl(['problem', problem.id, 'solution-toggle-submission']) %>"
                 onsubmit="return confirm('确定重新开放此题的题解提交吗？');"
-                style="display: inline; margin: 0;">
+                style="display:inline;margin:0;">
             <button type="submit" class="ui green button">
               <i class="unlock icon"></i> 开放投稿
             </button>
@@ -60,11 +54,9 @@
   <% } %>
 
   <% if (solutions.length === 0) { %>
-    <div class="ui placeholder segment">
-      <div class="ui icon header">
-        <i class="file alternate outline icon"></i>
-        暂无题解
-      </div>
+     <div class="nwpuoj-empty-state">
+       <i class="file alternate outline icon"></i>
+       <h3>暂无题解</h3>
       <% if (allowedPost) { %>
         <a class="ui primary button" href="<%= syzoj.utils.makeUrl(['problem', problem.id, 'solution', 'new']) %>">
           成为第一个投稿者
@@ -72,24 +64,25 @@
       <% } %>
     </div>
   <% } else { %>
-    <table class="ui celled table">
+    <div class="nwpuoj-table-region" role="region" aria-label="题解列表" tabindex="0">
+    <table class="ui very basic table">
       <thead>
         <tr>
-          <th style="width: 50%;">标题</th>
-          <th>作者</th>
-          <th>状态</th>
-          <th>发布时间</th>
+          <th scope="col" style="width:50%;">标题</th>
+          <th class="nwpuoj-priority-2" scope="col">作者</th>
+          <th scope="col">状态</th>
+          <th class="nwpuoj-priority-3" scope="col">发布时间</th>
         </tr>
       </thead>
       <tbody>
         <% for (let sol of solutions) { %>
           <tr>
-            <td>
+            <td class="left aligned">
               <a href="<%= syzoj.utils.makeUrl(['solution', sol.id]) %>">
                 <%= sol.title || '(无标题)' %>
               </a>
             </td>
-            <td>
+            <td class="nwpuoj-priority-2">
               <% if (sol.user) { %>
                 <%- syzoj.utils.renderUsername(sol.user) %>
               <% } else { %>
@@ -98,20 +91,21 @@
             </td>
             <td>
               <% if (sol.status === 'accepted') { %>
-                <span class="ui green tiny label">已通过</span>
+                <span class="nwpuoj-status nwpuoj-status-success">已通过</span>
               <% } else if (sol.status === 'pending') { %>
-                <span class="ui yellow tiny label">待审核</span>
+                <span class="nwpuoj-status nwpuoj-status-warning">待审核</span>
               <% } else if (sol.status === 'rejected') { %>
-                <span class="ui red tiny label">已拒绝</span>
+                <span class="nwpuoj-status nwpuoj-status-danger">已拒绝</span>
               <% } else if (sol.status === 'withdrawn') { %>
-                <span class="ui grey tiny label">已撤回</span>
+                <span class="nwpuoj-status nwpuoj-status-muted">已撤回</span>
               <% } %>
             </td>
-            <td><%= syzoj.utils.formatDate(sol.public_time) %></td>
+            <td class="nwpuoj-priority-3"><%= syzoj.utils.formatDate(sol.public_time) %></td>
           </tr>
         <% } %>
       </tbody>
     </table>
+    </div>
     <% include page %>
   <% } %>
 </div>

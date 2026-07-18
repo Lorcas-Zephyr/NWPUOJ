@@ -1,8 +1,10 @@
 <% this.title = '排名 - ' + contest.title %>
 <% include header %>
 <%
-// [v1.5.1] 比赛排行榜:作弊用户分数清零, 总分=-1, 排到末尾
+// 比赛排行榜:作弊用户分数清零, 总分=-1, 排到末尾
 const _cheaterSet = (syzoj.contestCheaterMap && syzoj.contestCheaterMap.get(contest.id)) || null;
+const ranklistSupervisor = !!(user && (user.is_admin ||
+  (typeof contestHeader !== 'undefined' && contestHeader && contestHeader.isSupervisior)));
 if (_cheaterSet && _cheaterSet.size > 0 && Array.isArray(ranklist)) {
   for (let item of ranklist) {
     if (_cheaterSet.has(item.user.id)) {
@@ -26,34 +28,53 @@ if (_cheaterSet && _cheaterSet.size > 0 && Array.isArray(ranklist)) {
   margin-top: 5px;
   color: #000;
 }
+.contest-ranklist-live { color: #767676; text-align: right; margin-bottom: 8px; }
 </style>
 <div class="padding">
-<h1 class="ui center aligned header" style="margin-bottom: 30px; "><%= contest.title %></h1>
-        <table class="ui very basic center aligned table">
+        <% if (contest.isRunning()) { %><div class="contest-ranklist-live"><i class="refresh icon"></i>实时榜，每 15 秒刷新</div><% } %>
+        <% if (contest.isEnded()) { %>
+          <% if (typeof contestRated !== 'undefined' && !contestRated) { %>
+            <div class="ui message">该比赛为 Unrated，不计算参赛者 Rating。</div>
+          <% } else if (typeof contestRatingStatus !== 'undefined' && contestRatingStatus && contestRatingStatus.status === 'completed') { %>
+            <div class="ui positive message">Rating 已结算，共 <%= contestRatingStatus.participant_count %> 名有效参赛者。</div>
+          <% } else if (typeof contestRatingStatus !== 'undefined' && contestRatingStatus && contestRatingStatus.status === 'legacy_unrated') { %>
+            <div class="ui message">该比赛为历史 Unrated，不补算 Rating。</div>
+          <% } else if (typeof contestRatingStatus !== 'undefined' && contestRatingStatus && contestRatingStatus.status === 'skipped') { %>
+            <div class="ui message">Rating 已跳过：<%= contestRatingStatus.skip_reason || '有效参赛者不足' %></div>
+          <% } else { %>
+            <div class="ui warning message">Rating 等待结算，可能仍有提交尚未完成评测。</div>
+          <% } %>
+        <% } %>
+        <% if (typeof paginate !== 'undefined') { %><% include page_top %><% } %>
+        <div class="nwpuoj-table-region" role="region" aria-label="比赛排行榜" tabindex="0">
+        <table class="ui very basic center aligned table nwpuoj-contest-rank-table">
             <thead>
             <tr>
-                <th>#</th>
-                <th>用户名</th>
+                <th scope="col">#</th>
+                <th scope="col">用户名</th>
                 <% if (contest.type === 'acm') { %>
                   <th>通过数量</th>
                   <th>罚时</th>
                 <% } %>
                 <% for (let i = 0; i < problems.length; i++) { %>
-                <th>
+                <th title="<%= syzoj.utils.removeTitleTag(problems[i].title) %>" scope="col">
                   <a href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'problem', i + 1]) %>">
-                    <%= syzoj.utils.removeTitleTag(problems[i].title) %>
+                    <%= String.fromCharCode('A'.charCodeAt(0) + i) %>
                   </a>
                 </th>
                 <% } %>
                 <% if (contest.type === 'noi' || contest.type === 'ioi') { %>
                   <th>总分</th>
                 <% } %>
+                <% if (typeof contestRatingFinalized !== 'undefined' && contestRatingFinalized) { %>
+                  <th>Rating</th>
+                <% } %>
             </tr>
             </thead>
             <tbody>
             <%
             for (let problem of problems) {
-              let i = 0, min, minPos = -1;
+              let i = (typeof rankOffset !== 'undefined' ? rankOffset : 0), min, minPos = -1;
               for (let item of ranklist) {
                 i++;
                 let condition;
@@ -67,15 +88,15 @@ if (_cheaterSet && _cheaterSet.size > 0 && Array.isArray(ranklist)) {
               problem.min = minPos;
             }
 
-            let i = 0, rank = 0, lastItem;
+            let i = (typeof rankOffset !== 'undefined' ? rankOffset : 0), rank = i, lastItem;
             for (let item of ranklist) {
               i++;
               let latest = contest.start_time, timeSum = 0, unacceptedCount = 0;
             %>
-            <tr<% if (item.player.isCheater) { %> class="ranklist-cheater"<% } %>>
+            <tr class="<%= item.player.isCheater ? 'ranklist-cheater ' : '' %><%= user && user.id === item.user.id ? 'nwpuoj-current-user' : '' %>">
                 <%
                   if (contest.type === 'noi' || contest.type === 'ioi') {
-                    if (i === 1 || item.player.score !== lastItem.player.score) rank = i;
+                    rank = item.player.standing_rank || i;
                   } else if (contest.type === 'acm') {
                     for (let problem of problems) {
                       if (item.player.score_details[problem.id] && item.player.score_details[problem.id].accepted) {
@@ -85,21 +106,11 @@ if (_cheaterSet && _cheaterSet.size > 0 && Array.isArray(ranklist)) {
                     }
                     item.player.timeSum = timeSum;
 
-                    if (i === 1 || item.player.score !== lastItem.player.score || item.player.timeSum !== lastItem.player.timeSum) rank = i;
+                    rank = item.player.standing_rank || i;
                   }
                 %>
                 <td>
-                  <% if (rank == 1) { %>
-                    <div class="ui yellow ribbon label">
-                  <% } else if (rank == 2) { %>
-                    <div class="ui ribbon label">
-                  <% } else if (rank == 3) { %>
-                    <div class="ui brown ribbon label" style="background-color: #C47222 !important;">
-                  <% } else { %>
-                    <div>
-                  <% } %>
-                  <%= rank %>
-                  </div>
+                  <span class="nwpuoj-rank-badge<%= rank === 1 ? ' nwpuoj-rank-badge-gold' : (rank === 2 ? ' nwpuoj-rank-badge-silver' : (rank === 3 ? ' nwpuoj-rank-badge-bronze' : '')) %>"><%= rank %></span>
                 </td>
                 <td><%- syzoj.utils.renderUsername(item.user) %><% if (item.player.isCheater) { %> <span class="ui mini brown label">作弊</span><% } %></td>
                 <% if (contest.type === 'acm') { %>
@@ -121,7 +132,8 @@ if (_cheaterSet && _cheaterSet.size > 0 && Array.isArray(ranklist)) {
                   <% if (!item.player.score_details[problem.id]) { %>
                     </td>
                   <% } else if (contest.type === 'acm') { %>
-                      <a href="<%= syzoj.utils.makeUrl(['submission', item.player.score_details[problem.id].judge_id]) %>">
+                      <% const canOpenAcmDetail = !!(user && (ranklistSupervisor || user.id === item.user.id)); %>
+                      <% if (canOpenAcmDetail) { %><a href="<%= syzoj.utils.makeUrl(['submission', item.player.score_details[problem.id].judge_id]) %>"><% } %>
                         <% if (item.player.score_details[problem.id].accepted) { %>
                           <span class="score score_10">
                             <% if (item.player.score_details[problem.id].unacceptedCount) { %>
@@ -139,10 +151,11 @@ if (_cheaterSet && _cheaterSet.size > 0 && Array.isArray(ranklist)) {
                             -<%= item.player.score_details[problem.id].unacceptedCount %>
                           </span>
                         <% } %>
-                      </a>
+                      <% if (canOpenAcmDetail) { %></a><% } %>
                     </td>
                   <% } else if (contest.type === 'noi' || contest.type === 'ioi') { %>
-                      <a href="<%= syzoj.utils.makeUrl(['submission', item.player.score_details[problem.id].judge_id]) %>">
+                      <% const canOpenScoreDetail = !!(user && (ranklistSupervisor || user.id === item.user.id)); %>
+                      <% if (canOpenScoreDetail) { %><a href="<%= syzoj.utils.makeUrl(['submission', item.player.score_details[problem.id].judge_id]) %>"><% } %>
                         <% if (item.player.score_details[problem.id].weighted_score != null) { %>
                           <span class="score score_<%= parseInt((item.player.score_details[problem.id].score / 10) || 0) %>">
                             <%= Math.round(item.player.score_details[problem.id].weighted_score) %>
@@ -152,7 +165,7 @@ if (_cheaterSet && _cheaterSet.size > 0 && Array.isArray(ranklist)) {
                             0
                           </span>
                         <% } %>
-                      </a>
+                      <% if (canOpenScoreDetail) { %></a><% } %>
                       <div class="submit_time">
                         <%= syzoj.utils.formatTime(item.player.score_details[problem.id].judge_state.submit_time - contest.start_time) %>
                         <% latest = Math.max(latest, item.player.score_details[problem.id].judge_state.submit_time)  %>
@@ -170,11 +183,23 @@ if (_cheaterSet && _cheaterSet.size > 0 && Array.isArray(ranklist)) {
                     </div>
                   </td>
                 <% } %>
+                <% if (typeof contestRatingFinalized !== 'undefined' && contestRatingFinalized) { %>
+                  <td>
+                    <% if (item.ratingChange) { %>
+                      <%= item.ratingChange.after %>
+                      <span class="<%= item.ratingChange.after >= item.ratingChange.before ? 'rating_up' : 'rating_down' %>">
+                        (<%= item.ratingChange.after >= item.ratingChange.before ? '+' : '' %><%= item.ratingChange.after - item.ratingChange.before %>)
+                      </span>
+                    <% } else { %>-<% } %>
+                  </td>
+                <% } %>
             </tr>
             <% lastItem = item; %>
             <% } %>
             </tbody>
         </table>
+        </div>
+<% if (typeof paginate !== 'undefined') { %><br><% include page %><% } %>
 <% if (!ranklist.length) { %>
 <div style="background-color: #fff; height: 18px; margin-top: -18px; "></div>
 <div class="ui placeholder segment" style="margin-top: 0px; ">
@@ -185,4 +210,9 @@ if (_cheaterSet && _cheaterSet.size > 0 && Array.isArray(ranklist)) {
 </div>
 <% } %>
 </div>
+<% if (contest.isRunning()) { %>
+<script>
+setTimeout(function () { location.reload(); }, 15000);
+</script>
+<% } %>
 <% include footer %>

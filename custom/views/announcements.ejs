@@ -1,0 +1,93 @@
+<% this.title = '公告' %>
+<% include header %>
+
+<style>
+.nwpuoj-announcement-details { border-bottom: 1px solid #eee; }
+.nwpuoj-announcement-details:last-child { border-bottom: none; }
+.nwpuoj-announcement-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 0;
+  cursor: pointer;
+  list-style: none;
+}
+.nwpuoj-announcement-summary::-webkit-details-marker { display: none; }
+.nwpuoj-announcement-summary-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.nwpuoj-announcement-summary-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  color: #888;
+  font-size: 0.9em;
+}
+.nwpuoj-announcement-disclosure { transition: transform .15s; }
+.nwpuoj-announcement-details[open] .nwpuoj-announcement-disclosure { transform: rotate(90deg); }
+.nwpuoj-announcement-content { padding: 0 28px 20px; }
+</style>
+
+<div class="padding">
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+    <h2 style="margin: 0;"><i class="bullhorn icon"></i>全部公告</h2>
+    <span style="color: #888;">共 <%= announcements.length %> 条</span>
+  </div>
+
+  <% if (announcements.length === 0) { %>
+    <div class="ui placeholder segment">
+      <div class="ui icon header">
+        <i class="bullhorn icon"></i>
+        暂无公告
+      </div>
+    </div>
+  <% } else { %>
+    <div class="ui segment" style="padding: 0 20px;">
+      <% for (let announcement of announcements) {
+        let levelColor = announcement.level === 'important' ? 'red' : (announcement.level === 'warning' ? 'yellow' : 'blue');
+        let levelText = announcement.level === 'important' ? '重要' : (announcement.level === 'warning' ? '警告' : '信息');
+        let statusColor, statusText;
+        if (announcement.start_time && now < announcement.start_time) {
+          statusColor = 'blue';
+          statusText = '未开始';
+        } else if (announcement.end_time && now > announcement.end_time) {
+          statusColor = 'grey';
+          statusText = '已结束';
+        } else {
+          statusColor = 'green';
+          statusText = '生效中';
+        }
+      %>
+        <details id="announcement-<%= announcement.id %>" class="nwpuoj-announcement-details">
+          <summary class="nwpuoj-announcement-summary">
+            <span class="nwpuoj-announcement-summary-main">
+              <i class="angle right icon nwpuoj-announcement-disclosure"></i>
+              <span class="ui tiny <%= levelColor %> label"><%= levelText %></span>
+              <span style="font-size: 1.1em; font-weight: 600; word-break: break-word;"><%= announcement.title %></span>
+            </span>
+            <span class="nwpuoj-announcement-summary-meta">
+              <span><%= syzoj.utils.formatDate(announcement.public_time || announcement.start_time) %></span>
+              <span class="ui tiny <%= statusColor %> label"><%= statusText %></span>
+            </span>
+          </summary>
+          <div class="nwpuoj-announcement-content">
+            <% if (announcement.start_time || announcement.end_time) { %>
+              <div style="color: #888; font-size: 0.9em; margin-bottom: 12px;">
+                有效期：<%= announcement.start_time ? syzoj.utils.formatDate(announcement.start_time) : '不限' %>
+                至 <%= announcement.end_time ? syzoj.utils.formatDate(announcement.end_time) : '不限' %>
+              </div>
+            <% } %>
+            <div class="font-content"><%- announcement.contentRendered %></div>
+          </div>
+        </details>
+      <% } %>
+    </div>
+  <% } %>
+</div>
+
+<% include footer %>

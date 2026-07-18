@@ -1,0 +1,29 @@
+<%
+let items = {
+  info: '统计信息',
+  users: '用户管理',
+  'judge-workers': '评测服务',
+  help: '帮助页',
+  config: '系统配置',
+  privilege: '权限管理',
+  rejudge: '一键重测',
+  links: '友链管理',
+  rating: 'Rating 管理',
+  raw: '配置文件',
+  other: '其他操作'
+};
+%>
+<% this.title = items[this.adminPage] + ' - 后台管理'; %>
+<% include header %>
+<h1 style="text-align:center;margin-bottom:27px;">后台管理</h1>
+<div class="ui grid">
+  <div class="three wide column">
+    <div class="ui vertical fluid tabular menu" style="height:100%;">
+    <% for (let itemKey in items) { %>
+      <a class="item<% if (this.adminPage === itemKey) { %> active<% } %>"<% if (this.adminPage !== itemKey) { %> href="<%= syzoj.utils.makeUrl(['admin', itemKey]) %>"<% } %>>
+        <%= items[itemKey] %>
+      </a>
+    <% } %>
+    </div>
+  </div>
+  <div class="thirteen wide stretched column">

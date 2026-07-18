@@ -1,18 +1,15 @@
 {
-  "title": "Algo Beat Contest",
-  "gravatar_url": "https://gravatar.zeruns.tech/avatar",
+  "title": "NWPUOJ",
+  "nwpuoj_version": "1.0.0",
+  "gravatar_url": "/self/logo.png",
   "links": [
     {
-      "title": "洛谷",
-      "url": "https://www.luogu.com.cn"
+      "title": "翱翔门户",
+      "url": "https://ecampus.nwpu.edu.cn/main.html#/Index"
     },
     {
-      "title": "Based 项目源码",
-      "url": "https://github.com/syzoj/syzoj"
-    },
-    {
-      "title": "当前仓库",
-      "url": "https://github.com/ZemuZzz/AlgoBeatOnlineJudge"
+      "title": "西北工业大学",
+      "url": "https://www.nwpu.edu.cn/"
     }
   ],
   "default": {
@@ -21,8 +18,8 @@
     }
   },
   "page": {
-    "problem": 100,
-    "judge_state": 10,
+    "problem": 50,
+    "judge_state": 50,
     "problem_statistics": 10,
     "ranklist": 100,
     "discussion": 10,

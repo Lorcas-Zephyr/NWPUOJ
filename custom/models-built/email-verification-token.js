@@ -55,6 +55,11 @@ var EmailVerificationToken = /** @class */ (function (_super) {
     ], EmailVerificationToken.prototype, "purpose");
 
     __decorate([
+        TypeORM.Column({ "default": 0, type: "integer" }),
+        __metadata("design:type", Number)
+    ], EmailVerificationToken.prototype, "token_version");
+
+    __decorate([
         TypeORM.Column({ nullable: true, type: "integer" }),
         __metadata("design:type", Number)
     ], EmailVerificationToken.prototype, "created_at");

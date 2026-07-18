@@ -1,0 +1,39 @@
+<script>
+const iconList = {
+  'Accepted': 'checkmark', 'Wrong Answer': 'remove', 'Runtime Error': 'bomb',
+  'Invalid Interaction': 'ban', 'Time Limit Exceeded': 'clock',
+  'Memory Limit Exceeded': 'microchip', 'Output Limit Exceeded': 'print',
+  'File Error': 'file outline', 'Waiting': 'hourglass half', 'Pending': 'hourglass half',
+  'Running': 'spinner', 'Compiling': 'spinner', 'Judging': 'spinner',
+  'Compile Error': 'code', 'Submitted': 'checkmark', 'System Error': 'server',
+  'No Testdata': 'folder open outline', 'Partially Correct': 'minus',
+  'Judgement Failed': 'server', 'Skipped': 'fast forward', 'Unknown': 'question circle',
+  'Cancelled': 'remove circle', 'Cheated': 'ban'
+};
+Vue.component('status-label', {
+  template: '#statusIconTemplate',
+  props: ['status', 'indetail', 'progress'],
+  computed: {
+    normalizedStatus() { return String(this.status || 'Unknown').startsWith('Running') ? 'Running' : String(this.status || 'Unknown'); },
+    icon() { return iconList[this.normalizedStatus] || 'question circle'; },
+    colorClass() { return (this.indetail ? 'status_detail ' : '') + this.normalizedStatus.toLowerCase().split(' ').join('_'); },
+    semanticClass() { return 'nwpuoj-judge-status'; },
+    getProgress() {
+      if (String(this.status).startsWith('Running ')) {
+        const value = String(this.status).split(' ')[1].trim().split('/');
+        return { total: value[1], finished: value[0] };
+      }
+      return this.progress;
+    }
+  }
+});
+</script>
+<script type="text/x-template" id="statusIconTemplate">
+  <span class="status nwpuoj-status" :class="[colorClass, semanticClass]">
+    <i class="icon" :class="icon"></i>
+    <template v-if="['Running', 'Waiting'].includes(normalizedStatus) && getProgress && getProgress.total">
+      <span style="text-align: left; display: inline-block; width: 58px;">{{ normalizedStatus }}</span>{{ getProgress.finished }}/{{ getProgress.total }}
+    </template>
+    <template v-else>{{ normalizedStatus }}</template>
+  </span>
+</script>
