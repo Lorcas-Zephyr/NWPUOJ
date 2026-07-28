@@ -51,6 +51,7 @@
               <a href="<%= syzoj.utils.makeUrl(['contest', contest.id]) %>">
                 <%= contest.title %>
                 <% if (typeLabel) { %><span class="ui mini basic <%= typeColor %> label" style="margin-left:8px;"><%= typeLabel %></span><% } %>
+                <% if (!contest.is_public) { %><span class="nwpuoj-status nwpuoj-status-warning">已隐藏</span><% } %>
                 <span class="nwpuoj-status <%= isRated ? 'nwpuoj-status-success' : 'nwpuoj-status-muted' %>"><%= isRated ? 'Rated' : 'Unrated' %></span>
                 <span class="nwpuoj-status <%= statusLabel === '进行中' ? 'nwpuoj-status-success' : (statusLabel === '未开始' ? 'nwpuoj-status-warning' : 'nwpuoj-status-muted') %>"><%= statusLabel %></span>
               </a>

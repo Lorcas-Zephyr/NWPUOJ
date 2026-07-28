@@ -70,6 +70,11 @@ function allowedContainer(inspect, project) {
   return labels['com.docker.compose.project'] === project && allowedServices.has(labels['com.docker.compose.service']);
 }
 
+function projectServiceContainer(inspect, project, service) {
+  const labels = labelsOf(inspect);
+  return labels['com.docker.compose.project'] === project && labels['com.docker.compose.service'] === service;
+}
+
 function cpuPercent(stats) {
   if (!stats || !stats.cpu_stats || !stats.precpu_stats) return 0;
   const cpuDelta = Number(stats.cpu_stats.cpu_usage && stats.cpu_stats.cpu_usage.total_usage || 0) -
@@ -152,6 +157,32 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/health') return send(res, 200, { ok: true });
     if (!authorized(req)) return send(res, 403, { error: 'Forbidden' });
     if (req.method === 'GET' && req.url === '/status') return send(res, 200, await status());
+    if (req.method === 'POST' && req.url === '/restart-web') {
+      const project = await composeProject();
+      const rows = await dockerRequest('GET', '/containers/json?all=1');
+      const candidates = rows.filter(row => {
+        const labels = row.Labels || {};
+        return labels['com.docker.compose.project'] === project && labels['com.docker.compose.service'] === 'web';
+      });
+      if (candidates.length !== 1) throw new Error(`Expected one web container, found ${candidates.length}`);
+      const inspect = await dockerRequest('GET', `/containers/${encodeURIComponent(candidates[0].Id)}/json`);
+      if (!projectServiceContainer(inspect, project, 'web')) return send(res, 403, { error: 'Container is outside the allowed scope' });
+      const canonicalId = inspect.Id;
+      if (restarting.has(canonicalId)) return send(res, 409, { error: 'Web service is already restarting' });
+      restarting.add(canonicalId);
+      send(res, 202, { id: canonicalId, name: String(inspect.Name || '').replace(/^\//, '') });
+      setTimeout(async () => {
+        try {
+          await dockerRequest('POST', `/containers/${encodeURIComponent(canonicalId)}/restart?t=10`);
+          console.log(`[judge-control] restarted web (${canonicalId.slice(0, 12)})`);
+        } catch (error) {
+          console.error('[judge-control] web restart failed: ' + (error.stack || error));
+        } finally {
+          restarting.delete(canonicalId);
+        }
+      }, 250);
+      return;
+    }
     if (req.method === 'POST' && req.url === '/restart') {
       const body = await readJson(req);
       const containerId = String(body.id || '');

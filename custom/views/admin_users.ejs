@@ -8,7 +8,7 @@
     <h2 class="nwpuoj-page-title"><i class="users icon"></i>用户管理</h2>
     <div class="nwpuoj-meta" style="margin-top:4px;">搜索用户、查看账户状态，并进入资料页进行权限管理。</div>
   </div>
-  <form class="ui small form" method="get" action="<%= syzoj.utils.makeUrl(['admin', 'users']) %>" role="search" style="min-width:260px;max-width:420px;flex:1 1 300px;">
+  <form class="ui small form nwpuoj-ranklist-search" method="get" action="<%= syzoj.utils.makeUrl(['admin', 'users']) %>" role="search" style="max-width:420px;">
     <div class="ui action left icon input" style="width:100%;">
       <i class="search icon"></i>
       <input type="search" name="q" value="<%= keyword %>" placeholder="用户名、邮箱或 UID">
@@ -51,6 +51,11 @@
             <% if (item.id === deletedAccountUserId) { %><span class="nwpuoj-status nwpuoj-status-muted">系统账户</span><% } %>
             <% if (!item.is_show) { %><span class="nwpuoj-status nwpuoj-status-warning">隐藏</span><% } %>
             <% if (item.is_cheater) { %><span class="nwpuoj-status nwpuoj-status-danger">作弊者</span><% } %>
+            <% if (item.temporaryAccount) { %>
+              <span class="nwpuoj-status <%= Number(item.temporaryAccount.expires_at) <= Math.floor(Date.now() / 1000) ? 'nwpuoj-status-danger' : 'nwpuoj-status-warning' %>">
+                <%= Number(item.temporaryAccount.expires_at) <= Math.floor(Date.now() / 1000) ? '临时账户：已禁止登录' : '临时比赛账户' %>
+              </span>
+            <% } %>
             <div class="nwpuoj-meta" style="margin-top:4px;"><%= item.is_email_verified ? '邮箱已验证' : '邮箱未验证' %></div>
           </td>
           <td class="nwpuoj-priority-2 nwpuoj-col-number"><%= item.rating == null ? '-' : item.rating %></td>

@@ -57,6 +57,7 @@ services:
       - ./custom/modules/_request_security.js:/app/modules/_request_security.js:ro
       - ./custom/modules/_admin_overview.js:/app/modules/_admin_overview.js:ro
       - ./custom/modules/_admin_users.js:/app/modules/_admin_users.js:ro
+      - ./custom/modules/_contest_temp_accounts.js:/app/modules/_contest_temp_accounts.js:ro
       - ./custom/modules/_judge_workers_admin.js:/app/modules/_judge_workers_admin.js:ro
       - ./custom/modules/api_v2.js:/app/modules/api_v2.js:ro
       - ./custom/modules/_auth_security.js:/app/modules/_auth_security.js:ro
@@ -203,6 +204,7 @@ services:
       - ./custom/libs-built/problem_repositories.js:/app/libs/problem_repositories.js:ro
       - ./custom/libs/site-mail.js:/app/libs/site-mail.js:ro
       - ./custom/libs/contest-mutation.js:/app/libs/contest-mutation.js:ro
+      - ./custom/libs/contest-temp-accounts.js:/app/libs/contest-temp-accounts.js:ro
       - ./custom/libs/rating.js:/app/libs/rating.js:ro
       - ./custom/libs/contest-rating.js:/app/libs/contest-rating.js:ro
       - ./custom/libs/problem-bulk-import.js:/app/libs/problem-bulk-import.js:ro

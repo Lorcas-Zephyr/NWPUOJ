@@ -272,6 +272,10 @@ app.post('/api/login', async (req, res) => {
       recordLoginFailure(key);
       return res.send({ error_code: 1002 });
     }
+    if (syzoj.utils.isTemporaryAccountLoginAllowed && !await syzoj.utils.isTemporaryAccountLoginAllowed(user.id)) {
+      recordLoginFailure(key);
+      return res.send({ error_code: 1002 });
+    }
     if (passwordNeedsUpgrade(user.password)) {
       user.password = await hashPassword(req.body.password);
       await user.save();

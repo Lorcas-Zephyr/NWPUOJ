@@ -200,6 +200,7 @@ async function deleteUserAccount(req, actor, targetId) {
     await manager.query('DELETE FROM user_message_setting WHERE user_id=?', [targetId]);
     await manager.query('DELETE FROM user_email_status WHERE user_id=?', [targetId]);
     await manager.query('DELETE FROM user_registration_profile WHERE user_id=?', [targetId]);
+    await manager.query('DELETE FROM temporary_contest_account WHERE user_id=?', [targetId]);
     await manager.query('DELETE FROM user_privilege WHERE user_id=?', [targetId]);
     await manager.query('UPDATE user_tag SET granted_by=? WHERE granted_by=?', [deletedAccountId,targetId]);
     await manager.query('UPDATE user_tag SET disabled_by=? WHERE disabled_by=?', [deletedAccountId,targetId]);
@@ -272,6 +273,20 @@ app.get('/admin/users', async (req, res) => {
     users.forEach(user => {
       user.privilegeList = user.privileges ? String(user.privileges).split(',').filter(Boolean) : [];
     });
+    if (users.length) {
+      if (syzoj.utils.ensureTemporaryContestAccountSchema) await syzoj.utils.ensureTemporaryContestAccountSchema();
+      const temporaryRows = await connection.query(
+        `SELECT account.user_id,account.contest_id,
+                COALESCE(contest.end_time,account.expires_at) AS expires_at,
+                contest.title AS contest_title
+         FROM temporary_contest_account account
+         LEFT JOIN contest ON contest.id=account.contest_id
+         WHERE account.user_id IN (?)`,
+        [users.map(user => Number(user.id))]
+      );
+      const temporaryByUserId = new Map(temporaryRows.map(row => [Number(row.user_id), row]));
+      users.forEach(user => { user.temporaryAccount = temporaryByUserId.get(Number(user.id)) || null; });
+    }
 
     const usersPageUrl = targetPage => syzoj.utils.makeUrl(['admin', 'users'], {
       q: keyword || undefined,

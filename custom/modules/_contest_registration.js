@@ -7,6 +7,7 @@ const Contest = syzoj.model('contest');
 const ContestPlayer = syzoj.model('contest_player');
 const ContestRanklist = syzoj.model('contest_ranklist');
 const JudgeState = syzoj.model('judge_state');
+const User = syzoj.model('user');
 const ProblemSolution = syzoj.model('problem-solution');
 const Article = syzoj.model('article');
 const contestLockContext = new AsyncLocalStorage();
@@ -47,7 +48,7 @@ function ensureRegistrationIndex() {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
       `);
       await TypeORM.getConnection().query(
-        'UPDATE contest SET is_public = 1 WHERE is_public IS NULL OR is_public <> 1'
+        'UPDATE contest SET is_public = 1 WHERE is_public IS NULL'
       );
       await TypeORM.getConnection().query(
         'CREATE UNIQUE INDEX IF NOT EXISTS uq_contest_player_registration ON contest_player (contest_id,user_id)'
@@ -377,6 +378,24 @@ async function guardContestEditor(req, res, next) {
 app.get('/contest/:id/edit', guardContestEditor);
 app.post('/contest/:id/edit', guardContestEditor);
 
+app.use('/contest/:id', async (req, res, next) => {
+  try {
+    const contestId = Number(req.params.id);
+    if (!Number.isSafeInteger(contestId) || contestId <= 0) return next();
+    const contest = await Contest.findById(contestId);
+    if (!contest || contest.is_public || (res.locals.user && res.locals.user.is_admin)) return next();
+    if (!res.locals.user || !await contest.isSupervisior(res.locals.user)) {
+      return res.status(403).render('error', { err: new ErrorMessage('该比赛已隐藏，仅管理员可以访问。') });
+    }
+    const elevatedUser = Object.create(res.locals.user);
+    elevatedUser.is_admin = true;
+    res.locals.user = elevatedUser;
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
+
 function normalizeIdList(value) {
   const values = value == null ? [] : (Array.isArray(value) ? value : [value]);
   return Array.from(new Set(values.map(Number).filter(id => Number.isSafeInteger(id) && id > 0)));
@@ -447,6 +466,7 @@ app.post('/contest/:id/edit', async (req, res) => {
       startTime,
       endTime,
       hideStatistics: req.body.hide_statistics === 'on',
+      isPublic: req.body.hide_contest !== 'on',
       allowLateRegistration: req.body.allow_late_registration === 'on',
       isRated: req.body.is_rated === 'on',
       revision: Number(req.body.contest_revision || 0)

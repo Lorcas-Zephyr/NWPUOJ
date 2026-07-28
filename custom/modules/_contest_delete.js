@@ -3,6 +3,7 @@
 let Contest = syzoj.model('contest');
 let crypto = require('crypto');
 let contestMutation = require('../libs/contest-mutation');
+let contestRating = require('../libs/contest-rating');
 
 // 权限:管理员 OR 比赛创建者(holder_id) OR 拥有比赛管理权限的用户
 async function canDeleteContest(user, contest) {
@@ -32,7 +33,24 @@ app.post('/contest/:id/delete', async (req, res) => {
       throw new ErrorMessage('页面已失效，请刷新比赛编辑页后重试。');
     }
 
-    await contestMutation.deleteContest(id);
+    let result;
+    if (res.locals.user.is_admin) {
+      result = await contestRating.deleteContestAndRecalculate(id);
+      syzoj.log(
+        `[contest-delete] Admin #${res.locals.user.id} deleted contest #${id}; ` +
+        `recalculated ${result.contestCount} contests and ${result.userIds.length} users.`
+      );
+    } else {
+      await contestMutation.deleteContest(id);
+    }
+    Contest.deleteFromCache(id);
+    if (syzoj.utils.expireTemporaryContestAccounts) await syzoj.utils.expireTemporaryContestAccounts(id);
+    if (syzoj.utils.invalidateContestReadCache) syzoj.utils.invalidateContestReadCache(id);
+    if (syzoj.utils.refreshJudgeAdminActionCache) await syzoj.utils.refreshJudgeAdminActionCache();
+    if (syzoj.utils.refreshContestCheaterCache) await syzoj.utils.refreshContestCheaterCache();
+    if (syzoj.recalcHitScores) {
+      syzoj.recalcHitScores().catch(error => syzoj.log('[contest-delete] Hit recalculation failed: ' + error.message));
+    }
 
     res.redirect(syzoj.utils.makeUrl(['contests']));
   } catch (e) {

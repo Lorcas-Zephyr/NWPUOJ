@@ -471,9 +471,9 @@ async function saveContest(input) {
       const contestResult = await manager.query(
         `INSERT INTO contest
           (title,subtitle,start_time,end_time,holder_id,type,information,problems,admins,ranklist_id,is_public,hide_statistics)
-         VALUES (?,?,?,?,?,?,?,?,?,?,1,?)`,
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
         [input.title,input.subtitle,input.startTime,input.endTime,input.actorId,input.type,input.information,
-          input.problems,input.admins,Number(ranklistResult.insertId),input.hideStatistics ? 1 : 0]
+          input.problems,input.admins,Number(ranklistResult.insertId),input.isPublic ? 1 : 0,input.hideStatistics ? 1 : 0]
       );
       const contestId = Number(contestResult.insertId);
       await manager.query(
@@ -516,9 +516,9 @@ async function saveContest(input) {
     }
     await manager.query(
       `UPDATE contest SET title=?,subtitle=?,start_time=?,end_time=?,information=?,problems=?,admins=?,
-        is_public=1,hide_statistics=? WHERE id=?`,
+        is_public=?,hide_statistics=? WHERE id=?`,
       [input.title,input.subtitle,input.startTime,input.endTime,input.information,input.problems,input.admins,
-        input.hideStatistics ? 1 : 0,input.id]
+        input.isPublic ? 1 : 0,input.hideStatistics ? 1 : 0,input.id]
     );
     await manager.query(
       `UPDATE contest_registration_setting SET allow_late_registration=?,revision=revision+1,updated_at=?
@@ -533,31 +533,63 @@ async function saveContest(input) {
   }));
 }
 
-async function deleteContest(contestId) {
-  return withContestLock(contestId, () => withTransactionRetry(async manager => {
+async function deleteContestInTransaction(manager, contestId, options) {
+    options = options || {};
     const context = await lockContestAndSetting(manager, contestId);
     const now = await databaseNow(manager);
-    if (now >= Number(context.contest.start_time)) {
+    if (!options.allowStarted && now >= Number(context.contest.start_time)) {
       throw mutationError('比赛开始后不能删除，以免产生孤立提交和排行榜记录。', 409);
     }
     const submissions = await manager.query(
       'SELECT id FROM judge_state WHERE type=1 AND type_info=? LIMIT 1 FOR UPDATE',
       [contestId]
     );
-    if (submissions.length) throw mutationError('已有比赛提交，不能删除该比赛。', 409);
+    if (!options.deleteSubmissions && submissions.length) {
+      throw mutationError('已有比赛提交，不能删除该比赛。', 409);
+    }
+    if (options.deleteSubmissions) {
+      const pendingSubmissions = await manager.query(
+        `SELECT id FROM judge_state
+         WHERE type=1 AND type_info=? AND (pending=1 OR status IN ('Waiting','Unknown'))
+         LIMIT 1 FOR UPDATE`,
+        [contestId]
+      );
+      if (pendingSubmissions.length) {
+        throw mutationError('比赛仍有等待评测的提交，请等待评测完成后再删除。', 409);
+      }
+    }
     const finalized = await manager.query(
       "SELECT contest_id FROM contest_rating_finalization WHERE contest_id=? AND status='completed' LIMIT 1",
       [contestId]
     );
-    if (finalized.length) throw mutationError('比赛 Rating 已结算，不能删除该比赛。', 409);
+    if (!options.allowFinalized && finalized.length) {
+      throw mutationError('比赛 Rating 已结算，不能删除该比赛。', 409);
+    }
     await lockRanklist(manager, context.contest.ranklist_id);
     await manager.query('SELECT id FROM contest_player WHERE contest_id=? FOR UPDATE', [contestId]);
+    if (options.deleteSubmissions && submissions.length) {
+      await manager.query(
+        `DELETE action FROM judge_state_admin_action action
+         INNER JOIN judge_state state ON state.id=action.judge_id
+         WHERE state.type=1 AND state.type_info=?`,
+        [contestId]
+      );
+      await manager.query('DELETE FROM judge_state WHERE type=1 AND type_info=?', [contestId]);
+    }
+    await manager.query("DELETE FROM notification WHERE type='contest_rating' AND source_id=?", [contestId]);
+    await manager.query('DELETE FROM contest_rating_finalization WHERE contest_id=?', [contestId]);
     await manager.query('DELETE FROM contest_registration_removal WHERE contest_id=?', [contestId]);
     await manager.query('DELETE FROM contest_registration_setting WHERE contest_id=?', [contestId]);
     await manager.query('DELETE FROM contest_rating_config WHERE contest_id=?', [contestId]);
     await manager.query('DELETE FROM contest_player WHERE contest_id=?', [contestId]);
     await manager.query('DELETE FROM contest WHERE id=?', [contestId]);
     await manager.query('DELETE FROM contest_ranklist WHERE id=?', [context.contest.ranklist_id]);
+    return context.contest;
+}
+
+async function deleteContest(contestId) {
+  return withContestLock(contestId, () => withTransactionRetry(async manager => {
+    return deleteContestInTransaction(manager, contestId);
   }));
 }
 
@@ -567,6 +599,7 @@ module.exports = {
   rebuildContestPlayer,
   rebuildContestStandings,
   deleteContest,
+  deleteContestInTransaction,
   mutationError,
   registerUser,
   removeUser,

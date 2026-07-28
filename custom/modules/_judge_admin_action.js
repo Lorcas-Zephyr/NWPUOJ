@@ -34,6 +34,7 @@ async function refreshAdminActionCache() {
 }
 setTimeout(refreshAdminActionCache, 1000);
 setInterval(refreshAdminActionCache, 60 * 1000);
+syzoj.utils.refreshJudgeAdminActionCache = refreshAdminActionCache;
 
 function canManageJudgeAction(user) {
   if (!user) return false;

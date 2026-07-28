@@ -21,6 +21,7 @@ fs.readdir = function orderedReaddir(directory, options, callback) {
         const priorities = [
            '_request_security.js',
            '_admin_overview.js',
+           '_contest_temp_accounts.js',
            '_admin_users.js',
            '_auth_security.js',
           'email_verification.js',

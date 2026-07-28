@@ -18,6 +18,27 @@
     </form>
   </div>
 
+  <% if (!contest.isEnded()) { %>
+    <div class="ui segment" style="margin-bottom:20px;">
+      <h3 class="ui header"><i class="user clock icon"></i>生成临时比赛账户</h3>
+      <p class="nwpuoj-meta">上传 UTF-8 CSV，表头必须包含“姓名、学号、学院”。系统将创建并自动报名临时账户，用户名使用“学院-姓名”，随机密码只在本次下载结果中提供。</p>
+      <p class="nwpuoj-meta">比赛结束后账户自动禁止登录，但账户、用户主页、提交和排行榜成绩会永久保留。</p>
+      <p><a href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'temporary-accounts', 'template']) %>"><i class="download icon"></i>下载 CSV 模板</a></p>
+      <form class="ui form" method="post" enctype="multipart/form-data" action="<%= syzoj.utils.makeUrl(['contest', contest.id, 'temporary-accounts', 'import']) %>">
+        <input type="hidden" name="csrf_token" value="<%= registrationManagementCsrfToken %>">
+        <div class="fields" style="align-items:flex-end;">
+          <div class="twelve wide field">
+            <label for="temporary_accounts_csv">账户 CSV</label>
+            <input id="temporary_accounts_csv" type="file" name="accounts_csv" accept=".csv,text/csv" required>
+          </div>
+          <div class="four wide field">
+            <button type="submit" class="ui fluid primary labeled icon button"><i class="upload icon"></i>导入并下载密码</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  <% } %>
+
   <% if (registrations.length) { %>
     <div style="overflow-x: auto; width: 100%;">
     <table class="ui very basic center aligned table">

@@ -95,10 +95,17 @@ const unavailableContestProblems = problems.filter(problem =>
                 <input type="text" name="end_time" value="<%= syzoj.utils.formatDate(contest.end_time || syzoj.utils.getCurrentDate()) %>">
             </div>
             <div class="inline field">
-              <label class="ui header">隐藏统计信息</label>
+                <label class="ui header">隐藏统计信息</label>
               <div class="ui toggle checkbox">
                 <input type="checkbox"<% if (contest.hide_statistics) { %> checked<% } %> name="hide_statistics">
                 <label><span style="visibility: hidden; ">　</span></label>
+              </div>
+            </div>
+            <div class="inline field">
+              <label class="ui header">隐藏比赛</label>
+              <div class="ui toggle checkbox">
+                <input type="checkbox" name="hide_contest"<% if (contest.id && !contest.is_public) { %> checked<% } %>>
+                <label>从公开比赛列表隐藏，仅比赛管理员可访问</label>
               </div>
             </div>
             <div class="inline field">
@@ -190,12 +197,14 @@ $(function () {
       <i class="warning sign icon"></i> 危险操作
     </h4>
     <p style="color: #666;">
-      删除比赛后，该比赛所有<b>报名记录</b>和<b>排行榜数据</b>将一并清除，此操作不可撤销。
-      用户的 Rating 历史变化将保留（避免影响用户主页比赛历史展示）。
+      删除比赛后，该比赛所有<b>提交记录</b>、<b>报名记录</b>和<b>排行榜数据</b>将一并清除，此操作不可撤销。
+      <% if (typeof contestRated !== 'undefined' && contestRated) { %>
+        该场 Rating 历史会被撤销，所有后续已结束 Rated 比赛将按时间顺序重新计算。
+      <% } %>
     </p>
     <form method="post"
           action="<%= syzoj.utils.makeUrl(['contest', contest.id, 'delete']) %>"
-          onsubmit="return confirm('真的要删除比赛「<%= contest.title %>」吗？\n\n此操作将删除：\n - 该比赛所有报名记录\n - 该比赛排行榜数据\n\n此操作不可撤销！');"
+          onsubmit="return confirm('真的要删除比赛「<%= contest.title %>」吗？\n\n此操作将删除：\n - 该比赛所有提交记录\n - 该比赛所有报名记录\n - 该比赛排行榜数据<% if (typeof contestRated !== 'undefined' && contestRated) { %>\n - 该场 Rating 历史，并重新计算后续 Rated 比赛<% } %>\n\n此操作不可撤销！');"
           style="margin: 0;">
       <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>">
       <button type="submit" class="ui red button">

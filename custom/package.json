@@ -3,7 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "postinstall": "npm install --prefix node_modules/markdown-it --omit=dev --no-package-lock --no-save"
+    "postinstall": "npm install --prefix node_modules/markdown-it --omit=dev --no-package-lock --no-save",
+    "test": "npm run test:syntax && npm run test:unit && npm run test:vjudge",
+    "test:syntax": "find libs libs-built modules tests -type f -name '*.js' -exec node --check {} \\;",
+    "test:unit": "node --test tests/rating.test.js tests/problem_bulk_import.test.js tests/version_consistency.test.js tests/contest_temp_accounts.test.js",
+    "test:vjudge": "bash tests/run-vjudge-tests.sh"
   },
   "dependencies": {
     "@tesseract.js-data/eng": "1.0.0",

@@ -74,6 +74,23 @@ async function loadJudgeWorkerStatus() {
   };
 }
 
+app.post('/admin/restart', (req, res, next) => {
+  try {
+    requireAdmin(res);
+    res.render('admin_restart', (error, html) => {
+      if (error) return next(error);
+      res.once('finish', () => {
+        controlRequest('POST', '/restart-web').catch(restartError => {
+          syzoj.log('[web-restart] ' + (restartError.stack || restartError));
+        });
+      });
+      res.send(html);
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/admin/judge-workers', async (req, res) => {
   try {
     requireAdmin(res);

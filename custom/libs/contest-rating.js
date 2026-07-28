@@ -304,9 +304,147 @@ async function recalculateRatingsFrom(contestId) {
   }
 }
 
+async function deleteContestAndRecalculate(contestId) {
+  const releaseFinalizer = await contestMutation.acquireContestLock('rating-finalizer');
+  const contestReleases = [];
+  try {
+    const targetRows = await TypeORM.getConnection().query(
+      `SELECT contest.id,contest.end_time,COALESCE(config.is_rated,0) AS is_rated
+       FROM contest
+       LEFT JOIN contest_rating_config config ON config.contest_id=contest.id
+       WHERE contest.id=? LIMIT 1`,
+      [contestId]
+    );
+    if (!targetRows.length) throw contestMutation.mutationError('无此比赛。', 404);
+    const target = targetRows[0];
+    const nowRows = await TypeORM.getConnection().query('SELECT UNIX_TIMESTAMP() AS now');
+    const now = Number(nowRows[0].now);
+    const affectedContests = Number(target.is_rated) !== 1 ? [] : await TypeORM.getConnection().query(
+      `SELECT contest.id,contest.end_time
+       FROM contest
+       INNER JOIN contest_rating_config config ON config.contest_id=contest.id AND config.is_rated=1
+       WHERE contest.end_time<=?
+         AND (contest.end_time>? OR (contest.end_time=? AND contest.id>=?))
+       ORDER BY contest.end_time ASC,contest.id ASC`,
+      [now,target.end_time,target.end_time,contestId]
+    );
+    const affectedContestIds = affectedContests.map(contest => Number(contest.id));
+    const lockIds = Array.from(new Set([Number(contestId), ...affectedContestIds])).sort((a, b) => a - b);
+    for (const lockId of lockIds) contestReleases.push(await contestMutation.acquireContestLock(lockId));
+
+    const result = await contestMutation.withTransactionRetry(async manager => {
+      const lockedTargetRows = await manager.query('SELECT id,end_time FROM contest WHERE id=? FOR UPDATE', [contestId]);
+      if (!lockedTargetRows.length || Number(lockedTargetRows[0].end_time) !== Number(target.end_time)) {
+        throw contestMutation.mutationError('比赛已被修改，请刷新后重试。', 409);
+      }
+      if (affectedContestIds.length) {
+        const lockedContests = await manager.query(
+          `SELECT contest.id,contest.end_time
+           FROM contest
+           INNER JOIN contest_rating_config config ON config.contest_id=contest.id AND config.is_rated=1
+           WHERE contest.id IN (?) ORDER BY contest.end_time ASC,contest.id ASC FOR UPDATE`,
+          [affectedContestIds]
+        );
+        if (lockedContests.length !== affectedContestIds.length ||
+            lockedContests.some((contest, index) => Number(contest.id) !== affectedContestIds[index])) {
+          throw contestMutation.mutationError('比赛 Rating 配置已变化，请刷新后重试。', 409);
+        }
+      }
+
+      const calculationRows = affectedContestIds.length ? await manager.query(
+        'SELECT id,contest_id FROM rating_calculation WHERE contest_id IN (?) ORDER BY id ASC FOR UPDATE',
+        [affectedContestIds]
+      ) : [];
+      const affectedCalculationIds = new Set(calculationRows.map(row => Number(row.id)));
+      const affectedUserIds = new Set();
+      const baselines = new Map();
+      let calculationBoundary = null;
+      if (calculationRows.length) {
+        calculationBoundary = Number(calculationRows[0].id);
+        const laterCalculations = await manager.query(
+          'SELECT id,contest_id FROM rating_calculation WHERE id>=? ORDER BY id ASC FOR UPDATE',
+          [calculationBoundary]
+        );
+        if (laterCalculations.some(row => !affectedCalculationIds.has(Number(row.id)))) {
+          throw contestMutation.mutationError(
+            '后续存在无法关联到当前比赛序列的 Rating 历史，不能安全地级联重算。',
+            409
+          );
+        }
+        const userRows = await manager.query(
+          'SELECT DISTINCT user_id FROM rating_history WHERE rating_calculation_id>=? FOR UPDATE',
+          [calculationBoundary]
+        );
+        userRows.forEach(row => affectedUserIds.add(Number(row.user_id)));
+        if (affectedUserIds.size) {
+          const baselineRows = await manager.query(
+            `SELECT history.user_id,history.rating_after
+             FROM rating_history history
+             INNER JOIN (
+               SELECT user_id,MAX(rating_calculation_id) AS calculation_id
+               FROM rating_history
+               WHERE user_id IN (?) AND rating_calculation_id<?
+               GROUP BY user_id
+             ) latest ON latest.user_id=history.user_id
+               AND latest.calculation_id=history.rating_calculation_id`,
+            [Array.from(affectedUserIds),calculationBoundary]
+          );
+          baselineRows.forEach(row => baselines.set(Number(row.user_id), Number(row.rating_after)));
+        }
+      }
+
+      if (affectedContestIds.length) {
+        await manager.query("DELETE FROM notification WHERE type='contest_rating' AND source_id IN (?)", [affectedContestIds]);
+        await manager.query('DELETE FROM contest_rating_finalization WHERE contest_id IN (?)', [affectedContestIds]);
+      }
+      if (calculationBoundary !== null) {
+        await manager.query('DELETE FROM rating_history WHERE rating_calculation_id>=?', [calculationBoundary]);
+        await manager.query('DELETE FROM rating_calculation WHERE id>=?', [calculationBoundary]);
+        const defaultRating = Number(syzoj.config.default.user.rating || 1500);
+        for (const userId of affectedUserIds) {
+          await manager.query('UPDATE user SET rating=? WHERE id=?', [baselines.get(userId) || defaultRating,userId]);
+        }
+      }
+
+      await contestMutation.deleteContestInTransaction(manager, contestId, {
+        allowStarted: true,
+        allowFinalized: true,
+        deleteSubmissions: true
+      });
+
+      const summaries = [];
+      for (const affectedContestId of affectedContestIds) {
+        if (affectedContestId === Number(contestId)) continue;
+        const summary = await finalizeContestInTransaction(manager, affectedContestId);
+        if (summary.status === 'deferred') {
+          throw contestMutation.mutationError(
+            `后续比赛 #${affectedContestId} 仍有等待评测的提交，不能安全删除并重算 Rating。`,
+            409
+          );
+        }
+        if (!['completed', 'skipped'].includes(summary.status)) {
+          throw contestMutation.mutationError(`后续比赛 #${affectedContestId} 无法重新计算 Rating。`, 409);
+        }
+        summary.userIds.forEach(userId => affectedUserIds.add(Number(userId)));
+        summaries.push({ contestId: affectedContestId, status: summary.status });
+      }
+      return {
+        contestCount: summaries.length,
+        userIds: Array.from(affectedUserIds)
+      };
+    });
+    invalidateUserCache(result.userIds);
+    return result;
+  } finally {
+    while (contestReleases.length) await contestReleases.pop()();
+    await releaseFinalizer();
+  }
+}
+
 module.exports = {
   ALGORITHM_VERSION,
   canonicalStandings,
+  deleteContestAndRecalculate,
   finalizeContest,
   finalizeContestInTransaction,
   recalculateRatingsFrom
