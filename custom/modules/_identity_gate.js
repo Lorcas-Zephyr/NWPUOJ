@@ -1,25 +1,8 @@
 const TypeORM = require('typeorm');
+const { ensureRegistrationProfileSchema } = require('../libs/registration-profile-schema');
 
-let profileSchemaPromise = null;
 function ensureProfileSchema() {
-  if (!profileSchemaPromise) {
-    profileSchemaPromise = TypeORM.getConnection().query(`
-      CREATE TABLE IF NOT EXISTS user_registration_profile (
-        user_id INT NOT NULL,
-        student_id VARCHAR(10) NULL,
-        real_name VARCHAR(64) NULL,
-        college VARCHAR(100) NULL,
-        created_at INT NOT NULL,
-        updated_at INT NOT NULL,
-        PRIMARY KEY (user_id),
-        UNIQUE KEY uq_user_registration_profile_student_id (student_id)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-    `).catch(error => {
-      profileSchemaPromise = null;
-      throw error;
-    });
-  }
-  return profileSchemaPromise;
+  return ensureRegistrationProfileSchema();
 }
 
 ensureProfileSchema().catch(error => {
@@ -34,8 +17,8 @@ function isProfileComplete(profile) {
 
 function mayCompleteIdentity(req, userId) {
   if (/^\/(?:self|static|socket\.io)(?:\/|$)/.test(req.path) || req.path === '/favicon.ico') return true;
-  if (/^\/(?:login|logout|sign_up)(?:\/|$)/.test(req.path)) return true;
-  if (/^\/api\/(?:login|forget|forget_confirm|reset_password)(?:\/|$)/.test(req.path)) return true;
+  if (/^\/(?:login|logout|sign_up|password\/reset)(?:\/|$)/.test(req.path)) return true;
+  if (/^\/api\/v2\/auth\/password\/reset(?:\/|$)/.test(req.path)) return true;
   if (/^\/email\/(?:send-verification|verification-pending|verify)(?:\/|$)/.test(req.path)) return true;
   return req.path === `/user/${userId}/edit`;
 }

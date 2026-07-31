@@ -434,35 +434,6 @@ async function getListStatuses(payloads, user) {
   return statuses;
 }
 
-async function getDetailStatus(id, user) {
-  const judge = id && await JudgeState.findById(id);
-  if (!judge || !syzoj.utils.canViewSubmissionDetail ||
-    !await syzoj.utils.canViewSubmissionDetail(judge, user)) return null;
-  await judge.loadRelationships();
-  const actions = await getActions([judge]);
-  const action = actions[judge.id];
-  let displayConfig = practiceDisplayConfig();
-  if (judge.type === 1) {
-    const contest = await Contest.findById(judge.type_info);
-    if (!contest) return null;
-    displayConfig = await contestDisplayConfig(contest, user);
-    if (user && Number(judge.user_id) === Number(user.id)) displayConfig.showCode = true;
-  }
-  displayConfig.showProgress = !!(displayConfig.showDetailResult ||
-    user && Number(judge.user_id) === Number(user.id));
-  const currentDetailResult = judge.pending && !action
-    ? submissionsProcess.getCurrentDetailResult(judge.task_id, displayConfig)
-    : null;
-  return {
-    taskId: judge.task_id,
-    status: {
-      pending: !!judge.pending,
-      result: effectiveRoughResult(judge, displayConfig, action, false),
-      detailResult: action ? null : (currentDetailResult || submissionsProcess.processOverallResult(judge.result, displayConfig))
-    }
-  };
-}
-
 function beginEventStream(res) {
   res.status(200);
   res.set({
@@ -481,20 +452,8 @@ function writeEvent(res, event, payload) {
   if (res.flush) res.flush();
 }
 
-app.post('/api/submissions/status', async (req, res, next) => {
-  try {
-    const tokens = parseStatusTokens(req);
-    const viewer = await currentViewer(res.locals.user);
-    const payloads = verifyStatusTokens(tokens, viewer ? Number(viewer.id) : 0);
-    const statuses = await getListStatuses(payloads, viewer);
-    res.set('Cache-Control', 'no-store');
-    res.json({ statuses, refreshRequired: statuses.length < tokens.length });
-  } catch (error) {
-    next(error);
-  }
-});
 
-app.post('/api/submissions/events', async (req, res, next) => {
+app.post("/api/v2/submissions/events", async (req, res, next) => {
   const subscriptions = new Map();
   let heartbeat;
   let closed = false;
@@ -511,6 +470,9 @@ app.post('/api/submissions/events', async (req, res, next) => {
     const viewerId = res.locals.user ? Number(res.locals.user.id) : 0;
     const payloads = verifyStatusTokens(tokens, viewerId);
     if (!tokens.length || payloads.length !== tokens.length) {
+      if (req.path.startsWith('/api/v2/')) {
+        return syzoj.utils.apiV2.fail(res, 403, 'SUBMISSION_FORBIDDEN', 'Submission status credentials are invalid or expired.');
+      }
       return res.status(403).json({ error: '状态凭证已失效。' });
     }
 
@@ -617,104 +579,9 @@ app.post('/api/submissions/events', async (req, res, next) => {
   } catch (error) {
     cleanup();
     if (res.headersSent) return res.end();
-    next(error);
-  }
-});
-
-app.get('/api/submission/:id/status', async (req, res, next) => {
-  try {
-    const id = parseProblemId(req.params.id);
-    const detail = await getDetailStatus(id, await currentViewer(res.locals.user));
-    if (!detail) return res.status(404).json({ error: '无此提交记录。' });
-    res.set('Cache-Control', 'no-store');
-    res.json(detail.status);
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.get('/api/submission/:id/events', async (req, res, next) => {
-  let unsubscribe;
-  let heartbeat;
-  let closed = false;
-  const cleanup = () => {
-    if (closed) return;
-    closed = true;
-    if (unsubscribe) unsubscribe();
-    if (heartbeat) clearInterval(heartbeat);
-  };
-
-  try {
-    const id = parseProblemId(req.params.id);
-    const initial = await getDetailStatus(id, await currentViewer(res.locals.user));
-    if (!initial) return res.status(404).json({ error: '无此提交记录。' });
-    beginEventStream(res);
-    res.on('close', cleanup);
-    heartbeat = setInterval(() => {
-      if (!closed) res.write(': heartbeat\n\n');
-    }, 15000);
-    if (heartbeat.unref) heartbeat.unref();
-
-    let lastStatus;
-    let initialized = false;
-    let updateQueued = false;
-    let updating = false;
-    const update = async () => {
-      if (closed) return;
-      const detail = await getDetailStatus(id, await currentViewer(res.locals.user));
-      if (!detail) {
-        writeEvent(res, 'unavailable', {});
-        cleanup();
-        return res.end();
-      }
-      if (res.writableLength > 1024 * 1024) {
-        cleanup();
-        return res.end();
-      }
-      const serialized = JSON.stringify(detail.status);
-      if (serialized !== lastStatus) {
-        lastStatus = serialized;
-        writeEvent(res, 'status', detail.status);
-      }
-      if (!detail.status.pending) {
-        cleanup();
-        res.end();
-      }
-    };
-    const triggerUpdate = async () => {
-      if (updating || closed) {
-        updateQueued = true;
-        return;
-      }
-      updating = true;
-      try {
-        do {
-          updateQueued = false;
-          await update();
-        } while (updateQueued && !closed);
-      } catch (error) {
-        syzoj.log('[submission-events] ' + (error.stack || error));
-        cleanup();
-        if (!res.finished) res.end();
-      } finally {
-        updating = false;
-      }
-    };
-    if (initial.status.pending && initial.taskId) {
-      unsubscribe = judger.subscribeJudgeState(initial.taskId, () => {
-        if (!initialized) {
-          updateQueued = true;
-          return;
-        }
-        triggerUpdate();
-      });
+    if (req.path.startsWith('/api/v2/')) {
+      return syzoj.utils.apiV2.fail(res, error.statusCode || 400, error.code || 'REQUEST_FAILED', error.message || 'Submission events are unavailable.');
     }
-    await update();
-    initialized = true;
-    if (updateQueued && !closed) triggerUpdate();
-  } catch (error) {
-    cleanup();
-    if (res.headersSent) return res.end();
     next(error);
   }
 });

@@ -1,20 +1,43 @@
 let Announcement = syzoj.model('announcement');
+const crypto = require('crypto');
+const TypeORM = require('typeorm');
+const contentDomain = require('../libs/content-domain');
+const { sortAnnouncements } = require('../libs/announcement-order');
 
-const ANNOUNCEMENT_LEVEL_PRIORITY = {
-  important: 0,
-  warning: 1,
-  info: 2
-};
+async function canManageAnnouncements(user) {
+  return !!(user && await syzoj.utils.authorizationV2.authorize(user, 'announcement:manage', null, {}));
+}
 
-function sortAnnouncements(announcements) {
-  return announcements.sort((a, b) => {
-    let aPriority = ANNOUNCEMENT_LEVEL_PRIORITY[a.level];
-    let bPriority = ANNOUNCEMENT_LEVEL_PRIORITY[b.level];
-    if (aPriority === undefined) aPriority = ANNOUNCEMENT_LEVEL_PRIORITY.info;
-    if (bPriority === undefined) bPriority = ANNOUNCEMENT_LEVEL_PRIORITY.info;
-    if (aPriority !== bPriority) return aPriority - bPriority;
-    return (b.public_time || b.start_time || 0) - (a.public_time || a.start_time || 0);
-  });
+function requireRecentAdminLogin(req) {
+  if (syzoj.utils.authorizationV2.recentLoginSatisfied(req)) return;
+  const error = new ErrorMessage('此操作需要重新登录或完成二次验证。');
+  error.statusCode = 403;
+  throw error;
+}
+
+function requireAdminCsrf(req) {
+  const expected = req.session && req.session.adminCsrfToken;
+  const actual = req.body && req.body.csrf_token;
+  const valid = typeof expected === 'string' && typeof actual === 'string' && expected.length === actual.length &&
+    crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(actual));
+  if (!valid) {
+    const error = new ErrorMessage('页面已失效，请刷新后重试。');
+    error.statusCode = 403;
+    throw error;
+  }
+}
+
+async function contentTransaction(work) {
+  await syzoj.utils.apiV2.ensureFoundationSchema();
+  return TypeORM.getConnection().transaction(work);
+}
+
+function auditRecorder(req) {
+  return (event, manager) => syzoj.utils.authorizationV2.recordAudit(req, event, manager);
+}
+
+function legacyChangeReason(req, fallback) {
+  return String(req.body && req.body.reason || fallback).trim().slice(0, 1000);
 }
 
 // ============ 前台:全部已启用公告 ============
@@ -24,14 +47,15 @@ app.get('/announcements', async (req, res) => {
       .where('is_active = 1')
       .getMany();
 
-    sortAnnouncements(announcements);
+    const now = Math.floor(Date.now() / 1000);
+    sortAnnouncements(announcements, now);
     for (let announcement of announcements) {
       announcement.contentRendered = await syzoj.utils.markdown(announcement.content || '');
     }
 
     res.render('announcements', {
       announcements: announcements,
-      now: parseInt((new Date()).getTime() / 1000)
+      now
     });
   } catch (e) {
     syzoj.log(e);
@@ -42,7 +66,7 @@ app.get('/announcements', async (req, res) => {
 // ============ 后台:公告管理列表 ============
 app.get('/admin/announcements', async (req, res) => {
   try {
-    if (!res.locals.user || !res.locals.user.is_admin) {
+    if (!await canManageAnnouncements(res.locals.user)) {
       throw new ErrorMessage('您没有权限进行此操作。');
     }
 
@@ -72,7 +96,7 @@ app.get('/admin/announcements', async (req, res) => {
 // ============ 后台:编辑/新建公告 GET ============
 app.get('/admin/announcement/:id/edit', async (req, res) => {
   try {
-    if (!res.locals.user || !res.locals.user.is_admin) {
+    if (!await canManageAnnouncements(res.locals.user)) {
       throw new ErrorMessage('您没有权限进行此操作。');
     }
 
@@ -104,134 +128,7 @@ app.get('/admin/announcement/:id/edit', async (req, res) => {
 });
 
 // ============ 后台:编辑/新建公告 POST ============
-app.post('/admin/announcement/:id/edit', async (req, res) => {
-  try {
-    if (!res.locals.user || !res.locals.user.is_admin) {
-      throw new ErrorMessage('您没有权限进行此操作。');
-    }
-
-    let id = parseInt(req.params.id);
-    let announcement;
-    if (id === 0) {
-      announcement = await Announcement.create();
-      announcement.public_time = parseInt((new Date()).getTime() / 1000);
-    } else {
-      announcement = await Announcement.findById(id);
-      if (!announcement) throw new ErrorMessage('无此公告。');
-    }
-
-    let title = (req.body.title || '').trim();
-    let content = (req.body.content || '').trim();
-    let level = req.body.level || 'info';
-    if (!['info', 'warning', 'important'].includes(level)) level = 'info';
-
-    if (!title) throw new ErrorMessage('标题不能为空。');
-    if (title.length > 120) throw new ErrorMessage('标题过长(最多 120 字)。');
-    if (!content) throw new ErrorMessage('内容不能为空。');
-
-    // 时间字段从前端传"yyyy-MM-dd HH:mm"格式,转成 unix 时间戳
-    function parseDateTimeStr(s) {
-      if (!s) return null;
-      let d = new Date(s);
-      if (isNaN(d.getTime())) return null;
-      return parseInt(d.getTime() / 1000);
-    }
-
-    let startTs = parseDateTimeStr(req.body.start_time);
-    let endTs = parseDateTimeStr(req.body.end_time);
-
-    if (!startTs || !endTs) throw new ErrorMessage('请填写有效的生效时间。');
-    if (endTs <= startTs) throw new ErrorMessage('结束时间必须晚于开始时间。');
-
-    announcement.title = title;
-    announcement.content = content;
-    announcement.level = level;
-    announcement.start_time = startTs;
-    announcement.end_time = endTs;
-    announcement.is_active = req.body.is_active === 'on' || req.body.is_active === 'true';
-    announcement.update_time = parseInt((new Date()).getTime() / 1000);
-
-    await announcement.save();
-
-    res.redirect(syzoj.utils.makeUrl(['admin', 'announcements']));
-  } catch (e) {
-    syzoj.log(e);
-    res.render('error', { err: e });
-  }
-});
 
 // ============ 后台:启用/停用切换 ============
-app.post('/admin/announcement/:id/toggle', async (req, res) => {
-  try {
-    if (!res.locals.user || !res.locals.user.is_admin) {
-      throw new ErrorMessage('您没有权限进行此操作。');
-    }
-    let id = parseInt(req.params.id);
-    let announcement = await Announcement.findById(id);
-    if (!announcement) throw new ErrorMessage('无此公告。');
-
-    announcement.is_active = !announcement.is_active;
-    announcement.update_time = parseInt((new Date()).getTime() / 1000);
-    await announcement.save();
-
-    res.redirect(syzoj.utils.makeUrl(['admin', 'announcements']));
-  } catch (e) {
-    syzoj.log(e);
-    res.render('error', { err: e });
-  }
-});
 
 // ============ 后台:删除公告 ============
-app.post('/admin/announcement/:id/delete', async (req, res) => {
-  try {
-    if (!res.locals.user || !res.locals.user.is_admin) {
-      throw new ErrorMessage('您没有权限进行此操作。');
-    }
-    let id = parseInt(req.params.id);
-    let announcement = await Announcement.findById(id);
-    if (!announcement) throw new ErrorMessage('无此公告。');
-
-    await announcement.destroy();
-
-    res.redirect(syzoj.utils.makeUrl(['admin', 'announcements']));
-  } catch (e) {
-    syzoj.log(e);
-    res.render('error', { err: e });
-  }
-});
-
-// ============ API:获取当前活动公告(给首页前端 JS 用) ============
-app.get('/api/active-announcements', async (req, res) => {
-  try {
-    let now = parseInt((new Date()).getTime() / 1000);
-
-    // 查所有 is_active=true 且当前时间在 [start_time, end_time] 内的
-    let qb = Announcement.createQueryBuilder()
-      .where('is_active = 1')
-      .andWhere('(start_time IS NULL OR start_time <= :now)', { now: now })
-      .andWhere('(end_time IS NULL OR end_time >= :now)', { now: now })
-      .orderBy('public_time', 'DESC');
-
-    let list = await qb.getMany();
-    sortAnnouncements(list);
-
-    // 渲染 markdown 内容,只把必要字段返回前端
-    let result = [];
-    for (let a of list) {
-      result.push({
-        id: a.id,
-        title: a.title,
-        contentRendered: await syzoj.utils.markdown(a.content || ''),
-        level: a.level,
-        public_time: a.public_time || a.start_time,
-        end_time: a.end_time
-      });
-    }
-
-    res.set('Cache-Control', 'no-store');
-    res.json({ announcements: result });
-  } catch (e) {
-    syzoj.log(e);
-    res.status(500).json({ error: e.message || String(e) });
-  }
-});

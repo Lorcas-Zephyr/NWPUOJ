@@ -1,132 +1,25 @@
 <% this.title = '标签' %>
-<% include header %>
-
+<% include app_header %>
 <%
-// 分组规则定义
-const KNOWN_COLORS = ['red','orange','yellow','olive','green','teal','blue','violet','purple','pink','black'];
-
-const GROUPS = [
-  {
-    key: 'source',
-    title: '题目来源',
-    icon: 'flag',
-    description: '标识题目所属的赛事、平台或题库。',
-    match: (tag) => tag.color === 'pink'
-  },
-  {
-    key: 'category',
-    title: '算法大类',
-    icon: 'sitemap',
-    description: '题目涉及的算法大类。',
-    match: (tag) => tag.color === 'teal'
-  },
-  {
-    key: 'algorithm',
-    title: '算法细目',
-    icon: 'cogs',
-    description: '具体的算法或数据结构知识点。',
-    match: (tag) => !KNOWN_COLORS.includes(tag.color) && tag.name !== '暂无评定'
-  },
-  {
-    key: 'type',
-    title: '题目类型',
-    icon: 'tasks',
-    description: '题目的形式或评测类型。',
-    match: (tag) => tag.color === 'olive'
-  },
-  {
-    key: 'difficulty',
-    title: '题目难度',
-    icon: 'star',
-    description: '题目难度分级。颜色由浅到深表示难度递增。',
-    match: (tag) => ['red','orange','yellow','green','blue','purple','black'].includes(tag.color) || tag.name === '暂无评定',
-    // 难度按预设颜色顺序排序
-    sortOrder: ['red','orange','yellow','green','blue','purple','black','']
-  }
+const appKnownColors = ['red', 'orange', 'yellow', 'olive', 'green', 'teal', 'blue', 'violet', 'purple', 'pink', 'black'];
+const appTagGroups = [
+  { key: 'source', title: '题目来源', icon: 'flag', description: '赛事、平台与题库来源', match: function (tag) { return tag.category === 'source' || (!tag.category && tag.color === 'pink'); } },
+  { key: 'category', title: '算法大类', icon: 'blocks', description: '核心算法领域', match: function (tag) { return tag.category === 'category' || (!tag.category && tag.color === 'teal'); } },
+  { key: 'algorithm', title: '算法细目', icon: 'binary', description: '具体算法与数据结构', match: function (tag) { return tag.category === 'algorithm' || (!tag.category && !appKnownColors.includes(tag.color) && tag.name !== '暂无评定'); } },
+  { key: 'problem_type', title: '题目类型', icon: 'list-checks', description: '题目形式与评测类型', match: function (tag) { return tag.category === 'problem_type' || (!tag.category && tag.color === 'olive'); } },
+  { key: 'difficulty', title: '难度', icon: 'gauge', description: '由入门到高阶的难度分级', match: function (tag) { return tag.category === 'difficulty' || (!tag.category && (['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'black'].includes(tag.color) || tag.name === '暂无评定')); }, order: ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'black', ''] }
 ];
-
-// 给每个分组分配标签
-const grouped = GROUPS.map(g => ({ ...g, items: [] }));
-const orphans = []; // 没匹配到任何分组的(理论上不会有,但保险起见)
-
-for (const tag of tags) {
-  let matched = false;
-  for (const g of grouped) {
-    if (g.match(tag)) {
-      g.items.push(tag);
-      matched = true;
-      break;
-    }
-  }
-  if (!matched) orphans.push(tag);
-}
-
-// 难度分组按指定颜色顺序排
-const diffGroup = grouped.find(g => g.key === 'difficulty');
-if (diffGroup && diffGroup.sortOrder) {
-  diffGroup.items.sort((a, b) => {
-    const ai = diffGroup.sortOrder.indexOf(a.color);
-    const bi = diffGroup.sortOrder.indexOf(b.color);
-    if (ai !== bi) return ai - bi;
-    return (a.name || '') > (b.name || '') ? 1 : -1;
-  });
-}
+const appGroupedTags = appTagGroups.map(function (group) { return Object.assign({}, group, { items: [] }); });
+const appOtherTags = [];
+for (const tag of tags) { const group = appGroupedTags.find(function (candidate) { return candidate.match(tag); }); if (group) group.items.push(tag); else appOtherTags.push(tag); }
+const appDifficulty = appGroupedTags.find(function (group) { return group.key === 'difficulty'; });
+if (appDifficulty) appDifficulty.items.sort(function (a, b) { const ai = appDifficulty.order.indexOf(a.color); const bi = appDifficulty.order.indexOf(b.color); return ai === bi ? String(a.name).localeCompare(String(b.name), 'zh-CN') : ai - bi; });
+function appTagUrl(tag) { const repository = { UOJ: 'uoj', HDU: 'hdu', POJ: 'poj' }[tag.name] || 'all'; return syzoj.utils.makeUrl(['problems', 'tag', tag.id], repository === 'all' ? {} : { repository: repository }); }
 %>
 
-<div class="padding">
-  <h2 style="margin-bottom: 5px;">所有标签</h2>
-  <div style="color: #888; margin-bottom: 25px;">
-    共 <b><%= tags.length %></b> 个标签。点击任一标签可查看该标签下的题目。
-  </div>
-
-  <% for (const g of grouped) { %>
-    <% if (g.items.length === 0) continue; %>
-    <div class="ui segment" style="margin-bottom: 18px;">
-      <h3 style="margin-top: 0; margin-bottom: 5px;">
-        <i class="<%= g.icon %> icon"></i><%= g.title %>
-        <span style="font-weight: normal; color: #888; font-size: 0.7em; margin-left: 6px;">
-          <%= g.items.length %> 项
-        </span>
-      </h3>
-      <div style="color: #999; font-size: 0.9em; margin-bottom: 12px;">
-        <%= g.description %>
-      </div>
-      <div style="line-height: 2.5em;">
-        <% for (const tag of g.items) { %>
-          <% const tagRepository = { UOJ: 'uoj', HDU: 'hdu', POJ: 'poj' }[tag.name] || 'all'; %>
-          <a href="<%= syzoj.utils.makeUrl(['problems', 'tag', tag.id], tagRepository === 'all' ? {} : { repository: tagRepository }) %>"
-             class="ui <%= KNOWN_COLORS.includes(tag.color) ? tag.color : '' %> label"
-             style="margin: 4px 4px 4px 0;">
-            <%= tag.name %>
-            <% if (tag.problemCount > 0) { %>
-              <div class="detail"><%= tag.problemCount %></div>
-            <% } %>
-          </a>
-        <% } %>
-      </div>
-    </div>
-  <% } %>
-
-  <% if (orphans.length > 0) { %>
-    <div class="ui segment" style="margin-bottom: 18px;">
-      <h3 style="margin-top: 0;">
-        <i class="question circle icon"></i>未分类
-        <span style="font-weight: normal; color: #888; font-size: 0.7em; margin-left: 6px;">
-          <%= orphans.length %> 项
-        </span>
-      </h3>
-      <div style="line-height: 2.5em;">
-        <% for (const tag of orphans) { %>
-          <% const tagRepository = { UOJ: 'uoj', HDU: 'hdu', POJ: 'poj' }[tag.name] || 'all'; %>
-          <a href="<%= syzoj.utils.makeUrl(['problems', 'tag', tag.id], tagRepository === 'all' ? {} : { repository: tagRepository }) %>"
-             class="ui <%= KNOWN_COLORS.includes(tag.color) ? tag.color : '' %> label"
-             style="margin: 4px 4px 4px 0;">
-            <%= tag.name %>
-          </a>
-        <% } %>
-      </div>
-    </div>
-  <% } %>
+<div class="app-page app-tags-page">
+  <header class="app-page-header"><div class="app-page-heading"><span class="app-kicker">KNOWLEDGE MAP</span><h1 class="app-page-title">题目标签</h1><p class="app-page-description"><%= tags.length %> 个标签组成的知识索引，选择标签即可查看对应题目。</p></div><div class="app-page-actions"><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['problems']) %>"><i data-lucide="list-tree"></i>浏览题库</a></div></header>
+  <div class="app-tag-directory"><% for (const group of appGroupedTags) { if (!group.items.length) continue; %><section><header><span><i data-lucide="<%= group.icon %>"></i></span><div><h2><%= group.title %></h2><p><%= group.description %></p></div><em><%= group.items.length %></em></header><div class="app-tag-cloud"><% for (const tag of group.items) { %><a href="<%= appTagUrl(tag) %>" data-tag-color="<%= tag.color || 'default' %>"><span><%= tag.name %></span><small><%= tag.problemCount || 0 %></small></a><% } %></div></section><% } %><% if (appOtherTags.length) { %><section><header><span><i data-lucide="shapes"></i></span><div><h2>其他标签</h2><p>尚未归入固定知识分类</p></div><em><%= appOtherTags.length %></em></header><div class="app-tag-cloud"><% for (const tag of appOtherTags) { %><a href="<%= appTagUrl(tag) %>" data-tag-color="<%= tag.color || 'default' %>"><span><%= tag.name %></span><small><%= tag.problemCount || 0 %></small></a><% } %></div></section><% } %></div>
 </div>
 
-<% include footer %>
+<% include app_footer %>

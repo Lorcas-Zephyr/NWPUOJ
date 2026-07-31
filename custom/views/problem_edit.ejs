@@ -1,0 +1,126 @@
+<% this.title = problem.new ? '新建题目' : '编辑题目'; this.active = 'problems'; %>
+<% include app_header %>
+<%
+const appLegacyStatementParts = [
+  ['题目描述', problem.description],
+  ['输入格式', problem.input_format],
+  ['输出格式', problem.output_format],
+  ['样例', problem.example],
+  ['数据范围与提示', problem.limit_and_hint]
+].filter(function (part) { return part[1] != null && String(part[1]).trim(); });
+const appUsesSplitStatement = !!(problem.input_format || problem.output_format || problem.example || problem.limit_and_hint);
+const appStatementMarkdown = appUsesSplitStatement
+  ? appLegacyStatementParts.map(function (part) { return '## ' + part[0] + '\n\n' + part[1]; }).join('\n\n')
+  : (problem.description || '');
+%>
+<main class="app-page app-problem-editor-page">
+  <header class="app-page-header"><div class="app-page-heading"><a class="app-back-link" href="<%= problem.id ? syzoj.utils.makeUrl(['problem', problem.id]) : syzoj.utils.makeUrl(['problems']) %>"><i data-lucide="arrow-left"></i><%= problem.id ? '返回题目' : '返回题库' %></a><span class="app-kicker">PROBLEM WORKSPACE</span><h1 class="app-page-title"><%= problem.new ? '新建题目' : '编辑题目' %></h1><p class="app-page-description">使用一份 Markdown 编写完整题面。</p></div></header>
+  <form class="app-form" method="post" data-problem-editor-v2 data-problem-id="<%= problem.id || 0 %>">
+    <div class="app-editor-bar"><div class="app-segmented" role="tablist"><button class="is-active" type="button" role="tab" aria-selected="true" data-problem-editor-tab="edit"><i data-lucide="square-pen"></i>编辑</button><button type="button" role="tab" aria-selected="false" data-problem-editor-tab="preview"><i data-lucide="eye"></i>预览</button></div></div>
+    <div class="app-problem-editor-fields" data-problem-editor-panel="edit">
+      <div class="app-form-grid"><% if (problem.allowedManage) { %><label class="app-field"><span class="app-label"><%= problem.new ? '题目编号' : '修改题目编号' %></span><input class="app-input" type="text" name="id" value="<%= problem.id || '' %>" placeholder="<%= problem.new ? '留空则自动延伸' : '留空则不修改' %>"></label><% } %><label class="app-field <%= problem.allowedManage ? '' : 'app-field-full' %>"><span class="app-label">题目名称</span><input class="app-input" type="text" id="title" name="title" value="<%= problem.title %>" required></label></div>
+      <label class="app-field app-field-full"><span class="app-label">题面 Markdown</span><textarea class="app-textarea app-problem-markdown-field app-problem-statement-field" rows="30" name="description" data-preview-source="statement" spellcheck="false"><%= appStatementMarkdown %></textarea></label>
+      <input type="hidden" name="input_format" value=""><input type="hidden" name="output_format" value=""><input type="hidden" name="example" value=""><input type="hidden" name="limit_and_hint" value="">
+      <section class="app-settings-section app-problem-editor-meta"><div class="app-settings-copy"><span class="app-kicker">METADATA</span><h2>标签与署名</h2><p>搜索并添加标签；匿名上传不会在题目页展示上传者。</p></div><div class="app-settings-fields"><div class="app-entity-picker" data-tag-picker><div class="app-entity-selected" data-tag-selected><% for (const tag of problem.tags) { %><span data-tag-id="<%= tag.id %>"><strong><%= tag.name %></strong><button type="button" aria-label="移除 <%= tag.name %>"><i data-lucide="x"></i></button><input type="hidden" name="tags" value="<%= tag.id %>"></span><% } %></div><span class="app-input-wrap"><i data-lucide="search"></i><input class="app-input" type="search" data-tag-search placeholder="搜索标签"></span><div class="app-entity-results" data-tag-results hidden></div></div><div class="app-setting-row"><span><strong>匿名上传</strong><small>隐藏题目页面中的上传者用户名。</small></span><input class="app-switch" type="checkbox" name="is_anonymous"<%= problem.is_anonymous ? ' checked' : '' %> aria-label="匿名上传"></div></div></section>
+    </div>
+    <div class="app-problem-preview app-markdown" data-problem-editor-panel="preview" hidden><h1 data-preview-title></h1><div data-preview-output="statement"></div></div>
+    <% if (problem.allowedEdit) { %><div class="app-form-actions"><button class="app-button app-button-primary" id="submit_button" type="submit"><i data-lucide="save"></i>保存题目</button></div><% } %>
+  </form>
+</main>
+<script>
+(function () {
+  var form = document.querySelector('[data-problem-editor-v2]');
+  if (!form) return;
+  var tabs = form.querySelectorAll('[data-problem-editor-tab]');
+  var panels = form.querySelectorAll('[data-problem-editor-panel]');
+  function renderMarkdown(source, output) {
+    output.textContent = '正在生成预览...';
+    return fetch('/api/v2/markdown', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ s: source.value }) })
+      .then(function (response) { if (!response.ok) throw new Error('预览失败'); return response.json(); })
+      .then(function (payload) { output.innerHTML = payload && payload.data ? payload.data.html : ''; })
+      .catch(function () { output.textContent = '预览暂时不可用。'; });
+  }
+  tabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      var name = tab.getAttribute('data-problem-editor-tab');
+      tabs.forEach(function (item) { item.classList.toggle('is-active', item === tab); item.setAttribute('aria-selected', item === tab ? 'true' : 'false'); });
+      panels.forEach(function (panel) { panel.hidden = panel.getAttribute('data-problem-editor-panel') !== name; });
+      if (name === 'preview') {
+        form.querySelector('[data-preview-title]').textContent = form.querySelector('[name="title"]').value;
+        var source = form.querySelector('[data-preview-source="statement"]');
+        if (source) renderMarkdown(source, form.querySelector('[data-preview-output="statement"]'));
+      }
+    });
+  });
+  form.addEventListener('submit', async function (event) {
+    event.preventDefault();
+    var button = form.querySelector('button[type="submit"]');
+    if (button) button.disabled = true;
+    try {
+      var id = Number(form.dataset.problemId || 0);
+      var tagIds = Array.prototype.map.call(form.querySelectorAll('input[name="tags"]'), function (input) { return Number(input.value); });
+      var payload = {
+        id: id ? undefined : (form.elements.id && form.elements.id.value || null),
+        title: form.elements.title.value,
+        description: form.elements.description.value,
+        input_format: '', output_format: '', example: '', limit_and_hint: '',
+        tag_ids: tagIds,
+        is_anonymous: !!(form.elements.is_anonymous && form.elements.is_anonymous.checked)
+      };
+      var url = id ? '/api/v2/problems/' + encodeURIComponent(id) : '/api/v2/problems';
+      var headers = { 'Content-Type': 'application/json' };
+      if (id) {
+        var current = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
+        if (!current.ok) throw new Error('题目读取失败。');
+        headers['If-Match'] = current.headers.get('ETag') || '';
+      }
+      var response = await fetch(url, { method: id ? 'PATCH' : 'POST', credentials: 'same-origin', headers: headers, body: JSON.stringify(payload) });
+      var body = await response.json();
+      if (!response.ok) throw new Error(body && body.error && body.error.message || '题目保存失败。');
+      var savedId = id || body.data && body.data.problem && body.data.problem.id;
+      window.location.assign('/problem/' + encodeURIComponent(savedId));
+    } catch (error) {
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '题目保存失败。', 'danger');
+      if (button) button.disabled = false;
+    }
+  });
+  var picker = form.querySelector('[data-tag-picker]');
+  if (!picker) return;
+  var selected = picker.querySelector('[data-tag-selected]');
+  var search = picker.querySelector('[data-tag-search]');
+  var results = picker.querySelector('[data-tag-results]');
+  var timer;
+  function selectedIds() { return Array.prototype.map.call(selected.querySelectorAll('[data-tag-id]'), function (item) { return String(item.getAttribute('data-tag-id')); }); }
+  function bindRemove(item) { item.querySelector('button').addEventListener('click', function () { item.remove(); }); }
+  selected.querySelectorAll('[data-tag-id]').forEach(bindRemove);
+  function addTag(id, name) {
+    if (selectedIds().includes(String(id))) return;
+    var item = document.createElement('span'); item.setAttribute('data-tag-id', id);
+    var strong = document.createElement('strong'); strong.textContent = name;
+    var button = document.createElement('button'); button.type = 'button'; button.setAttribute('aria-label', '移除 ' + name); button.textContent = '×';
+    var input = document.createElement('input'); input.type = 'hidden'; input.name = 'tags'; input.value = id;
+    item.append(strong, button, input); selected.appendChild(item); bindRemove(item);
+  }
+  search.addEventListener('input', function () {
+    window.clearTimeout(timer);
+    var query = search.value.trim();
+    if (!query) { results.hidden = true; return; }
+    timer = window.setTimeout(function () {
+      fetch('/api/v2/search/tags/' + encodeURIComponent(query), { credentials: 'same-origin' }).then(function (response) { return response.json(); }).then(function (payload) {
+        results.replaceChildren();
+        var list = payload.results || payload.data || payload || [];
+        list.filter(function (item) { return !selectedIds().includes(String(item.value != null ? item.value : item.id)); }).forEach(function (item) {
+          var id = item.value != null ? item.value : item.id;
+          var name = item.name || item.text || item.title || String(id);
+          var button = document.createElement('button'); button.type = 'button'; button.textContent = name;
+          button.addEventListener('click', function () { addTag(id, name); search.value = ''; results.hidden = true; search.focus(); });
+          results.appendChild(button);
+        });
+        if (!results.children.length) { var empty = document.createElement('span'); empty.textContent = '没有匹配标签'; results.appendChild(empty); }
+        results.hidden = false;
+      }).catch(function () { results.hidden = true; });
+    }, 180);
+  });
+})();
+</script>
+<% include app_footer %>

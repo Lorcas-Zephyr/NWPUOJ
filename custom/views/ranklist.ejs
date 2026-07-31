@@ -1,105 +1,70 @@
 <% this.title = '排名' %>
-<% include header %>
-<div class="padding">
-  <%
-  let isHitMode = (curSort === 'hit');
-  %>
-  <div class="nwpuoj-toolbar" style="margin-bottom:16px;">
-    <div class="nwpuoj-segmented" aria-label="排名模式">
-      <a class="nwpuoj-segment <% if (!isHitMode) { %>active<% } %>" aria-current="<%= !isHitMode ? 'page' : 'false' %>" href="<%= syzoj.utils.makeUrl(['ranklist']) %>">
-        <i class="star icon"></i>Rating
-      </a>
-      <a class="nwpuoj-segment <% if (isHitMode) { %>active<% } %>" aria-current="<%= isHitMode ? 'page' : 'false' %>" href="<%= syzoj.utils.makeUrl(['ranklist'], { sort: 'hit', order: 'desc' }) %>">
-        <i class="bullseye icon"></i>Hit 值
-      </a>
+<%
+const isHitMode = curSort === 'hit';
+function rankSortUrl(sort, defaultOrder) {
+  const same = curSort === sort;
+  const order = same ? (curOrder ? 'desc' : 'asc') : defaultOrder;
+  return syzoj.utils.makeUrl(['ranklist'], { sort: sort, order: order });
+}
+%>
+<% include app_header %>
+
+<div class="app-page app-ranklist-page">
+  <header class="app-page-header">
+    <div class="app-page-heading">
+      <span class="app-kicker">LEADERBOARD</span>
+      <h1 class="app-page-title">排名</h1>
+      <p class="app-page-description">从比赛表现和日常训练两个维度查看站内进度。</p>
     </div>
-    <form action="<%= syzoj.utils.makeUrl(['find_user']) %>" class="ui small form nwpuoj-ranklist-search" method="get" role="search">
-      <div class="ui action left icon input">
-        <i class="search icon"></i><input name="nickname" placeholder="查找用户名" type="text">
-        <button class="ui button" type="submit">查找</button>
+  </header>
+
+  <div class="app-toolbar">
+    <div class="app-toolbar-start">
+      <div class="app-segmented" aria-label="排名模式">
+        <a class="<%= !isHitMode ? 'is-active' : '' %>" aria-current="<%= !isHitMode ? 'page' : 'false' %>" href="<%= syzoj.utils.makeUrl(['ranklist']) %>">Rating</a>
+        <a class="<%= isHitMode ? 'is-active' : '' %>" aria-current="<%= isHitMode ? 'page' : 'false' %>" href="<%= syzoj.utils.makeUrl(['ranklist'], { sort: 'hit', order: 'desc' }) %>">Hit 值</a>
       </div>
+    </div>
+    <form class="app-rank-search" action="<%= syzoj.utils.makeUrl(['find_user']) %>" method="get" role="search">
+      <span class="app-input-wrap"><i data-lucide="search"></i><input class="app-input" name="nickname" placeholder="查找用户名" type="search"></span>
+      <button class="app-button app-button-secondary" type="submit">查找</button>
     </form>
   </div>
 
-  <div class="nwpuoj-table-region" role="region" aria-label="用户排名" tabindex="0">
-            <table class="ui very basic center aligned table" style="table-layout:fixed;">
-                <thead>
-                <tr>
-                    <th class="nwpuoj-col-number" scope="col" style="width:60px;">#</th>
-                    <th scope="col" style="width:180px;"><%- createSortableTitle('username', '用户名', true) %></th>
-                    <th class="nwpuoj-priority-3" scope="col">个性签名</th>
-                    <% if (isHitMode) { %>
-                      <th class="nwpuoj-priority-2 nwpuoj-col-number" scope="col" style="width:100px;">通过数量</th>
-                      <th class="nwpuoj-col-number" scope="col" style="width:100px;">Hit 值</th>
-                    <% } else { %>
-                      <th class="nwpuoj-priority-2 nwpuoj-col-number" scope="col" style="width:100px;"><%- createSortableTitle('ac_num', '通过数量', false) %></th>
-                      <th class="nwpuoj-col-number" scope="col" style="width:100px;"><%- createSortableTitle('rating', 'Rating', false) %></th>
-                    <% } %>
-                </tr>
-                </thead>
-          <script data-cfasync="false">
-          var lineHeight = 0;
-          (function () {
-            var div = document.createElement('div');
-            div.style.position = 'fixed';
-            div.style.left = -10000;
-            div.style.visibility = 'hidden';
-            div.innerText = '测试，Test.';
-            document.body.appendChild(div);
-            lineHeight = div.clientHeight;
-          })();
-          </script>
-                <tbody>
-                <%
-            let i = (paginate.currPage - 1) * paginate.perPage;
-            for (let user of ranklist) {
-              ++i;
-              // 计算 Hit 值显示(优先用路由层 join 出的 __hitTotal,否则查内存 Map)
-              let hitValue = 0;
-              if (typeof user.__hitTotal !== 'undefined') {
-                hitValue = user.__hitTotal;
-              } else if (syzoj.userHitScores && syzoj.userHitScores.has(user.id)) {
-                hitValue = syzoj.userHitScores.get(user.id).total || 0;
-              }
-              // Hit 值的 tier 颜色,用于显示
-              let hitTier = 'gray';
-              if (user.is_admin) hitTier = 'admin';
-              else if (syzoj.adminUserIds && syzoj.adminUserIds.has(user.id)) hitTier = 'admin';
-              else if (hitValue >= 350) hitTier = 'red';
-              else if (hitValue >= 280) hitTier = 'orange';
-              else if (hitValue >= 200) hitTier = 'green';
-              else if (hitValue >= 100) hitTier = 'blue';
-            %>
-            <tr>
-                                <td class="nwpuoj-col-number"><b><%= i %></b></td>
-                                <td><span class="nwpuoj-user-cell"><img class="nwpuoj-user-avatar" src="<%= syzoj.utils.avatar(user, 24) %>"><%- syzoj.utils.renderUsername(user) %></span></td>
-                                <td class="font-content nwpuoj-priority-3">
-              <script id="user-infomation-script-<%= i %>" data-cfasync="false">
-              (function () {
-                var html = <%- serializejs(user.information) %>;
-                var elem = document.createElement('div');
-                elem.style = 'overflow: hidden; width: 100%; position: relative; ';
-                elem.style.maxHeight = lineHeight + 'px';
-                elem.innerHTML = html;
-                var imgs = Array.prototype.slice.call(elem.getElementsByTagName('img'));
-                for (var i in imgs) imgs[i].parentNode.removeChild(imgs[i]);
-                var script = document.getElementById('user-infomation-script-<%= i %>');
-                script.parentNode.replaceChild(elem, script);
-              })();
-              </script>
-              </td>
-                                <td class="nwpuoj-priority-2 nwpuoj-col-number"><%= user.ac_num %></td>
-                                <% if (isHitMode) { %>
-                                  <td class="nwpuoj-col-number"><span class="username-tier-<%= hitTier %>" style="font-weight:bold;"><%= hitValue %></span></td>
-                                <% } else { %>
-                                  <td class="nwpuoj-col-number"><%= user.rating %></td>
-                                <% } %>
-                        </tr>
-                    <% } %>
-                </tbody>
-            </table>
+  <div class="app-table-region" role="region" aria-label="用户排名" tabindex="0">
+    <table class="app-table app-rank-table">
+      <thead><tr>
+        <th>名次</th>
+        <th class="app-cell-primary"><a href="<%= rankSortUrl('username', 'asc') %>">用户<i data-lucide="arrow-up-down"></i></a></th>
+        <th>个性签名</th>
+        <th><a href="<%= rankSortUrl('ac_num', 'desc') %>">通过<i data-lucide="arrow-up-down"></i></a></th>
+        <th><a href="<%= rankSortUrl(isHitMode ? 'hit' : 'rating', 'desc') %>"><%= isHitMode ? 'Hit 值' : 'Rating' %><i data-lucide="arrow-up-down"></i></a></th>
+      </tr></thead>
+      <tbody>
+        <%
+        let rankPosition = (paginate.currPage - 1) * paginate.perPage;
+        for (const rankUser of ranklist) {
+          rankPosition += 1;
+          let hitValue = typeof rankUser.__hitTotal !== 'undefined' ? rankUser.__hitTotal : (syzoj.userHitScores && syzoj.userHitScores.has(rankUser.id) ? (syzoj.userHitScores.get(rankUser.id).total || 0) : 0);
+          let hitTier = 'default';
+          if (rankUser.is_admin || (syzoj.adminUserIds && syzoj.adminUserIds.has(rankUser.id))) hitTier = 'admin';
+          else if (hitValue >= 350) hitTier = 'red';
+          else if (hitValue >= 280) hitTier = 'orange';
+          else if (hitValue >= 200) hitTier = 'green';
+          else if (hitValue >= 100) hitTier = 'blue';
+        %>
+          <tr>
+            <td class="app-cell-number"><span class="app-rank-position <%= rankPosition <= 3 ? 'is-top' : '' %>"><%= rankPosition %></span></td>
+            <td class="app-cell-primary"><span class="app-user-cell"><img src="<%= syzoj.utils.avatar(rankUser, 32) %>" alt="" width="32" height="32"><span><%- syzoj.utils.renderUsername(rankUser) %></span></span></td>
+            <td><div class="app-user-bio"><%- rankUser.information || '' %></div></td>
+            <td class="app-cell-number"><%= rankUser.ac_num %></td>
+            <td class="app-cell-number"><strong class="<%= isHitMode ? 'username-tier-' + hitTier : '' %>"><%= isHitMode ? hitValue : rankUser.rating %></strong></td>
+          </tr>
+        <% } %>
+      </tbody>
+    </table>
   </div>
-    <br>
-<% include page %>
+  <% include app_pagination %>
 </div>
-<% include footer %>
+
+<% include app_footer %>

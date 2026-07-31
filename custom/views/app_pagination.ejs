@@ -1,0 +1,43 @@
+<% if (typeof paginate !== 'undefined' && paginate && paginate.pageCnt > 1) { %>
+<%
+let appPageStart = Math.max(1, paginate.currPage - 2);
+let appPageEnd = Math.min(paginate.pageCnt, paginate.currPage + 2);
+if (appPageEnd - appPageStart < 4) {
+  if (appPageStart === 1) appPageEnd = Math.min(paginate.pageCnt, 5);
+  if (appPageEnd === paginate.pageCnt) appPageStart = Math.max(1, paginate.pageCnt - 4);
+}
+function appPageUrl(pageNumber) {
+  return syzoj.utils.makeUrl(req, Object.assign({}, req.query, { page: pageNumber }));
+}
+%>
+<nav class="app-pagination" aria-label="分页">
+  <span>第 <%= paginate.currPage %> / <%= paginate.pageCnt %> 页</span>
+  <span class="app-pagination-pages">
+    <% if (paginate.currPage > 1) { %>
+      <a href="<%= appPageUrl(paginate.currPage - 1) %>" id="page_prev" aria-label="上一页"><i data-lucide="chevron-left"></i></a>
+    <% } else { %>
+      <span aria-disabled="true"><i data-lucide="chevron-left"></i></span>
+    <% } %>
+    <% if (appPageStart > 1) { %>
+      <a href="<%= appPageUrl(1) %>">1</a>
+      <% if (appPageStart > 2) { %><span aria-hidden="true">…</span><% } %>
+    <% } %>
+    <% for (let appPageNumber = appPageStart; appPageNumber <= appPageEnd; appPageNumber++) { %>
+      <% if (appPageNumber === paginate.currPage) { %>
+        <span class="is-current" aria-current="page"><%= appPageNumber %></span>
+      <% } else { %>
+        <a href="<%= appPageUrl(appPageNumber) %>"><%= appPageNumber %></a>
+      <% } %>
+    <% } %>
+    <% if (appPageEnd < paginate.pageCnt) { %>
+      <% if (appPageEnd < paginate.pageCnt - 1) { %><span aria-hidden="true">…</span><% } %>
+      <a href="<%= appPageUrl(paginate.pageCnt) %>"><%= paginate.pageCnt %></a>
+    <% } %>
+    <% if (paginate.currPage < paginate.pageCnt) { %>
+      <a href="<%= appPageUrl(paginate.currPage + 1) %>" id="page_next" aria-label="下一页"><i data-lucide="chevron-right"></i></a>
+    <% } else { %>
+      <span aria-disabled="true"><i data-lucide="chevron-right"></i></span>
+    <% } %>
+  </span>
+</nav>
+<% } %>

@@ -1,0 +1,26 @@
+<% this.title = '服务重启中'; this.active = 'admin'; %>
+<% include app_header %>
+<main class="app-page app-restart-page"><section class="app-restart-state"><span class="app-restart-icon"><i data-lucide="refresh-cw"></i></span><span class="app-kicker">SERVICE RESTART</span><h1>服务重启中</h1><p>新进程就绪后会自动返回。已等待 <strong id="elapsed-wait-time">0</strong> 秒。</p><div class="app-progress-track"><span></span></div></section></main>
+<script>
+(function () {
+  var elapsed = 0;
+  var output = document.getElementById('elapsed-wait-time');
+  var currentServiceID = <%- serializejs(syzoj.serviceID) %>;
+  var redirectUrl = <%- serializejs(req.query.url || '/') %>;
+  window.setInterval(function () { elapsed += 1; output.textContent = String(elapsed); }, 1000);
+  function check() {
+    fetch('/admin/serviceID', { credentials: 'same-origin', cache: 'no-store' })
+      .then(function (response) { return response.ok ? response.json() : null; })
+      .then(function (data) {
+        if (data && data.serviceID && data.serviceID !== currentServiceID) {
+          window.setTimeout(function () { location.assign(redirectUrl); }, 1000);
+          return;
+        }
+        window.setTimeout(check, 500);
+      })
+      .catch(function () { window.setTimeout(check, 500); });
+  }
+  check();
+})();
+</script>
+<% include app_footer %>

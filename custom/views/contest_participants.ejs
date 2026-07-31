@@ -1,0 +1,27 @@
+<% this.title = '参赛者 - ' + contest.title %>
+<% include app_header %>
+<% if (typeof contestHeader !== 'undefined' && contestHeader) { %><% include contest_context %><% } %>
+
+<div class="app-page app-contest-participants-page">
+  <section class="app-section">
+    <div class="app-contest-participant-summary" aria-label="参赛者人数">
+      <span class="app-page-count"><strong><%= participants.length %></strong> 人</span>
+    </div>
+    <% if (participants.length) { %>
+      <div class="app-table-region" role="region" aria-label="比赛参赛者" tabindex="0">
+        <table class="app-table app-contest-participants-table">
+          <thead><tr><th>UID</th><th>用户名</th></tr></thead>
+          <tbody>
+            <% participants.forEach(function (participant) { const participantUser = { id: participant.user_id, username: participant.username }; %>
+              <tr><td class="app-cell-number">#<%= participant.user_id %></td><td><%- syzoj.utils.renderUsername(participantUser) %></td></tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+    <% } else { %>
+      <div class="app-empty app-empty-compact"><div class="app-empty-inner"><i data-lucide="users-round"></i><strong>暂无参赛者</strong><p>用户报名后会显示在这里。</p></div></div>
+    <% } %>
+  </section>
+</div>
+
+<% include app_footer %>

@@ -1,99 +1,25 @@
-<% this.title = '讨论' %>
-<% include header %>
-<div class="padding">
-  <% if (typeof problemContext !== 'undefined' && problemContext) { %>
-    <% if (user) { %>
-      <div class="nwpuoj-toolbar" style="justify-content:flex-end;margin-bottom:12px;">
-        <a href="<%= syzoj.utils.makeUrl(['article', 0, 'edit'], { problem_id: problem.id }) %>" class="ui small primary labeled icon button">
-          <i class="write icon"></i>发帖
-        </a>
-      </div>
-    <% } %>
-  <% } else { %>
-  <div class="nwpuoj-toolbar" style="margin-bottom:16px;">
-      <div>
-        <div class="ui breadcrumb nwpuoj-meta">
-          <div class="section">讨论</div>
-          <i class="right angle icon divider"></i>
-          <% if (problem) { %>
-            <div class="section"><a href="<%= syzoj.utils.makeUrl(['discussion', 'problems']) %>">题目</a></div>
-            <i class="right angle icon divider"></i>
-            <div class="active section"><%= problem.title %></div>
-          <% } else if (in_problems) { %>
-            <div class="section">题目</div>
-          <% } else { %>
-            <div class="section">全局板块</div>
-          <% } %>
-        </div>
-      </div>
-      <div class="nwpuoj-toolbar-actions">
-        <% if (in_problems) { %>
-          <div class="nwpuoj-segmented" aria-label="讨论板块">
-            <a href="<%= syzoj.utils.makeUrl(['discussion', 'global']) %>" class="nwpuoj-segment"><i class="world icon"></i>全局</a>
-            <a href="<%= syzoj.utils.makeUrl(['discussion', 'problems']) %>" class="nwpuoj-segment active" aria-current="page"><i class="file outline icon"></i>题目</a>
-          </div>
-        <% } else { %>
-          <% if (problem) { %>
-            <a href="<%= syzoj.utils.makeUrl(['problem', problem.id]) %>" class="ui small basic labeled icon button">
-              <i class="arrow left icon"></i>返回题目
-            </a>
-          <% } else { %>
-            <div class="nwpuoj-segmented" aria-label="讨论板块">
-              <a href="<%= syzoj.utils.makeUrl(['discussion', 'global']) %>" class="nwpuoj-segment active" aria-current="page"><i class="world icon"></i>全局</a>
-              <a href="<%= syzoj.utils.makeUrl(['discussion', 'problems']) %>" class="nwpuoj-segment"><i class="file outline icon"></i>题目</a>
-            </div>
-          <% } %>
-          <% if (user) { %>
-          <a href="<%= syzoj.utils.makeUrl(['article', 0, 'edit'], problem ? { problem_id: problem.id } : null) %>" class="ui small primary labeled icon button">
-              <i class="write icon"></i>发帖
-          </a>
-          <% } %>
-        <% } %>
-      </div>
-  </div>
-  <% } %>
+<%
+this.title = '讨论';
+const appHasProblemContext = typeof problemContext !== 'undefined' && problemContext;
+const appDiscussionProblem = typeof problem !== 'undefined' ? problem : null;
+%>
+<% include app_header %>
+<% if (appHasProblemContext) { %><% include problem_context %><% } %>
+
+<div class="app-page app-discussion-page">
+  <% if (!appHasProblemContext) { %><header class="app-page-header">
+    <div class="app-page-heading"><span class="app-kicker">COMMUNITY</span><h1 class="app-page-title"><%= appDiscussionProblem ? syzoj.utils.removeTitleTag(appDiscussionProblem.title) + ' · 讨论' : (in_problems ? '题目讨论' : '全局讨论') %></h1><p class="app-page-description"><%= appDiscussionProblem ? '围绕当前题目交流思路与疑问。' : (in_problems ? '浏览与题目相关的公开讨论。' : '分享训练经验、比赛信息和技术问题。') %></p></div>
+    <div class="app-page-actions"><% if (appDiscussionProblem) { %><a class="app-button app-button-quiet" href="<%= syzoj.utils.makeUrl(['problem', appDiscussionProblem.id]) %>"><i data-lucide="arrow-left"></i>返回题目</a><% } %><% if (user && !in_problems) { %><a class="app-button app-button-primary" href="<%= syzoj.utils.makeUrl(['article', 0, 'edit'], appDiscussionProblem ? { problem_id: appDiscussionProblem.id } : null) %>"><i data-lucide="square-pen"></i>发起讨论</a><% } %></div>
+  </header><% } else { %><div class="app-section-header app-context-section-header"><div><h2 class="app-section-title">讨论</h2><p class="app-section-description">围绕当前题目交流思路与疑问。</p></div><% if (user && !in_problems) { %><div class="app-page-actions"><a class="app-button app-button-primary" href="<%= syzoj.utils.makeUrl(['article', 0, 'edit'], { problem_id: appDiscussionProblem.id }) %>"><i data-lucide="square-pen"></i>发起讨论</a></div><% } %></div><% } %>
+
+  <% if (!appHasProblemContext && !appDiscussionProblem) { %><nav class="app-tabs" aria-label="讨论板块"><a class="app-tab<%= !in_problems ? ' is-active' : '' %>" href="<%= syzoj.utils.makeUrl(['discussion', 'global']) %>"><i data-lucide="globe-2"></i>全局</a><a class="app-tab<%= in_problems ? ' is-active' : '' %>" href="<%= syzoj.utils.makeUrl(['discussion', 'problems']) %>"><i data-lucide="file-text"></i>题目</a></nav><% } %>
+
   <% if (articles.length) { %>
-  <div class="nwpuoj-table-region" role="region" aria-label="讨论列表" tabindex="0">
-  <table class="ui very basic center aligned table">
-    <thead>
-      <tr>
-        <th class="left aligned" style="width: 45%; ">标题</th>
-        <% if (in_problems) { %>
-          <th class="nwpuoj-priority-2" style="width:20%;">所属题目</th>
-        <% } %>
-        <th class="nwpuoj-priority-2" style="width:10%;">作者</th>
-        <th style="width: 10%; ">回复数</th>
-        <th class="nwpuoj-priority-3" style="width:15%;">最新回复</th>
-      </tr>
-    </thead>
-    <tbody>
-    <% for (let article of articles) { %>
-        <tr>
-            <td class="left aligned"><a href="<%= syzoj.utils.makeUrl(['article', article.id]) %>"><%= article.title %></a><div class="nwpuoj-mobile-meta"><%- syzoj.utils.renderUsername(article.user) %> · <%= syzoj.utils.formatDate(article.sort_time) %></div></td>
-            <% if (in_problems) { %>
-              <td class="nwpuoj-priority-2"><a href="<%= syzoj.utils.makeUrl(['discussion', 'problem', article.problem_id]) %>"><%= article.problem.title %></a></td>
-            <% } %>
-            <td class="nwpuoj-priority-2"><%- syzoj.utils.renderUsername(article.user) %></td>
-            <td class="nwpuoj-col-number"><%= article.comments_num %></td>
-            <td class="nwpuoj-priority-3"><%= syzoj.utils.formatDate(article.sort_time) %></td>
-        </tr>
-    <% } %>
-    </tbody>
-  </table>
-  </div>
-  <br>
-  <% include page %>
-  <% } else { %>
-  <div class="nwpuoj-empty-state">
-    <i class="chat outline icon"></i>
-    <h3>暂无讨论</h3>
-    <% if (!in_problems && user && !(typeof problemContext !== 'undefined' && problemContext)) { %>
-    <a href="<%= syzoj.utils.makeUrl(['article', 0, 'edit'], problem ? { problem_id: problem.id } : null) %>" class="ui primary labeled icon button">
-      <i class="write icon"></i>
-      发帖
-    </a>
-    <% } %>
-  </div>
-  <% } %>
+    <div class="app-table-region" role="region" aria-label="讨论列表" tabindex="0"><table class="app-table app-discussion-table"><thead><tr><th class="app-cell-primary">主题</th><% if (in_problems) { %><th>所属题目</th><% } %><th>作者</th><th>回复</th><th>最近更新</th></tr></thead><tbody>
+      <% for (const article of articles) { %><tr><td class="app-cell-primary"><span class="app-row-title"><a href="<%= syzoj.utils.makeUrl(['article', article.id]) %>"><%= article.title %></a></span></td><% if (in_problems) { %><td><a href="<%= syzoj.utils.makeUrl(['discussion', 'problem', article.problem_id]) %>"><%= syzoj.utils.removeTitleTag(article.problem.title) %></a></td><% } %><td><a href="<%= syzoj.utils.makeUrl(['user', article.user.id]) %>"><%= article.user.username %></a></td><td class="app-cell-number"><%= article.comments_num %></td><td class="app-cell-number"><%= syzoj.utils.formatDate(article.sort_time) %></td></tr><% } %>
+    </tbody></table></div>
+    <% include app_pagination %>
+  <% } else { %><div class="app-empty"><div class="app-empty-inner"><i data-lucide="message-square-dashed"></i><strong>暂无讨论</strong><p>这里还没有公开主题。</p><% if (user && !in_problems) { %><a class="app-button app-button-primary" href="<%= syzoj.utils.makeUrl(['article', 0, 'edit'], appDiscussionProblem ? { problem_id: appDiscussionProblem.id } : null) %>">发起第一条讨论</a><% } %></div></div><% } %>
 </div>
-<% include footer %>
+
+<% include app_footer %>

@@ -9,6 +9,7 @@ const port = Number(process.env.JUDGE_CONTROL_PORT || 3000);
 const tokenPath = process.env.JUDGE_CONTROL_TOKEN_FILE || '/run/judge-control/token';
 const allowedServices = new Set(['judge-daemon', 'judge-runner-1']);
 const restarting = new Set();
+const usedNonces = new Map();
 
 function loadToken() {
   try {
@@ -50,8 +51,30 @@ function authorized(req) {
   const supplied = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
   const expectedBuffer = Buffer.from(token);
   const suppliedBuffer = Buffer.from(supplied);
-  return token.length >= 16 && expectedBuffer.length === suppliedBuffer.length &&
-    crypto.timingSafeEqual(expectedBuffer, suppliedBuffer);
+  if (!(token.length >= 16 && expectedBuffer.length === suppliedBuffer.length &&
+    crypto.timingSafeEqual(expectedBuffer, suppliedBuffer))) return false;
+  const timestamp = String(req.headers['x-control-timestamp'] || '');
+  const nonce = String(req.headers['x-control-nonce'] || '');
+  const contentHash = String(req.headers['x-content-sha256'] || '');
+  const suppliedSignature = String(req.headers['x-control-signature'] || '');
+  if (!/^\d{13}$/.test(timestamp) || Math.abs(Date.now() - Number(timestamp)) > 60000 ||
+      !/^[a-f0-9]{32}$/i.test(nonce) || !/^[a-f0-9]{64}$/i.test(contentHash) ||
+      !/^[a-f0-9]{64}$/i.test(suppliedSignature) || usedNonces.has(nonce)) return false;
+  const expectedSignature = crypto.createHmac('sha256', token)
+    .update(`${req.method}\n${req.url}\n${timestamp}\n${nonce}\n${contentHash}`)
+    .digest('hex');
+  const signatureBuffer = Buffer.from(suppliedSignature);
+  const calculatedBuffer = Buffer.from(expectedSignature);
+  if (signatureBuffer.length !== calculatedBuffer.length || !crypto.timingSafeEqual(signatureBuffer, calculatedBuffer)) return false;
+  usedNonces.set(nonce, Date.now());
+  for (const [value, createdAt] of usedNonces) if (Date.now() - createdAt > 120000) usedNonces.delete(value);
+  return true;
+}
+
+function bodyHashMatches(req, raw) {
+  const expected = String(req.headers['x-content-sha256'] || '');
+  const actual = crypto.createHash('sha256').update(raw).digest('hex');
+  return expected.length === actual.length && crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(actual));
 }
 
 function labelsOf(inspect) {
@@ -140,7 +163,9 @@ function readJson(req) {
       chunks.push(chunk);
     });
     req.on('end', () => {
-      try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')); } catch (error) { reject(error); }
+      const raw = Buffer.concat(chunks);
+      if (!bodyHashMatches(req, raw)) return reject(Object.assign(new Error('Request body signature mismatch'), { statusCode: 403 }));
+      try { resolve(JSON.parse(raw.toString('utf8') || '{}')); } catch (error) { reject(error); }
     });
     req.on('error', reject);
   });

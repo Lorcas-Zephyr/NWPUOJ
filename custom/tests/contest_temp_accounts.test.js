@@ -1,4 +1,6 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const test = require('node:test');
 const {
   appendPlayersToRanklist,
@@ -9,6 +11,10 @@ const {
   uniqueUsername,
   usernamePart
 } = require('../libs/contest-temp-accounts');
+const {
+  ORDINARY_STUDENT_ID_SCOPE,
+  temporaryStudentIdScope
+} = require('../libs/registration-profile-schema');
 
 test('parses BOM, CRLF, quoted commas and escaped quotes', () => {
   const rows = parseCsv('\uFEFF姓名,学号,学院\r\n"张,三",2026000001,"计算机""学院"\r\n');
@@ -63,4 +69,45 @@ test('denies temporary accounts exactly at expiry and allows regular users', () 
   assert.equal(isLoginAllowed(expiries, 7, 999), true);
   assert.equal(isLoginAllowed(expiries, 7, 1000), false);
   assert.equal(isLoginAllowed(expiries, 8, 1000), true);
+});
+
+test('scopes student ID uniqueness to ordinary accounts or one temporary-account contest', () => {
+  assert.equal(ORDINARY_STUDENT_ID_SCOPE, 'ordinary');
+  assert.equal(temporaryStudentIdScope(42), 'contest:42');
+  assert.throws(() => temporaryStudentIdScope(0), /positive integer/);
+});
+
+test('applies scoped student ID uniqueness in schema migration, registration, and temporary import', () => {
+  const schema = fs.readFileSync(path.join(__dirname, '../libs/registration-profile-schema.js'), 'utf8');
+  const registration = fs.readFileSync(path.join(__dirname, '../modules/_registration_identity.js'), 'utf8');
+  const temporaryImport = fs.readFileSync(path.join(__dirname, '../modules/_contest_temp_accounts.js'), 'utf8');
+
+  assert.match(schema, /DROP INDEX uq_user_registration_profile_student_id/);
+  assert.match(schema, /UNIQUE KEY uq_user_registration_profile_student_scope \(student_id_scope,student_id\)/);
+  assert.match(schema, /SET profile\.student_id_scope=CONCAT\('contest:', account\.contest_id\)/);
+  assert.match(registration, /WHERE student_id_scope=\? AND student_id=\? AND user_id!=\?/);
+  assert.match(temporaryImport, /WHERE student_id_scope=\? AND student_id IN \(\?\) FOR UPDATE/);
+  assert.match(temporaryImport, /\(user_id,student_id_scope,student_id,real_name,college,created_at,updated_at\)/);
+  assert.match(temporaryImport, /已在本场比赛的临时账户中使用/);
+});
+
+test('v2 temporary-account import is transactional, audited, evented, and one-time', () => {
+  const route = fs.readFileSync(path.join(__dirname, '../modules/_contest_temp_accounts.js'), 'utf8');
+  const v2Route = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_contest_temp_accounts.js'), 'utf8');
+  const foundation = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_foundation.js'), 'utf8');
+  const view = fs.readFileSync(path.join(__dirname, '../views/contest_registrations.ejs'), 'utf8');
+
+  assert.match(v2Route, /app\.get\('\/api\/v2\/admin\/contest-temp-accounts'/);
+  assert.match(v2Route, /app\.post\('\/api\/v2\/admin\/contest-temp-accounts\/import'/);
+  assert.match(route, /async function importTemporaryAccounts[\s\S]*withTransactionRetry/);
+  assert.match(route, /action: 'contest:temporary-account\.import'/);
+  assert.match(route, /type: 'contest\.temporary-accounts\.imported'/);
+  assert.match(v2Route, /req\.apiV2SensitiveResponse = true/);
+  assert.match(v2Route, /Cache-Control', 'private, no-store'/);
+  assert.match(foundation, /SENSITIVE_RESPONSE_NOT_REPLAYABLE/);
+  assert.match(foundation, /const storedResponse = req\.apiV2SensitiveResponse/);
+  assert.match(view, /data-temporary-accounts-v2/);
+  assert.match(view, /fetch\('\/api\/v2\/admin\/contest-temp-accounts\/import'/);
+  assert.doesNotMatch(view, /API_DOMAIN_DISABLED|legacySubmit|HTMLFormElement\.prototype\.submit/);
+  assert.match(view, /URL\.createObjectURL\(new Blob/);
 });

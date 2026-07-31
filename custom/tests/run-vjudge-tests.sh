@@ -6,6 +6,7 @@ root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 docker run --rm --network none \
   -v "$root/custom/tests:/tests:ro" \
   -v "$root/custom/libs-built/vjudge:/work/vjudge:ro" \
+  -v "$root/custom/libs/vjudge-credential-context.js:/libs/vjudge-credential-context.js:ro" \
   -v "$root/custom/node_modules:/app/custom-node-modules:ro" \
   -e UOJ_VJUDGE_MODULE=/work/vjudge/uoj \
   -e HDU_VJUDGE_MODULE=/work/vjudge/hdu \

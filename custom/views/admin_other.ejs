@@ -1,236 +1,124 @@
 <% this.adminPage = 'other'; %>
 <% include admin_header %>
-<% if (typeof success !== "undefined" && success) { %>
-  <div class="ui success message" style="flex-grow: 0; ">
-    <p><%= typeof successMessage !== 'undefined' ? successMessage : '操作成功！' %></p>
-  </div>
-<% } %>
-<form method="post" class="ui form">
-  <p><button class="ui blue labeled icon button" name="type" value="reset_count" type="submit"><i class="ui repeat icon"></i>重新计算提交及 AC 数</button></p>
-  <p><button class="ui blue labeled icon button" name="type" value="reset_discussion" type="submit"><i class="ui repeat icon"></i>重新计算讨论版回复数和回复时间</button></p>
-  <p><button class="ui blue labeled icon button" name="type" value="reset_codelen" type="submit"><i class="ui repeat icon"></i>重新计算提交代码长度</button></p>
-  <p><button class="ui blue labeled icon button" name="type" value="import_luogu" type="submit"><i class="ui repeat icon"></i>导入洛谷 VJudge 题目</button></p>
-</form>
 
-<div class="ui divider"></div>
-<form method="post" action="/admin/uoj/import" class="ui form">
-  <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>">
-  <div class="inline fields">
-    <div class="field">
-      <label>UOJ 题号</label>
-      <input type="number" name="problem_id" min="1" required placeholder="例如 1">
-    </div>
-    <div class="field">
-      <div class="ui checkbox">
-        <input type="checkbox" name="is_public" checked>
-        <label>导入后公开</label>
+<% if (typeof success !== 'undefined' && success) { %><div class="app-notice app-notice-success"><i data-lucide="circle-check"></i><span><%= typeof successMessage !== 'undefined' ? successMessage : '操作成功。' %></span></div><% } %>
+
+<section class="app-admin-first-section app-vjudge-workspace" data-vjudge-workspace>
+  <div class="app-admin-toolbar"><div><h3>远程题源</h3><p>连接验证、导入预览与失败恢复。</p></div><button class="app-icon-button" type="button" data-vjudge-refresh title="刷新题源" aria-label="刷新题源"><i data-lucide="refresh-cw"></i></button></div>
+  <div class="app-segmented app-vjudge-provider-tabs" role="tablist" aria-label="VJudge Provider"><button class="is-active" type="button" role="tab" aria-selected="true" data-provider="uoj">UOJ</button><button type="button" role="tab" aria-selected="false" data-provider="hdu">HDU</button><button type="button" role="tab" aria-selected="false" data-provider="poj">POJ</button></div>
+  <div class="app-vjudge-source-summary" data-source-summary role="status" aria-live="polite"><i data-lucide="loader-circle"></i><span>正在读取题源...</span></div>
+  <div class="app-vjudge-columns" data-vjudge-controls hidden>
+    <form class="app-form app-vjudge-connect-form" data-vjudge-connect>
+      <div class="app-section-header"><div><h3 class="app-section-title">连接</h3><p class="app-section-description">只保存加密后的密钥引用</p></div><span class="app-status app-status-muted" data-credential-status>未配置</span></div>
+      <label><span>密钥引用</span><input class="app-input" name="secret_ref" autocomplete="off" spellcheck="false" required></label>
+      <div class="app-form-actions"><button class="app-button app-button-secondary" type="submit"><i data-lucide="plug-zap"></i>验证连接</button><button class="app-button app-button-quiet" type="button" data-vjudge-disconnect hidden><i data-lucide="unplug"></i>断开连接</button></div>
+    </form>
+    <form class="app-form app-vjudge-import-form" data-vjudge-import>
+      <div class="app-section-header"><div><h3 class="app-section-title">批量导入</h3><p class="app-section-description">按题号批量导入，或同步 Provider 完整题库</p></div></div>
+      <fieldset class="app-vjudge-option-group"><legend>导入范围</legend><div class="app-option-segment"><label><input type="radio" name="import_scope" value="selected" checked><span>指定题号</span></label><label><input type="radio" name="import_scope" value="all"><span>完整题库</span></label></div></fieldset>
+      <label data-vjudge-remote-field><span>远端题号</span><textarea class="app-input" name="remote_ids" rows="4" placeholder="每行或逗号分隔，例如：1000, 1001, 1002"></textarea><small class="app-help" data-vjudge-id-count>已选择 0 道题</small></label>
+      <div class="app-form-grid app-form-grid-2">
+        <fieldset class="app-vjudge-option-group"><legend>可见性</legend><div class="app-option-segment"><label><input type="radio" name="visibility" value="private" checked><span>暂不公开</span></label><label><input type="radio" name="visibility" value="public"><span>导入后公开</span></label></div></fieldset>
+        <fieldset class="app-vjudge-option-group"><legend>冲突处理</legend><div class="app-option-segment"><label><input type="radio" name="conflict_policy" value="skip" checked><span>跳过已有</span></label><label><input type="radio" name="conflict_policy" value="overwrite"><span>覆盖已有</span></label></div></fieldset>
       </div>
-    </div>
-    <button class="ui primary labeled icon button" type="submit">
-      <i class="download icon"></i>导入 UOJ VJudge 题目
-    </button>
+      <label><span>附加标签</span><input class="app-input" name="tags" placeholder="训练, 图论"></label>
+      <label class="app-check"><input type="checkbox" name="preview_only" checked>先预览并等待批准</label>
+      <div class="app-form-actions"><button class="app-button app-button-primary" type="submit" data-vjudge-import-submit><i data-lucide="download"></i><span>开始批量导入</span></button></div>
+    </form>
   </div>
-</form>
-<form method="post" action="/admin/uoj/check" style="margin-top: 12px;">
-  <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>">
-  <button class="ui basic labeled icon button" type="submit">
-    <i class="plug icon"></i>测试 UOJ 账号连接
-  </button>
-</form>
+  <section class="app-admin-section app-vjudge-jobs"><div class="app-section-header"><div><h3 class="app-section-title">最近导入</h3><p class="app-section-description">进度、失败项和恢复操作</p></div></div><div class="app-vjudge-job-state" data-vjudge-job-state role="status" aria-live="polite">正在读取任务...</div><div class="app-table-region" data-vjudge-job-table hidden><table class="app-table"><thead><tr><th>Provider</th><th>状态</th><th>进度</th><th>当前题目</th><th>更新时间</th><th aria-label="操作"></th></tr></thead><tbody data-vjudge-job-rows></tbody></table></div></section>
+</section>
 
-<div class="ui divider"></div>
-<form method="post" action="/admin/uoj/import-all" class="ui form" id="uoj-import-all-form"
-      onsubmit="return confirm('确认导入 UOJ 总题库中所有尚未添加的题目？');">
-  <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>">
-  <div class="inline fields">
-    <div class="field">
-      <div class="ui checkbox">
-        <input type="checkbox" name="is_public" checked>
-        <label>导入后公开</label>
-      </div>
-    </div>
-    <button class="ui primary labeled icon button" type="submit" id="uoj-import-all-button">
-      <i class="download icon"></i>导入全部 UOJ 题目
-    </button>
-  </div>
-</form>
-
-<div class="ui message" id="uoj-import-all-status" style="display: none; max-width: 760px;" aria-live="polite">
-  <div class="header" id="uoj-import-all-title"></div>
-  <p id="uoj-import-all-summary"></p>
-  <div class="ui tiny progress" id="uoj-import-all-progress" style="margin: 10px 0 0;">
-    <div class="bar" style="width: 0;"></div>
-  </div>
-  <div class="ui list" id="uoj-import-all-failures"></div>
-</div>
-
-<div class="ui divider"></div>
-<form method="post" action="/admin/hdu/import" class="ui form">
-  <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>">
-  <div class="inline fields">
-    <div class="field">
-      <label>HDU 题号</label>
-      <input type="number" name="problem_id" min="1000" required placeholder="例如 1000">
-    </div>
-    <div class="field">
-      <div class="ui checkbox">
-        <input type="checkbox" name="is_public" checked>
-        <label>导入后公开</label>
-      </div>
-    </div>
-    <button class="ui primary labeled icon button" type="submit">
-      <i class="download icon"></i>导入 HDU VJudge 题目
-    </button>
-  </div>
-</form>
-<form method="post" action="/admin/hdu/check" style="margin-top: 12px;">
-  <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>">
-  <button class="ui basic labeled icon button" type="submit">
-    <i class="plug icon"></i>测试 HDU 账号连接
-  </button>
-</form>
-
-<div style="margin-top: 18px;">
-  <form method="post" action="/admin/hdu/import-all" class="ui form" id="hdu-import-all-form"
-        onsubmit="return confirm('确认导入 HDU 总题库中所有尚未添加的题目？');">
-    <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>">
-    <div class="inline fields">
-      <div class="field">
-        <div class="ui checkbox">
-          <input type="checkbox" name="is_public" checked>
-          <label>导入后公开</label>
-        </div>
-      </div>
-      <button class="ui primary labeled icon button" type="submit" id="hdu-import-all-button">
-        <i class="download icon"></i>导入全部 HDU 题目
-      </button>
-    </div>
+<dialog class="app-dialog" id="vjudge-action-dialog" data-vjudge-action-dialog>
+  <form data-vjudge-action-reason>
+    <div class="app-dialog-header"><h2 data-vjudge-action-title>确认操作</h2><button class="app-icon-button" type="button" data-dialog-close aria-label="关闭"><i data-lucide="x"></i></button></div>
+    <div class="app-dialog-body"><p data-vjudge-action-copy></p></div>
+    <div class="app-dialog-actions"><button class="app-button app-button-secondary" type="button" data-dialog-close>取消</button><button class="app-button app-button-primary" type="submit"><i data-lucide="check"></i>确认</button></div>
   </form>
-</div>
+</dialog>
 
-<div class="ui message" id="hdu-import-all-status" style="display: none; max-width: 760px;" aria-live="polite">
-  <div class="header" id="hdu-import-all-title"></div>
-  <p id="hdu-import-all-summary"></p>
-  <div class="ui tiny progress" id="hdu-import-all-progress" style="margin: 10px 0 0;">
-    <div class="bar" style="width: 0;"></div>
-  </div>
-  <div class="ui list" id="hdu-import-all-failures"></div>
-</div>
-
-<div class="ui divider"></div>
-<form method="post" action="/admin/poj/import" class="ui form">
-  <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>">
-  <div class="inline fields">
-    <div class="field">
-      <label>POJ 题号</label>
-      <input type="number" name="problem_id" min="1000" required placeholder="例如 1000">
-    </div>
-    <div class="field">
-      <div class="ui checkbox">
-        <input type="checkbox" name="is_public" checked>
-        <label>导入后公开</label>
-      </div>
-    </div>
-    <button class="ui primary labeled icon button" type="submit">
-      <i class="download icon"></i>导入 POJ VJudge 题目
-    </button>
-  </div>
-</form>
-<form method="post" action="/admin/poj/check" style="margin-top: 12px;">
-  <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>">
-  <button class="ui basic labeled icon button" type="submit">
-    <i class="plug icon"></i>测试 POJ 账号连接
-  </button>
-</form>
-
-<div style="margin-top: 18px;">
-  <form method="post" action="/admin/poj/import-all" class="ui form" id="poj-import-all-form"
-        onsubmit="return confirm('确认导入 POJ 总题库中所有尚未添加的题目？');">
-    <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>">
-    <div class="inline fields">
-      <div class="field">
-        <div class="ui checkbox">
-          <input type="checkbox" name="is_public" checked>
-          <label>导入后公开</label>
-        </div>
-      </div>
-      <button class="ui primary labeled icon button" type="submit" id="poj-import-all-button">
-        <i class="download icon"></i>导入全部 POJ 题目
-      </button>
-    </div>
-  </form>
-</div>
-
-<div class="ui message" id="poj-import-all-status" style="display: none; max-width: 760px;" aria-live="polite">
-  <div class="header" id="poj-import-all-title"></div>
-  <p id="poj-import-all-summary"></p>
-  <div class="ui tiny progress" id="poj-import-all-progress" style="margin: 10px 0 0;">
-    <div class="bar" style="width: 0;"></div>
-  </div>
-  <div class="ui list" id="poj-import-all-failures"></div>
-</div>
+<section class="app-settings-section app-admin-section"><div class="app-settings-copy"><span class="app-kicker">MAINTENANCE</span><h2>历史数据维护</h2><p>用于修复旧数据统计，执行时间取决于当前数据规模。</p></div><form class="app-admin-action-list" method="post" data-maintenance-v2><button class="app-admin-action-row" name="type" value="reset_count" type="submit"><i data-lucide="calculator"></i><span><strong>重新计算提交及 AC 数</strong><small>同步题目与用户统计</small></span><i data-lucide="arrow-right"></i></button><button class="app-admin-action-row" name="type" value="reset_discussion" type="submit"><i data-lucide="messages-square"></i><span><strong>重新计算讨论回复</strong><small>修正回复数和最后回复时间</small></span><i data-lucide="arrow-right"></i></button><button class="app-admin-action-row" name="type" value="reset_codelen" type="submit"><i data-lucide="ruler"></i><span><strong>重新计算代码长度</strong><small>更新历史提交代码长度</small></span><i data-lucide="arrow-right"></i></button></form></section>
 
 <script>
 (function () {
-  function setupBulkImport(provider, prefix, name) {
-    var statusBox = document.getElementById(provider + '-import-all-status');
-    var title = document.getElementById(provider + '-import-all-title');
-    var summary = document.getElementById(provider + '-import-all-summary');
-    var progress = document.getElementById(provider + '-import-all-progress');
-    var failures = document.getElementById(provider + '-import-all-failures');
-    var button = document.getElementById(provider + '-import-all-button');
-
-    function render(status) {
-      if (!status || status.state === 'idle') return;
-      statusBox.style.display = '';
-      statusBox.className = 'ui message';
-      button.disabled = status.state === 'running';
-      failures.innerHTML = '';
-
-      if (status.state === 'running') {
-        title.textContent = status.phase === 'listing' ? '正在读取 ' + name + ' 题库' : '正在批量导入 ' + name + ' 题目';
-        summary.textContent = status.phase === 'listing'
-          ? '正在获取远端题目列表...'
-          : '总计 ' + status.total + '，已处理 ' + status.processed + '，导入 ' + status.imported +
-            '，跳过 ' + status.skipped + '，失败 ' + status.failed +
-            (status.currentRemoteId ? '，当前 ' + prefix + status.currentRemoteId : '');
-      } else if (status.state === 'completed') {
-        statusBox.className = 'ui positive message';
-        title.textContent = name + ' 批量导入完成';
-        summary.textContent = '总计 ' + status.total + '，导入 ' + status.imported +
-          '，跳过 ' + status.skipped + '，失败 ' + status.failed + '。';
-      } else {
-        statusBox.className = 'ui negative message';
-        title.textContent = name + ' 批量导入失败';
-        summary.textContent = status.error || '任务异常终止。';
+  var maintenanceForm = document.querySelector('[data-maintenance-v2]');
+  if (maintenanceForm) {
+    maintenanceForm.addEventListener('submit', async function (event) {
+      event.preventDefault();
+      var button = event.submitter;
+      if (!button || !button.value) return;
+      button.disabled = true;
+      try {
+        var response = await fetch('/api/v2/admin/maintenance/jobs', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+            'Idempotency-Key': window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random()
+          },
+          body: JSON.stringify({ kind: button.value })
+        });
+        var body = await response.json();
+        if (!response.ok) throw new Error(body && body.error && body.error.message || '维护任务创建失败。');
+        window.location.assign('/admin/jobs?job=' + encodeURIComponent(body.data.id));
+      } catch (error) {
+        if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '维护任务创建失败。', 'danger');
+        button.disabled = false;
       }
-
-      var percent = status.total ? Math.min(100, Math.round(status.processed * 100 / status.total)) : 0;
-      progress.querySelector('.bar').style.width = percent + '%';
-      (status.failures || []).forEach(function (failure) {
-        var item = document.createElement('div');
-        item.className = 'item';
-        item.textContent = prefix + failure.remoteId + ': ' + failure.message;
-        failures.appendChild(item);
-      });
-    }
-
-    function poll() {
-      fetch('/admin/' + provider + '/import-all/status', { credentials: 'same-origin' })
-        .then(function (response) { return response.json(); })
-        .then(function (status) {
-          render(status);
-          if (status.state === 'running') setTimeout(poll, 2000);
-        })
-        .catch(function () {});
-    }
-
-    poll();
+    });
   }
-
-  setupBulkImport('uoj', 'U', 'UOJ');
-  setupBulkImport('hdu', 'H', 'HDU');
-  setupBulkImport('poj', 'P', 'POJ');
+})();
+(function () {
+  var root = document.querySelector('[data-vjudge-workspace]'); if (!root) return;
+  var currentProvider = 'uoj'; var sources = []; var jobs = []; var pollTimer = null; var expandedJobs = {}; var jobDetails = {};
+  var summary = root.querySelector('[data-source-summary]'); var controls = root.querySelector('[data-vjudge-controls]'); var connectForm = root.querySelector('[data-vjudge-connect]'); var importForm = root.querySelector('[data-vjudge-import]'); var remoteField = importForm.querySelector('[data-vjudge-remote-field]'); var remoteCount = importForm.querySelector('[data-vjudge-id-count]'); var importSubmit = importForm.querySelector('[data-vjudge-import-submit]'); var jobState = root.querySelector('[data-vjudge-job-state]'); var jobTable = root.querySelector('[data-vjudge-job-table]'); var jobRows = root.querySelector('[data-vjudge-job-rows]');
+  var actionDialog = document.querySelector('[data-vjudge-action-dialog]'); var actionConfirmForm = actionDialog.querySelector('[data-vjudge-action-reason]'); var pendingConfirmationResolve = null;
+  var states = { queued: '等待', running: '导入中', paused: '等待批准', cancelling: '取消中', completed: '完成', failed: '失败', cancelled: '已取消' }; var stateClasses = { queued: 'app-status-pending', running: 'app-status-running', paused: 'app-status-info', cancelling: 'app-status-pending', completed: 'app-status-accepted', failed: 'app-status-rejected', cancelled: 'app-status-muted' }; var capabilityLabels = { problem_search: '题目检索', problem_import: '题面导入', remote_submission: '远程提交', submission_sync: '结果同步' };
+  function requestKey() { return window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random(); }
+  function showMessage(message, error) { summary.className = 'app-vjudge-source-summary' + (error ? ' is-error' : ''); summary.innerHTML = '<i data-lucide="' + (error ? 'circle-alert' : 'loader-circle') + '"></i><span></span>'; summary.querySelector('span').textContent = message; controls.hidden = true; if (window.NWPUOJApp) window.NWPUOJApp.refreshIcons(summary); }
+  function selectedSource() { return sources.find(function (source) { return source.id === currentProvider; }); }
+  function selectedRemoteIds() { return Array.from(new Set(importForm.elements.remote_ids.value.split(/[\s,，]+/).map(function (value) { return value.trim(); }).filter(Boolean))); }
+  function updateImportScope() { var all = importForm.elements.import_scope.value === 'all'; var ids = selectedRemoteIds(); remoteField.hidden = all; importForm.elements.remote_ids.required = !all; importForm.elements.remote_ids.setCustomValidity(!all && ids.length > 5000 ? '一次最多导入 5000 道题。' : ''); remoteCount.textContent = '已选择 ' + ids.length + ' 道题'; importSubmit.querySelector('span').textContent = all ? '导入完整题库' : '开始批量导入'; }
+  function renderSource() { var source = selectedSource(); if (!source) return showMessage('题源信息暂不可用。', true); summary.className = 'app-vjudge-source-summary'; summary.innerHTML = ''; var copy = document.createElement('span'); var strong = document.createElement('strong'); strong.textContent = source.name; var small = document.createElement('small'); small.textContent = source.capabilities.map(function (capability) { return capabilityLabels[capability] || capability; }).join(' · ') + ' · ' + source.policy.rate_limit_ms + 'ms 间隔'; copy.appendChild(strong); copy.appendChild(small); summary.appendChild(copy); var status = document.createElement('span'); status.className = 'app-status ' + (source.credential_configured ? 'app-status-accepted' : 'app-status-muted'); status.textContent = source.credential_configured ? '连接已验证' : '尚未验证'; summary.appendChild(status); controls.hidden = false; connectForm.elements.secret_ref.value = source.credential_hint || 'env:SYZOJ_WEB_' + currentProvider.toUpperCase(); var badge = connectForm.querySelector('[data-credential-status]'); badge.className = 'app-status ' + (source.credential_configured ? 'app-status-accepted' : 'app-status-muted'); badge.textContent = source.credential_configured ? '已配置' : '未配置'; connectForm.querySelector('[data-vjudge-disconnect]').hidden = !source.credential_configured; var importButton = importForm.querySelector('button[type="submit"]'); importButton.disabled = !source.credential_configured; importButton.title = source.credential_configured ? '' : '请先验证 Provider 连接'; }
+  function requestConfirmation(action) {
+    var content = { approve: ['批准导入', '确认预览内容无误后，任务将继续写入题库。'], cancel: ['取消导入', '任务会在当前题目处理完成后停止。'], retry: ['重试失败项', '仅重新处理仍可重试的失败题目。'], disconnect: ['断开远程题源', '该 Provider 的新导入将被停用，正在运行的任务会在下一次远端操作前停止。'] }[action];
+    actionDialog.querySelector('[data-vjudge-action-title]').textContent = content[0]; actionDialog.querySelector('[data-vjudge-action-copy]').textContent = content[1];
+    if (typeof actionDialog.showModal === 'function') actionDialog.showModal();
+    return new Promise(function (resolve) { pendingConfirmationResolve = resolve; });
+  }
+  actionConfirmForm.addEventListener('submit', function (event) { event.preventDefault(); var resolve = pendingConfirmationResolve; pendingConfirmationResolve = null; actionDialog.close(); if (resolve) resolve(true); });
+  actionDialog.addEventListener('close', function () { if (pendingConfirmationResolve) { var resolve = pendingConfirmationResolve; pendingConfirmationResolve = null; resolve(false); } });
+  function actionButton(icon, label, action, id) { var button = document.createElement('button'); button.type = 'button'; button.className = 'app-icon-button'; button.title = label; button.setAttribute('aria-label', label); button.dataset.importAction = action; button.dataset.importId = id; button.innerHTML = '<i data-lucide="' + icon + '"></i>'; return button; }
+  function failureItems(job) { var detail = jobDetails[job.id] || job; var items = Array.isArray(detail.items) ? detail.items.filter(function (item) { return item.error; }) : []; if (items.length) return items.map(function (item) { return { remote_id: item.remote_id, code: item.error.code, message: item.error.message }; }); return Array.isArray(detail.failures) ? detail.failures : []; }
+  function appendJobDetails(job) {
+    var detailRow = document.createElement('tr'); detailRow.className = 'app-vjudge-detail-row'; var cell = document.createElement('td'); cell.colSpan = 6; var detail = jobDetails[job.id];
+    if (!detail) { cell.textContent = '正在读取失败项...'; }
+    else if (detail.load_error) { cell.className = 'is-error'; cell.textContent = detail.load_error; }
+    else { var failures = failureItems(job); if (detail.error && !failures.length) failures.push({ remote_id: '-', code: detail.error.code, message: detail.error.message }); var list = document.createElement('div'); list.className = 'app-vjudge-failure-list'; if (!failures.length) { list.textContent = '没有可显示的失败项。'; } else failures.slice(0, 50).forEach(function (failure) { var item = document.createElement('div'); var problem = document.createElement('strong'); problem.textContent = failure.remote_id === '-' ? '任务' : job.provider.toUpperCase().charAt(0) + failure.remote_id; var message = document.createElement('span'); message.textContent = (failure.code ? failure.code + ' · ' : '') + (failure.message || '未知错误'); item.appendChild(problem); item.appendChild(message); list.appendChild(item); }); cell.appendChild(list); }
+    detailRow.appendChild(cell); jobRows.appendChild(detailRow);
+  }
+  function renderJobs() {
+    jobRows.innerHTML = ''; if (!jobs.length) { jobTable.hidden = true; jobState.hidden = false; jobState.textContent = '尚未创建导入任务。'; return; } jobState.hidden = true; jobTable.hidden = false;
+    jobs.forEach(function (job) {
+      var row = document.createElement('tr'); var providerCell = document.createElement('td'); providerCell.className = 'app-cell-primary'; var providerName = document.createElement('strong'); providerName.textContent = job.provider.toUpperCase(); var id = document.createElement('small'); id.className = 'app-row-description'; id.textContent = job.id.slice(0, 8) + ' · ' + job.stage; providerCell.appendChild(providerName); providerCell.appendChild(id); row.appendChild(providerCell);
+      var stateCell = document.createElement('td'); var badge = document.createElement('span'); badge.className = 'app-status ' + (stateClasses[job.state] || 'app-status-muted'); badge.textContent = states[job.state] || job.state; stateCell.appendChild(badge); row.appendChild(stateCell);
+      var progress = job.progress || {}; var total = Number(progress.total || 0); var processed = Number(progress.processed || 0); var progressCell = document.createElement('td'); progressCell.className = 'app-vjudge-progress-cell'; var track = document.createElement('div'); track.className = 'app-progress-track'; var fill = document.createElement('span'); fill.style.width = (total ? Math.round(processed / total * 100) : 0) + '%'; track.appendChild(fill); progressCell.appendChild(track); var progressCopy = document.createElement('small'); progressCopy.className = 'app-row-description'; progressCopy.textContent = processed + ' / ' + total + (progress.failed ? ' · ' + progress.failed + ' 失败' : ''); progressCell.appendChild(progressCopy); row.appendChild(progressCell);
+      var current = document.createElement('td'); current.textContent = job.current_remote_id ? job.provider.toUpperCase().charAt(0) + job.current_remote_id : '-'; row.appendChild(current); var updated = document.createElement('td'); updated.className = 'app-cell-number'; updated.textContent = new Date(job.updated_at).toLocaleString(); row.appendChild(updated);
+      var actions = document.createElement('td'); actions.className = 'app-cell-actions'; var group = document.createElement('div'); group.className = 'app-inline-actions'; if (Number(progress.failed || 0) || job.error) { var detailButton = actionButton(expandedJobs[job.id] ? 'chevron-up' : 'list-x', expandedJobs[job.id] ? '收起失败项' : '查看失败项', 'details', job.id); detailButton.setAttribute('aria-expanded', expandedJobs[job.id] ? 'true' : 'false'); group.appendChild(detailButton); } if (job.state === 'paused') group.appendChild(actionButton('circle-check', '批准导入', 'approve', job.id)); if (['queued', 'running', 'paused', 'cancelling'].indexOf(job.state) !== -1) group.appendChild(actionButton('square', '取消导入', 'cancel', job.id)); if (job.state === 'failed' || job.state === 'cancelled' || Number(progress.failed || 0)) group.appendChild(actionButton('rotate-ccw', '重试失败项', 'retry', job.id)); actions.appendChild(group); row.appendChild(actions); jobRows.appendChild(row); if (expandedJobs[job.id]) appendJobDetails(job);
+    }); if (window.NWPUOJApp) window.NWPUOJApp.refreshIcons(jobRows);
+  }
+  async function loadSources() { showMessage('正在读取题源...', false); try { var response = await fetch('/api/v2/vjudge/sources', { credentials: 'same-origin', cache: 'no-store' }); var body = await response.json(); if (!response.ok) throw new Error(body.error && body.error.message || '题源读取失败'); sources = body.data || []; renderSource(); } catch (error) { showMessage(navigator.onLine ? '题源暂时无法读取。' : '当前处于离线状态。', true); } }
+  async function loadJobs() { try { var response = await fetch('/api/v2/vjudge/imports?limit=30', { credentials: 'same-origin', cache: 'no-store' }); var body = await response.json(); if (!response.ok) throw new Error(body.error && body.error.message || '任务读取失败'); jobs = body.data || []; renderJobs(); } catch (error) { jobTable.hidden = true; jobState.hidden = false; jobState.textContent = navigator.onLine ? '导入任务暂时无法读取。' : '当前处于离线状态。'; } }
+  async function send(url, payload) { var response = await fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestKey() }, body: JSON.stringify(payload) }); var body = await response.json(); if (!response.ok) throw new Error(body.error && body.error.message || '操作失败'); return body.data; }
+  async function disconnectSource() { var response = await fetch('/api/v2/vjudge/connections/' + currentProvider, { method: 'DELETE', credentials: 'same-origin', headers: { 'Idempotency-Key': requestKey() } }); var body = await response.json(); if (!response.ok) throw new Error(body.error && body.error.message || '断开连接失败'); return body.data; }
+  root.addEventListener('click', async function (event) { var tab = event.target.closest('[data-provider]'); if (tab) { currentProvider = tab.dataset.provider; root.querySelectorAll('[data-provider]').forEach(function (button) { var active = button === tab; button.classList.toggle('is-active', active); button.setAttribute('aria-selected', active ? 'true' : 'false'); }); return renderSource(); } if (event.target.closest('[data-vjudge-refresh]')) { await Promise.all([loadSources(), loadJobs()]); return; } var disconnectButton = event.target.closest('[data-vjudge-disconnect]'); if (disconnectButton) { if (!await requestConfirmation('disconnect')) return; disconnectButton.disabled = true; try { await disconnectSource(); if (window.NWPUOJApp) window.NWPUOJApp.showToast('远程题源已断开', 'success'); await loadSources(); } catch (error) { if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message, 'error'); } finally { disconnectButton.disabled = false; } return; } var button = event.target.closest('[data-import-action]'); if (!button) return; var action = button.dataset.importAction; var jobId = button.dataset.importId; if (action === 'details') { expandedJobs[jobId] = !expandedJobs[jobId]; renderJobs(); if (expandedJobs[jobId] && !jobDetails[jobId]) { try { var detailResponse = await fetch('/api/v2/vjudge/imports/' + encodeURIComponent(jobId), { credentials: 'same-origin', cache: 'no-store' }); var detailBody = await detailResponse.json(); if (!detailResponse.ok) throw new Error(detailBody.error && detailBody.error.message || '失败项读取失败'); jobDetails[jobId] = detailBody.data; } catch (error) { jobDetails[jobId] = { load_error: navigator.onLine ? '失败项暂时无法读取。' : '当前处于离线状态。' }; } renderJobs(); } return; } if (!await requestConfirmation(action)) return; button.disabled = true; try { await send('/api/v2/vjudge/imports/' + encodeURIComponent(jobId) + '/' + action, {}); if (window.NWPUOJApp) window.NWPUOJApp.showToast('操作已提交', 'success'); await loadJobs(); } catch (error) { if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message, 'error'); button.disabled = false; } });
+  connectForm.addEventListener('submit', async function (event) { event.preventDefault(); var button = connectForm.querySelector('button[type="submit"]'); button.disabled = true; try { await send('/api/v2/vjudge/sources/' + currentProvider + '/test-connection', { secret_ref: connectForm.elements.secret_ref.value.trim() }); if (window.NWPUOJApp) window.NWPUOJApp.showToast('连接验证成功', 'success'); await loadSources(); } catch (error) { if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message, 'error'); } finally { button.disabled = false; } });
+  importForm.addEventListener('input', updateImportScope);
+  importForm.addEventListener('change', updateImportScope);
+  importForm.addEventListener('submit', async function (event) { event.preventDefault(); updateImportScope(); var button = importForm.querySelector('button[type="submit"]'); var all = importForm.elements.import_scope.value === 'all'; var ids = all ? [] : selectedRemoteIds(); if (!all && (!ids.length || ids.length > 5000)) { importForm.elements.remote_ids.reportValidity(); return; } button.disabled = true; try { await send('/api/v2/vjudge/sources/' + currentProvider + '/imports', { remote_ids: ids, visibility: importForm.elements.visibility.value, conflict_policy: importForm.elements.conflict_policy.value, tags: importForm.elements.tags.value.split(/[,，]+/).map(function (value) { return value.trim(); }).filter(Boolean), preview_only: importForm.elements.preview_only.checked }); if (window.NWPUOJApp) window.NWPUOJApp.showToast(all ? '完整题库导入任务已创建' : '批量导入任务已创建', 'success'); await loadJobs(); } catch (error) { if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message, 'error'); } finally { button.disabled = false; } });
+  updateImportScope();
+  Promise.all([loadSources(), loadJobs()]); pollTimer = window.setInterval(function () { if (!document.hidden) loadJobs(); }, 5000); window.addEventListener('online', function () { Promise.all([loadSources(), loadJobs()]); }); window.addEventListener('pagehide', function () { window.clearInterval(pollTimer); });
 })();
 </script>
+
 <% include admin_footer %>

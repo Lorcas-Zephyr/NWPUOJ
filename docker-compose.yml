@@ -17,7 +17,10 @@ name: nwpuoj
 # - Only one runner is configured in this configuration, but you can copy and replace 1 to 2 to add more
 services:
   web:
-    image: menci/syzoj-web
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    image: nwpuoj-web:v2.0.0
     restart: unless-stopped
     depends_on:
       judge-control: { condition: service_healthy }
@@ -31,6 +34,10 @@ services:
       - judge-control-auth:/run/judge-control:ro
       - ./custom/favicon.png:/app/static/self/favicon.png:ro
       - ./custom/header.ejs:/app/views/header.ejs:ro
+      - ./custom/views/app_header.ejs:/app/views/app_header.ejs:ro
+      - ./custom/views/app_footer.ejs:/app/views/app_footer.ejs:ro
+      - ./custom/views/app_page_state.ejs:/app/views/app_page_state.ejs:ro
+      - ./custom/views/app_pagination.ejs:/app/views/app_pagination.ejs:ro
       - ./custom/views/tags.ejs:/app/views/tags.ejs:ro
       - ./custom/modules/tags.js:/app/modules/tags.js:ro
       - ./custom/models/problem-solution.ts:/app/models/problem-solution.ts:ro
@@ -45,8 +52,12 @@ services:
       - ./custom/views/problem_context.ejs:/app/views/problem_context.ejs:ro
       - ./custom/views/problem_submit.ejs:/app/views/problem_submit.ejs:ro
       - ./custom/views/problem_submit_form.ejs:/app/views/problem_submit_form.ejs:ro
-      - ./custom/views/problem_import.ejs:/app/views/problem_import.ejs:ro
-      - ./custom/views/problem_import_result.ejs:/app/views/problem_import_result.ejs:ro
+      - ./custom/views/problem_edit.ejs:/app/views/problem_edit.ejs:ro
+      - ./custom/views/problem_manage.ejs:/app/views/problem_manage.ejs:ro
+      - ./custom/views/problem_data.ejs:/app/views/problem_data.ejs:ro
+      - ./custom/views/problem_testcases.ejs:/app/views/problem_testcases.ejs:ro
+      - ./custom/views/problem_tag_edit.ejs:/app/views/problem_tag_edit.ejs:ro
+      - ./custom/modules/problem_tag.js:/app/modules/problem_tag.js:ro
       - ./custom/views/admin_solutions.ejs:/app/views/admin_solutions.ejs:ro
       - ./custom/views/admin_info.ejs:/app/views/admin_info.ejs:ro
       - ./custom/views/admin_help_edit.ejs:/app/views/admin_help_edit.ejs:ro
@@ -55,6 +66,24 @@ services:
       - ./custom/views/admin_judge_workers.ejs:/app/views/admin_judge_workers.ejs:ro
       - ./custom/views/admin_privilege.ejs:/app/views/admin_privilege.ejs:ro
       - ./custom/modules/_request_security.js:/app/modules/_request_security.js:ro
+      - ./custom/modules/_api_v2_foundation.js:/app/modules/_api_v2_foundation.js:ro
+      - ./custom/modules/_api_v2_search.js:/app/modules/_api_v2_search.js:ro
+      - ./custom/modules/_api_v2_rollout.js:/app/modules/_api_v2_rollout.js:ro
+      - ./custom/modules/_api_v2_authorization.js:/app/modules/_api_v2_authorization.js:ro
+      - ./custom/modules/_api_v2_identity.js:/app/modules/_api_v2_identity.js:ro
+      - ./custom/modules/_api_v2_avatar.js:/app/modules/_api_v2_avatar.js:ro
+      - ./custom/modules/_api_v2_registration.js:/app/modules/_api_v2_registration.js:ro
+      - ./custom/modules/_api_v2_problem_domain.js:/app/modules/_api_v2_problem_domain.js:ro
+      - ./custom/modules/_api_v2_problem_workflows.js:/app/modules/_api_v2_problem_workflows.js:ro
+      - ./custom/modules/_api_v2_submission_domain.js:/app/modules/_api_v2_submission_domain.js:ro
+      - ./custom/modules/_api_v2_contest_domain.js:/app/modules/_api_v2_contest_domain.js:ro
+      - ./custom/modules/_api_v2_contest_temp_accounts.js:/app/modules/_api_v2_contest_temp_accounts.js:ro
+      - ./custom/modules/_api_v2_rating_domain.js:/app/modules/_api_v2_rating_domain.js:ro
+      - ./custom/modules/_api_v2_vjudge_domain.js:/app/modules/_api_v2_vjudge_domain.js:ro
+      - ./custom/modules/_api_v2_content_domain.js:/app/modules/_api_v2_content_domain.js:ro
+      - ./custom/modules/_api_v2_admin_domain.js:/app/modules/_api_v2_admin_domain.js:ro
+      - ./custom/modules/_api_v2_migration.js:/app/modules/_api_v2_migration.js:ro
+      - ./custom/modules/_api_v2_contract.js:/app/modules/_api_v2_contract.js:ro
       - ./custom/modules/_admin_overview.js:/app/modules/_admin_overview.js:ro
       - ./custom/modules/_admin_users.js:/app/modules/_admin_users.js:ro
       - ./custom/modules/_contest_temp_accounts.js:/app/modules/_contest_temp_accounts.js:ro
@@ -66,7 +95,6 @@ services:
       - ./custom/modules/_user_avatar.js:/app/modules/_user_avatar.js:ro
       - ./custom/modules/_contest_rating.js:/app/modules/_contest_rating.js:ro
       - ./custom/modules/_user_privilege_loader.js:/app/modules/_user_privilege_loader.js:ro
-      - ./custom/modules/_problem_bulk_import.js:/app/modules/_problem_bulk_import.js:ro
       - ./custom/modules/_help_page.js:/app/modules/_help_page.js:ro
       - ./custom/modules/_contest_registration.js:/app/modules/_contest_registration.js:ro
       - ./custom/modules/_registration_identity.js:/app/modules/_registration_identity.js:ro
@@ -94,16 +122,8 @@ services:
       - ./custom/models-built/user-follow.js:/app/models-built/user-follow.js:ro
       - ./custom/models/user-follow.ts:/app/models/user-follow.ts:ro
       - ./custom/modules/user_follow.js:/app/modules/user_follow.js:ro
-      - ./custom/modules/benben.js:/app/modules/benben.js:ro
-      - ./custom/views/benben_detail.ejs:/app/views/benben_detail.ejs:ro
-      - ./custom/views/benben_feed.ejs:/app/views/benben_feed.ejs:ro
       - ./custom/modules/_user_follow_loader.js:/app/modules/_user_follow_loader.js:ro
       - ./custom/views/user_following.ejs:/app/views/user_following.ejs:ro
-      - ./custom/models-built/benben-post.js:/app/models-built/benben-post.js:ro
-      - ./custom/models-built/benben-image.js:/app/models-built/benben-image.js:ro
-      - ./custom/models/benben-post.ts:/app/models/benben-post.ts:ro
-      - ./custom/models/benben-image.ts:/app/models/benben-image.ts:ro
-      - ./custom/uploads/benben:/app/static/self/benben
       - ./custom/views/notifications.ejs:/app/views/notifications.ejs:ro
       - ./custom/views/admin_banners.ejs:/app/views/admin_banners.ejs:ro
       - ./custom/modules/announcement.js:/app/modules/announcement.js:ro
@@ -118,12 +138,14 @@ services:
       - ./custom/views/messages_conversation.ejs:/app/views/messages_conversation.ejs:ro
       - ./custom/views/messages_new.ejs:/app/views/messages_new.ejs:ro
       - ./custom/views/messages_settings.ejs:/app/views/messages_settings.ejs:ro
+      - ./custom/views/messages_v2_script.ejs:/app/views/messages_v2_script.ejs:ro
       - ./custom/models-built/clipboard-item.js:/app/models-built/clipboard-item.js:ro
       - ./custom/models/clipboard-item.ts:/app/models/clipboard-item.ts:ro
       - ./custom/modules/clipboard.js:/app/modules/clipboard.js:ro
       - ./custom/views/clipboard_list.ejs:/app/views/clipboard_list.ejs:ro
       - ./custom/views/clipboard_view.ejs:/app/views/clipboard_view.ejs:ro
       - ./custom/views/clipboard_edit.ejs:/app/views/clipboard_edit.ejs:ro
+      - ./custom/views/clipboard_v2_script.ejs:/app/views/clipboard_v2_script.ejs:ro
       - ./custom/models-built/problem-solution-setting.js:/app/models-built/problem-solution-setting.js:ro
       - ./custom/models/problem-solution-setting.ts:/app/models/problem-solution-setting.ts:ro
       - ./custom/models-built/email-verification-token.js:/app/models-built/email-verification-token.js:ro
@@ -143,10 +165,12 @@ services:
       - ./custom/tesseract-globals.d.ts:/app/tesseract-globals.d.ts:ro
       - ./custom/modules/_username_renderer.js:/app/modules/_username_renderer.js:ro
       - ./custom/username_tiers.css:/app/static/self/username_tiers.css:ro
-      - ./custom/sidebar.css:/app/static/self/sidebar.css:ro
-      - ./custom/ui-system.css:/app/static/self/ui-system.css:ro
-      - ./custom/sidebar.js:/app/static/self/sidebar.js:ro
-      - ./custom/mobile.css:/app/static/self/mobile.css:ro
+      - ./custom/app-shell.css:/app/static/self/app-shell.css:ro
+      - ./custom/app-shared.css:/app/static/self/app-shared.css:ro
+      - ./custom/app-features.css:/app/static/self/app-features.css:ro
+      - ./custom/app-v2.js:/app/static/self/app-v2.js:ro
+      - ./custom/lucide-1.27.0.min.js:/app/static/self/lucide-1.27.0.min.js:ro
+      - ./custom/modern-editor.js:/app/static/self/modern-editor.js:ro
       - ./custom/views/ranklist.ejs:/app/views/ranklist.ejs:ro
       - ./custom/views/discussion.ejs:/app/views/discussion.ejs:ro
       - ./custom/views/article.ejs:/app/views/article.ejs:ro
@@ -154,7 +178,9 @@ services:
       - ./custom/views/markdown_editor_script.ejs:/app/views/markdown_editor_script.ejs:ro
       - ./custom/views/contest_ranklist.ejs:/app/views/contest_ranklist.ejs:ro
       - ./custom/views/contest.ejs:/app/views/contest.ejs:ro
+      - ./custom/views/contest_details.ejs:/app/views/contest_details.ejs:ro
       - ./custom/views/contest_context.ejs:/app/views/contest_context.ejs:ro
+      - ./custom/views/contest_registration_v2_script.ejs:/app/views/contest_registration_v2_script.ejs:ro
       - ./custom/views/contests.ejs:/app/views/contests.ejs:ro
       - ./custom/views/user.ejs:/app/views/user.ejs:ro
       - ./custom/views/statistics.ejs:/app/views/statistics.ejs:ro
@@ -167,13 +193,12 @@ services:
       - ./custom/models-built/user-hit-setting.js:/app/models-built/user-hit-setting.js:ro
       - ./custom/models/user-hit-setting.ts:/app/models/user-hit-setting.ts:ro
       - ./custom/views/help_hit_value.ejs:/app/views/help_hit_value.ejs:ro
-      - ./custom/views/submissions_item.ejs:/app/views/submissions_item.ejs:ro
       - ./custom/views/submissions.ejs:/app/views/submissions.ejs:ro
       - ./custom/views/status_label.ejs:/app/views/status_label.ejs:ro
       - ./custom/modules/_ranklist.js:/app/modules/_ranklist.js:ro
-      - ./custom/modules/_contest_delete.js:/app/modules/_contest_delete.js:ro
       - ./custom/views/contest_edit.ejs:/app/views/contest_edit.ejs:ro
       - ./custom/views/contest_registrations.ejs:/app/views/contest_registrations.ejs:ro
+      - ./custom/views/contest_participants.ejs:/app/views/contest_participants.ejs:ro
       - ./custom/models-built/judge-state-admin-action.js:/app/models-built/judge-state-admin-action.js:ro
       - ./custom/models/judge-state-admin-action.ts:/app/models/judge-state-admin-action.ts:ro
       - ./custom/modules/_judge_admin_action.js:/app/modules/_judge_admin_action.js:ro
@@ -190,6 +215,7 @@ services:
       - ./custom/views/tickets.ejs:/app/views/tickets.ejs:ro
       - ./custom/views/ticket_new.ejs:/app/views/ticket_new.ejs:ro
       - ./custom/views/ticket.ejs:/app/views/ticket.ejs:ro
+      - ./custom/views/ticket_v2_script.ejs:/app/views/ticket_v2_script.ejs:ro
       - ./custom/models-built/user-tag.js:/app/models-built/user-tag.js:ro
       - ./custom/models/user-tag.ts:/app/models/user-tag.ts:ro
       - ./custom/modules/_user_tag.js:/app/modules/_user_tag.js:ro
@@ -203,12 +229,47 @@ services:
       - ./custom/libs-built/submissions_process.js:/app/libs/submissions_process.js:ro
       - ./custom/libs-built/problem_repositories.js:/app/libs/problem_repositories.js:ro
       - ./custom/libs/site-mail.js:/app/libs/site-mail.js:ro
+      - ./custom/libs/api-v2.js:/app/libs/api-v2.js:ro
+      - ./custom/libs/v2-route-enforcement.js:/app/libs/v2-route-enforcement.js:ro
+      - ./custom/libs/authorization-v2.js:/app/libs/authorization-v2.js:ro
+      - ./custom/libs/announcement-order.js:/app/libs/announcement-order.js:ro
+      - ./custom/libs/authorization-domain.js:/app/libs/authorization-domain.js:ro
+      - ./custom/libs/submission-domain.js:/app/libs/submission-domain.js:ro
+      - ./custom/libs/submission-scheduler.js:/app/libs/submission-scheduler.js:ro
+      - ./custom/libs/submission-storage.js:/app/libs/submission-storage.js:ro
+      - ./custom/libs/judge-status.js:/app/libs/judge-status.js:ro
+      - ./custom/libs/migration-consistency.js:/app/libs/migration-consistency.js:ro
+      - ./custom/libs/migration-release-gate.js:/app/libs/migration-release-gate.js:ro
+      - ./custom/libs/migration-cycle-evidence.js:/app/libs/migration-cycle-evidence.js:ro
+      - ./custom/libs/credential-vault.js:/app/libs/credential-vault.js:ro
+      - ./custom/libs/vjudge-credential-context.js:/app/libs/vjudge-credential-context.js:ro
+      - ./custom/libs/vjudge-job-recovery.js:/app/libs/vjudge-job-recovery.js:ro
+      - ./custom/libs/judge-task-signature.js:/app/libs/judge-task-signature.js:ro
+      - ./custom/libs/compile-cache-key.js:/app/libs/compile-cache-key.js:ro
+      - ./custom/libs/judge-monitor.js:/app/libs/judge-monitor.js:ro
+      - ./custom/libs/problem-domain.js:/app/libs/problem-domain.js:ro
+      - ./custom/libs/problem-bulk-action.js:/app/libs/problem-bulk-action.js:ro
+      - ./custom/libs/testdata-snapshot.js:/app/libs/testdata-snapshot.js:ro
+      - ./custom/libs/testdata-upload.js:/app/libs/testdata-upload.js:ro
+      - ./custom/libs/content-domain.js:/app/libs/content-domain.js:ro
       - ./custom/libs/contest-mutation.js:/app/libs/contest-mutation.js:ro
+      - ./custom/libs/contest-deletion.js:/app/libs/contest-deletion.js:ro
       - ./custom/libs/contest-temp-accounts.js:/app/libs/contest-temp-accounts.js:ro
+      - ./custom/libs/registration-profile-schema.js:/app/libs/registration-profile-schema.js:ro
+      - ./custom/libs/contest-lifecycle.js:/app/libs/contest-lifecycle.js:ro
+      - ./custom/libs/contest-standings.js:/app/libs/contest-standings.js:ro
       - ./custom/libs/rating.js:/app/libs/rating.js:ro
+      - ./custom/libs/rating-projection.js:/app/libs/rating-projection.js:ro
+      - ./custom/libs/rating-recalculation.js:/app/libs/rating-recalculation.js:ro
+      - ./custom/libs/rating-job-lifecycle.js:/app/libs/rating-job-lifecycle.js:ro
+      - ./custom/libs/rating-reversal.js:/app/libs/rating-reversal.js:ro
+      - ./custom/libs/rating-notification.js:/app/libs/rating-notification.js:ro
+      - ./custom/libs/glicko2.js:/app/libs/glicko2.js:ro
       - ./custom/libs/contest-rating.js:/app/libs/contest-rating.js:ro
-      - ./custom/libs/problem-bulk-import.js:/app/libs/problem-bulk-import.js:ro
       - ./custom/libs/vjudge-import-status.js:/app/libs/vjudge-import-status.js:ro
+      - ./custom/libs/vjudge-import-policy.js:/app/libs/vjudge-import-policy.js:ro
+      - ./custom/libs/vjudge-provider-scheduler.js:/app/libs/vjudge-provider-scheduler.js:ro
+      - ./custom/libs/vjudge-remote-submission.js:/app/libs/vjudge-remote-submission.js:ro
       - ./custom/content/default-help.md:/app/default-help.md:ro
       - ./custom/models/problem.ts:/app/models/problem.ts:ro
       - ./custom/models-built/problem.js:/app/models-built/problem.js:ro
@@ -217,12 +278,19 @@ services:
       - ./custom/modules/poj_vjudge.js:/app/modules/poj_vjudge.js:ro
       - ./custom/views/admin_other.ejs:/app/views/admin_other.ejs:ro
       - ./custom/views/admin_header.ejs:/app/views/admin_header.ejs:ro
+      - ./custom/views/admin_footer.ejs:/app/views/admin_footer.ejs:ro
       - ./custom/views/admin_rating.ejs:/app/views/admin_rating.ejs:ro
+      - ./custom/views/admin_config.ejs:/app/views/admin_config.ejs:ro
+      - ./custom/views/admin_links.ejs:/app/views/admin_links.ejs:ro
+      - ./custom/views/admin_raw.ejs:/app/views/admin_raw.ejs:ro
+      - ./custom/views/admin_rejudge.ejs:/app/views/admin_rejudge.ejs:ro
+      - ./custom/views/admin_restart.ejs:/app/views/admin_restart.ejs:ro
       - ./custom/models-built/judge_state.js:/app/models-built/judge_state.js:ro
       - ./custom/modules/_email_verified_cache.js:/app/modules/_email_verified_cache.js:ro
       - ./custom/modules/_contest_cheater_cache.js:/app/modules/_contest_cheater_cache.js:ro
       - ./custom/modules/_problem_bulk_delete.js:/app/modules/_problem_bulk_delete.js:ro
       - ./custom/views/success.ejs:/app/views/success.ejs:ro
+      - ./custom/views/error.ejs:/app/views/error.ejs:ro
       - ./custom/models-built/notification.js:/app/models-built/notification.js:ro
       - ./custom/modules/notification.js:/app/modules/notification.js:ro
       - ./custom/modules/banner.js:/app/modules/banner.js:ro
@@ -238,6 +306,7 @@ services:
       - SYZOJ_SECURE_COOKIES=${SYZOJ_SECURE_COOKIES:-false}
       - SYZOJ_PUBLIC_URL=${SYZOJ_PUBLIC_URL:-}
       - SYZOJ_AUTH_VERIFY_WORKERS=${SYZOJ_AUTH_VERIFY_WORKERS:-16}
+      - SYZOJ_V2_ONLY=${SYZOJ_V2_ONLY:-true}
       - JUDGE_CONTROL_URL=http://judge-control:3000
       - JUDGE_CONTROL_TOKEN_FILE=/run/judge-control/token
       - NODE_PATH=/app/custom-node-modules:/app/node_modules
@@ -252,7 +321,7 @@ services:
       - default
       - judge-control
   judge-control:
-    image: menci/syzoj-web
+    image: menci/syzoj-web@sha256:ee6fa55686af32ec92a2cefe6e1df1022b9e4ebd7f59fbf75a0bf17c7f3ae747
     restart: unless-stopped
     read_only: true
     cap_drop:

@@ -1,187 +1,39 @@
 <%
-this.title = '统计';
-let types = {
-  fastest: problem.type === 'submit-answer' ? null : '最快',
-  slowest: problem.type === 'submit-answer' ? null : '最慢',
-  shortest: problem.type === 'submit-answer' ? '最小' : '最短',
-  longest: problem.type === 'submit-answer' ? '最大' : '最长',
-  earliest: '最早',
-  min: problem.type === 'submit-answer' ? null : '最小内存',
-  max: problem.type === 'submit-answer' ? null : '最大内存'
-};
+this.title = '提交统计';
+const appStatisticLabels = { fastest: problem.type === 'submit-answer' ? null : '最快', slowest: problem.type === 'submit-answer' ? null : '最慢', shortest: problem.type === 'submit-answer' ? '最小' : '最短', longest: problem.type === 'submit-answer' ? '最大' : '最长', earliest: '最早', min: problem.type === 'submit-answer' ? null : '最小内存', max: problem.type === 'submit-answer' ? null : '最大内存' };
+function appJudgeStatusClass(status) { const value = String(status || '').toLowerCase(); if (value === 'accepted') return 'app-status-accepted'; if (value.includes('running') || value === 'judging' || value === 'compiling') return 'app-status-running'; if (value === 'waiting' || value === 'pending') return 'app-status-pending'; if (value.includes('partially')) return 'app-status-partial'; return 'app-status-rejected'; }
 %>
-<% include header %>
-<script src="<%- lib('raphael/2.2.7/raphael.min.js') %>"></script>
-<script src="<%- lib('morris.js/0.5.1/morris.min.js') %>"></script>
-<script>
-function getColorOfScore(score) {
-  var color = [];
-  color[0] = 'red';
-  color[1] = '#ff4b00';
-  color[2] = '#ff6200';
-  color[3] = '#ffa900';
-  color[4] = '#ffd800';
-  color[5] = '#c8ff00';
-  color[6] = '#a5ff00';
-  color[7] = '#52ff00';
-  color[8] = '#41f741';
-  color[9] = '#34d034';
-  color[10] = 'forestgreen';
-  return color[parseInt(score / 10)];
-}
-</script>
-<div class="padding">
-  <h1 style="text-align: center; margin-bottom: 30px; ">
-    满分提交
-    <span class="ui header" style="margin-left: 10px; ">
-      <div class="ui compact menu">
-        <div class="ui simple dropdown item">
-          <%= types[statistics.type] %>
-          <i class="dropdown icon"></i>
-          <div class="menu">
-            <% for (let type in types) { %>
-              <% if (type !== statistics.type && types[type] !== null) { %>
-                <a class="item" href="<%= syzoj.utils.makeUrl(['problem', problem.id, 'statistics', type]) %>"><%= types[type] %></a>
-              <% } %>
-            <% } %>
-          </div>
-        </div>
-      </div>
-    </span>
-  </h1>
-  <table class="ui very basic center aligned table" style="white-space: nowrap; ">
-    <thead>
-      <tr>
-          <th>编号</th>
-          <th>题目</th>
-          <th>状态</th>
-          <th>分数</th>
-          <% if (problem.type !== 'submit-answer') { %>
-            <th>总时间</th>
-            <th>内存</th>
-            <th>代码</th>
-          <% } else { %>
-            <th>答案文件</th>
-          <% } %>
-          <th>提交者</th>
-          <th>提交时间</th>
-      </tr>
-    </thead>
-    <tbody>
-      <% for (let judge of statistics.judge_state) { %>
-          <% include util %>
-          <tr>
-              <td><a href="<%= syzoj.utils.makeUrl(['submission', judge.id]) %>"><b>#<%= judge.id %></b></a></td>
-              <td><a href="<%= syzoj.utils.makeUrl(['problem', judge.problem_id]) %>"><b><%= judge.problem.getDisplayId() %>.</b> <%= judge.problem.title %></a></td>
-              <td><a href="<%= syzoj.utils.makeUrl(['submission', judge.id]) %>">
-                  <b>
-                  <span class="status <%= getStatusMeta(judge.status).toLowerCase().split(' ').join('_') %>">
-                  <i class="<%= icon[getStatusMeta(judge.status)] || 'remove' %> icon"></i>
-                  <%= judge.status %>
-                  </span>
-                  </b>
-              </a></td>
-              <td><a href="<%= syzoj.utils.makeUrl(['submission', judge.id]) %>"><span class="score score_<%= parseInt(judge.score / 10) || 0 %>"><%= judge.score %></span></a></td>
-              <% if (problem.type !== 'submit-answer') { %>
-                <td><%= judge.total_time %> ms</td>
-                <td><%= parseInt(judge.max_memory) || 0 %> K</td>
-                <td><a href="<%= syzoj.utils.makeUrl(['submission', judge.id]) %>"><b><%= (judge.problem.getVJudgeLanguages() || syzoj.languages)[judge.language].show %></b></a> / <%= syzoj.utils.formatSize(judge.code.length) %></td>
-              <% } else { %>
-                <td><%= syzoj.utils.formatSize(judge.max_memory) %></td>
-              <% } %>
-              <td><%- syzoj.utils.renderUsername(judge.user) %></td>
-              <td><%= syzoj.utils.formatDate(judge.submit_time) %></td>
-          </tr>
-      <% } %>
-    </tbody>
-  </table>
-  <br>
-  <% include page %>
-  <br>
-  <h1 style="text-align: center; ">
-    得分分布
-  </h1>
-  <div id="score-distribution-chart" style="height: 250px;"></div>
-  <script type="text/javascript">
-  new Morris.Bar({
-  	element: 'score-distribution-chart',
-  	data: <%- serializejs(statistics.scoreDistribution) %>,
-  	barColors: function(r, s, type) {
-  		return getColorOfScore(r.label);
-  	},
-  	xkey: 'score',
-  	ykeys: ['count'],
-  	labels: ['number'],
-  	hoverCallback: function(index, options, content, row) {
-  		var scr = row.score;
-  		return '<div class="morris-hover-row-label">分数：' + scr + '</div><div class="morris-hover-point">数量：' + row.count + '</div>';
-  	},
-  	resize: true
-  });
-  </script>
-  <h1 style="text-align: center; ">
-    前缀和
-  </h1>
-  <div id="score-distribution-chart-pre" style="height: 250px;"></div>
-  <script type="text/javascript">
-  <%
-  for (let i in statistics.prefixSum) {
-    statistics.prefixSum[i].score *= 100;
-  }
-  %>
-  new Morris.Line({
-  	element: 'score-distribution-chart-pre',
-    data: <%- serializejs(statistics.prefixSum) %>,
-  	xkey: 'score',
-  	ykeys: ['count'],
-  	labels: ['number'],
-  	lineColors: function(row, sidx, type) {
-  		if (type == 'line') {
-  			return '#0b62a4';
-  		}
-  		return getColorOfScore(row.src.score / 100);
-  	},
-  	xLabelFormat: function(x) {
-  		return (x.getTime() / 100).toString();
-  	},
-  	hoverCallback: function(index, options, content, row) {
-  		var scr = row.score / 100;
-      return '<div class="morris-hover-row-label">分数：≤ ' + scr + '</div><div class="morris-hover-point">数量：' + row.count + '</div>';
-  	},
-  	resize: true
-  });
-  </script>
-  <h1 style="text-align: center; ">
-    后缀和
-  </h1>
-  <div id="score-distribution-chart-suf" style="height: 250px;"></div>
-  <script type="text/javascript">
-  <%
-  for (let i in statistics.suffixSum) {
-    statistics.suffixSum[i].score *= 100;
-  }
-  %>
-  new Morris.Line({
-  	element: 'score-distribution-chart-suf',
-    data: <%- serializejs(statistics.suffixSum) %>,
-  	xkey: 'score',
-  	ykeys: ['count'],
-  	labels: ['number'],
-  	lineColors: function(row, sidx, type) {
-  		if (type == 'line') {
-  			return '#0b62a4';
-  		}
-  		return getColorOfScore(row.src.score / 100);
-  	},
-  	xLabelFormat: function(x) {
-  		return (x.getTime() / 100).toString();
-  	},
-  	hoverCallback: function(index, options, content, row) {
-  		var scr = row.score / 100;
-      return '<div class="morris-hover-row-label">分数：≥ ' + scr + '</div><div class="morris-hover-point">数量：' + row.count + '</div>';
-  	},
-  	resize: true
-  });
-  </script>
+<% include app_header %>
+<% include problem_context %>
+
+<div class="app-page app-statistics-page">
+  <section class="app-section"><div class="app-section-header"><div><h2 class="app-section-title">满分提交</h2><p class="app-section-description">当前按“<%= appStatisticLabels[statistics.type] %>”排序</p></div><details class="app-menu"><summary><span><%= appStatisticLabels[statistics.type] %></span><i data-lucide="chevron-down"></i></summary><div><% for (const type in appStatisticLabels) { if (appStatisticLabels[type] === null || type === statistics.type) continue; %><a href="<%= syzoj.utils.makeUrl(['problem', problem.id, 'statistics', type]) %>"><%= appStatisticLabels[type] %></a><% } %></div></details></div>
+    <% if (statistics.judge_state.length) { %><div class="app-table-region"><table class="app-table app-statistics-table"><thead><tr><th>编号</th><th>题目</th><th>状态</th><th>分数</th><% if (problem.type !== 'submit-answer') { %><th>用时</th><th>内存</th><th>代码</th><% } else { %><th>答案文件</th><% } %><th>提交者</th><th>提交时间</th></tr></thead><tbody><% for (const judge of statistics.judge_state) { const languages = judge.problem.getVJudgeLanguages() || syzoj.languages; const language = languages[judge.language]; %><tr><td class="app-cell-number"><a href="<%= syzoj.utils.makeUrl(['submission', judge.id]) %>">#<%= judge.id %></a></td><td class="app-cell-primary"><a href="<%= syzoj.utils.makeUrl(['problem', judge.problem_id]) %>"><%= judge.problem.getDisplayId() %>. <%= judge.problem.title %></a></td><td><a href="<%= syzoj.utils.makeUrl(['submission', judge.id]) %>"><span class="app-status <%= appJudgeStatusClass(judge.status) %>"><%= judge.status %></span></a></td><td><strong class="app-score-value"><%= judge.score %></strong></td><% if (problem.type !== 'submit-answer') { %><td class="app-cell-number"><%= judge.total_time %> ms</td><td class="app-cell-number"><%= parseInt(judge.max_memory) || 0 %> K</td><td><a href="<%= syzoj.utils.makeUrl(['submission', judge.id]) %>"><%= language ? language.show : judge.language %></a><small class="app-code-size"><%= syzoj.utils.formatSize(judge.code.length) %></small></td><% } else { %><td><%= syzoj.utils.formatSize(judge.max_memory) %></td><% } %><td><%- syzoj.utils.renderUsername(judge.user) %></td><td class="app-cell-number"><%= syzoj.utils.formatDate(judge.submit_time) %></td></tr><% } %></tbody></table></div><% include app_pagination %><% } else { %><div class="app-empty app-empty-compact"><div class="app-empty-inner"><i data-lucide="chart-no-axes-column"></i><strong>暂无满分提交</strong><p>符合当前排序条件的记录会显示在这里。</p></div></div><% } %>
+  </section>
+
+  <section class="app-section"><div class="app-section-header"><div><h2 class="app-section-title">得分分布</h2><p class="app-section-description">各分数段的提交数量</p></div></div><div class="app-chart-shell"><canvas id="score-distribution-chart" role="img" aria-label="得分分布柱状图"></canvas><div class="app-chart-tooltip" hidden></div></div></section>
+  <div class="app-chart-grid"><section class="app-section"><div class="app-section-header"><div><h2 class="app-section-title">累计至该分数</h2><p class="app-section-description">分数不高于横轴值的提交数量</p></div></div><div class="app-chart-shell"><canvas id="score-prefix-chart" role="img" aria-label="分数前缀累计折线图"></canvas><div class="app-chart-tooltip" hidden></div></div></section><section class="app-section"><div class="app-section-header"><div><h2 class="app-section-title">从该分数累计</h2><p class="app-section-description">分数不低于横轴值的提交数量</p></div></div><div class="app-chart-shell"><canvas id="score-suffix-chart" role="img" aria-label="分数后缀累计折线图"></canvas><div class="app-chart-tooltip" hidden></div></div></section></div>
 </div>
-<% include footer %>
+
+<script>
+(function () {
+  var charts = [
+    { id: 'score-distribution-chart', type: 'bar', data: <%- serializejs(statistics.scoreDistribution) %>, relation: '' },
+    { id: 'score-prefix-chart', type: 'line', data: <%- serializejs(statistics.prefixSum) %>, relation: '≤ ' },
+    { id: 'score-suffix-chart', type: 'line', data: <%- serializejs(statistics.suffixSum) %>, relation: '≥ ' }
+  ];
+  function palette() { var style = getComputedStyle(document.documentElement); return { text: style.getPropertyValue('--app-text-secondary').trim() || '#636b78', line: style.getPropertyValue('--app-line').trim() || '#e4e7eb', accent: style.getPropertyValue('--app-accent').trim() || '#2563eb', surface: style.getPropertyValue('--app-surface').trim() || '#fff' }; }
+  function points(data) { return (data || []).map(function (item) { return { score: Number(item.score) > 100 && Number(item.score) % 100 === 0 ? Number(item.score) / 100 : Number(item.score), count: Number(item.count) || 0 }; }).sort(function (a, b) { return a.score - b.score; }); }
+  function draw(chart) {
+    var canvas = document.getElementById(chart.id); if (!canvas) return; var shell = canvas.parentElement; var tooltip = shell.querySelector('.app-chart-tooltip'); var data = points(chart.data); var ratio = Math.min(window.devicePixelRatio || 1, 2); var width = Math.max(320, shell.clientWidth); var height = 270; canvas.width = width * ratio; canvas.height = height * ratio; canvas.style.width = width + 'px'; canvas.style.height = height + 'px'; var ctx = canvas.getContext('2d'); ctx.scale(ratio, ratio); var colors = palette(); var margin = { top: 18, right: 16, bottom: 34, left: 42 }; var innerWidth = width - margin.left - margin.right; var innerHeight = height - margin.top - margin.bottom; var maxCount = Math.max.apply(null, data.map(function (item) { return item.count; }).concat([1])); var maxScore = Math.max.apply(null, data.map(function (item) { return item.score; }).concat([100]));
+    ctx.font = '11px system-ui, sans-serif'; ctx.lineWidth = 1; ctx.strokeStyle = colors.line; ctx.fillStyle = colors.text; ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; for (var step = 0; step <= 4; step++) { var y = margin.top + innerHeight * step / 4; var value = Math.round(maxCount * (4 - step) / 4); ctx.beginPath(); ctx.moveTo(margin.left, y); ctx.lineTo(width - margin.right, y); ctx.stroke(); ctx.fillText(String(value), margin.left - 8, y); }
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top'; [0, 25, 50, 75, 100].forEach(function (value) { var x = margin.left + innerWidth * value / Math.max(maxScore, 100); ctx.fillText(String(value), x, height - margin.bottom + 9); }); var drawn = [];
+    if (!data.length) { ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('暂无数据', margin.left + innerWidth / 2, margin.top + innerHeight / 2); return; }
+    if (chart.type === 'bar') { var slot = innerWidth / Math.max(data.length, 1); var barWidth = Math.max(3, Math.min(24, slot * 0.62)); ctx.fillStyle = colors.accent; data.forEach(function (item, index) { var x = margin.left + innerWidth * item.score / maxScore; var barHeight = innerHeight * item.count / maxCount; ctx.globalAlpha = 0.82; ctx.fillRect(x - barWidth / 2, margin.top + innerHeight - barHeight, barWidth, barHeight); drawn.push({ x: x, y: margin.top + innerHeight - barHeight, item: item }); }); ctx.globalAlpha = 1; } else { ctx.strokeStyle = colors.accent; ctx.lineWidth = 2; ctx.beginPath(); data.forEach(function (item, index) { var x = margin.left + innerWidth * item.score / maxScore; var y = margin.top + innerHeight - innerHeight * item.count / maxCount; if (index) ctx.lineTo(x, y); else ctx.moveTo(x, y); drawn.push({ x: x, y: y, item: item }); }); ctx.stroke(); ctx.fillStyle = colors.surface; ctx.strokeStyle = colors.accent; drawn.forEach(function (point) { ctx.beginPath(); ctx.arc(point.x, point.y, 3, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }); }
+    canvas.onpointermove = function (event) { var rect = canvas.getBoundingClientRect(); var x = event.clientX - rect.left; var nearest = drawn.reduce(function (best, point) { return !best || Math.abs(point.x - x) < Math.abs(best.x - x) ? point : best; }, null); if (!nearest || Math.abs(nearest.x - x) > 28) { tooltip.hidden = true; return; } tooltip.textContent = '分数 ' + chart.relation + nearest.item.score + ' · ' + nearest.item.count + ' 次'; tooltip.style.left = Math.min(width - 132, Math.max(8, nearest.x - 54)) + 'px'; tooltip.style.top = Math.max(6, nearest.y - 38) + 'px'; tooltip.hidden = false; }; canvas.onpointerleave = function () { tooltip.hidden = true; };
+  }
+  function drawAll() { charts.forEach(draw); } var timer; window.addEventListener('resize', function () { clearTimeout(timer); timer = setTimeout(drawAll, 100); }); new MutationObserver(drawAll).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] }); drawAll();
+})();
+</script>
+
+<% include app_footer %>

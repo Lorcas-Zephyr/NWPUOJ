@@ -185,24 +185,6 @@ function contestSubmissionEnabled(problem) {
 syzoj.utils.contestSubmissionEnabled = contestSubmissionEnabled;
 
 const recentVjudgeSubmissions = new Map();
-app.post('/problem/:id/submit', async (req, res, next) => {
-  try {
-    if (!res.locals.user || !/^[1-9]\d*$/.test(req.params.id)) return next();
-    const problem = await Problem.findById(Number(req.params.id));
-    if (!problem || !['vjudge:uoj', 'vjudge:hdu', 'vjudge:poj'].includes(problem.type)) return next();
-    const key = `${problem.type}:${res.locals.user.id}`;
-    const previous = recentVjudgeSubmissions.get(key) || 0;
-    if (Date.now() - previous < 5000) {
-      return res.status(429).render('error', {
-        err: new ErrorMessage('远程题库提交过于频繁，请稍后重试。')
-      });
-    }
-    recentVjudgeSubmissions.set(key, Date.now());
-    next();
-  } catch (error) {
-    next(error);
-  }
-});
 
 app.get('/problem/:id', async (req, res, next) => {
   try {
@@ -234,33 +216,6 @@ app.get('/problems/search', async (req, res, next) => {
   }
 });
 
-app.post('/problem/:id/submit', async (req, res, next) => {
-  try {
-    if (!req.query.contest_id) return next();
-    let contestId = Number(req.query.contest_id);
-    let contest = Number.isSafeInteger(contestId) && contestId > 0 ? await Contest.findById(contestId) : null;
-    if (!contest) throw new ErrorMessage('无此比赛。');
-    if (!syzoj.utils.canParticipateInContest || !await syzoj.utils.canParticipateInContest(contest, res.locals.user)) {
-      return res.status(403).render('error', {
-        err: new ErrorMessage(contest.isRunning() ? '请先报名后参加比赛。' : '比赛未开始或已结束。')
-      });
-    }
-    let problem = await Problem.findById(parseInt(req.params.id));
-    if (problem && problem.type === 'vjudge:uoj' && process.env.SYZOJ_WEB_UOJ_ALLOW_CONTESTS !== 'true') {
-      throw new ErrorMessage('UOJ VJudge 默认禁止用于比赛，以免参赛代码在上游公开。');
-    }
-    if (problem && problem.type === 'vjudge:hdu' && process.env.SYZOJ_WEB_HDU_ALLOW_CONTESTS !== 'true') {
-      throw new ErrorMessage('HDU VJudge 默认禁止用于比赛；确认上游账号和代码可见性策略后才可启用。');
-    }
-    if (problem && problem.type === 'vjudge:poj' && process.env.SYZOJ_WEB_POJ_ALLOW_CONTESTS !== 'true') {
-      throw new ErrorMessage('POJ VJudge 默认禁止用于比赛；确认上游账号和代码可见性策略后才可启用。');
-    }
-    next();
-  } catch (e) {
-    syzoj.log(e);
-    res.render('error', { err: e });
-  }
-});
 
 app.get('/problem/:id/submissions', (req, res, next) => {
   let problemId = parseInt(req.params.id);
@@ -353,11 +308,26 @@ app.use(async (req, res, next) => {
     syzoj.log('[site-owner] ' + (e.message || e));
   }
 
+  res.locals.appCapabilities = [];
+  res.locals.appHasCapability = function () { return false; };
+  res.locals.appCanAccessAdmin = false;
+  res.locals.appAdminHome = '/admin/info';
+  if (res.locals.user && syzoj.utils.authorizationV2) {
+    try {
+      const capabilities = await syzoj.utils.authorizationV2.effectiveCapabilities(res.locals.user, 'global');
+      const hasCapability = capability => capabilities.some(granted => syzoj.utils.authorizationV2.capabilityMatches(granted, capability));
+      const adminHome = syzoj.utils.authorizationV2.firstAdminWorkspace(capabilities);
+      res.locals.appCapabilities = capabilities;
+      res.locals.appHasCapability = hasCapability;
+      res.locals.appCanAccessAdmin = !!adminHome;
+      res.locals.appAdminHome = adminHome || '/admin/info';
+    } catch (e) {
+      syzoj.log('[authorization-v2] failed to build UI capability context: ' + (e.message || e));
+    }
+  }
+
   res.locals.adminCsrfToken = null;
-  if (res.locals.user && (
-    res.locals.user.is_admin ||
-    (res.locals.user.privileges && res.locals.user.privileges.includes('manage_contest'))
-  )) {
+  if (res.locals.user && res.locals.appCanAccessAdmin) {
     if (!req.session.adminCsrfToken) {
       req.session.adminCsrfToken = crypto.randomBytes(32).toString('hex');
     }
@@ -456,7 +426,7 @@ app.use(async (req, res, next) => {
   try {
     res.locals.contestHeader = null;
     let contestRoute = !res.locals.problemContextRequest && req.method === 'GET' &&
-      req.path.match(/^\/contest\/(\d+)(?:\/(ranklist|submissions))?\/?$/);
+      req.path.match(/^\/contest\/(\d+)(?:\/(details|ranklist|submissions|participants|registrations))?\/?$/);
     let contestProblemRoute = req.method === 'GET' &&
       req.path.match(/^\/contest\/(\d+)\/problem\/\d+\/?$/);
     let contestId = res.locals.contestHeaderRequest
@@ -577,36 +547,6 @@ app.get('/user/:id/edit', async (req, res, next) => {
   }
 });
 
-app.post('/user/:id/edit', async (req, res, next) => {
-  try {
-    const owner = await ensureSiteOwner();
-    const nativeTargetId = parseInt(req.params.id);
-    const targetId = Number(req.params.id);
-    if (owner && nativeTargetId === owner.id && !await isSiteOwner(res.locals.user)) {
-      throw new ErrorMessage('只有站长本人可以修改站长账户。');
-    }
-    if (owner && targetId === owner.id && req.body.username !== owner.username) {
-      throw new ErrorMessage('站长账户用户名不能修改。');
-    }
-    if (req.body.site_admin_control !== '1') return next();
-    if (!await isSiteOwner(res.locals.user)) throw new ErrorMessage('只有站长可以设置全站管理员权限。');
-    if (!Number.isSafeInteger(targetId) || targetId <= 0) throw new ErrorMessage('用户 ID 不正确。');
-    if (owner && targetId === owner.id) throw new ErrorMessage('站长的全站管理员权限不能撤销。');
-
-    const expectedToken = req.session && req.session.adminCsrfToken;
-    const actualToken = req.body && req.body.csrf_token;
-    if (typeof expectedToken !== 'string' || typeof actualToken !== 'string' || expectedToken.length !== actualToken.length ||
-      !crypto.timingSafeEqual(Buffer.from(expectedToken), Buffer.from(actualToken))) {
-      throw new ErrorMessage('页面已失效，请刷新后重试。');
-    }
-
-    res.locals.requestedSiteAdmin = req.body.is_admin === 'on';
-    next();
-  } catch (e) {
-    syzoj.log(e);
-    res.status(403).render('error', { err: e });
-  }
-});
 
 app.use(async (req, res, next) => {
   try {

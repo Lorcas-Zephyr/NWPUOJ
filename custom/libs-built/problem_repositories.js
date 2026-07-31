@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const TypeORM = require('typeorm');
 
 const REPOSITORIES = {
   all: null,
@@ -52,14 +53,23 @@ function applyProgress(query, progress, user) {
 }
 
 async function applyVisibility(query, user) {
-  if (user && await user.hasPrivilege('manage_problem')) return;
-  if (user) {
+  query.andWhere(`NOT EXISTS (
+    SELECT 1 FROM problem_v2_state archived_problem
+    WHERE archived_problem.problem_id = \`${String(query.alias || 'problem').replace(/`/g, '')}\`.id
+      AND archived_problem.lifecycle_status = 'archived'
+  )`);
+  const authorization = syzoj.utils.authorizationV2;
+  const canReadAll = !!(user && await authorization.authorize(user, 'problem:read', null, { scope: 'global' }));
+  if (user && !canReadAll) {
+    const scopedProblemIds = await authorization.authorizedScopeIds(user, 'problem', 'problem:read');
     query.andWhere(new TypeORM.Brackets(qb => {
       qb.where('is_public = 1').orWhere('user_id = :viewerId', { viewerId: user.id });
+      if (scopedProblemIds.length) qb.orWhere('id IN (:...scopedProblemIds)', { scopedProblemIds });
     }));
-  } else {
+  } else if (!user) {
     query.andWhere('is_public = 1');
   }
+  if (canReadAll) return;
   const alias = '`' + String(query.alias || 'problem').replace(/`/g, '') + '`';
   query.andWhere(`NOT EXISTS (
     SELECT 1 FROM contest active_contest
@@ -77,7 +87,11 @@ function orderExpression(sort, repository) {
 
 async function hydrateProblems(problems, user) {
   for (const problem of problems) {
-    problem.allowedEdit = await problem.isAllowedEditBy(user);
+    problem.allowedEdit = !!(user && await syzoj.utils.authorizationV2.authorize(user, 'problem:edit', {
+      id: problem.id,
+      ownerId: problem.user_id,
+      scope: `problem:${problem.id}`
+    }, { scope: `problem:${problem.id}` }));
     problem.judge_state = await problem.getJudgeState(user, true);
     problem.tags = await problem.getTags();
   }
@@ -177,6 +191,10 @@ async function renderProblems(req, res, query, repository, sortConfig, extra, pr
   const problems = await Problem.queryPage(paginate, query);
   await hydrateProblems(problems, res.locals.user);
   const allProblemTags = await syzoj.model('problem_tag').find({});
+  if (syzoj.utils.problemWorkflowV2) await syzoj.utils.problemWorkflowV2.ensureSchema();
+  const categoryRows = await TypeORM.getConnection().query('SELECT id,category FROM problem_tag');
+  const categories = new Map(categoryRows.map(row => [Number(row.id), row.category]));
+  allProblemTags.forEach(tag => { tag.category = categories.get(Number(tag.id)) || null; });
   allProblemTags.sort((left, right) => {
     const colorOrder = ['pink', 'teal', '', 'olive', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'black'];
     const leftColor = colorOrder.indexOf(left.color || '');
@@ -185,8 +203,14 @@ async function renderProblems(req, res, query, repository, sortConfig, extra, pr
     return String(left.name || '').localeCompare(String(right.name || ''), 'zh-CN');
   });
 
+  const authorization = syzoj.utils.authorizationV2;
+  const [allowedCreateProblem, allowedManageTag, canBulkArchive] = res.locals.user ? await Promise.all([
+    authorization.authorize(res.locals.user, 'problem:create', null, { scope: 'global' }),
+    authorization.authorize(res.locals.user, 'problem:tag.manage', null, { scope: 'global' }),
+    authorization.authorize(res.locals.user, 'problem:archive', null, { scope: 'global' })
+  ]) : [false, false, false];
   let bulkDeleteCsrfToken = null;
-  if (res.locals.user && res.locals.user.is_admin) {
+  if (canBulkArchive) {
     if (!req.session.problemBulkDeleteCsrfToken) {
       req.session.problemBulkDeleteCsrfToken = crypto.randomBytes(32).toString('hex');
     }
@@ -194,7 +218,9 @@ async function renderProblems(req, res, query, repository, sortConfig, extra, pr
   }
 
   res.render('problems', Object.assign({
-    allowedManageTag: res.locals.user && await res.locals.user.hasPrivilege('manage_problem_tag'),
+    allowedCreateProblem,
+    allowedManageTag,
+    canBulkArchive,
     problems: problems,
     paginate: paginate,
     curSort: sortConfig.sort,

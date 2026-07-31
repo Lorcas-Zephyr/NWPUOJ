@@ -1,0 +1,34 @@
+<% this.title = tag.id ? '编辑标签' : '新建标签'; this.active = 'problems'; const appTagTypes = [['source','题目来源'],['category','算法大类'],['algorithm','算法细目'],['problem_type','题目类型'],['difficulty','难度']]; const appTagCategory = tag.category || 'algorithm'; %>
+<% include app_header %>
+<main class="app-page app-compact-page"><header class="app-page-header"><div class="app-page-heading"><a class="app-back-link" href="<%= syzoj.utils.makeUrl(['problems']) %>"><i data-lucide="arrow-left"></i>返回题库</a><span class="app-kicker">PROBLEM TAG</span><h1 class="app-page-title"><%= tag.id ? '编辑标签' : '新建标签' %></h1><p class="app-page-description">选择标签类型，系统会自动使用统一颜色。</p></div></header>
+<form class="app-form" method="post" data-tag-editor-v2 data-tag-id="<%= tag.id || 0 %>"><div class="app-form-grid"><label class="app-field"><span class="app-label">标签名称</span><input class="app-input" type="text" name="name" value="<%= tag.name || '' %>" required maxlength="50"></label><label class="app-field"><span class="app-label">标签类型</span><select class="app-select" name="category" required><% for (const type of appTagTypes) { %><option value="<%= type[0] %>"<%= appTagCategory === type[0] ? ' selected' : '' %>><%= type[1] %></option><% } %></select><span class="app-help">颜色由标签类型自动确定。</span></label></div><div class="app-form-actions"><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['problems']) %>">取消</a><button class="app-button app-button-primary" type="submit"><i data-lucide="save"></i>保存标签</button></div></form></main>
+<script>
+(function () {
+  var form = document.querySelector('[data-tag-editor-v2]');
+  if (!form) return;
+  form.addEventListener('submit', async function (event) {
+    event.preventDefault();
+    var button = form.querySelector('button[type="submit"]');
+    if (button) button.disabled = true;
+    try {
+      var id = Number(form.dataset.tagId || 0);
+      var url = id ? '/api/v2/tags/' + encodeURIComponent(id) : '/api/v2/tags';
+      var headers = { 'Content-Type': 'application/json' };
+      if (id) {
+        var current = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
+        if (!current.ok) throw new Error('标签读取失败。');
+        headers['If-Match'] = current.headers.get('ETag') || '';
+      }
+      var response = await fetch(url, { method: id ? 'PUT' : 'POST', credentials: 'same-origin', headers: headers, body: JSON.stringify({ name: form.elements.name.value, category: form.elements.category.value }) });
+      var payload = await response.json();
+      if (!response.ok) throw new Error(payload && payload.error && payload.error.message || '标签保存失败。');
+      var saved = payload && payload.data;
+      window.location.assign('/problems/tag/' + encodeURIComponent(id || saved.id));
+    } catch (error) {
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '标签保存失败。', 'danger');
+      if (button) button.disabled = false;
+    }
+  });
+})();
+</script>
+<% include app_footer %>

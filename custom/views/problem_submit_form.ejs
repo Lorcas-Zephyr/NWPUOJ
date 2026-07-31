@@ -1,172 +1,202 @@
 <%
-const formUrl = syzoj.utils.makeUrl(['problem', problem.id, 'submit'], {
-  contest_id: contest ? contest.id : undefined
-});
+const formUrl = syzoj.utils.makeUrl(['problem', problem.id, 'submit'], { contest_id: contest ? contest.id : undefined });
+const apiSubmitEndpoint = contest
+  ? '/api/v2/contests/' + contest.id + '/problems/' + problem.id + (problem.type === 'submit-answer' ? '/submit-answer' : '/submissions')
+  : (String(problem.type || '').startsWith('vjudge:')
+    ? '/api/v2/vjudge/problems/' + problem.id + '/submissions'
+    : '/api/v2/problems/' + problem.id + (problem.type === 'submit-answer' ? '/submit-answer' : '/submissions'));
+const submitIcons = {
+  alert: '<svg class="app-static-icon app-static-icon-circle-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"></circle><line x1="12" x2="12" y1="8" y2="12"></line><line x1="12" x2="12.01" y1="16" y2="16"></line></svg>',
+  archive: '<svg class="app-static-icon app-static-icon-file-archive" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M13.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v11.5"></path><path d="M14 2v5a1 1 0 0 0 1 1h5"></path><path d="M8 12v-1"></path><path d="M8 18v-2"></path><path d="M8 7V6"></path><circle cx="8" cy="20" r="2"></circle></svg>',
+  upload: '<svg class="app-static-icon app-static-icon-file-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"></path><path d="M14 2v5a1 1 0 0 0 1 1h5"></path><path d="M12 12v6"></path><path d="m15 15-3-3-3 3"></path></svg>',
+  code: '<svg class="app-static-icon app-static-icon-code-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m18 16 4-4-4-4"></path><path d="m6 8-4 4 4 4"></path><path d="m14.5 4-5 16"></path></svg>',
+  fileCode: '<svg class="app-static-icon app-static-icon-file-code-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v6h6"></path><path d="m10 13-2 2 2 2"></path><path d="m14 17 2-2-2-2"></path></svg>',
+  send: '<svg class="app-static-icon app-static-icon-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"></path><path d="m21.854 2.147-10.94 10.939"></path></svg>',
+  loading: '<svg class="app-static-icon app-static-icon-loader-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>'
+};
 %>
-<form action="<%= formUrl %>" method="post" onsubmit="return submit_code()" id="submit_code" enctype="multipart/form-data">
-  <div class="ui error message" id="submit-error" role="alert" aria-live="polite" hidden></div>
+<form id="submit_code" class="app-submit-form" enctype="multipart/form-data" data-submission-create-v2 data-submit-endpoint="<%= apiSubmitEndpoint %>" data-submit-answer="<%= problem.type === 'submit-answer' ? 'true' : 'false' %>">
+  <div class="app-notice app-notice-danger" id="submit-error" role="alert" aria-live="polite" hidden><%- submitIcons.alert %><span data-submit-error-text></span></div>
   <% if (problem.type === 'submit-answer') { %>
     <%
     let cases = [];
-    if (testcases && !testcases.error) {
-      for (let subtasks of testcases) {
-        for (let testcase of subtasks.cases) cases.push(testcase.answer);
-      }
-    }
+    if (testcases && !testcases.error) for (const subtasks of testcases) for (const testcase of subtasks.cases) cases.push(testcase.answer);
     %>
+    <div class="app-submit-workspace app-submit-answer-workspace">
+      <aside class="app-submit-languages" aria-label="答案文件">
+        <div class="app-submit-languages-head"><span>答案文件</span><strong><%= cases.length %></strong></div>
+        <div class="app-submit-language-list" data-case-list>
+          <% for (let caseIndex = 0; caseIndex < cases.length; caseIndex++) { %><button type="button" class="app-submit-language<%= caseIndex === 0 ? ' is-active' : '' %>" data-case-index="<%= caseIndex %>" aria-pressed="<%= caseIndex === 0 ? 'true' : 'false' %>"><%- submitIcons.fileCode %><span><%= cases[caseIndex] %></span></button><% } %>
+        </div>
+      </aside>
+      <div class="app-submit-editor-stack">
+        <% for (let caseIndex = 0; caseIndex < cases.length; caseIndex++) { %><div id="editor-<%= caseIndex %>" class="app-submit-editor<%= caseIndex === 0 ? ' is-active' : '' %>" data-case-editor="<%= caseIndex %>" role="region" aria-label="答案代码编辑器 <%= caseIndex + 1 %>" aria-busy="true"><span class="app-editor-loading" role="status" aria-live="polite">编辑器加载中…</span></div><% } %>
+      </div>
+    </div>
+    <input id="answer_by_editor" name="answer_by_editor" type="hidden">
+    <div class="app-submit-bottom">
+      <label class="app-file-field"><input type="file" id="answer" name="answer" accept=".zip,application/zip"><span><%- submitIcons.archive %><strong>上传答案压缩包</strong><small>可选，使用 ZIP 格式</small></span></label>
+      <button type="submit" class="app-button app-button-primary" data-submit-button><%- submitIcons.send %>提交答案</button>
+    </div>
     <script>
-    var cases = <%- serializejs(cases) %>, currCase = 0;
-    </script>
-    <div class="ui grid">
-      <% if (testcases) { %>
-        <div class="four wide column" style="margin-right: -25px;">
-          <div class="ui attached vertical fluid pointing menu" id="testcase-menu" style="height: 370px; overflow-y: scroll; overflow-x: hidden;">
-            <% for (let i = 0; i < cases.length; i++) { %>
-              <a style="border-radius: 0;" class="item<%= i === 0 ? ' active' : '' %>" data-value="<%= i %>"><%= cases[i] %></a>
-            <% } %>
-          </div>
-        </div>
-        <div class="twelve wide stretched column" style="position: relative; padding-left: 0; margin-left: calc(-1rem - 1px); width: calc(75% + 1rem + 13px) !important;">
-          <% for (let i = 0; i < cases.length; i++) { %>
-            <div id="editor-<%= i %>" class="editor" style="position: absolute; width: 100%; height: calc(100% - 28px); border: 1px solid #D4D4D5; overflow: hidden; <%= i === 0 ? '' : 'visibility: hidden;' %>" contenteditable>
-              <%- this.showLoadingEditor() %>
-            </div>
-          <% } %>
-        </div>
-      <% } %>
-      <input id="answer_by_editor" name="answer_by_editor" type="hidden">
-      <script>
-      window.onEditorLoaded(function () {
-        window.editors = [];
-        for (var i = 0; i < cases.length; i++) {
-          editors[i] = window.createCodeEditor(document.getElementById('editor-' + i));
-        }
-        $(function () {
-          $('#testcase-menu .item').click(function () {
-            $(this).addClass('active').closest('.ui.menu').find('.item').not($(this)).removeClass('active');
-            var nextCase = $(this).attr('data-value');
-            if (currCase != nextCase) {
-              $('#editor-' + currCase).css('visibility', 'hidden');
-              $('#editor-' + nextCase).css('visibility', 'visible');
-              currCase = nextCase;
-            }
-          });
-        });
+    var answerCases = <%- serializejs(cases) %>;
+    var answerEditors = [];
+    var currentAnswerCase = 0;
+    window.onEditorLoaded(function () {
+      answerCases.forEach(function (_, index) { var editorElement = document.getElementById('editor-' + index); answerEditors[index] = window.createCodeEditor(editorElement); editorElement.setAttribute('aria-busy', 'false'); });
+    });
+    document.querySelector('[data-case-list]').addEventListener('click', function (event) {
+      var button = event.target.closest('[data-case-index]');
+      if (!button) return;
+      var next = Number(button.getAttribute('data-case-index'));
+      document.querySelectorAll('[data-case-index]').forEach(function (item) { item.classList.toggle('is-active', item === button); item.setAttribute('aria-pressed', item === button ? 'true' : 'false'); });
+      document.querySelectorAll('[data-case-editor]').forEach(function (item) { item.classList.toggle('is-active', Number(item.getAttribute('data-case-editor')) === next); });
+      currentAnswerCase = next;
+      if (answerEditors[next]) answerEditors[next].layout();
+    });
+    function submit_code() {
+      var upload = document.getElementById('answer');
+      var hasAnswer = !!(upload.files && upload.files.length);
+      var answers = answerCases.map(function (filename, index) {
+        var value = answerEditors[index] ? answerEditors[index].getValue() : '';
+        if (value.trim()) hasAnswer = true;
+        return { filename: filename, data: value };
       });
-      </script>
-      <div class="ui form" style="width: 100%;">
-        <div class="inline fields" style="width: 100%;">
-          <div class="field" style="margin: 0 auto;">
-            <label for="answer">或者，上传答案（请使用 ZIP 格式压缩）</label>
-            <input type="file" id="answer" name="answer">
-          </div>
-        </div>
-      </div>
-    </div>
-    <div class="ui center aligned vertical segment" style="padding-bottom: 0;">
-      <button type="submit" class="ui labeled icon button submit-code-button"><i class="ui edit icon"></i>提交</button>
-    </div>
+      if (!hasAnswer) return showSubmitError('请填写至少一个答案文件，或上传 ZIP 压缩包。');
+      document.getElementById('answer_by_editor').value = JSON.stringify(answers);
+      lockSubmitButton();
+      return true;
+    }
+    </script>
   <% } else { %>
-    <input name="language" type="hidden" id="form">
-    <input name="code" type="hidden">
-    <div class="ui grid">
-      <div class="four wide column" style="margin-right: -25px;">
-        <div class="ui attached vertical fluid pointing menu" id="languages-menu" style="height: 370px; overflow-y: scroll; overflow-x: hidden;">
-          <%
-          const languageList = languages ? Object.keys(languages) : syzoj.config.enabled_languages;
-          if (languages && languageList[0] && languages[languageList[0]].index != null) {
-            languageList.sort((a, b) => languages[a].index - languages[b].index);
-          }
-          let language = languageList[0];
-          if (state) language = state.language;
-          else if (lastLanguage) language = lastLanguage;
-          if (!languageList.includes(language)) language = languageList[0];
-          const languageMap = languages || syzoj.languages;
-          %>
-          <% for (let lang of languageList) { %>
-            <a href="#" role="button" style="border-radius: 0;" class="item<%= lang === language ? ' active' : '' %>" data-value="<%= lang %>" data-mode="<%= languageMap[lang].editor %>">
-              <%= languageMap[lang].show %>
-              <% if (languageMap[lang].version) { %>
-                <span class="ui right floated" style="opacity: 0.4; margin-top: 8px; font-size: 0.7em;"><%= languageMap[lang].version %></span>
-              <% } %>
-            </a>
+    <%
+    const languageList = languages ? Object.keys(languages) : syzoj.config.enabled_languages.slice();
+    if (languages && languageList[0] && languages[languageList[0]].index != null) languageList.sort((a, b) => languages[a].index - languages[b].index);
+    let selectedLanguage = languageList[0];
+    if (state) selectedLanguage = state.language;
+    else if (lastLanguage) selectedLanguage = lastLanguage;
+    if (!languageList.includes(selectedLanguage)) selectedLanguage = languageList[0];
+    const languageMap = languages || syzoj.languages;
+    %>
+    <input name="language" type="hidden" value="<%= selectedLanguage %>" data-language-input>
+    <input name="code" type="hidden" data-code-input>
+    <div class="app-submit-workspace">
+      <aside class="app-submit-languages" aria-label="编程语言">
+        <div class="app-submit-languages-head"><span>编程语言</span><strong><%= languageList.length %></strong></div>
+        <div class="app-submit-language-list" data-language-list>
+          <% for (const lang of languageList) { %>
+            <button type="button" class="app-submit-language<%= lang === selectedLanguage ? ' is-active' : '' %>" data-language="<%= lang %>" data-mode="<%= languageMap[lang].editor %>" aria-pressed="<%= lang === selectedLanguage ? 'true' : 'false' %>"><%- submitIcons.code %><span><%= languageMap[lang].show %></span><% if (languageMap[lang].version) { %><small><%= languageMap[lang].version %></small><% } %></button>
           <% } %>
         </div>
-      </div>
-      <div class="twelve wide stretched column" style="position: relative; padding-left: 0; margin-left: calc(-1rem - 1px); width: calc(75% + 1rem + 13px) !important;">
-        <div id="editor" style="position: absolute; width: 100%; height: calc(100% - 28px); border: 1px solid #D4D4D5; overflow: hidden;" class="editor" contenteditable>
-          <%- this.showLoadingEditor() %>
-        </div>
-      </div>
-      <div class="ui form" style="width: 100%;">
-        <div class="inline fields" style="width: 100%;">
-          <div class="field" style="margin: 0 auto;">
-            <label for="answer">或者，上传代码文件</label>
-            <input type="file" id="answer" name="answer">
-          </div>
-        </div>
-      </div>
+      </aside>
+      <div id="editor" class="app-submit-editor is-active" role="region" aria-label="代码编辑器" aria-busy="true"><span class="app-editor-loading" role="status" aria-live="polite">编辑器加载中…</span></div>
     </div>
-    <div class="ui center aligned vertical segment" style="padding-bottom: 0;">
-      <button type="submit" class="ui labeled icon button submit-code-button"><i class="ui edit icon"></i>提交</button>
+    <div class="app-submit-bottom">
+      <label class="app-file-field"><input type="file" id="answer" name="answer"><span><%- submitIcons.upload %><strong>上传代码文件</strong><small>可选，将优先使用上传的文件</small></span></label>
+      <button type="submit" class="app-button app-button-primary" data-submit-button><%- submitIcons.send %>提交评测</button>
     </div>
+    <script>
+    var submitEditor = null;
+    var activeLanguage = document.querySelector('[data-language].is-active');
+    window.onEditorLoaded(function () {
+      var initialCode = <%- serializejs(state ? state.code : '') %>;
+      var editorElement = document.getElementById('editor');
+      submitEditor = window.createCodeEditor(editorElement, activeLanguage ? activeLanguage.getAttribute('data-mode') : '', initialCode);
+      window.editor = submitEditor;
+      editorElement.setAttribute('aria-busy', 'false');
+    });
+    document.querySelector('[data-language-list]').addEventListener('click', function (event) {
+      var button = event.target.closest('[data-language]');
+      if (!button) return;
+      document.querySelectorAll('[data-language]').forEach(function (item) { item.classList.toggle('is-active', item === button); item.setAttribute('aria-pressed', item === button ? 'true' : 'false'); });
+      document.querySelector('[data-language-input]').value = button.getAttribute('data-language');
+      activeLanguage = button;
+      var model = submitEditor && submitEditor.getModel ? submitEditor.getModel() : null;
+      if (model && window.monaco) monaco.editor.setModelLanguage(model, button.getAttribute('data-mode'));
+    });
+    function submit_code() {
+      var upload = document.getElementById('answer');
+      var source = submitEditor ? submitEditor.getValue() : '';
+      if (!(upload.files && upload.files.length) && !source.trim()) return showSubmitError('请输入代码或上传代码文件。');
+      var sourceLimit = <%= problem.type === 'vjudge:uoj' ? 50 * 1024 : ['vjudge:hdu', 'vjudge:poj'].includes(problem.type) ? 64 * 1024 : 0 %>;
+      if (sourceLimit && new Blob([source]).size > sourceLimit) return showSubmitError('代码长度超过远程题库限制。');
+      document.querySelector('[data-code-input]').value = source;
+      document.querySelector('[data-language-input]').value = activeLanguage.getAttribute('data-language');
+      lockSubmitButton();
+      return true;
+    }
+    </script>
   <% } %>
 </form>
 
-<% if (problem.type !== 'submit-answer') { %>
-  <script>
-  var editor;
-  window.onEditorLoaded(function () {
-    var editorElement = document.getElementById('editor');
-    var content = '';
-    <% if (state) { %>content = <%- serializejs(state.code) %>;<% } %>
-    editor = window.createCodeEditor(editorElement, $('#languages-menu .item.active').data('mode'), content);
-    window.editor = editor;
+<script>
+function showSubmitError(message) {
+  var box = document.getElementById('submit-error');
+  box.querySelector('[data-submit-error-text]').textContent = message;
+  box.hidden = false;
+  box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  return false;
+}
+function lockSubmitButton() {
+  var button = document.querySelector('[data-submit-button]');
+  if (!button._submitOriginalHtml) button._submitOriginalHtml = button.innerHTML;
+  button.disabled = true;
+  button.classList.add('is-loading');
+  button.innerHTML = <%- serializejs(submitIcons.loading + '<span>正在提交…</span>') %>;
+}
+function unlockSubmitButton() {
+  var button = document.querySelector('[data-submit-button]');
+  button.disabled = false;
+  button.classList.remove('is-loading');
+  if (button._submitOriginalHtml) button.innerHTML = button._submitOriginalHtml;
+}
+(function () {
+  var form = document.querySelector('[data-submission-create-v2]');
+  if (!form) return;
+  form.addEventListener('submit', async function (event) {
+    event.preventDefault();
+    if (!submit_code()) return;
+    var errorBox = document.getElementById('submit-error');
+    errorBox.hidden = true;
+    try {
+      var headers = {
+        'Idempotency-Key': window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random()
+      };
+      var requestBody;
+      if (form.dataset.submitAnswer === 'true') {
+        requestBody = new FormData();
+        var answerUpload = document.getElementById('answer');
+        if (answerUpload.files && answerUpload.files[0]) requestBody.append('answer', answerUpload.files[0]);
+        requestBody.append('answer_by_editor', document.getElementById('answer_by_editor').value);
+      } else {
+        var source = document.querySelector('[data-code-input]').value;
+        var codeUpload = document.getElementById('answer');
+        if (codeUpload.files && codeUpload.files[0]) source = await codeUpload.files[0].text();
+        var remoteLimit = <%= problem.type === 'vjudge:uoj' ? 50 * 1024 : ['vjudge:hdu', 'vjudge:poj'].includes(problem.type) ? 64 * 1024 : 0 %>;
+        if (remoteLimit && new Blob([source]).size > remoteLimit) throw new Error('代码长度超过远程题库限制。');
+        headers['Content-Type'] = 'application/json';
+        requestBody = JSON.stringify({
+          source: source,
+          language: document.querySelector('[data-language-input]').value,
+          source_visibility: 'private'
+        });
+      }
+      var response = await fetch(form.dataset.submitEndpoint, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: headers,
+        body: requestBody
+      });
+      var payload = null;
+      try { payload = await response.json(); } catch (error) {}
+      if (!response.ok || !payload || !payload.data || !payload.data.submission) {
+        throw new Error(payload && payload.error && payload.error.message || '提交失败，请稍后重试。');
+      }
+      window.location.assign('/submission/' + encodeURIComponent(payload.data.submission.id));
+    } catch (error) {
+      unlockSubmitButton();
+      showSubmitError(error && error.message ? error.message : '提交失败，请稍后重试。');
+    }
   });
-
-  function submit_code() {
-    var source = editor.getValue();
-    if (!$('#submit_code input[name=answer]').val().trim() && !source.trim()) {
-      $('#submit-error').text('请输入代码或上传代码文件。').prop('hidden', false);
-      return false;
-    }
-    var sourceLimit = <%= problem.type === 'vjudge:uoj' ? 50 * 1024 : ['vjudge:hdu', 'vjudge:poj'].includes(problem.type) ? 64 * 1024 : 0 %>;
-    if (sourceLimit && new Blob([source]).size > sourceLimit) {
-      $('#submit-error').text('代码长度超过远程题库限制。').prop('hidden', false);
-      return false;
-    }
-    $('#submit_code input[name=language]').val($('#languages-menu .item.active').data('value'));
-    $('#submit_code input[name=code]').val(source);
-    $('.submit-code-button').prop('disabled', true).addClass('loading');
-    return true;
-  }
-
-  $('#languages-menu')[0].scrollTop = $('#languages-menu .active')[0].offsetTop - $('#languages-menu')[0].firstElementChild.offsetTop;
-  $(function () {
-    $('#languages-menu .item').click(function (event) {
-      event.preventDefault();
-      $(this).addClass('active').closest('.ui.menu').find('.item').not($(this)).removeClass('active');
-      monaco.editor.setModelLanguage(editor.getModel(), $(this).data('mode'));
-    });
-  });
-  </script>
-<% } else { %>
-  <script>
-  function submit_code() {
-    var answers = [];
-    var hasAnswer = $('#answer').val().trim() !== '';
-    for (var i = 0; i < cases.length; i++) {
-      var value = editors[i].getValue();
-      if (value.trim()) hasAnswer = true;
-      answers.push({ filename: cases[i], data: value });
-    }
-    if (!hasAnswer) {
-      $('#submit-error').text('请填写答案或上传 ZIP 文件。').prop('hidden', false);
-      return false;
-    }
-    $('#answer_by_editor').val(JSON.stringify(answers));
-    $('.submit-code-button').prop('disabled', true).addClass('loading');
-    return true;
-  }
-  </script>
-<% } %>
+})();
+</script>

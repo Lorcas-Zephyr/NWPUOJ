@@ -1,0 +1,39 @@
+<% this.adminPage = 'config'; %>
+<% include admin_header %>
+
+<div class="app-admin-toolbar"><div><h3>站点参数</h3><p>修改后提交，部分配置可能需要重启服务才能生效。</p></div></div>
+<form class="app-form" method="post" data-admin-config-v2>
+  <div class="app-admin-config-list">
+    <label class="app-admin-config-field"><span><strong>站点标题</strong><small>site_title</small></span><input class="app-input" type="text" name="site_title" value="<%= v2Config.site_title %>" maxlength="80" required></label>
+    <label class="app-admin-config-field"><span><strong>新用户默认 Rating</strong><small>default_user_rating</small></span><input class="app-input" type="number" name="default_user_rating" value="<%= v2Config.default_user_rating %>" min="1" max="10000" required></label>
+  </div>
+  <div class="app-notice"><i data-lucide="shield-check"></i><span>仅保留可在线安全更新的运行参数；语言、题目限制和分页参数由部署配置统一管理。</span></div>
+  <div class="app-form-actions"><button class="app-button app-button-primary" type="submit"><i data-lucide="save"></i>保存系统配置</button></div>
+</form>
+<script>
+(function () {
+  var form = document.querySelector('[data-admin-config-v2]');
+  if (!form) return;
+  form.addEventListener('submit', async function (event) {
+    event.preventDefault();
+    var button = form.querySelector('[type="submit"]'); if (button) button.disabled = true;
+    try {
+      var current = await fetch('/api/v2/admin/config-metadata', { credentials: 'same-origin', cache: 'no-store' });
+      var metadata = await current.json();
+      if (!current.ok) throw new Error(metadata && metadata.error && metadata.error.message || '配置读取失败。');
+      var response = await fetch('/api/v2/admin/config', {
+        method: 'PATCH', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'If-Match': current.headers.get('ETag') || '' },
+        body: JSON.stringify({ changes: { site_title: form.elements.site_title.value.trim(), default_user_rating: Number(form.elements.default_user_rating.value) } })
+      });
+      var body = await response.json();
+      if (!response.ok) throw new Error(body && body.error && body.error.message || '配置保存失败。');
+      window.location.assign(window.location.pathname + '?saved=1');
+    } catch (error) {
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '配置保存失败。', 'danger');
+      if (button) button.disabled = false;
+    }
+  });
+})();
+</script>
+<% include admin_footer %>

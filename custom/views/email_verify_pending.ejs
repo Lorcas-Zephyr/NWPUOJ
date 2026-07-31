@@ -1,31 +1,7 @@
 <% let mailSent = typeof verificationEmailSent === 'undefined' ? true : verificationEmailSent; %>
 <% this.title = mailSent ? '验证邮件已发送' : '验证邮件发送失败' %>
-<% include header %>
+<% include app_header %>
 
-<div class="padding">
-  <div class="ui placeholder segment">
-    <div class="ui icon header">
-      <i class="envelope outline icon" style="color: #2185d0;"></i>
-      <%= mailSent ? '验证邮件已发送' : '验证邮件发送失败' %>
-    </div>
-    <p style="text-align: center; max-width: 480px; margin: 0 auto;">
-      <% if (mailSent) { %>
-        我们已向 <b><%= email %></b> 发送验证邮件，请检查收件箱并点击邮件中的链接。
-      <% } else { %>
-        暂时无法向 <b><%= email %></b> 发送邮件，请稍后重试。
-      <% } %>
-    </p>
-    <p style="text-align: center; color: #888; font-size: 0.9em; max-width: 480px; margin: 12px auto 0;">
-      <% if (mailSent) { %>链接将在 24 小时后失效。<% } %>
-    </p>
-    <div style="text-align: center; margin-top: 20px;">
-      <% if (!mailSent) { %>
-        <a class="ui primary button" href-post="/email/send-verification">重新发送</a>
-      <% } %>
-      <a class="ui button" href="<%= typeof continueUrl !== 'undefined' ? continueUrl : '/' %>">继续</a>
-      <a class="ui button" href="<%= syzoj.utils.makeUrl(['user', user.id, 'edit']) %>">个人资料</a>
-    </div>
-  </div>
-</div>
+<div class="app-result-page"><section class="app-result-state <%= mailSent ? '' : 'is-danger' %>"><span class="app-result-icon"><i data-lucide="<%= mailSent ? 'mail-check' : 'mail-warning' %>"></i></span><span class="app-kicker">EMAIL VERIFICATION</span><h1><%= mailSent ? '验证邮件已发送' : '验证邮件发送失败' %></h1><p><% if (mailSent) { %>我们已向 <strong><%= email %></strong> 发送验证邮件，请在 24 小时内打开邮件中的链接。<% } else { %>暂时无法向 <strong><%= email %></strong> 发送邮件，请稍后重试。<% } %></p><div class="app-result-actions"><% if (!mailSent) { %><button class="app-button app-button-primary" type="button" data-email-verification-v2><i data-lucide="refresh-cw"></i>重新发送</button><% } %><a class="app-button app-button-secondary" href="<%= typeof continueUrl !== 'undefined' ? continueUrl : '/' %>">继续</a><a class="app-button app-button-quiet" href="<%= syzoj.utils.makeUrl(['user', user.id, 'edit']) %>">账号设置</a></div></section></div>
 
-<% include footer %>
+<% include app_footer %>

@@ -3,6 +3,7 @@
 let JudgeState = syzoj.model('judge_state');
 let JudgeStateAdminAction = syzoj.model('judge-state-admin-action');
 let User = syzoj.model('user');
+let Contest = syzoj.model('contest');
 const TypeORM = require('typeorm');
 const contestMutation = require('../libs/contest-mutation');
 const judger = require('../libs/judger');
@@ -36,12 +37,52 @@ setTimeout(refreshAdminActionCache, 1000);
 setInterval(refreshAdminActionCache, 60 * 1000);
 syzoj.utils.refreshJudgeAdminActionCache = refreshAdminActionCache;
 
-function canManageJudgeAction(user) {
-  if (!user) return false;
-  if (user.is_admin) return true;
-  if (user.privileges && user.privileges.includes('manage_problem')) return true;
-  return false;
+async function canManageJudgeAction(user, judge) {
+  if (!user || !judge) return false;
+  const scope = Number(judge.type) === 1 ? `contest:${judge.type_info}` : `problem:${judge.problem_id}`;
+  if (await syzoj.utils.authorizationV2.authorize(user, 'submission:rejudge', { scope }, { scope })) return true;
+  if (Number(judge.type) !== 1) return false;
+  const contest = await Contest.findById(Number(judge.type_info));
+  if (!contest || !await contest.isSupervisior(user)) return false;
+  return syzoj.utils.authorizationV2.authorize(user, 'contest:edit', {
+    id: contest.id,
+    ownerId: contest.holder_id,
+    scope: `contest:${contest.id}`
+  }, { scope: `contest:${contest.id}` });
 }
+
+function operationReason(req) {
+  return syzoj.utils.operationReason(req, '提交评测管理操作').slice(0, 255);
+}
+
+function requireRecentLogin(req) {
+  if (!syzoj.utils.authorizationV2.recentLoginSatisfied(req)) {
+    throw new ErrorMessage('这是高风险操作，请重新登录后继续。');
+  }
+}
+
+async function auditJudgeAction(req, judge, action, reason, details) {
+  const scope = Number(judge.type) === 1 ? `contest:${judge.type_info}` : `problem:${judge.problem_id}`;
+  const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, {
+    action,
+    resourceType: 'submission',
+    resourceId: judge.id,
+    scope,
+    reason,
+    details: Object.assign({ problem_id: Number(judge.problem_id), user_id: Number(judge.user_id) }, details || {})
+  });
+  await syzoj.utils.apiV2.appendEvent({
+    stream: `submission:${judge.id}`,
+    type: action.replace(':', '.'),
+    aggregateId: judge.id,
+    actor: req.res.locals.user,
+    payload: Object.assign({ submission_id: Number(judge.id), reason, audit_event_id: auditEventId }, details || {})
+  });
+  req.res.setHeader('X-Audit-Event-ID', auditEventId);
+  return auditEventId;
+}
+
+syzoj.utils.canManageJudgeAction = canManageJudgeAction;
 
 async function hasOtherValidAcceptedSubmission(userId, problemId, excludeJudgeId) {
   let qb = JudgeState.createQueryBuilder('js')
@@ -87,16 +128,12 @@ async function rebuildAffectedStatistics(judge, skipContestLock) {
 }
 
 // ============ 判定作弊 / 取消评测 ============
-app.post('/submission/:id/admin-action', async (req, res) => {
+app.post('/api/v2/submissions/:id/admin-actions', async (req, res) => {
+  const api = syzoj.utils.apiV2;
   try {
-    if (!res.locals.user) throw new ErrorMessage('请登录后继续。');
-    if (!canManageJudgeAction(res.locals.user)) {
-      throw new ErrorMessage('您没有权限进行此操作。');
-    }
-
+    if (!res.locals.user) return api.fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.');
     let id = parseInt(req.params.id);
     let actionType = (req.body.action_type || '').trim();
-    let reason = (req.body.reason || '').trim();
 
     if (!['cancelled', 'cheated'].includes(actionType)) {
       throw new ErrorMessage('无效的操作类型。');
@@ -104,6 +141,9 @@ app.post('/submission/:id/admin-action', async (req, res) => {
 
     let judge = await JudgeState.findById(id);
     if (!judge) throw new ErrorMessage('无此提交记录。');
+    if (!await canManageJudgeAction(res.locals.user, judge)) throw new ErrorMessage('您没有权限进行此操作。');
+    requireRecentLogin(req);
+    const reason = operationReason(req);
 
     let existing = await JudgeStateAdminAction.findOne({ where: { judge_id: id } });
     if (existing) {
@@ -112,13 +152,14 @@ app.post('/submission/:id/admin-action', async (req, res) => {
 
     let now = parseInt((new Date()).getTime() / 1000);
     let wasAccepted = (judge.status === 'Accepted');
+    const previousStatus = judge.status;
 
     let action = await JudgeStateAdminAction.create();
     action.judge_id = id;
     action.action_type = actionType;
     action.operator_id = res.locals.user.id;
     action.operator_time = now;
-    action.reason = reason || null;
+    action.reason = reason;
     action.was_accepted = wasAccepted;
     action.affected_problem_id = judge.problem_id;
     action.affected_user_id = judge.user_id;
@@ -150,28 +191,30 @@ app.post('/submission/:id/admin-action', async (req, res) => {
     // 立刻刷新缓存
     await refreshAdminActionCache();
     if (syzoj.utils.refreshContestCheaterCache) await syzoj.utils.refreshContestCheaterCache();
+    await auditJudgeAction(req, judge, `submission:${actionType}`, reason, { action_type: actionType, previous_status: previousStatus });
 
-    res.redirect(syzoj.utils.makeUrl(['submission', id]));
+    return api.send(res, { submission_id: id, action_type: actionType, status: actionType, audit_recorded: true }, 201);
   } catch (e) {
     syzoj.log(e);
-    res.render('error', { err: e });
+    return api.fail(res, e.statusCode || 409, e.code || 'SUBMISSION_ADMIN_ACTION_FAILED', e.message);
   }
 });
 
 // ============ 撤销标记 ============
-app.post('/submission/:id/admin-action/revoke', async (req, res) => {
+app.delete('/api/v2/submissions/:id/admin-actions', async (req, res) => {
+  const api = syzoj.utils.apiV2;
   try {
-    if (!res.locals.user) throw new ErrorMessage('请登录后继续。');
-    if (!canManageJudgeAction(res.locals.user)) {
-      throw new ErrorMessage('您没有权限进行此操作。');
-    }
-
+    if (!res.locals.user) return api.fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.');
     let id = parseInt(req.params.id);
     let action = await JudgeStateAdminAction.findOne({ where: { judge_id: id } });
     if (!action) throw new ErrorMessage('该提交并未被标记。');
 
     let judge = await JudgeState.findById(id);
     if (!judge) throw new ErrorMessage('无此提交记录。');
+    if (!await canManageJudgeAction(res.locals.user, judge)) throw new ErrorMessage('您没有权限进行此操作。');
+    requireRecentLogin(req);
+    const reason = operationReason(req);
+    const revokedType = action.action_type;
 
     let wasCancelled = (action.action_type === 'cancelled');
 
@@ -192,15 +235,16 @@ app.post('/submission/:id/admin-action/revoke', async (req, res) => {
     await rebuildAffectedStatistics(judge, res.locals.contestMutationLockHeld);
     await refreshAdminActionCache();
     if (syzoj.utils.refreshContestCheaterCache) await syzoj.utils.refreshContestCheaterCache();
+    await auditJudgeAction(req, judge, 'submission:admin-action.revoke', reason, { revoked_action_type: revokedType });
 
     // 撤销 cancelled 标记后,db 状态保持 Cancelled
     // 因为评测结果已经在取消时被丢弃,无法恢复。用户需要重新提交。
     // 这里不做任何 status 操作,保留 Cancelled 状态作为历史记录。
 
-    res.redirect(syzoj.utils.makeUrl(['submission', id]));
+    return api.send(res, { submission_id: id, revoked: true, previous_action_type: revokedType });
   } catch (e) {
     syzoj.log(e);
-    res.render('error', { err: e });
+    return api.fail(res, e.statusCode || 409, e.code || 'SUBMISSION_ADMIN_ACTION_REVOKE_FAILED', e.message);
   }
 });
 
@@ -226,18 +270,18 @@ syzoj.utils.getJudgeAdminActions = async function(judgeIds) {
 // ============ 重新评测(Cancelled 状态恢复) ============
 // 仅适用于 Cancelled 状态的提交
 // 取消标记属于管理员操作，只能由管理员清除。
-app.post('/submission/:id/restore-and-rejudge', async (req, res) => {
+app.post('/api/v2/submissions/:id/restore-and-rejudge', async (req, res) => {
+  const api = syzoj.utils.apiV2;
   try {
-    if (!res.locals.user) throw new ErrorMessage('请先登录。');
+    if (!res.locals.user) return api.fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.');
 
     let id = parseInt(req.params.id);
     let judge = await JudgeState.findById(id);
     if (!judge) throw new ErrorMessage('无此提交记录。');
 
-    let isAdmin = canManageJudgeAction(res.locals.user);
-    if (!isAdmin) {
-      throw new ErrorMessage('您没有权限重新评测此提交。');
-    }
+    if (!await canManageJudgeAction(res.locals.user, judge)) throw new ErrorMessage('您没有权限重新评测此提交。');
+    requireRecentLogin(req);
+    const reason = operationReason(req);
 
     if (judge.status !== 'Cancelled') {
       throw new ErrorMessage('仅可对已取消评测的提交使用此操作。');
@@ -254,10 +298,11 @@ app.post('/submission/:id/restore-and-rejudge', async (req, res) => {
     await judge.loadRelationships();
     await judge.rejudge();
     await rebuildAffectedStatistics(judge, res.locals.contestMutationLockHeld);
+    await auditJudgeAction(req, judge, 'submission:restore-and-rejudge', reason, { previous_status: 'Cancelled' });
 
-    res.redirect(syzoj.utils.makeUrl(['submission', id]));
+    return api.send(res, { submission_id: id, restored: true, rejudged: true }, 202);
   } catch (e) {
     syzoj.log(e);
-    res.render('error', { err: e });
+    return api.fail(res, e.statusCode || 409, e.code || 'SUBMISSION_RESTORE_REJUDGE_FAILED', e.message);
   }
 });

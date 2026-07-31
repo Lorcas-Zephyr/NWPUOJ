@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const TypeORM = require('typeorm');
 const contestMutation = require('../libs/contest-mutation');
 const contestRating = require('../libs/contest-rating');
+const ratingNotification = require('../libs/rating-notification');
 const JudgeState = syzoj.model('judge_state');
 
 let schemaPromise = null;
@@ -44,6 +45,7 @@ function ensureRatingSchema() {
           PRIMARY KEY (id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
       `);
+      await ratingNotification.ensureSchema(connection);
       const release = await contestMutation.acquireContestLock('rating-initialize');
       try {
         await contestMutation.withTransactionRetry(async manager => {
@@ -110,42 +112,38 @@ function validAdminCsrfToken(req) {
     crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(actual));
 }
 
-async function runFinalizationPass() {
-  await ensureRatingSchema();
-  const release = await contestMutation.acquireContestLock('rating-finalizer');
-  try {
-    const contests = await TypeORM.getConnection().query(
-      `SELECT contest.id FROM contest
-       INNER JOIN contest_rating_config config ON config.contest_id=contest.id AND config.is_rated=1
-       LEFT JOIN contest_rating_finalization finalization ON finalization.contest_id=contest.id
-       WHERE contest.end_time<=UNIX_TIMESTAMP() AND finalization.contest_id IS NULL
-       ORDER BY contest.end_time ASC,contest.id ASC`
-    );
-    for (const contest of contests) {
-      const result = await contestRating.finalizeContest(Number(contest.id));
-      if (result.status === 'deferred') {
-        syzoj.log(`[contest-rating] Contest #${contest.id} deferred because submissions are still pending.`);
-      }
-    }
-  } finally {
-    await release();
-  }
-}
-
-async function scheduleFinalization() {
-  try {
-    await runFinalizationPass();
-  } catch (error) {
-    syzoj.log('[contest-rating] finalization failed: ' + (error.stack || error));
-  } finally {
-    setTimeout(scheduleFinalization, 60 * 1000);
-  }
-}
-
-setTimeout(scheduleFinalization, 15 * 1000);
 syzoj.utils.finalizeContestRating = contestRating.finalizeContest;
+syzoj.utils.finalizePendingContestRatings = contestRating.finalizePendingContests;
+syzoj.utils.listContestRatingStatuses = contestRating.listContestRatingStatuses;
 syzoj.utils.isContestRatingFinalized = isContestRatingFinalized;
 syzoj.utils.ensureContestRatingSchema = ensureRatingSchema;
+
+app.post('/api/v2/admin/rating/calculate-pending', async (req, res) => {
+  const api = syzoj.utils.apiV2;
+  const user = res.locals.user;
+  if (!user) return api.fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.');
+  if (!await syzoj.utils.authorizationV2.authorize(user, 'rating:recalculate', null, { scope: 'global' })) {
+    return api.fail(res, 403, 'CAPABILITY_REQUIRED', 'Capability required: rating:recalculate.');
+  }
+  if (!syzoj.utils.authorizationV2.recentLoginSatisfied(req)) {
+    return api.fail(res, 403, 'RECENT_LOGIN_REQUIRED', 'Sign in again before calculating Rating.');
+  }
+  try {
+    const result = await contestRating.finalizePendingContests();
+    const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, {
+      action: 'rating:calculate.pending', resourceType: 'rating', resourceId: 'pending', details: result
+    });
+    await api.appendEvent({
+      stream: 'rating:icpc', type: 'rating.pending.calculated', aggregateId: 'pending',
+      actor: user, payload: Object.assign({ audit_event_id: auditEventId }, result)
+    });
+    return api.send(res, Object.assign({ audit_event_id: String(auditEventId) }, result));
+  } catch (error) {
+    syzoj.log('[contest-rating-v2] manual finalization failed: ' + (error.stack || error));
+    return api.fail(res, error.statusCode || 409, error.code || 'RATING_CALCULATION_FAILED', error.message);
+  }
+});
+
 
 app.use(async (req, res, next) => {
   try {
@@ -179,7 +177,7 @@ app.use(async (req, res, next) => {
     const rows = await cached.promise;
     res.locals.contestRated = !!(rows.length && rows[0].is_rated);
     res.locals.contestRatingFinalizationStatus = rows.length ? rows[0].rating_status : null;
-    res.locals.contestRatingCanRecalculate = !!(res.locals.user && res.locals.user.is_admin);
+    res.locals.contestRatingCanRecalculate = !!(res.locals.user && syzoj.utils.authorizationV2 && await syzoj.utils.authorizationV2.authorize(res.locals.user, 'rating:recalculate', { id: contestId, ownerId: null }, {}));
     res.locals.contestRatingLocked = !!(rows.length && (
       Number(rows[0].start_time) <= Math.floor(Date.now() / 1000) || Number(rows[0].finalized) === 1
     ));
@@ -189,55 +187,12 @@ app.use(async (req, res, next) => {
   }
 });
 
-app.post('/contest/:id/rating/recalculate', async (req, res) => {
-  try {
-    const contestId = Number(req.params.id);
-    if (!Number.isSafeInteger(contestId) || contestId <= 0) {
-      throw contestMutation.mutationError('比赛 ID 不正确。');
-    }
-    if (!res.locals.user || !res.locals.user.is_admin) {
-      throw contestMutation.mutationError('只有站点管理员可以重新计算 Rating。', 403);
-    }
-    if (!validAdminCsrfToken(req)) {
-      throw contestMutation.mutationError('页面已失效，请刷新比赛管理页后重试。', 403);
-    }
-    await ensureRatingSchema();
-    const result = await contestRating.recalculateRatingsFrom(contestId);
-    syzoj.log(
-      `[contest-rating] User #${res.locals.user.id} recalculated from contest #${contestId}: ` +
-      `${result.contestCount} contests, ${result.userIds.length} users.`
-    );
-    res.redirect(303, syzoj.utils.makeUrl(['contest', contestId, 'edit'], {
-      rating_recalculated: 1,
-      rating_contests: result.contestCount,
-      rating_users: result.userIds.length
-    }));
-  } catch (error) {
-    syzoj.log('[contest-rating] recalculation failed: ' + (error.stack || error));
-    res.status(error.statusCode || 400).render('error', { err: error });
-  }
-});
 
-app.post('/admin/rating/add', async (req, res) => {
-  res.status(404).render('error', {
-    err: new ErrorMessage('单场比赛手动 Rating 计算已关闭，Rated 比赛将在结束后自动结算。')
-  });
-});
 
-app.post('/admin/rating/delete', async (req, res) => {
-  if (!res.locals.user || !res.locals.user.is_admin) {
-    return res.status(403).render('error', { err: new ErrorMessage('您没有权限进行此操作。') });
-  }
-  res.status(409).render('error', {
-    err: new ErrorMessage('自动 Rating 历史不能单独删除，否则会破坏后续比赛的 Rating 基线。')
-  });
-});
 
 app.post([
-  '/submission/:id/admin-action',
-  '/submission/:id/admin-action/revoke',
-  '/submission/:id/restore-and-rejudge',
-  '/submission/:id/rejudge'
+  '/api/v2/submissions/:id/admin-actions',
+  '/api/v2/submissions/:id/restore-and-rejudge'
 ], async (req, res, next) => {
   try {
     const rows = await TypeORM.getConnection().query('SELECT type,type_info FROM judge_state WHERE id=? LIMIT 1', [Number(req.params.id)]);
@@ -270,19 +225,62 @@ app.post([
   }
 });
 
+app.delete('/api/v2/submissions/:id/admin-actions', async (req, res, next) => {
+  try {
+    const rows = await TypeORM.getConnection().query('SELECT type,type_info FROM judge_state WHERE id=? LIMIT 1', [Number(req.params.id)]);
+    if (!rows.length || Number(rows[0].type) !== 1) return next();
+    const contestId = Number(rows[0].type_info);
+    const release = await contestMutation.acquireContestLock(contestId);
+    let released = false;
+    const releaseOnce = () => {
+      if (released) return;
+      released = true;
+      release().catch(error => syzoj.log(error));
+    };
+    if (await isContestRatingFinalized(contestId)) {
+      await release();
+      released = true;
+      return syzoj.utils.apiV2.fail(res, 409, 'CONTEST_RATING_FINALIZED', 'This contest Rating has been finalized. Submission state can no longer be changed.');
+    }
+    res.locals.contestMutationLockHeld = true;
+    res.once('finish', releaseOnce);
+    res.once('close', releaseOnce);
+    if (syzoj.utils.runWithContestLockContext) return syzoj.utils.runWithContestLockContext(contestId, next);
+    return next();
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/user/:id', (req, res, next) => {
   const originalRender = res.render.bind(res);
   res.render = function renderUserWithRatingHistory(view, options) {
     if (view !== 'user' || !options || !options.show_user) return originalRender.apply(res, arguments);
-    TypeORM.getConnection().query(
-      `SELECT rc.contest_id,c.title,rh.rating_after,rh.rank,finalization.participant_count
-       FROM rating_history rh
-       INNER JOIN rating_calculation rc ON rc.id=rh.rating_calculation_id
-       LEFT JOIN contest c ON c.id=rc.contest_id
-       LEFT JOIN contest_rating_finalization finalization ON finalization.contest_id=rc.contest_id
-       WHERE rh.user_id=? ORDER BY rh.rating_calculation_id ASC`,
-      [options.show_user.id]
-    ).then(rows => {
+    const profileUserId = Number(options.show_user.id);
+    const viewer = res.locals.user;
+    const canViewPrivateParticipation = !!(viewer && (Number(viewer.id) === profileUserId || viewer.is_admin));
+    const connection = TypeORM.getConnection();
+    Promise.all([
+      connection.query(
+        `SELECT rc.contest_id,c.title,c.end_time,rh.rating_after,rh.rank,finalization.participant_count
+         FROM rating_history rh
+         INNER JOIN rating_calculation rc ON rc.id=rh.rating_calculation_id
+         LEFT JOIN contest c ON c.id=rc.contest_id
+         LEFT JOIN contest_rating_finalization finalization ON finalization.contest_id=rc.contest_id
+         WHERE rh.user_id=? ORDER BY rh.rating_calculation_id ASC`,
+        [profileUserId]
+      ),
+      connection.query(
+        `SELECT DISTINCT c.id,c.title,c.start_time
+         FROM contest_player cp
+         INNER JOIN contest c ON c.id=cp.contest_id
+         LEFT JOIN contest_registration_removal removal
+           ON removal.contest_id=cp.contest_id AND removal.user_id=cp.user_id
+         WHERE cp.user_id=? AND removal.user_id IS NULL${canViewPrivateParticipation ? '' : ' AND c.is_public=1'}
+         ORDER BY c.start_time DESC,c.id DESC`,
+        [profileUserId]
+      )
+    ]).then(([rows, participantRows]) => {
       let previous = Number(syzoj.config.default.user.rating);
       const histories = [{ contestName: '初始 Rating', contestId: null, value: previous, before: null, delta: null, rank: null }];
       for (const row of rows) {
@@ -294,11 +292,17 @@ app.get('/user/:id', (req, res, next) => {
           before: previous,
           delta: after - previous,
           rank: row.rank == null ? null : Number(row.rank),
-          participants: Number(row.participant_count || 0)
+          participants: Number(row.participant_count || 0),
+          endedAt: Number(row.end_time || 0)
         });
         previous = after;
       }
-      options.ratingHistories = histories.reverse();
+      options.ratingHistories = histories;
+      options.participatedContests = participantRows.map(row => ({
+        id: Number(row.id),
+        title: row.title,
+        startTime: Number(row.start_time || 0)
+      }));
       originalRender(view, options);
     }).catch(next);
     return res;

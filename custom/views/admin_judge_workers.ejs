@@ -1,140 +1,175 @@
 <% this.adminPage = 'judge-workers'; %>
 <% include admin_header %>
 <%
-const serviceNames = { 'judge-daemon': 'Judge Daemon', 'judge-runner-1': 'Judge Runner' };
-const statusNames = { running: '运行中', restarting: '重启中', exited: '已退出', created: '已创建', dead: '异常' };
-const statusClasses = { running: 'nwpuoj-status-success', restarting: 'nwpuoj-status-warning', exited: 'nwpuoj-status-muted', dead: 'nwpuoj-status-danger' };
-const daemons = containers.filter(function (item) { return item.service === 'judge-daemon'; });
-const runners = containers.filter(function (item) { return item.service === 'judge-runner-1'; });
-%>
-<style>
-.nwpuoj-judge-summary { display:grid; grid-template-columns:repeat(4,minmax(120px,1fr)); border:1px solid var(--nwpuoj-border); margin-bottom:22px; }
-.nwpuoj-judge-summary-item { padding:13px 12px; text-align:center; border-right:1px solid var(--nwpuoj-border); }
-.nwpuoj-judge-summary-item:last-child { border-right:0; }
-.nwpuoj-judge-summary-item strong { display:block; color:var(--nwpuoj-text); font-size:1.45rem; line-height:1.2; }
-.nwpuoj-judge-summary-item span { display:block; color:var(--nwpuoj-text-muted); font-size:.86rem; margin-top:4px; }
-.nwpuoj-judge-service { margin-top:24px; }
-.nwpuoj-judge-name { min-width:220px; }
-@media (max-width:700px) {
-  .nwpuoj-judge-summary { grid-template-columns:repeat(2,minmax(100px,1fr)); }
-  .nwpuoj-judge-summary-item:nth-child(2) { border-right:0; }
-  .nwpuoj-judge-summary-item:nth-child(-n+2) { border-bottom:1px solid var(--nwpuoj-border); }
+const appJudgeServiceNames = { 'judge-daemon': 'Judge Daemon', 'judge-runner-1': 'Judge Runner' };
+const appJudgeStatusNames = { running: '运行中', restarting: '重启中', exited: '已退出', created: '已创建', dead: '异常' };
+const appJudgeStatusClasses = { running: 'app-status-accepted', restarting: 'app-status-pending', exited: 'app-status-muted', created: 'app-status-info', dead: 'app-status-rejected' };
+const appJudgeDaemons = containers.filter(function (item) { return item.service === 'judge-daemon'; });
+const appJudgeRunners = containers.filter(function (item) { return item.service === 'judge-runner-1'; });
+const appJudgeQueue = Array.isArray(queue) ? queue : [];
+const appJudgeQueueStateNames = { queued: '等待', compiling: '编译', judging: '评测' };
+const appJudgeQueueStateClasses = { queued: 'app-status-pending', compiling: 'app-status-compiling', judging: 'app-status-judging' };
+function appJudgeQueueAge(seconds) {
+  const value = Math.max(0, Number(seconds) || 0);
+  if (value < 60) return value < 5 ? '刚刚' : Math.floor(value) + ' 秒';
+  if (value < 3600) return Math.floor(value / 60) + ' 分钟';
+  return Math.floor(value / 3600) + ' 小时 ' + Math.floor(value % 3600 / 60) + ' 分';
 }
-</style>
+%>
 
-<% if (req.query && req.query.restarted) { %>
-  <div class="ui positive message"><i class="check circle icon"></i><%= req.query.restarted %> 已完成重启。</div>
-<% } %>
-
-<div class="nwpuoj-page-header">
-  <div>
-    <h2 class="nwpuoj-page-title"><i class="server icon"></i>评测服务</h2>
-    <div class="nwpuoj-meta" style="margin-top:4px;"><%= project %></div>
+<% if (req.query && req.query.restarted) { %><div class="app-notice app-notice-success"><i data-lucide="circle-check"></i><span><%= req.query.restarted %> 已完成重启。</span></div><% } %>
+<% if (unavailable) { %><div class="app-notice app-notice-warning"><i data-lucide="triangle-alert"></i><span>暂时无法读取评测实例状态，请稍后刷新。</span></div><% } %>
+<div class="app-admin-toolbar"><div><h3>服务实例</h3><p><%= project %></p></div><div class="app-admin-live-tools"><span id="judge-live-state" class="app-status app-status-pending"><i data-lucide="loader-circle"></i><span data-live-text>连接中</span></span><time id="judge-last-updated">-</time><a class="app-icon-button" href="<%= syzoj.utils.makeUrl(['admin', 'judge-workers']) %>" title="刷新状态" aria-label="刷新状态"><i data-lucide="refresh-cw"></i></a></div></div>
+<section class="app-admin-metrics app-judge-metrics" aria-label="评测服务概况"><div><strong id="judge-daemon-summary"><%= appJudgeDaemons.filter(function (item) { return item.running; }).length %> / <%= appJudgeDaemons.length %></strong><span>Daemon 运行</span></div><div><strong id="judge-runner-summary"><%= appJudgeRunners.filter(function (item) { return item.running; }).length %> / <%= appJudgeRunners.length %></strong><span>Runner 运行</span></div><div><strong id="judge-pending-summary"><%= summary.pending %></strong><span>等待评测</span></div><div><strong id="judge-stale-summary"><%= summary.stale %></strong><span>超过 15 分钟</span></div></section>
+<section class="app-admin-section app-judge-queue" data-judge-queue>
+  <div class="app-section-header">
+    <div><h3 class="app-section-title">评测队列</h3><p class="app-section-description">按进入队列时间排序，最多展示 50 条。</p></div>
+    <span class="app-status app-status-muted"><strong data-judge-queue-visible><%= appJudgeQueue.length %></strong>&nbsp;/&nbsp;<span data-judge-queue-total><%= summary.pending %></span></span>
   </div>
-  <div class="nwpuoj-toolbar-actions">
-    <span id="judge-live-state" class="nwpuoj-status nwpuoj-status-warning"><i class="circle notch loading icon"></i>连接中</span>
-    <span id="judge-last-updated" class="nwpuoj-meta">-</span>
-    <a class="ui basic icon button" href="<%= syzoj.utils.makeUrl(['admin', 'judge-workers']) %>" title="刷新状态" aria-label="刷新状态"><i class="refresh icon"></i></a>
-  </div>
-</div>
-
-<div class="nwpuoj-judge-summary" aria-label="评测服务概况">
-  <div class="nwpuoj-judge-summary-item"><strong id="judge-daemon-summary"><%= daemons.filter(function (item) { return item.running; }).length %> / <%= daemons.length %></strong><span>Daemon 运行</span></div>
-  <div class="nwpuoj-judge-summary-item"><strong id="judge-runner-summary"><%= runners.filter(function (item) { return item.running; }).length %> / <%= runners.length %></strong><span>Runner 运行</span></div>
-  <div class="nwpuoj-judge-summary-item"><strong id="judge-pending-summary"><%= summary.pending %></strong><span>等待评测</span></div>
-  <div class="nwpuoj-judge-summary-item"><strong id="judge-stale-summary"><%= summary.stale %></strong><span>超过 15 分钟</span></div>
-</div>
-
-<% [daemons, runners].forEach(function (group) { %>
-<section class="nwpuoj-judge-service">
-  <h3 class="ui dividing header"><i class="<%= group === runners ? 'microchip' : 'exchange' %> icon"></i><%= serviceNames[group.length ? group[0].service : (group === runners ? 'judge-runner-1' : 'judge-daemon')] %></h3>
-  <div class="nwpuoj-table-region" role="region" aria-label="评测实例列表" tabindex="0">
-    <table class="ui very basic center aligned table">
-      <thead><tr><th class="nwpuoj-judge-name">实例</th><th>状态</th><th>CPU</th><th>内存</th><th class="nwpuoj-priority-2">进程</th><th class="nwpuoj-priority-3">重启</th><th class="nwpuoj-priority-3">启动时间</th><th>操作</th></tr></thead>
-      <tbody>
-      <% if (!group.length) { %><tr><td colspan="8"><div class="nwpuoj-empty-state"><i class="server icon"></i>没有实例</div></td></tr><% } %>
-      <% group.forEach(function (item) { %>
-        <tr data-container-id="<%= item.id %>">
-          <td class="nwpuoj-judge-name" style="text-align:left;"><strong><%= item.name %></strong><div class="nwpuoj-meta"><%= item.shortId %> · #<%= item.number %></div></td>
-          <td>
-            <span data-field="status" class="nwpuoj-status <%= item.oomKilled ? 'nwpuoj-status-danger' : (statusClasses[item.status] || 'nwpuoj-status-muted') %>"><%= item.oomKilled ? 'OOM' : (statusNames[item.status] || item.status) %></span>
-            <div data-field="health" class="nwpuoj-meta" style="margin-top:4px;<%= item.health ? '' : 'display:none;' %>"><%= item.health || '' %></div>
-          </td>
-          <td data-field="cpu"><%= item.cpuPercent.toFixed(1) %>%</td>
-          <td data-field="memory"><%= item.memoryMiB.toFixed(1) %> MiB</td>
-          <td data-field="pids" class="nwpuoj-priority-2"><%= item.pids || '-' %></td>
-          <td data-field="restarts" class="nwpuoj-priority-3"><%= item.restartCount %></td>
-          <td data-field="started" class="nwpuoj-priority-3"><%= item.startedAt > 0 ? syzoj.utils.formatDate(item.startedAt) : '-' %></td>
-          <td>
-            <form method="post" action="<%= syzoj.utils.makeUrl(['admin', 'judge-workers', item.id, 'restart']) %>" style="margin:0;" onsubmit="return confirm('确定重启 <%= item.name %> 吗？运行中的评测可能失败并需要重新评测。');">
-              <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>">
-              <button type="submit" class="ui mini basic icon button" title="重启 <%= item.name %>" aria-label="重启 <%= item.name %>"><i class="refresh icon"></i></button>
-            </form>
-          </td>
+  <div class="app-notice app-notice-warning app-judge-queue-offline" data-judge-queue-offline<%= unavailable ? '' : ' hidden' %>><i data-lucide="wifi-off"></i><span>实时连接已中断，当前保留最后一次成功读取的队列。</span></div>
+  <div class="app-table-region" data-judge-queue-table<%= appJudgeQueue.length ? '' : ' hidden' %> tabindex="0" role="region" aria-label="实时评测队列">
+    <table class="app-table app-judge-queue-table">
+      <thead><tr><th>序号</th><th>提交</th><th>状态</th><th>题目</th><th>提交者</th><th>语言</th><th>范围</th><th>等待</th></tr></thead>
+      <tbody data-judge-queue-rows><% appJudgeQueue.forEach(function (item, index) { const appSubmissionRoute = item.contest_id ? ['contest', 'submission', item.id] : ['submission', item.id]; %>
+        <tr data-queue-submission-id="<%= item.id %>">
+          <td class="app-cell-number"><%= index + 1 %></td>
+          <td class="app-cell-number"><a href="<%= syzoj.utils.makeUrl(appSubmissionRoute) %>">#<%= item.id %></a></td>
+          <td><span class="app-status <%= item.has_dispatch_error ? 'app-status-rejected' : appJudgeQueueStateClasses[item.state] || 'app-status-muted' %>"><%= item.has_dispatch_error ? '调度重试' : appJudgeQueueStateNames[item.state] || item.state %></span><% if (item.dispatch_attempts) { %><small class="app-row-description"><%= item.dispatch_attempts %> 次</small><% } %></td>
+          <td class="app-cell-primary"><a href="<%= syzoj.utils.makeUrl(['problem', item.problem_id]) %>">#<%= item.problem_id %> <%= item.problem_title || '题目已归档' %></a></td>
+          <td><a href="<%= syzoj.utils.makeUrl(['user', item.user_id]) %>"><%= item.username || '#' + item.user_id %></a></td>
+          <td><%= item.language || '-' %></td>
+          <td><%= item.contest_id ? '比赛 #' + item.contest_id : '练习' %></td>
+          <td class="app-cell-number"><time datetime="<%= item.submitted_at %>" title="<%= item.submitted_at %>"><%= appJudgeQueueAge(item.age_seconds) %></time><% if (item.is_stale) { %><small class="app-row-description app-text-danger">超时</small><% } %></td>
         </tr>
-      <% }); %>
-      </tbody>
+      <% }); %></tbody>
     </table>
   </div>
+  <div class="app-empty app-empty-compact" data-judge-queue-empty<%= appJudgeQueue.length ? ' hidden' : '' %>><div class="app-empty-inner"><i data-lucide="list-checks"></i><strong>当前队列为空</strong><p>新提交进入评测后会显示在这里。</p></div></div>
 </section>
-<% }); %>
-
+<% [appJudgeDaemons, appJudgeRunners].forEach(function (group) { const appGroupService = group.length ? group[0].service : (group === appJudgeRunners ? 'judge-runner-1' : 'judge-daemon'); %>
+<section class="app-admin-section app-judge-service"><div class="app-section-header"><div><h3 class="app-section-title"><%= appJudgeServiceNames[appGroupService] %></h3><p class="app-section-description"><%= group.length %> 个实例</p></div><i data-lucide="<%= group === appJudgeRunners ? 'cpu' : 'waypoints' %>"></i></div>
+<% if (group.length) { %><div class="app-table-region"><table class="app-table"><thead><tr><th>实例</th><th>状态</th><th>CPU</th><th>内存</th><th>进程</th><th>重启次数</th><th>启动时间</th><th aria-label="操作"></th></tr></thead><tbody><% group.forEach(function (item) { %><tr data-container-id="<%= item.id %>"><td class="app-cell-primary"><strong><%= item.name %></strong><small class="app-row-description"><%= item.shortId %> · #<%= item.number %></small></td><td><span data-field="status" class="app-status <%= item.oomKilled ? 'app-status-rejected' : (appJudgeStatusClasses[item.status] || 'app-status-muted') %>"><%= item.oomKilled ? 'OOM' : (appJudgeStatusNames[item.status] || item.status) %></span><small data-field="health" class="app-row-description"<%= item.health ? '' : ' hidden' %>><%= item.health || '' %></small></td><td class="app-cell-number" data-field="cpu"><%= item.cpuPercent.toFixed(1) %>%</td><td class="app-cell-number" data-field="memory"><%= item.memoryMiB.toFixed(1) %> MiB</td><td class="app-cell-number" data-field="pids"><%= item.pids || '-' %></td><td class="app-cell-number" data-field="restarts"><%= item.restartCount %></td><td class="app-cell-number" data-field="started"><%= item.startedAt > 0 ? syzoj.utils.formatDate(item.startedAt) : '-' %></td><td class="app-cell-actions"><button class="app-icon-button" type="button" data-worker-restart="<%= item.id %>" data-worker-name="<%= item.name %>" title="重启 <%= item.name %>" aria-label="重启 <%= item.name %>"><i data-lucide="refresh-cw"></i></button></td></tr><% }); %></tbody></table></div><% } else { %><div class="app-empty app-empty-compact"><div class="app-empty-inner"><i data-lucide="server-off"></i><strong>没有实例</strong></div></div><% } %>
+</section><% }); %>
+<dialog class="app-dialog" data-worker-dialog><form data-worker-form><div class="app-dialog-header"><h2>重启评测实例</h2><button class="app-icon-button" type="button" data-worker-close aria-label="关闭"><i data-lucide="x"></i></button></div><div class="app-dialog-body"><p data-worker-copy></p></div><div class="app-dialog-actions"><button class="app-button app-button-secondary" type="button" data-worker-close>取消</button><button class="app-button app-button-danger" type="submit"><i data-lucide="refresh-cw"></i>确认重启</button></div></form></dialog>
 <script>
 (function () {
   var refreshing = false;
   var statusNames = { running: '运行中', restarting: '重启中', exited: '已退出', created: '已创建', dead: '异常' };
-  var statusClasses = { running: 'nwpuoj-status-success', restarting: 'nwpuoj-status-warning', exited: 'nwpuoj-status-muted', dead: 'nwpuoj-status-danger' };
-
-  function text(id, value) {
-    var element = document.getElementById(id);
-    if (element) element.textContent = value;
+  var statusClasses = { running: 'app-status-accepted', restarting: 'app-status-pending', exited: 'app-status-muted', created: 'app-status-info', dead: 'app-status-rejected' };
+  var dialog = document.querySelector('[data-worker-dialog]');
+  var restartForm = dialog && dialog.querySelector('[data-worker-form]');
+  var selectedWorker = null;
+  function setText(id, value) { var element = document.getElementById(id); if (element) element.textContent = value; }
+  function setField(row, name, value) { var element = row.querySelector('[data-field="' + name + '"]'); if (element) element.textContent = value; return element; }
+  function setLive(ok) {
+    var live = document.getElementById('judge-live-state');
+    if (!live) return;
+    live.className = 'app-status ' + (ok ? 'app-status-accepted' : 'app-status-rejected');
+    var label = live.querySelector('[data-live-text]');
+    if (label) label.textContent = ok ? '实时' : '连接中断';
+    var offline = document.querySelector('[data-judge-queue-offline]');
+    if (offline) offline.hidden = ok;
   }
-  function field(row, name, value) {
-    var element = row.querySelector('[data-field="' + name + '"]');
-    if (element) element.textContent = value;
-    return element;
+  function queueAge(seconds) {
+    var value = Math.max(0, Number(seconds) || 0);
+    if (value < 60) return value < 5 ? '刚刚' : Math.floor(value) + ' 秒';
+    if (value < 3600) return Math.floor(value / 60) + ' 分钟';
+    return Math.floor(value / 3600) + ' 小时 ' + Math.floor(value % 3600 / 60) + ' 分';
+  }
+  function queueCell(row, textValue, className) {
+    var cell = document.createElement('td');
+    if (className) cell.className = className;
+    cell.textContent = textValue;
+    row.appendChild(cell);
+    return cell;
+  }
+  function queueLink(cell, href, textValue) {
+    var link = document.createElement('a'); link.href = href; link.textContent = textValue; cell.textContent = ''; cell.appendChild(link); return link;
+  }
+  function renderQueue(items, total) {
+    var rowsNode = document.querySelector('[data-judge-queue-rows]');
+    var table = document.querySelector('[data-judge-queue-table]');
+    var empty = document.querySelector('[data-judge-queue-empty]');
+    if (!rowsNode || !table || !empty) return;
+    rowsNode.replaceChildren();
+    items.forEach(function (item, index) {
+      var row = document.createElement('tr'); row.dataset.queueSubmissionId = item.id;
+      queueCell(row, String(index + 1), 'app-cell-number');
+      var submission = queueCell(row, '', 'app-cell-number'); queueLink(submission, item.contest_id ? '/contest/submission/' + item.id : '/submission/' + item.id, '#' + item.id);
+      var state = queueCell(row, ''); var badge = document.createElement('span'); var stateNames = { queued: '等待', compiling: '编译', judging: '评测' }; var stateClasses = { queued: 'app-status-pending', compiling: 'app-status-compiling', judging: 'app-status-judging' }; badge.className = 'app-status ' + (item.has_dispatch_error ? 'app-status-rejected' : stateClasses[item.state] || 'app-status-muted'); badge.textContent = item.has_dispatch_error ? '调度重试' : stateNames[item.state] || item.state; state.appendChild(badge); if (item.dispatch_attempts) { var attempts = document.createElement('small'); attempts.className = 'app-row-description'; attempts.textContent = item.dispatch_attempts + ' 次'; state.appendChild(attempts); }
+      var problem = queueCell(row, '', 'app-cell-primary'); queueLink(problem, '/problem/' + item.problem_id, '#' + item.problem_id + ' ' + (item.problem_title || '题目已归档'));
+      var submitter = queueCell(row, ''); queueLink(submitter, '/user/' + item.user_id, item.username || '#' + item.user_id);
+      queueCell(row, item.language || '-'); queueCell(row, item.contest_id ? '比赛 #' + item.contest_id : '练习');
+      var age = queueCell(row, '', 'app-cell-number'); var time = document.createElement('time'); time.dateTime = item.submitted_at; time.title = item.submitted_at; time.textContent = queueAge(item.age_seconds); age.appendChild(time); if (item.is_stale) { var stale = document.createElement('small'); stale.className = 'app-row-description app-text-danger'; stale.textContent = '超时'; age.appendChild(stale); }
+      rowsNode.appendChild(row);
+    });
+    table.hidden = items.length === 0; empty.hidden = items.length !== 0;
+    var visible = document.querySelector('[data-judge-queue-visible]'); if (visible) visible.textContent = items.length;
+    var totalNode = document.querySelector('[data-judge-queue-total]'); if (totalNode) totalNode.textContent = total;
   }
   function refresh() {
     if (refreshing || document.visibilityState === 'hidden') return;
     refreshing = true;
-    fetch('/api/admin/judge-workers/status', { credentials: 'same-origin', cache: 'no-store' })
-      .then(function (response) { return response.ok ? response.json() : null; })
+    fetch('/api/v2/admin/judge-workers', { credentials: 'same-origin', cache: 'no-store' })
+      .then(function (response) { return response.json().then(function (body) { if (!response.ok) throw new Error(body.error && body.error.message || 'request failed'); return body.data; }); })
       .then(function (payload) {
-        if (!payload) throw new Error('empty response');
+        var workers = payload.workers || [];
         var rows = document.querySelectorAll('[data-container-id]');
-        if (rows.length !== payload.containers.length) return location.reload();
+        if (rows.length !== workers.length) { location.reload(); return; }
         var daemonRunning = 0, daemonTotal = 0, runnerRunning = 0, runnerTotal = 0;
-        payload.containers.forEach(function (item) {
+        workers.forEach(function (item) {
           var row = document.querySelector('[data-container-id="' + item.id + '"]');
-          if (!row) return location.reload();
+          if (!row) { location.reload(); return; }
           if (item.service === 'judge-daemon') { daemonTotal++; if (item.running) daemonRunning++; }
           if (item.service === 'judge-runner-1') { runnerTotal++; if (item.running) runnerRunning++; }
-          var status = field(row, 'status', item.oomKilled ? 'OOM' : (statusNames[item.status] || item.status));
-          if (status) status.className = 'nwpuoj-status ' + (item.oomKilled ? 'nwpuoj-status-danger' : (statusClasses[item.status] || 'nwpuoj-status-muted'));
-          var health = field(row, 'health', item.health || '');
-          if (health) health.style.display = item.health ? '' : 'none';
-          field(row, 'cpu', item.cpuPercent.toFixed(1) + '%');
-          field(row, 'memory', item.memoryMiB.toFixed(1) + ' MiB');
-          field(row, 'pids', item.pids || '-');
-          field(row, 'restarts', item.restartCount);
-          field(row, 'started', item.startedAt > 0 ? new Date(item.startedAt * 1000).toLocaleString('zh-CN', { hour12: false }) : '-');
+          var status = setField(row, 'status', item.oom_killed ? 'OOM' : (statusNames[item.state] || item.state));
+          if (status) status.className = 'app-status ' + (item.oom_killed ? 'app-status-rejected' : (statusClasses[item.state] || 'app-status-muted'));
+          var health = setField(row, 'health', item.health || '');
+          if (health) health.hidden = !item.health;
+          setField(row, 'cpu', Number(item.cpu_percent || 0).toFixed(1) + '%');
+          setField(row, 'memory', Number(item.memory_mib || 0).toFixed(1) + ' MiB');
+          setField(row, 'pids', item.pids || '-');
+          setField(row, 'restarts', item.restart_count);
+          setField(row, 'started', item.started_at > 0 ? new Date(item.started_at * 1000).toLocaleString('zh-CN', { hour12: false }) : '-');
         });
-        text('judge-daemon-summary', daemonRunning + ' / ' + daemonTotal);
-        text('judge-runner-summary', runnerRunning + ' / ' + runnerTotal);
-        text('judge-pending-summary', payload.summary.pending);
-        text('judge-stale-summary', payload.summary.stale);
-        var live = document.getElementById('judge-live-state');
-        if (live) { live.className = 'nwpuoj-status nwpuoj-status-success'; live.innerHTML = '<i class="circle icon"></i>实时'; }
-        text('judge-last-updated', new Date().toLocaleTimeString('zh-CN', { hour12: false }));
-      }).catch(function () {
-        var live = document.getElementById('judge-live-state');
-        if (live) { live.className = 'nwpuoj-status nwpuoj-status-danger'; live.innerHTML = '<i class="exclamation triangle icon"></i>连接中断'; }
-      }).then(function () { refreshing = false; });
+        setText('judge-daemon-summary', daemonRunning + ' / ' + daemonTotal);
+        setText('judge-runner-summary', runnerRunning + ' / ' + runnerTotal);
+        setText('judge-pending-summary', payload.summary.pending);
+        setText('judge-stale-summary', payload.summary.stale);
+        renderQueue(payload.queue || [], payload.summary.pending);
+        setText('judge-last-updated', new Date().toLocaleTimeString('zh-CN', { hour12: false }));
+        setLive(true);
+      })
+      .catch(function () { setLive(false); })
+      .then(function () { refreshing = false; });
   }
+  document.addEventListener('click', function (event) {
+    var button = event.target.closest('[data-worker-restart]');
+    if (button) {
+      selectedWorker = { id: button.dataset.workerRestart, name: button.dataset.workerName };
+      dialog.querySelector('[data-worker-copy]').textContent = '重启 ' + selectedWorker.name + ' 可能中断正在运行的评测。';
+      dialog.showModal();
+      return;
+    }
+    if (event.target.closest('[data-worker-close]')) dialog.close();
+  });
+  restartForm.addEventListener('submit', function (event) {
+    event.preventDefault();
+    if (!selectedWorker) return;
+    var submit = restartForm.querySelector('button[type="submit"]');
+    submit.disabled = true;
+    fetch('/api/v2/admin/judge-workers/' + encodeURIComponent(selectedWorker.id) + '/restart', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) },
+      body: JSON.stringify({})
+    }).then(function (response) { return response.json().then(function (body) { if (!response.ok) throw new Error(body.error && body.error.message || '重启失败'); return body; }); })
+      .then(function () { dialog.close(); if (window.NWPUOJApp) window.NWPUOJApp.showToast(selectedWorker.name + ' 已重启', 'success'); refresh(); })
+      .catch(function (error) { if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message, 'error'); })
+      .then(function () { submit.disabled = false; });
+  });
   refresh();
-  setInterval(refresh, 3000);
+  window.setInterval(refresh, 3000);
   document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') refresh(); });
 })();
 </script>
-
 <% include admin_footer %>

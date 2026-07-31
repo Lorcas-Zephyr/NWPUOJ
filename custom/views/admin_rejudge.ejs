@@ -1,0 +1,44 @@
+<% this.adminPage = 'rejudge'; %>
+<% include admin_header %>
+
+<div class="app-admin-toolbar"><div><h3>筛选提交</h3><p>按条件创建后台重测任务，单次最多处理 <%= rejudgeLimit %> 条提交。</p></div></div>
+<form class="app-form" id="rejudge-form" method="post" data-admin-rejudge-v2><div class="app-form-grid"><label class="app-field app-field-quarter"><span class="app-label">题目 ID</span><input class="app-input" type="text" name="problem_id" value="<%= form.problem_id || '' %>"></label><label class="app-field app-field-quarter"><span class="app-label">用户名</span><input class="app-input" type="text" name="submitter" value="<%= form.submitter || '' %>"></label><label class="app-field app-field-quarter"><span class="app-label">语言</span><select class="app-select" name="language"><option value="">不限</option><option value="submit-answer">提交答案</option><option value="non-submit-answer">非提交答案</option><% for (const language of syzoj.config.filter_enabled_languages) { %><option value="<%= language %>"><%= syzoj.languages[language].show %></option><% } %></select></label><label class="app-field app-field-quarter"><span class="app-label">状态</span><select class="app-select" name="status"><option value="">不限</option><% for (const status in this.icon) { if (this.iconHidden.includes(status)) continue; const value = status === 'Pending' ? 'Waiting' : status; %><option value="<%= value %>"><%= status %></option><% } %></select></label></div>
+<section class="app-admin-range"><header><span>范围下限</span><span>范围上限</span></header><div class="app-admin-range-row"><strong>提交 ID</strong><input class="app-input" type="text" name="min_id" value="<%= form.min_id %>" placeholder="最小值"><input class="app-input" type="text" name="max_id" value="<%= form.max_id %>" placeholder="最大值"></div><div class="app-admin-range-row"><strong>分数</strong><input class="app-input" type="text" name="min_score" value="<%= form.min_score %>" placeholder="最小值"><input class="app-input" type="text" name="max_score" value="<%= form.max_score %>" placeholder="最大值"></div><div class="app-admin-range-row"><strong>提交时间</strong><input class="app-input" type="text" name="min_time" value="<%= form.min_time || syzoj.utils.formatDate(0) %>"><input class="app-input" type="text" name="max_time" value="<%= form.max_time || syzoj.utils.formatDate(2147483647) %>"></div></section>
+<div class="app-form-actions"><span class="app-form-status" data-rejudge-status aria-live="polite"></span><button class="app-button app-button-primary" type="submit"><i data-lucide="refresh-cw"></i>创建批量重测任务</button></div></form>
+<script>
+(function () {
+  var form = document.querySelector('[data-admin-rejudge-v2]');
+  if (!form) return;
+  var status = form.querySelector('[data-rejudge-status]');
+  form.addEventListener('submit', async function (event) {
+    event.preventDefault();
+    var button = form.querySelector('[type="submit"]');
+    if (button) button.disabled = true;
+    if (status) status.textContent = '正在创建任务...';
+    try {
+      var payload = {};
+      new FormData(form).forEach(function (value, key) {
+        var normalized = String(value).trim();
+        if (normalized) payload[key] = normalized;
+      });
+      var response = await fetch('/api/v2/admin/rejudge/jobs', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random()
+        },
+        body: JSON.stringify(payload)
+      });
+      var body = await response.json();
+      if (!response.ok) throw new Error(body && body.error && body.error.message || '重测任务创建失败。');
+      window.location.assign('/admin/jobs?job=' + encodeURIComponent(body.data.id));
+    } catch (error) {
+      if (status) status.textContent = error.message || '重测任务创建失败。';
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '重测任务创建失败。', 'danger');
+      if (button) button.disabled = false;
+    }
+  });
+})();
+</script>
+<% include admin_footer %>

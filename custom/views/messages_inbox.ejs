@@ -1,59 +1,9 @@
 <% this.title = '站内信' %>
-<% include header %>
+<% include app_header %>
 
-<div class="padding">
-  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-    <h2 style="margin: 0;"><i class="envelope icon"></i> 站内信</h2>
-    <div>
-      <a class="ui primary button" href="<%= syzoj.utils.makeUrl(['messages', 'new']) %>">
-        <i class="edit icon"></i> 发起新对话
-      </a>
-      <a class="ui button" href="<%= syzoj.utils.makeUrl(['messages', 'settings']) %>">
-        <i class="cog icon"></i> 设置
-      </a>
-    </div>
-  </div>
-
-  <% if (conversations.length === 0) { %>
-    <div class="ui placeholder segment">
-      <div class="ui icon header">
-        <i class="inbox icon"></i>
-        暂无对话
-      </div>
-      <a class="ui primary button" href="<%= syzoj.utils.makeUrl(['messages', 'new']) %>">
-        发起新对话
-      </a>
-    </div>
-  <% } else { %>
-    <div style="margin-top: 0;">
-      <% for (let c of conversations) { %>
-        <div style="padding: 14px 8px; border-bottom: 1px solid #eee; display: flex; align-items: center;">
-          <img src="<%= syzoj.utils.avatar(c.partner, 80) %>"
-               style="border-radius: 50%; width: 48px; height: 48px; object-fit: cover; flex-shrink: 0;">
-          <div style="margin-left: 14px; flex: 1; min-width: 0;">
-            <a href="<%= syzoj.utils.makeUrl(['messages', 'with', c.partner.id]) %>" style="font-size: 1.1em; font-weight: bold;">
-                <%- syzoj.utils.renderUsername(c.partner, { noLink: true }) %>
-                <% if (c.unread > 0) { %>
-                    <span class="ui red label" style="margin-left: 6px;"><%= c.unread %> 未读</span>
-                <% } %>
-            </a>
-            <div style="color: #888; font-size: 0.85em; margin: 4px 0;">
-              <%= syzoj.utils.formatDate(c.last_time) %>
-            </div>
-            <div style="color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-              <% if (c.last_message) { %>
-                <% let preview = (c.last_message.content || '').replace(/\n/g, ' ').substring(0, 80); %>
-                <% if (c.last_message.sender_id === user.id) { %>
-                  <span style="color: #999;">我：</span>
-                <% } %>
-                <%= preview %><% if ((c.last_message.content || '').length > 80) { %>...<% } %>
-              <% } %>
-            </div>
-          </div>
-        </div>
-      <% } %>
-    </div>
-  <% } %>
+<div class="app-page app-messages-page">
+  <header class="app-page-header"><div class="app-page-heading"><span class="app-kicker">MESSAGES</span><h1 class="app-page-title">站内信</h1><p class="app-page-description">与平台用户进行一对一沟通。</p></div><div class="app-page-actions"><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['messages', 'settings']) %>"><i data-lucide="settings"></i>设置</a><a class="app-button app-button-primary" href="<%= syzoj.utils.makeUrl(['messages', 'new']) %>"><i data-lucide="square-pen"></i>新对话</a></div></header>
+  <% if (conversations.length) { %><div class="app-conversation-list"><% for (const conversation of conversations) { const appPreview = conversation.last_message ? String(conversation.last_message.content || '').replace(/\n/g, ' ').substring(0, 80) : ''; %><a href="<%= syzoj.utils.makeUrl(['messages', 'with', conversation.partner.id]) %>" class="<%= conversation.unread > 0 ? 'is-unread' : '' %>"><img src="<%= syzoj.utils.avatar(conversation.partner, 80) %>" alt=""><span class="app-conversation-main"><span><strong><%= conversation.partner.username %></strong><% if (conversation.unread > 0) { %><em><%= conversation.unread > 99 ? '99+' : conversation.unread %></em><% } %></span><small><% if (conversation.last_message && conversation.last_message.sender_id === user.id) { %>我：<% } %><%= appPreview %><%= conversation.last_message && String(conversation.last_message.content || '').length > 80 ? '...' : '' %></small></span><time><%= syzoj.utils.formatDate(conversation.last_time) %></time><i data-lucide="chevron-right"></i></a><% } %></div><% } else { %><div class="app-empty"><div class="app-empty-inner"><i data-lucide="inbox"></i><strong>暂无对话</strong><p>向其他用户发送消息后，对话会显示在这里。</p><a class="app-button app-button-primary" href="<%= syzoj.utils.makeUrl(['messages', 'new']) %>">发起新对话</a></div></div><% } %>
 </div>
 
-<% include footer %>
+<% include app_footer %>

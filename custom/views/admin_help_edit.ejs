@@ -1,34 +1,42 @@
 <% this.adminPage = 'help'; %>
 <% include admin_header %>
-<div class="nwpuoj-page-header">
-  <div>
-    <h2 class="nwpuoj-page-title"><i class="help circle icon"></i>编辑帮助页</h2>
-    <div class="nwpuoj-meta">当前修订 <%= helpPage.revision %></div>
-  </div>
-  <a class="ui basic labeled icon button" href="<%= syzoj.utils.makeUrl(['help']) %>"><i class="eye icon"></i>查看帮助页</a>
-</div>
 
-<form class="ui form" method="post" data-markdown-editor data-draft-key="content-draft:admin-help:<%= user.id %>">
-  <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>">
-  <input type="hidden" name="revision" value="<%= helpPage.revision %>">
-  <div class="ui top attached tabular menu nwpuoj-editor-mode" role="tablist">
-    <a class="active item" role="tab" aria-selected="true" data-tab="edit"><i class="edit icon"></i>编辑</a>
-    <a class="item" role="tab" aria-selected="false" data-tab="preview" data-preview-tab><i class="eye icon"></i>预览</a>
+<div class="app-admin-toolbar"><div><h3>编辑帮助页</h3><p>当前修订 <%= helpPage.revision %>，提交时会检查并发修改。</p></div><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['help']) %>" target="_blank" rel="noopener"><i data-lucide="external-link"></i>查看帮助页</a></div>
+<form class="app-form" method="post" data-markdown-editor data-admin-help-v2 data-draft-key="content-draft:admin-help:<%= user.id %>">
+  <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>"><input type="hidden" name="revision" value="<%= helpPage.revision %>">
+  <div class="app-editor-bar"><div class="app-segmented" role="tablist"><button class="is-active" type="button" role="tab" aria-selected="true" data-tab="edit"><i data-lucide="square-pen"></i>编辑</button><button type="button" role="tab" aria-selected="false" data-tab="preview"><i data-lucide="eye"></i>预览</button></div><span class="app-form-status" data-draft-status aria-live="polite"></span></div>
+  <div class="app-editor-workspace">
+    <div data-editor-panel="edit"><label class="app-field app-field-full app-editor-content-field"><span class="app-label">Markdown 内容</span><textarea class="app-textarea app-admin-editor" rows="30" id="content" name="content" required><%= helpPage.content %></textarea></label></div>
+    <div class="app-editor-preview app-markdown" data-editor-panel="preview" hidden aria-live="polite"><div data-preview-content></div></div>
   </div>
-  <div class="ui bottom attached active tab segment" data-tab="edit">
-    <div class="field">
-      <label for="content">Markdown 内容</label>
-      <textarea rows="30" id="content" name="content" class="markdown-edit" required><%= helpPage.content %></textarea>
-    </div>
-  </div>
-  <div class="ui bottom attached tab segment" data-tab="preview">
-    <div class="font-content" data-preview-content></div>
-  </div>
-  <div class="nwpuoj-editor-actions">
-    <button type="button" class="ui basic labeled icon button" data-save-draft><i class="save icon"></i>保存草稿</button>
-    <button type="submit" class="ui primary labeled icon button"><i class="check icon"></i>发布帮助页</button>
-    <span class="nwpuoj-draft-status" data-draft-status aria-live="polite"></span>
-  </div>
+  <div class="app-form-actions"><button class="app-button app-button-secondary" type="button" data-save-draft><i data-lucide="save"></i>保存草稿</button><button class="app-button app-button-primary" type="submit"><i data-lucide="send"></i>发布帮助页</button></div>
 </form>
 <% include markdown_editor_script %>
+<script>
+(function () {
+  var form = document.querySelector('[data-admin-help-v2]');
+  if (!form) return;
+  form.addEventListener('submit', async function (event) {
+    event.preventDefault();
+    var button = form.querySelector('[type="submit"]'); if (button) button.disabled = true;
+    try {
+      var current = await fetch('/api/v2/admin/help/pages/main', { credentials: 'same-origin', cache: 'no-store' });
+      var currentBody = await current.json();
+      if (!current.ok) throw new Error(currentBody && currentBody.error && currentBody.error.message || '帮助页读取失败。');
+      var response = await fetch('/api/v2/admin/help/pages/main', {
+        method: 'PUT', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'If-Match': current.headers.get('ETag') || '' },
+        body: JSON.stringify({ content: form.elements.content.value })
+      });
+      var body = await response.json();
+      if (!response.ok) throw new Error(body && body.error && body.error.message || '帮助页保存失败。');
+      try { localStorage.removeItem(form.dataset.draftKey); } catch (error) {}
+      window.location.assign('/admin/help?saved=1');
+    } catch (error) {
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '帮助页保存失败。', 'danger');
+      if (button) button.disabled = false;
+    }
+  });
+})();
+</script>
 <% include admin_footer %>

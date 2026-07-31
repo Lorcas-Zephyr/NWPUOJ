@@ -1,0 +1,117 @@
+<script>
+(function () {
+  var forms = document.querySelectorAll('[data-message-v2]');
+  var deleteControls = document.querySelectorAll('[data-message-v2-delete], [data-message-v2-delete-conversation]');
+  if (!forms.length && !deleteControls.length) return;
+
+  function operationKey() {
+    return window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random();
+  }
+function apiMessage(body, fallback) {
+    if (!body || !body.error) return fallback;
+    var messages = {
+      VERIFIED_EMAIL_REQUIRED: '请先验证邮箱后再发送站内信。',
+      MESSAGE_RECIPIENT_NOT_FOUND: '找不到该用户，请检查 UID 或用户名。',
+      MESSAGES_DISABLED: '该用户已关闭站内信。',
+      VALIDATION_FAILED: '请检查收件人与消息内容。',
+      ETAG_MISMATCH: '设置已在其他页面修改，请刷新后重试。'
+    };
+    return messages[body.error.code] || body.error.message || fallback;
+  }
+
+  async function readResponse(response) {
+    var body = null;
+    try { body = await response.json(); } catch (error) {}
+    return { response: response, body: body };
+  }
+async function resolveRecipient(form) {
+    var input = form.elements.to;
+    var value = String(input.value || '').trim();
+    if (input.dataset.recipientId) return { id: input.dataset.recipientId };
+    var result = await readResponse(await fetch('/api/v2/search/users/' + encodeURIComponent(value), { credentials: 'same-origin', cache: 'no-store' }));
+    if (!result.response.ok) throw new Error(apiMessage(result.body, '暂时无法查找收件人。'));
+    var users = result.body && result.body.data || [];
+    var lowered = value.toLocaleLowerCase();
+    var recipient = users.find(function (candidate) {
+      return String(candidate.value) === value || String(candidate.name || '').toLocaleLowerCase() === lowered;
+    });
+    if (!recipient) throw new Error('找不到该用户，请检查 UID 或用户名。');
+    return { id: recipient.value };
+  }
+
+  async function updateSettings(form) {
+    var current = await readResponse(await fetch('/api/v2/messages/settings', { credentials: 'same-origin', cache: 'no-store' }));
+    if (!current.response.ok) throw new Error(apiMessage(current.body, '暂时无法读取站内信设置。'));
+    var etag = current.response.headers.get('ETag');
+    if (!etag) throw new Error('设置版本信息缺失，请刷新后重试。');
+    var result = await readResponse(await fetch('/api/v2/messages/settings', {
+      method: 'PATCH',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operationKey(), 'If-Match': etag },
+      body: JSON.stringify({ disable_messages: !!form.elements.disable_messages.checked })
+    }));
+    if (!result.response.ok) throw new Error(apiMessage(result.body, '设置保存失败。'));
+    return { data: result.body.data };
+  }
+
+  document.addEventListener('click', async function (event) {
+    var control = event.target.closest('[data-message-v2-delete], [data-message-v2-delete-conversation]');
+    if (!control) return;
+    event.preventDefault();
+    var confirmation = control.dataset.confirm;
+    if (confirmation && !window.confirm(confirmation)) return;
+    var conversationId = control.dataset.messageV2DeleteConversation;
+    var messageId = control.dataset.messageV2Delete;
+    var endpoint = conversationId
+      ? '/api/v2/messages/conversations/' + encodeURIComponent(conversationId)
+      : '/api/v2/messages/' + encodeURIComponent(messageId);
+    control.setAttribute('aria-disabled', 'true');
+    try {
+      var result = await readResponse(await fetch(endpoint, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: { 'Idempotency-Key': operationKey() }
+      }));
+      if (!result.response.ok) throw new Error(apiMessage(result.body, conversationId ? '清空对话失败。' : '删除消息失败。'));
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(conversationId ? '对话已从你的列表移除' : '消息已删除', 'success');
+      if (conversationId) return window.setTimeout(function () { window.location.assign('/messages'); }, 250);
+      window.setTimeout(function () { window.location.reload(); }, 250);
+    } catch (error) {
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '删除失败，请稍后重试。', 'danger');
+      else window.alert(error.message || '删除失败，请稍后重试。');
+      control.removeAttribute('aria-disabled');
+    }
+  });
+
+  document.addEventListener('submit', async function (event) {
+    var form = event.target.closest('[data-message-v2]');
+    if (!form || event.defaultPrevented) return;
+    event.preventDefault();
+    var action = form.dataset.messageV2;
+    var submit = form.querySelector('[type="submit"]');
+    if (submit) submit.disabled = true;
+    form.setAttribute('aria-busy', 'true');
+    try {
+      if (action === 'settings') {
+        var updated = await updateSettings(form);
+        if (window.NWPUOJApp) window.NWPUOJApp.showToast('站内信设置已保存。', 'success');
+        return window.setTimeout(function () { window.location.reload(); }, 250);
+      }
+      var recipient = action === 'new' ? await resolveRecipient(form) : { id: form.dataset.messageRecipientId };
+      var result = await readResponse(await fetch('/api/v2/messages/conversations/' + encodeURIComponent(recipient.id) + '/messages', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operationKey() },
+        body: JSON.stringify({ content: form.elements.content.value })
+      }));
+      if (!result.response.ok) throw new Error(apiMessage(result.body, '消息发送失败。'));
+      window.location.assign('/messages/with/' + encodeURIComponent(recipient.id));
+    } catch (error) {
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '操作失败，请稍后重试。', 'danger');
+      else window.alert(error.message || '操作失败，请稍后重试。');
+      if (submit) submit.disabled = false;
+      form.removeAttribute('aria-busy');
+    }
+  });
+})();
+</script>

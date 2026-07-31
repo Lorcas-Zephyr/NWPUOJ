@@ -1,10 +1,31 @@
 // 用户名牌子(tag) 系统
+const TypeORM = require('typeorm');
 let UserTag = syzoj.model('user-tag');
 let User = syzoj.model('user');
 
-const USER_TAGS_ENABLED = false;
-syzoj.userTagsEnabled = USER_TAGS_ENABLED;
+let userTagSettingSchemaPromise = null;
+syzoj.userTagsEnabled = true;
 syzoj.userTags = new Map();
+
+async function ensureUserTagSettingSchema() {
+  if (userTagSettingSchemaPromise) return userTagSettingSchemaPromise;
+  userTagSettingSchemaPromise = (async () => {
+    const connection = TypeORM.getConnection();
+    await connection.query(`CREATE TABLE IF NOT EXISTS user_tag_global_setting (
+      scope VARCHAR(32) NOT NULL PRIMARY KEY,enabled TINYINT(1) NOT NULL DEFAULT 1,
+      updated_by INT NULL,updated_at DATETIME(3) NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    await connection.query("INSERT IGNORE INTO user_tag_global_setting (scope,enabled,updated_by,updated_at) VALUES ('global',1,NULL,UTC_TIMESTAMP(3))");
+  })().catch(error => { userTagSettingSchemaPromise = null; throw error; });
+  return userTagSettingSchemaPromise;
+}
+
+async function readUserTagGlobalSetting(connection = TypeORM.getConnection()) {
+  await ensureUserTagSettingSchema();
+  const rows = await connection.query("SELECT enabled,updated_by,updated_at FROM user_tag_global_setting WHERE scope='global' LIMIT 1");
+  const row = rows[0] || { enabled: 1, updated_by: null, updated_at: null };
+  return { enabled: !!row.enabled, updated_by: row.updated_by == null ? null : Number(row.updated_by), updated_at: row.updated_at || null };
+}
 
 function hasAdminRole(user) {
   if (!user) return false;
@@ -16,6 +37,15 @@ function hasAdminRole(user) {
     user.privileges.includes('manage_user')
   )) return true;
   return false;
+}
+
+async function canManageUserTags(user) {
+  return !!(user && await syzoj.utils.authorizationV2.authorize(
+    user,
+    'admin:user.manage',
+    null,
+    { scope: 'global' }
+  ));
 }
 
 function calcUserTier(userId, isAdminFlag) {
@@ -34,11 +64,13 @@ function calcUserTier(userId, isAdminFlag) {
 }
 
 async function refreshUserTagsCache() {
-  if (!USER_TAGS_ENABLED) {
-    syzoj.userTags = new Map();
-    return;
-  }
   try {
+    const setting = await readUserTagGlobalSetting();
+    syzoj.userTagsEnabled = setting.enabled;
+    if (!setting.enabled) {
+      syzoj.userTags = new Map();
+      return;
+    }
     // 拿所有未禁用的记录(包括 is_visible=false 的,用于判断"显式存在")
     let allRows = await UserTag.createQueryBuilder()
       .where('is_disabled = FALSE')
@@ -81,7 +113,7 @@ setTimeout(refreshUserTagsCache, 8 * 1000);
 setInterval(refreshUserTagsCache, 60 * 1000);
 
 async function getUserTagState(user) {
-  if (!USER_TAGS_ENABLED) return { hasPermission: false, isAutoFromAdmin: false, record: null, isDisabled: false };
+  if (syzoj.userTagsEnabled === false) return { hasPermission: false, isAutoFromAdmin: false, record: null, isDisabled: false };
   if (!user) return { hasPermission: false, isAutoFromAdmin: false, record: null };
 
   let record = await UserTag.findOne({ where: { user_id: user.id } });
@@ -102,52 +134,13 @@ async function getUserTagState(user) {
 
 syzoj.utils.getUserTagState = getUserTagState;
 syzoj.utils.refreshUserTagsCache = refreshUserTagsCache;
+syzoj.utils.userTagSettings = Object.freeze({ ensureSchema: ensureUserTagSettingSchema, read: readUserTagGlobalSetting });
 
-app.post('/api/my-tag', async (req, res) => {
-  try {
-    if (!USER_TAGS_ENABLED) return res.status(404).json({ ok: false, message: '账户牌子功能已关闭。' });
-    if (!res.locals.user) {
-      return res.status(401).json({ ok: false, message: '请先登录。' });
-    }
-
-    let state = await getUserTagState(res.locals.user);
-    if (!state.hasPermission) {
-      return res.status(403).json({ ok: false, message: '您没有 tag 权限。' });
-    }
-
-    let tagText = (req.body.tag_text || '').trim();
-    if (tagText.length > 12) {
-      return res.json({ ok: false, message: 'tag 文字不能超过 12 字符。' });
-    }
-    let isVisible = (req.body.is_visible === 'true' || req.body.is_visible === 'on' || req.body.is_visible === true);
-
-    let now = parseInt((new Date()).getTime() / 1000);
-    let record = state.record;
-    if (!record) {
-      record = await UserTag.create();
-      record.user_id = res.locals.user.id;
-      record.granted_by = null;
-      record.granted_at = now;
-      record.is_disabled = false;
-    }
-    record.tag_text = tagText;
-    record.is_visible = isVisible;
-    record.updated_at = now;
-    await record.save();
-
-    await refreshUserTagsCache();
-    res.json({ ok: true });
-  } catch (e) {
-    syzoj.log(e);
-    res.status(500).json({ ok: false, message: e.message || '保存失败' });
-  }
-});
 
 app.get('/admin/user-tags', async (req, res) => {
   try {
-    if (!USER_TAGS_ENABLED) return res.status(404).render('error', { err: new ErrorMessage('账户牌子功能已关闭。') });
-    if (!res.locals.user || !res.locals.user.is_admin) {
-      throw new ErrorMessage('仅超级管理员可访问。');
+    if (!await canManageUserTags(res.locals.user)) {
+      throw new ErrorMessage('您没有权限管理账户牌子。');
     }
 
     let records = await UserTag.createQueryBuilder()
@@ -167,134 +160,14 @@ app.get('/admin/user-tags', async (req, res) => {
       for (let u of users) userMap[u.id] = u;
     }
 
+    const setting = await readUserTagGlobalSetting();
+    const canConfigureUserTags = !!(res.locals.user && await syzoj.utils.authorizationV2.authorize(res.locals.user, 'admin:config.write', null, { scope: 'global' }));
     res.render('admin_user_tags', {
       records: records,
-      userMap: userMap
+      userMap: userMap,
+      userTagsEnabled: setting.enabled,
+      canConfigureUserTags
     });
-  } catch (e) {
-    syzoj.log(e);
-    res.render('error', { err: e });
-  }
-});
-
-app.post('/admin/user-tags/grant', async (req, res) => {
-  try {
-    if (!USER_TAGS_ENABLED) return res.status(404).render('error', { err: new ErrorMessage('账户牌子功能已关闭。') });
-    if (!res.locals.user || !res.locals.user.is_admin) {
-      throw new ErrorMessage('仅超级管理员可操作。');
-    }
-
-    let username = (req.body.username || '').trim();
-    let uidQuery = (req.body.user_id || '').trim();
-
-    let target = null;
-    if (uidQuery) {
-      target = await User.findById(parseInt(uidQuery));
-    } else if (username) {
-      target = await User.fromName(username);
-    }
-    if (!target) throw new ErrorMessage('找不到目标用户。');
-
-    let existing = await UserTag.findOne({ where: { user_id: target.id } });
-    let now = parseInt((new Date()).getTime() / 1000);
-
-    if (existing) {
-      if (existing.is_disabled) {
-        existing.is_disabled = false;
-        existing.disabled_by = null;
-        existing.disabled_at = null;
-        existing.disabled_reason = null;
-        existing.granted_by = res.locals.user.id;
-        existing.granted_at = now;
-        existing.updated_at = now;
-        await existing.save();
-      } else {
-        throw new ErrorMessage('该用户已有 tag 权限,无需重复授权。');
-      }
-    } else {
-      let r = await UserTag.create();
-      r.user_id = target.id;
-      r.tag_text = '';
-      r.is_visible = true;
-      r.granted_by = res.locals.user.id;
-      r.granted_at = now;
-      r.is_disabled = false;
-      r.updated_at = now;
-      await r.save();
-    }
-
-    await refreshUserTagsCache();
-    res.redirect(syzoj.utils.makeUrl(['admin', 'user-tags']));
-  } catch (e) {
-    syzoj.log(e);
-    res.render('error', { err: e });
-  }
-});
-
-app.post('/admin/user-tags/:uid/disable', async (req, res) => {
-  try {
-    if (!USER_TAGS_ENABLED) return res.status(404).render('error', { err: new ErrorMessage('账户牌子功能已关闭。') });
-    if (!res.locals.user || !res.locals.user.is_admin) {
-      throw new ErrorMessage('仅超级管理员可操作。');
-    }
-
-    let uid = parseInt(req.params.uid);
-    let target = await User.findById(uid);
-    if (!target) throw new ErrorMessage('用户不存在。');
-
-    if (uid === res.locals.user.id) {
-      throw new ErrorMessage('不能禁用自己的 tag 权限。');
-    }
-    if (target.is_admin) {
-      throw new ErrorMessage('不能禁用其他超级管理员的 tag 权限。');
-    }
-
-    let now = parseInt((new Date()).getTime() / 1000);
-    let record = await UserTag.findOne({ where: { user_id: uid } });
-    if (!record) {
-      record = await UserTag.create();
-      record.user_id = uid;
-      record.tag_text = '';
-      record.is_visible = false;
-      record.granted_by = null;
-      record.granted_at = null;
-    }
-    record.is_disabled = true;
-    record.disabled_by = res.locals.user.id;
-    record.disabled_at = now;
-    record.disabled_reason = (req.body.reason || '').trim().slice(0, 255) || null;
-    record.updated_at = now;
-    await record.save();
-
-    await refreshUserTagsCache();
-    res.redirect(syzoj.utils.makeUrl(['admin', 'user-tags']));
-  } catch (e) {
-    syzoj.log(e);
-    res.render('error', { err: e });
-  }
-});
-
-app.post('/admin/user-tags/:uid/enable', async (req, res) => {
-  try {
-    if (!USER_TAGS_ENABLED) return res.status(404).render('error', { err: new ErrorMessage('账户牌子功能已关闭。') });
-    if (!res.locals.user || !res.locals.user.is_admin) {
-      throw new ErrorMessage('仅超级管理员可操作。');
-    }
-
-    let uid = parseInt(req.params.uid);
-    let record = await UserTag.findOne({ where: { user_id: uid } });
-    if (!record) throw new ErrorMessage('找不到该记录。');
-
-    let now = parseInt((new Date()).getTime() / 1000);
-    record.is_disabled = false;
-    record.disabled_by = null;
-    record.disabled_at = null;
-    record.disabled_reason = null;
-    record.updated_at = now;
-    await record.save();
-
-    await refreshUserTagsCache();
-    res.redirect(syzoj.utils.makeUrl(['admin', 'user-tags']));
   } catch (e) {
     syzoj.log(e);
     res.render('error', { err: e });

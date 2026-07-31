@@ -7,6 +7,7 @@ const Contest = syzoj.model('contest');
 const ContestPlayer = syzoj.model('contest_player');
 const ContestRanklist = syzoj.model('contest_ranklist');
 const JudgeState = syzoj.model('judge_state');
+const Problem = syzoj.model('problem');
 const User = syzoj.model('user');
 const ProblemSolution = syzoj.model('problem-solution');
 const Article = syzoj.model('article');
@@ -167,7 +168,24 @@ function invalidateRegistrationCache(contestId, userId) {
 }
 
 async function isProblemManager(user) {
-  return !!(user && (user.is_admin || await user.hasPrivilege('manage_problem')));
+  return !!(user && await syzoj.utils.authorizationV2.authorize(
+    user,
+    'problem:edit',
+    null,
+    { scope: 'global' }
+  ));
+}
+
+async function canManageContest(contest, user, capability = 'contest:edit') {
+  if (!contest || !user) return false;
+  const resource = {
+    id: Number(contest.id),
+    ownerId: Number(contest.holder_id),
+    scope: `contest:${contest.id}`
+  };
+  if (await syzoj.utils.authorizationV2.authorize(user, capability, resource, { scope: resource.scope })) return true;
+  return Number(contest.holder_id) === Number(user.id) ||
+    String(contest.admins || '').split('|').includes(String(user.id));
 }
 
 async function canViewContestProblems(contest, user) {
@@ -290,23 +308,6 @@ if (!JudgeState.prototype.__skipInitialContestStandingsUpdate) {
   JudgeState.prototype.__skipInitialContestStandingsUpdate = true;
 }
 
-app.post('/problem/:id/submit', async (req, res, next) => {
-  const contestId = Number(req.query.contest_id || 0);
-  if (!Number.isSafeInteger(contestId) || contestId <= 0) return next();
-  const context = {
-    contestId,
-    userId: Number(res.locals.user && res.locals.user.id || 0),
-    submissionId: null
-  };
-  const originalRedirect = res.redirect.bind(res);
-  res.redirect = function redirectWithSubmissionId() {
-    if (context.submissionId && !res.headersSent) {
-      res.setHeader('X-Submission-Id', String(context.submissionId));
-    }
-    return originalRedirect.apply(res, arguments);
-  };
-  submissionRequestContext.run(context, next);
-});
 
 app.get('/contests', (req, res, next) => {
   const originalRender = res.render.bind(res);
@@ -315,6 +316,12 @@ app.get('/contests', (req, res, next) => {
       return originalRender.apply(res, arguments);
     }
     const contestIds = options.contests.map(contest => contest.id);
+    const archivedPromise = contestIds.length && syzoj.utils.contestV2
+      ? syzoj.utils.contestV2.ensureSchema().then(() => TypeORM.getConnection().query(
+        "SELECT contest_id FROM contest_v2_state WHERE contest_id IN (?) AND status='archived'",
+        [contestIds]
+      ))
+      : Promise.resolve([]);
     const countPromise = contestIds.length ? TypeORM.getConnection().query(
       `SELECT contest_id, COUNT(*) AS count
        FROM contest_player
@@ -336,8 +343,11 @@ app.get('/contests', (req, res, next) => {
         return [contest.id, state];
       })),
       countPromise,
-      ratingPromise
-    ]).then(([entries, countRows, ratingRows]) => {
+      ratingPromise,
+      archivedPromise
+    ]).then(([entries, countRows, ratingRows, archivedRows]) => {
+      const archivedIds = new Set(archivedRows.map(row => Number(row.contest_id)));
+      options.contests = options.contests.filter(contest => !archivedIds.has(Number(contest.id)));
       const counts = Object.fromEntries(countRows.map(row => [Number(row.contest_id), Number(row.count)]));
       entries.forEach(([contestId, state]) => {
         state.registeredCount = counts[contestId] || 0;
@@ -361,7 +371,7 @@ async function guardContestEditor(req, res, next) {
     if (!Number.isSafeInteger(contestId) || contestId <= 0) return next();
     const contest = await Contest.findById(contestId);
     if (!contest) return next();
-    if (!res.locals.user || !await contest.isSupervisior(res.locals.user)) {
+    if (!await canManageContest(contest, res.locals.user, 'contest:edit')) {
       return res.status(403).render('error', { err: new ErrorMessage('您没有权限编辑该比赛。') });
     }
     if (!res.locals.user.is_admin) {
@@ -376,7 +386,6 @@ async function guardContestEditor(req, res, next) {
 }
 
 app.get('/contest/:id/edit', guardContestEditor);
-app.post('/contest/:id/edit', guardContestEditor);
 
 app.use('/contest/:id', async (req, res, next) => {
   try {
@@ -396,87 +405,16 @@ app.use('/contest/:id', async (req, res, next) => {
   }
 });
 
-function normalizeIdList(value) {
+function normalizeIdList(value, label) {
   const values = value == null ? [] : (Array.isArray(value) ? value : [value]);
-  return Array.from(new Set(values.map(Number).filter(id => Number.isSafeInteger(id) && id > 0)));
+  const normalized = values.map(item => String(item == null ? '' : item).trim()).filter(Boolean);
+  const ids = normalized.map(Number);
+  if (normalized.some((item, index) => !/^[1-9]\d*$/.test(item) || !Number.isSafeInteger(ids[index]))) {
+    throw contestMutation.mutationError(`${label}选择数据无效，请移除后重新添加。`);
+  }
+  return Array.from(new Set(ids));
 }
 
-app.post('/contest/:id/edit', async (req, res) => {
-  try {
-    const contestId = Number(req.params.id);
-    const user = res.locals.user;
-    if (!Number.isSafeInteger(contestId) || contestId < 0) throw contestMutation.mutationError('比赛 ID 不正确。');
-    if (!user) throw contestMutation.mutationError('您没有权限进行此操作。', 403);
-    if (typeof syzoj.utils.ensureContestRatingSchema === 'function') {
-      await syzoj.utils.ensureContestRatingSchema();
-    }
-    if (contestId === 0 && !user.is_admin && !await user.hasPrivilege('manage_contest')) {
-      throw contestMutation.mutationError('您没有权限创建比赛。', 403);
-    }
-    const title = String(req.body.title || '').trim();
-    if (!title || title.length > 80) throw contestMutation.mutationError('比赛名称不能为空且不能超过 80 个字符。');
-    const startTime = Number(syzoj.utils.parseDate(req.body.start_time));
-    const endTime = Number(syzoj.utils.parseDate(req.body.end_time));
-    if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || startTime >= endTime) {
-      throw contestMutation.mutationError('比赛时间不正确。');
-    }
-    let rankingParams;
-    try {
-      rankingParams = JSON.parse(req.body.ranking_params || '{}');
-      if (!rankingParams || Array.isArray(rankingParams) || typeof rankingParams !== 'object') throw new Error();
-    } catch (error) {
-      throw contestMutation.mutationError('排行参数必须是 JSON 对象。');
-    }
-    const problemIds = normalizeIdList(req.body.problems);
-    const adminIds = normalizeIdList(req.body.admins);
-    for (const problemId of problemIds) {
-      const problem = await Problem.findById(problemId);
-      if (!problem || !await problem.isAllowedUseBy(user)) {
-        throw contestMutation.mutationError(`题目 #${problemId} 不存在或当前用户无权使用。`);
-      }
-      if (syzoj.utils.contestSubmissionEnabled && !syzoj.utils.contestSubmissionEnabled(problem)) {
-        throw contestMutation.mutationError(`${problem.getDisplayId()} 当前未启用比赛提交，请从试题列表中移除。`);
-      }
-    }
-    for (const adminId of adminIds) {
-      if (!await User.findById(adminId)) throw contestMutation.mutationError(`管理员用户 #${adminId} 不存在。`);
-    }
-    for (const [problemId, multiplier] of Object.entries(rankingParams)) {
-      const numericProblemId = Number(problemId);
-      const numericMultiplier = Number(multiplier);
-      if (!problemIds.includes(numericProblemId) || !Number.isFinite(numericMultiplier) || numericMultiplier <= 0 || numericMultiplier > 1000) {
-        throw contestMutation.mutationError('排行参数只能包含比赛题目，且权重必须是 0 到 1000 之间的正数。');
-      }
-      rankingParams[problemId] = numericMultiplier;
-    }
-    const type = String(req.body.type || '');
-    if (contestId === 0 && !['noi', 'ioi', 'acm'].includes(type)) {
-      throw contestMutation.mutationError('无效的赛制。');
-    }
-    const savedContestId = await contestMutation.saveContest({
-      id: contestId,
-      actorId: user.id,
-      title,
-      subtitle: String(req.body.subtitle || ''),
-      information: String(req.body.information || ''),
-      problems: problemIds.join('|'),
-      admins: adminIds.join('|'),
-      type,
-      rankingParams,
-      startTime,
-      endTime,
-      hideStatistics: req.body.hide_statistics === 'on',
-      isPublic: req.body.hide_contest !== 'on',
-      allowLateRegistration: req.body.allow_late_registration === 'on',
-      isRated: req.body.is_rated === 'on',
-      revision: Number(req.body.contest_revision || 0)
-    });
-    res.redirect(303, syzoj.utils.makeUrl(['contest', savedContestId]));
-  } catch (error) {
-    syzoj.log(error);
-    res.status(error.statusCode || 400).render('error', { err: error });
-  }
-});
 
 app.use(async (req, res, next) => {
   try {
@@ -491,47 +429,10 @@ app.use(async (req, res, next) => {
   }
 });
 
-app.post('/contest/:id/register', async (req, res) => {
-  try {
-    const contestId = Number(req.params.id);
-    const user = res.locals.user;
-    if (!Number.isSafeInteger(contestId) || contestId <= 0) throw new ErrorMessage('比赛 ID 不正确。');
-    if (!user) throw new ErrorMessage('请登录后报名。');
-    if (!validCsrfToken(req)) throw new ErrorMessage('页面已失效，请刷新后重试。');
 
-    const contest = await Contest.findById(contestId);
-    if (!contest) throw new ErrorMessage('无此比赛。');
-    if (await contest.isSupervisior(user)) throw new ErrorMessage('比赛管理人员无需报名。');
-    await contestMutation.registerUser(contestId, user.id);
-    invalidateRegistrationCache(contestId, user.id);
 
-    res.redirect(303, registrationReturnUrl(req, contestId));
-  } catch (error) {
-    syzoj.log(error);
-    res.status(error.statusCode || 403).render('error', { err: error });
-  }
-});
-
-app.post('/contest/:id/unregister', async (req, res) => {
-  try {
-    const contestId = Number(req.params.id);
-    const user = res.locals.user;
-    if (!Number.isSafeInteger(contestId) || contestId <= 0) throw new ErrorMessage('比赛 ID 不正确。');
-    if (!user) throw new ErrorMessage('请登录后继续。');
-    if (!validCsrfToken(req)) throw new ErrorMessage('页面已失效，请刷新后重试。');
-
-    await contestMutation.unregisterUser(contestId, user.id);
-    invalidateRegistrationCache(contestId, user.id);
-
-    res.redirect(303, registrationReturnUrl(req, contestId));
-  } catch (error) {
-    syzoj.log(error);
-    res.status(error.statusCode || 403).render('error', { err: error });
-  }
-});
-
-async function canManageRegistrations(contest, user) {
-  return !!(user && await contest.isSupervisior(user));
+async function canManageRegistrations(contest, user, capability = 'contest:registration.manage') {
+  return canManageContest(contest, user, capability);
 }
 
 async function getContestRegistrations(contestId) {
@@ -547,18 +448,52 @@ async function getContestRegistrations(contestId) {
   );
 }
 
+async function getContestParticipants(contestId) {
+  return TypeORM.getConnection().query(
+    `SELECT cp.id AS player_id, cp.user_id, u.username
+     FROM contest_player cp
+     INNER JOIN user u ON u.id = cp.user_id
+     WHERE cp.contest_id = ?
+     ORDER BY cp.id ASC`,
+    [contestId]
+  );
+}
+
 function csvCell(value) {
   let text = value == null ? '' : String(value);
   if (/^[=+\-@\t\r]/.test(text) || /^\s+[=+\-@]/.test(text)) text = "'" + text;
   return '"' + text.replace(/"/g, '""') + '"';
 }
 
+app.get('/contest/:id/participants', async (req, res) => {
+  try {
+    const contestId = Number(req.params.id);
+    const contest = Number.isSafeInteger(contestId) && contestId > 0 ? await Contest.findById(contestId) : null;
+    if (!contest) throw new ErrorMessage('无此比赛。');
+    const canManage = await canManageRegistrations(contest, res.locals.user);
+    if (!contest.is_public && !canManage) {
+      return res.status(403).render('error', { err: new ErrorMessage('比赛未公开，请耐心等待。') });
+    }
+    if (!res.locals.user && !canManage) {
+      return res.status(401).render('error', { err: new ErrorMessage('请登录后查看参赛者。') });
+    }
+    res.render('contest_participants', {
+      contest: contest,
+      participants: await getContestParticipants(contestId)
+    });
+  } catch (error) {
+    syzoj.log(error);
+    res.status(error.statusCode || 500).render('error', { err: error });
+  }
+});
+
 app.get('/contest/:id/registrations', async (req, res) => {
   try {
     const contestId = Number(req.params.id);
     const contest = Number.isSafeInteger(contestId) && contestId > 0 ? await Contest.findById(contestId) : null;
     if (!contest) throw new ErrorMessage('无此比赛。');
-    if (!await canManageRegistrations(contest, res.locals.user)) {
+    const canManage = await canManageRegistrations(contest, res.locals.user);
+    if (!canManage) {
       return res.status(403).render('error', { err: new ErrorMessage('您没有权限管理该比赛的报名。') });
     }
     const registrations = await getContestRegistrations(contestId);
@@ -575,11 +510,12 @@ app.get('/contest/:id/registrations', async (req, res) => {
       contest: contest,
       registrations: registrations,
       removedRegistrations: removedRegistrations,
+      canManageRegistrations: true,
       registrationManagementCsrfToken: ensureCsrfToken(req)
     });
   } catch (error) {
     syzoj.log(error);
-    res.render('error', { err: error });
+    res.status(error.statusCode || 500).render('error', { err: error });
   }
 });
 
@@ -614,67 +550,8 @@ app.get('/contest/:id/registrations/export', async (req, res) => {
   }
 });
 
-app.post('/contest/:id/registrations/:userId/remove', async (req, res) => {
-  try {
-    const contestId = Number(req.params.id);
-    const userId = Number(req.params.userId);
-    const contest = Number.isSafeInteger(contestId) && contestId > 0 ? await Contest.findById(contestId) : null;
-    if (!contest || !Number.isSafeInteger(userId) || userId <= 0) throw new ErrorMessage('报名记录不正确。');
-    if (!await canManageRegistrations(contest, res.locals.user)) {
-      return res.status(403).render('error', { err: new ErrorMessage('您没有权限管理该比赛的报名。') });
-    }
-    if (!validCsrfToken(req)) {
-      return res.status(403).render('error', { err: new ErrorMessage('页面已失效，请刷新后重试。') });
-    }
 
-    await contestMutation.removeUser(contestId, userId, res.locals.user.id);
-    invalidateRegistrationCache(contestId, userId);
-    res.redirect(303, syzoj.utils.makeUrl(['contest', contestId, 'registrations']));
-  } catch (error) {
-    syzoj.log(error);
-    res.status(error.statusCode || 403).render('error', { err: error });
-  }
-});
 
-app.post('/contest/:id/registrations/:userId/restore', async (req, res) => {
-  try {
-    const contestId = Number(req.params.id);
-    const userId = Number(req.params.userId);
-    const contest = Number.isSafeInteger(contestId) && contestId > 0 ? await Contest.findById(contestId) : null;
-    if (!contest || !Number.isSafeInteger(userId) || userId <= 0) throw new ErrorMessage('报名记录不正确。');
-    if (!await canManageRegistrations(contest, res.locals.user)) {
-      return res.status(403).render('error', { err: new ErrorMessage('您没有权限管理该比赛的报名。') });
-    }
-    if (!validCsrfToken(req)) {
-      return res.status(403).render('error', { err: new ErrorMessage('页面已失效，请刷新后重试。') });
-    }
-    await contestMutation.restoreUser(contestId, userId);
-    invalidateRegistrationCache(contestId, userId);
-    res.redirect(303, syzoj.utils.makeUrl(['contest', contestId, 'registrations']));
-  } catch (error) {
-    syzoj.log(error);
-    res.status(error.statusCode || 403).render('error', { err: error });
-  }
-});
-
-app.post('/contest/:id/rebuild-standings', async (req, res) => {
-  try {
-    const contestId = Number(req.params.id);
-    const contest = Number.isSafeInteger(contestId) && contestId > 0 ? await Contest.findById(contestId) : null;
-    if (!contest) throw new ErrorMessage('无此比赛。');
-    if (!await canManageRegistrations(contest, res.locals.user)) {
-      return res.status(403).render('error', { err: new ErrorMessage('您没有权限维护该比赛排行榜。') });
-    }
-    if (!validCsrfToken(req)) {
-      return res.status(403).render('error', { err: new ErrorMessage('页面已失效，请刷新后重试。') });
-    }
-    await contestMutation.rebuildContestStandings(contestId);
-    res.redirect(303, syzoj.utils.makeUrl(['contest', contestId, 'ranklist']));
-  } catch (error) {
-    syzoj.log(error);
-    res.status(error.statusCode || 400).render('error', { err: error });
-  }
-});
 
 async function guardContestContent(req, res, next) {
   try {

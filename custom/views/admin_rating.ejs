@@ -1,24 +1,72 @@
 <% this.adminPage = 'rating'; %>
 <% include admin_header %>
-<div class="ui info message">
-  <div class="header">Rating 自动结算</div>
-  <p>Rated 比赛将在结束且所有提交完成评测后自动结算。单场比赛手动计算已关闭。</p>
+<%
+const appRatingStates = {
+  pending: ['待计算', 'app-status-pending'],
+  completed: ['已计算', 'app-status-accepted'],
+  skipped: ['无需变更', 'app-status-muted'],
+  running: ['比赛中', 'app-status-running'],
+  scheduled: ['未开始', 'app-status-info']
+};
+const appRatingSummary = ratingContests.reduce(function (summary, contest) {
+  summary[contest.state] = (summary[contest.state] || 0) + 1;
+  return summary;
+}, { pending: 0, completed: 0, skipped: 0, running: 0, scheduled: 0 });
+const appRatingPending = appRatingSummary.pending || 0;
+%>
+
+<div class="app-admin-toolbar">
+  <div><h3>Rating 计算状态</h3><p>比赛结束并完成无效提交处理后，由管理员统一计算。</p></div>
+  <div class="app-inline-actions">
+    <a class="app-icon-button" href="<%= syzoj.utils.makeUrl(['admin', 'rating']) %>" title="刷新状态" aria-label="刷新状态"><i data-lucide="refresh-cw"></i></a>
+    <% if (ratingCanCalculate) { %><form method="post" action="/api/v2/admin/rating/calculate-pending" data-rating-calculate-v2 data-confirm="确定按比赛结束时间计算全部待处理 Rating 吗？"><button class="app-button app-button-primary" type="submit"<%= appRatingPending ? '' : ' disabled' %>><i data-lucide="calculator"></i>一键计算<%= appRatingPending ? ' ' + appRatingPending + ' 场' : '' %></button></form><% } %>
+  </div>
 </div>
 
-<h3>已完成的 Rating 记录</h3>
-<% if (calcs && calcs.length) { %>
-  <div class="ui relaxed divided list">
-    <% for (const calc of calcs) { %>
-      <div class="item">
-        <i class="check circle green icon"></i>
-        <div class="content"><%= calc.contest ? calc.contest.title : '已删除的比赛' %></div>
-      </div>
-    <% } %>
-  </div>
-<% } else { %>
-  <div class="nwpuoj-empty-state">
-    <i class="star outline icon"></i>
-    <h3>暂无 Rating 结算记录</h3>
-  </div>
-<% } %>
+<% if (req.query && req.query.calculated === '1') { %><div class="app-notice app-notice-success"><i data-lucide="circle-check"></i><span><strong>Rating 计算完成</strong><small>处理 <%= Number(req.query.contests || 0) %> 场，完成 <%= Number(req.query.completed || 0) %> 场，无需变更 <%= Number(req.query.skipped || 0) %> 场<%= Number(req.query.deferred || 0) ? '，仍有 ' + Number(req.query.deferred) + ' 场等待评测完成' : '' %>。</small></span></div><% } %>
+<% if (!ratingCanCalculate) { %><div class="app-notice"><i data-lucide="shield-alert"></i><span>当前账户可以查看状态，但没有 Rating 计算权限。</span></div><% } %>
+
+<section class="app-admin-metrics" aria-label="Rating 状态汇总">
+  <div><strong><%= appRatingPending %></strong><span>待计算</span></div>
+  <div><strong><%= appRatingSummary.completed || 0 %></strong><span>已计算</span></div>
+  <div><strong><%= appRatingSummary.skipped || 0 %></strong><span>无需变更</span></div>
+  <div><strong><%= (appRatingSummary.running || 0) + (appRatingSummary.scheduled || 0) %></strong><span>未结束</span></div>
+</section>
+
+<section class="app-admin-section app-rating-status-list">
+  <div class="app-section-header"><div><h3 class="app-section-title">Rated 比赛</h3><p class="app-section-description">按结束时间倒序；计算时按时间正序处理，保证后续比赛使用正确基线。</p></div></div>
+  <% if (ratingContests.length) { %><div class="app-table-region"><table class="app-table app-rating-status-table"><thead><tr><th>比赛</th><th>赛程</th><th>状态</th><th>有效参赛者</th><th>计算时间</th><th aria-label="操作"></th></tr></thead><tbody>
+  <% ratingContests.forEach(function (contest) { const state = appRatingStates[contest.state] || [contest.state, 'app-status-muted']; %><tr>
+    <td class="app-cell-primary"><a href="<%= syzoj.utils.makeUrl(['contest', contest.id]) %>">#<%= contest.id %> <%= contest.title %></a></td>
+    <td class="app-cell-number"><%= syzoj.utils.formatDate(contest.startTime) %><small class="app-row-description">至 <%= syzoj.utils.formatDate(contest.endTime) %></small></td>
+    <td><span class="app-status <%= state[1] %>"><%= state[0] %></span><% if (contest.state === 'pending') { %><small class="app-row-description">先处理作弊、取消等无效提交</small><% } else if (contest.skipReason === 'fewer_than_two_eligible_participants') { %><small class="app-row-description">有效参赛者不足 2 人</small><% } %></td>
+    <td class="app-cell-number"><%= ['completed', 'skipped'].includes(contest.state) ? contest.participantCount : '-' %></td>
+    <td class="app-cell-number"><%= contest.completedAt ? syzoj.utils.formatDate(contest.completedAt) : '-' %></td>
+    <td class="app-cell-actions"><div class="app-inline-actions"><a class="app-icon-button" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'ranklist']) %>" title="查看排行榜" aria-label="查看排行榜"><i data-lucide="list-ordered"></i></a><a class="app-icon-button" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'edit']) %>" title="管理比赛" aria-label="管理比赛"><i data-lucide="settings"></i></a></div></td>
+  </tr><% }); %>
+  </tbody></table></div><% } else { %><div class="app-empty"><div class="app-empty-inner"><i data-lucide="calculator"></i><strong>暂无 Rated 比赛</strong><p>新建比赛时开启 Rated 后会显示在这里。</p></div></div><% } %>
+</section>
+
+<script>
+(function () {
+  var form = document.querySelector('[data-rating-calculate-v2]');
+  if (!form) return;
+  form.addEventListener('submit', async function (event) {
+    event.preventDefault();
+    var button = form.querySelector('button[type="submit"]');
+    if (button) button.disabled = true;
+    try {
+      var response = await fetch(form.action, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      var body = await response.json();
+      if (!response.ok) throw new Error(body && body.error && body.error.message || 'Rating 计算失败。');
+      var result = body.data || {};
+      window.location.assign('/admin/rating?calculated=1&contests=' + encodeURIComponent(result.contestCount || 0) + '&completed=' + encodeURIComponent(result.completedCount || 0) + '&skipped=' + encodeURIComponent(result.skippedCount || 0) + '&deferred=' + encodeURIComponent(result.deferredCount || 0));
+    } catch (error) {
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || 'Rating 计算失败。', 'danger');
+      if (button) button.disabled = false;
+    }
+  });
+})();
+</script>
+
 <% include admin_footer %>

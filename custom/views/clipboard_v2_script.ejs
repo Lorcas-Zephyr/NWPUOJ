@@ -1,0 +1,87 @@
+<script>
+(function () {
+  var forms = document.querySelectorAll('[data-clipboard-v2]');
+  if (!forms.length) return;
+
+  function operationKey() {
+    return window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random();
+  }
+async function readResponse(response) {
+    var body = null;
+    try { body = await response.json(); } catch (error) {}
+    return { response: response, body: body };
+  }
+function errorMessage(result, fallback) {
+    var error = result.body && result.body.error;
+    var messages = {
+      CLIPBOARD_NOT_FOUND: '该剪贴板不存在或已被删除。',
+      CLIPBOARD_FORBIDDEN: '你没有权限修改此剪贴板。',
+      ETAG_MISMATCH: '内容已在其他页面修改，请刷新后重试。',
+      VALIDATION_FAILED: '请检查标题、内容与分享期限。'
+    };
+    return error && (messages[error.code] || error.message) || fallback;
+  }
+
+  async function currentVersion(id) {
+    var result = await readResponse(await fetch('/api/v2/clipboard/' + encodeURIComponent(id), { credentials: 'same-origin', cache: 'no-store' }));
+    if (!result.response.ok) throw new Error(errorMessage(result, '暂时无法读取剪贴板。'));
+    var etag = result.response.headers.get('ETag');
+    if (!etag) throw new Error('内容版本信息缺失，请刷新后重试。');
+    return { etag: etag };
+  }
+
+  function editorPayload(form) {
+    var visibility = form.elements.visibility.value;
+    var days = Math.max(0, Math.min(365, Number.parseInt(form.elements.share_days.value || '0', 10) || 0));
+    return {
+      title: form.elements.title.value,
+      content: form.elements.content.value,
+      visibility: visibility,
+      share_expires: visibility === 'link' && days ? Math.floor(Date.now() / 1000) + days * 86400 : null
+    };
+  }
+
+  document.addEventListener('submit', async function (event) {
+    var form = event.target.closest('[data-clipboard-v2]');
+    if (!form || event.defaultPrevented) return;
+    event.preventDefault();
+    var action = form.dataset.clipboardV2;
+    var id = form.dataset.clipboardId;
+    var submit = form.querySelector('[type="submit"]');
+    if (submit) submit.disabled = true;
+    form.setAttribute('aria-busy', 'true');
+    try {
+      var method = 'POST';
+      var endpoint = '/api/v2/clipboard';
+      var headers = { 'Content-Type': 'application/json', 'Idempotency-Key': operationKey() };
+      var body = '{}';
+      if (action === 'save' && String(id) === '0') {
+        body = JSON.stringify(editorPayload(form));
+      } else {
+        var version = await currentVersion(id);
+        headers['If-Match'] = version.etag;
+        endpoint += '/' + encodeURIComponent(id);
+        if (action === 'save') {
+          method = 'PATCH';
+          body = JSON.stringify(editorPayload(form));
+        } else if (action === 'share') {
+          endpoint += '/share';
+        } else if (action === 'delete') {
+          method = 'DELETE';
+          body = undefined;
+        }
+      }
+      var result = await readResponse(await fetch(endpoint, { method: method, credentials: 'same-origin', headers: headers, body: body }));
+      if (!result.response.ok) throw new Error(errorMessage(result, '剪贴板操作失败。'));
+      if (action === 'delete') return window.location.assign('/clipboard');
+      var savedId = result.body && result.body.data && result.body.data.id || id;
+      window.location.assign('/clipboard/' + encodeURIComponent(savedId));
+    } catch (error) {
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '操作失败，请稍后重试。', 'danger');
+      else window.alert(error.message || '操作失败，请稍后重试。');
+      if (submit) submit.disabled = false;
+      form.removeAttribute('aria-busy');
+    }
+  });
+})();
+</script>

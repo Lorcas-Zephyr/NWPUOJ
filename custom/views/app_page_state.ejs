@@ -1,0 +1,31 @@
+<%
+const appStateInput = typeof appPageState !== 'undefined' && appPageState ? appPageState : {};
+const appStateType = appStateInput.type || 'empty';
+const appStateCatalog = {
+  initial: { icon: 'loader-circle', kicker: 'LOADING', tone: 'loading', role: 'status' },
+  loading: { icon: 'loader-circle', kicker: 'LOADING', tone: 'loading', role: 'status' },
+  empty: { icon: 'inbox', kicker: 'EMPTY', tone: 'muted', role: 'status' },
+  partial: { icon: 'circle-alert', kicker: 'PARTIAL', tone: 'warning', role: 'status' },
+  unauthorized: { icon: 'shield-alert', kicker: 'ACCESS DENIED', tone: 'danger', role: 'alert' },
+  missing: { icon: 'search-x', kicker: 'NOT FOUND', tone: 'muted', role: 'alert' },
+  success: { icon: 'circle-check-big', kicker: 'COMPLETE', tone: 'success', role: 'status' },
+  'recoverable-error': { icon: 'circle-alert', kicker: 'TRY AGAIN', tone: 'warning', role: 'alert' },
+  'unrecoverable-error': { icon: 'circle-x', kicker: 'REQUEST FAILED', tone: 'danger', role: 'alert' },
+  offline: { icon: 'wifi-off', kicker: 'OFFLINE', tone: 'warning', role: 'status' }
+};
+const appStateMeta = appStateCatalog[appStateType] || appStateCatalog['unrecoverable-error'];
+const appStateActions = Array.isArray(appStateInput.actions) ? appStateInput.actions : [];
+%>
+<section class="app-result-state app-page-state is-<%= appStateMeta.tone %>" data-page-state="<%= appStateType %>" role="<%= appStateMeta.role %>" aria-live="<%= appStateMeta.role === 'alert' ? 'assertive' : 'polite' %>">
+  <span class="app-result-icon"><i data-lucide="<%= appStateMeta.icon %>"></i></span>
+  <span class="app-kicker"><%= appStateInput.kicker || appStateMeta.kicker %></span>
+  <h1><%= appStateInput.title || '暂无内容' %></h1>
+  <% if (appStateInput.details) { %><p><%= appStateInput.details %></p><% } %>
+  <% if (appStateActions.length || appStateInput.historyBack || appStateInput.retry) { %>
+    <div class="app-result-actions">
+      <% for (const action of appStateActions) { %><a class="app-button <%= action.primary ? 'app-button-primary' : 'app-button-secondary' %>" href="<%= action.href %>"><%= action.label %></a><% } %>
+      <% if (appStateInput.retry) { %><button class="app-button app-button-primary" type="button" data-state-retry><i data-lucide="refresh-cw"></i>重试</button><% } %>
+      <% if (appStateInput.historyBack) { %><button class="app-button app-button-quiet" type="button" data-history-back><i data-lucide="arrow-left"></i>返回上一页</button><% } %>
+    </div>
+  <% } %>
+</section>

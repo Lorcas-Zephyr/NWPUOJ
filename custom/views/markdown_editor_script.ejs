@@ -1,96 +1,121 @@
 <script>
-$(function () {
-  const form = document.querySelector('[data-markdown-editor]');
+(function () {
+  var form = document.querySelector('[data-markdown-editor]');
   if (!form) return;
-  const title = form.querySelector('[name="title"]');
-  const content = form.querySelector('[name="content"]');
-  const allowComment = form.querySelector('[name="allow_comment"]');
-  const submitButton = form.querySelector('[type="submit"]');
-  const draftStatus = form.querySelector('[data-draft-status]');
-  const draftKey = form.getAttribute('data-draft-key');
-  let submitted = false;
-  let saveTimer;
+  var title = form.querySelector('[name="title"]');
+  var content = form.querySelector('[name="content"]');
+  var allowComment = form.querySelector('[name="allow_comment"]');
+  var submitButton = form.querySelector('[type="submit"]');
+  var draftStatus = form.querySelector('[data-draft-status]');
+  var draftKey = form.getAttribute('data-draft-key');
+  var submitted = false;
+  var saveTimer;
 
-  function snapshot() {
-    return {
-      title: title ? title.value : '',
-      content: content ? content.value : '',
-      allowComment: allowComment ? allowComment.checked : null
-    };
-  }
+  function snapshot() { return { title: title ? title.value : '', content: content ? content.value : '', allowComment: allowComment ? allowComment.checked : null }; }
+  function sameDraft(left, right) { return left && right && left.title === right.title && left.content === right.content && left.allowComment === right.allowComment; }
+  function clearDraft() { try { localStorage.removeItem(draftKey); } catch (error) {} }
+  function status(message) { if (draftStatus) draftStatus.textContent = message; }
+  var serverDraft = snapshot();
 
-  function sameDraft(left, right) {
-    return left && right && left.title === right.title && left.content === right.content && left.allowComment === right.allowComment;
-  }
-
-  const serverDraft = snapshot();
   try {
-    const savedDraft = JSON.parse(localStorage.getItem(draftKey));
-    if (savedDraft && sameDraft(savedDraft, serverDraft)) {
-      localStorage.removeItem(draftKey);
-    } else if (savedDraft && typeof savedDraft.content === 'string' && window.confirm('检测到未提交的本地草稿，是否恢复？')) {
-      if (title) title.value = savedDraft.title || '';
-      content.value = savedDraft.content || '';
-      if (allowComment && savedDraft.allowComment !== null) allowComment.checked = !!savedDraft.allowComment;
-      if (draftStatus) draftStatus.textContent = '已恢复本地草稿';
+    var savedDraft = JSON.parse(localStorage.getItem(draftKey));
+    if (savedDraft && sameDraft(savedDraft, serverDraft)) clearDraft();
+    else if (savedDraft && typeof savedDraft.content === 'string') {
+      var shouldRestore = window.confirm('检测到未提交的本地草稿，是否恢复？');
+      if (shouldRestore) {
+        if (title) title.value = savedDraft.title || '';
+        content.value = savedDraft.content || '';
+        if (allowComment && savedDraft.allowComment !== null) allowComment.checked = !!savedDraft.allowComment;
+        status('已恢复本地草稿');
+      } else {
+        clearDraft();
+      }
     }
   } catch (error) {}
 
   function saveDraft() {
-    try {
-      const draft = snapshot();
-      draft.savedAt = Date.now();
-      localStorage.setItem(draftKey, JSON.stringify(draft));
-      if (draftStatus) draftStatus.textContent = '草稿已保存';
-    } catch (error) {
-      if (draftStatus) draftStatus.textContent = '草稿保存失败';
-    }
+    try { var draft = snapshot(); draft.savedAt = Date.now(); localStorage.setItem(draftKey, JSON.stringify(draft)); status('草稿已保存'); }
+    catch (error) { status('草稿保存失败'); }
   }
-
-  form.addEventListener('input', function () {
-    if (draftStatus) draftStatus.textContent = '正在保存...';
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(saveDraft, 800);
-  });
-  const saveButton = form.querySelector('[data-save-draft]');
+  var saveButton = form.querySelector('[data-save-draft]');
   if (saveButton) saveButton.addEventListener('click', saveDraft);
 
-  const previewTab = form.querySelector('[data-preview-tab]');
-  const editorTabs = form.querySelectorAll('[role="tab"]');
-  editorTabs.forEach(function (tab) {
-    tab.addEventListener('click', function () {
-      editorTabs.forEach(function (item) { item.setAttribute('aria-selected', item === tab ? 'true' : 'false'); });
+  var tabs = Array.prototype.slice.call(form.querySelectorAll('[role="tab"][data-tab]'));
+  var panels = Array.prototype.slice.call(form.querySelectorAll('[data-editor-panel], .tab.segment[data-tab]'));
+  var editPanel = form.querySelector('[data-editor-panel="edit"]');
+  var previewPanel = form.querySelector('[data-editor-panel="preview"]');
+  var splitViewport = window.matchMedia ? window.matchMedia('(min-width: 961px)') : { matches: false };
+  var activeTab = 'edit';
+  var previewTimer;
+  var previewRequest = 0;
+  var scrollLock = null;
+  var scrollUnlockFrame = 0;
+
+  function isSplitEditor() { return !!(splitViewport.matches && panels.length > 1 && form.querySelector('.app-editor-workspace')); }
+  function scrollRatio(element) { return element.scrollTop / Math.max(1, element.scrollHeight - element.clientHeight); }
+  function applyScrollRatio(element, ratio) { element.scrollTop = ratio * Math.max(0, element.scrollHeight - element.clientHeight); }
+  function syncEditorScroll(source, target) {
+    if (!isSplitEditor() || !source || !target || scrollLock === source) return;
+    scrollLock = target;
+    applyScrollRatio(target, scrollRatio(source));
+    window.cancelAnimationFrame(scrollUnlockFrame);
+    scrollUnlockFrame = window.requestAnimationFrame(function () { scrollLock = null; });
+  }
+  function editorScrollTarget() {
+    return content || editPanel;
+  }
+  function updateWorkspace() {
+    var split = isSplitEditor();
+    form.classList.toggle('is-split-editor', split);
+    tabs.forEach(function (tab) {
+      var selected = tab.dataset.tab === activeTab;
+      tab.hidden = split;
+      tab.classList.toggle('is-active', selected);
+      tab.setAttribute('aria-selected', selected ? 'true' : 'false');
     });
-  });
-  if (previewTab) {
-    previewTab.addEventListener('click', function () {
-      const previewTitle = form.querySelector('[data-preview-title]');
-      const previewContent = form.querySelector('[data-preview-content]');
-      if (previewTitle) previewTitle.textContent = title ? title.value : '';
-      previewContent.textContent = '正在生成预览...';
-      $.post('/api/markdown', { s: content.value })
-        .done(function (html) { previewContent.innerHTML = html; })
-        .fail(function (xhr) { previewContent.textContent = xhr.responseText || '预览暂时不可用。'; });
+    panels.forEach(function (panel) {
+      var panelName = panel.dataset.editorPanel || panel.dataset.tab;
+      panel.hidden = split ? false : panelName !== activeTab;
+      panel.classList.toggle('active', split || panelName === activeTab);
     });
   }
-  form.querySelectorAll('.tabular.menu .item').forEach(function (item) { $(item).tab(); });
-
-  form.addEventListener('submit', function () {
-    clearTimeout(saveTimer);
-    saveDraft();
-    submitted = true;
-    setTimeout(function () {
-      if (submitButton) {
-        submitButton.disabled = true;
-        submitButton.classList.add('loading');
+  async function renderPreview() {
+    var previewTitle = form.querySelector('[data-preview-title]');
+    var previewContent = form.querySelector('[data-preview-content]');
+    if (previewTitle) previewTitle.textContent = title ? title.value : '';
+    if (!previewContent) return;
+    var request = ++previewRequest;
+    previewContent.textContent = '正在生成预览...';
+    try {
+      var response = await fetch('/api/v2/markdown', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ s: content.value }) });
+      if (!response.ok) throw new Error(await response.text());
+      var payload = await response.json();
+      var html = payload && payload.data ? payload.data.html : '';
+      if (request === previewRequest) {
+        previewContent.innerHTML = html;
+        if (isSplitEditor()) syncEditorScroll(editorScrollTarget(), previewPanel);
       }
-    }, 0);
-  });
-  window.addEventListener('beforeunload', function (event) {
-    if (!submitted && !sameDraft(snapshot(), serverDraft)) {
-      event.preventDefault();
-      event.returnValue = '';
-    }
-  });
-});
+    } catch (error) { if (request === previewRequest) previewContent.textContent = error.message || '预览暂时不可用。'; }
+  }
+  function schedulePreview() {
+    if (!isSplitEditor()) return;
+    window.clearTimeout(previewTimer);
+    previewTimer = window.setTimeout(renderPreview, 500);
+  }
+  function showTab(name) {
+    activeTab = name;
+    updateWorkspace();
+    if (name === 'preview' || isSplitEditor()) return renderPreview();
+  }
+  tabs.forEach(function (tab) { tab.addEventListener('click', function () { showTab(tab.dataset.tab); }); });
+  if (content) content.addEventListener('scroll', function () { syncEditorScroll(content, previewPanel); }, { passive: true });
+  if (previewPanel) previewPanel.addEventListener('scroll', function () { syncEditorScroll(previewPanel, editorScrollTarget()); }, { passive: true });
+  if (splitViewport.addEventListener) splitViewport.addEventListener('change', function () { updateWorkspace(); if (isSplitEditor()) renderPreview(); });
+  else if (splitViewport.addListener) splitViewport.addListener(function () { updateWorkspace(); if (isSplitEditor()) renderPreview(); });
+  form.addEventListener('input', function () { status('正在保存...'); window.clearTimeout(saveTimer); saveTimer = window.setTimeout(saveDraft, 800); schedulePreview(); });
+  showTab('edit');
+
+  form.addEventListener('submit', function () { window.clearTimeout(saveTimer); clearDraft(); status('正在提交...'); submitted = true; if (submitButton) { submitButton.disabled = true; submitButton.classList.add('is-loading'); } });
+  window.addEventListener('beforeunload', function (event) { if (!submitted && !sameDraft(snapshot(), serverDraft)) { event.preventDefault(); event.returnValue = ''; } });
+})();
 </script>

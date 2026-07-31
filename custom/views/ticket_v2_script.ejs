@@ -1,0 +1,98 @@
+<script>
+(function () {
+  var forms = document.querySelectorAll('[data-ticket-v2]');
+  if (!forms.length) return;
+
+  function operationKey() {
+    return window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random();
+  }
+document.addEventListener('submit', async function (event) {
+    var form = event.target.closest('[data-ticket-v2]');
+    if (!form || event.defaultPrevented) return;
+    event.preventDefault();
+    var submit = form.querySelector('[type="submit"]');
+    if (submit) submit.disabled = true;
+    form.setAttribute('aria-busy', 'true');
+    try {
+      if (form.dataset.ticketV2 === 'create') {
+        var createResponse = await fetch('/api/v2/tickets', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operationKey() },
+          body: JSON.stringify({
+            category: form.elements.category.value,
+            subtype: form.elements.subtype.value,
+            title: form.elements.title.value,
+            description: form.elements.description.value,
+            relation_id: form.elements.relation_id ? form.elements.relation_id.value : null,
+            report_reason: form.elements.report_reason ? form.elements.report_reason.value : null
+          })
+        });
+        var createBody = null;
+        try { createBody = await createResponse.json(); } catch (error) {}
+        if (!createResponse.ok) {
+          var createMessages = {
+            TICKET_DAILY_LIMIT_REACHED: '24 小时内最多创建 5 个工单，请稍后再试。',
+            VALIDATION_FAILED: '请检查工单类型、标题、关联对象和必填信息。'
+          };
+          throw new Error(createBody && createBody.error && (createMessages[createBody.error.code] || createBody.error.message) || '工单创建失败。');
+        }
+        return window.location.assign('/ticket/' + encodeURIComponent(createBody.data.id));
+      }
+      if (form.dataset.ticketV2 !== 'reply') {
+        var lifecycleAction = form.dataset.ticketV2;
+        var lifecycleUrl = lifecycleAction === 'assign'
+          ? '/api/v2/tickets/' + encodeURIComponent(form.dataset.ticketId) + '/assign'
+          : lifecycleAction === 'status'
+            ? '/api/v2/admin/tickets/' + encodeURIComponent(form.dataset.ticketId) + '/status'
+            : lifecycleAction === 'admin-close'
+              ? '/api/v2/admin/tickets/' + encodeURIComponent(form.dataset.ticketId) + '/close'
+              : '/api/v2/tickets/' + encodeURIComponent(form.dataset.ticketId) + '/close';
+        var lifecyclePayload = lifecycleAction === 'status' ? { status: form.elements.status.value } : {};
+        var lifecycleResponse = await fetch(lifecycleUrl, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operationKey() },
+          body: JSON.stringify(lifecyclePayload)
+        });
+        var lifecycleBody = null;
+        try { lifecycleBody = await lifecycleResponse.json(); } catch (error) {}
+        if (!lifecycleResponse.ok) {
+          var lifecycleMessages = {
+            RECENT_LOGIN_REQUIRED: '登录状态已过期，请重新登录后再关闭工单。',
+            TICKET_ASSIGNMENT_REQUIRED: '请先认领此工单后再更新状态。',
+            TICKET_ALREADY_CLOSED: '此工单已经关闭。',
+            TICKET_FORBIDDEN: '你没有权限执行此操作。'
+          };
+          throw new Error(lifecycleBody && lifecycleBody.error && (lifecycleMessages[lifecycleBody.error.code] || lifecycleBody.error.message) || '工单操作失败。');
+        }
+        return window.location.reload();
+      }
+      var internal = form.elements.is_internal ? !!form.elements.is_internal.checked : false;
+      var response = await fetch('/api/v2/tickets/' + encodeURIComponent(form.dataset.ticketId) + '/replies', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operationKey() },
+        body: JSON.stringify({ content: form.elements.content.value, is_internal: internal })
+      });
+      var body = null;
+      try { body = await response.json(); } catch (error) {}
+      if (!response.ok) {
+        var messages = {
+          TICKET_ASSIGNMENT_REQUIRED: '请先认领此工单后再回复。',
+          TICKET_CLOSED: '此工单已结案，不能继续回复。',
+          TICKET_FORBIDDEN: '你没有权限回复此工单。',
+          VALIDATION_FAILED: '回复内容不能为空或超过长度限制。'
+        };
+        throw new Error(body && body.error && (messages[body.error.code] || body.error.message) || '回复提交失败。');
+      }
+      window.location.reload();
+    } catch (error) {
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '回复提交失败。', 'danger');
+      else window.alert(error.message || '回复提交失败。');
+      if (submit) submit.disabled = false;
+      form.removeAttribute('aria-busy');
+    }
+  });
+})();
+</script>

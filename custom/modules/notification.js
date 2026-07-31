@@ -93,67 +93,8 @@ app.get('/notifications', async (req, res) => {
 });
 
 // ============ POST /notification/:id/read 标记单条已读 ============
-app.post('/notification/:id/read', async (req, res) => {
-  try {
-    if (!res.locals.user) throw new ErrorMessage('请先登录。');
-    let id = parseInt(req.params.id);
-    let n = await Notification.findById(id);
-    if (!n) throw new ErrorMessage('通知不存在。');
-    if (n.recipient_id !== res.locals.user.id) {
-      throw new ErrorMessage('您没有权限操作此通知。');
-    }
-    if (!n.is_read) {
-      n.is_read = 1;
-      n.read_at = parseInt((new Date()).getTime() / 1000);
-      await n.save();
-    }
-    // 直接跳转到 source_url(如果有),否则回 /notifications
-    res.redirect(n.source_url || syzoj.utils.makeUrl(['notifications']));
-  } catch (e) {
-    syzoj.log(e);
-    res.render('error', { err: e });
-  }
-});
 
 // ============ POST /notifications/read-all 全部已读 ============
-app.post('/notifications/read-all', async (req, res) => {
-  try {
-    if (!res.locals.user) throw new ErrorMessage('请先登录。');
-    let conn = require('typeorm').getConnection();
-    let now = parseInt((new Date()).getTime() / 1000);
-    await conn.query(
-      'UPDATE notification SET is_read = 1, read_at = ? WHERE recipient_id = ? AND is_read = 0',
-      [now, res.locals.user.id]
-    );
-    res.render('success', {
-      title: '操作成功',
-      message: '已将所有通知标记为已读',
-      details: null,
-      nextUrls: {
-        '返回通知中心': syzoj.utils.makeUrl(['notifications'])
-      }
-    });
-  } catch (e) {
-    syzoj.log(e);
-    res.render('error', { err: e });
-  }
-});
 
 // ============ POST /notification/:id/delete 删除单条 ============
-app.post('/notification/:id/delete', async (req, res) => {
-  try {
-    if (!res.locals.user) throw new ErrorMessage('请先登录。');
-    let id = parseInt(req.params.id);
-    let n = await Notification.findById(id);
-    if (!n) throw new ErrorMessage('通知不存在。');
-    if (n.recipient_id !== res.locals.user.id) {
-      throw new ErrorMessage('您没有权限操作此通知。');
-    }
-    await n.destroy();
-    res.redirect(syzoj.utils.makeUrl(['notifications']));
-  } catch (e) {
-    syzoj.log(e);
-    res.render('error', { err: e });
-  }
-});
 

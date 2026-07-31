@@ -1,0 +1,48 @@
+<script>
+(function () {
+  function operationKey() {
+    return window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random();
+  }
+
+  async function readResponse(response) {
+    var body = null;
+    try { body = await response.json(); } catch (error) {}
+    return { response: response, body: body };
+  }
+
+  function apiMessage(body, fallback) {
+    if (!body || !body.error) return fallback;
+    var messages = {
+      AUTHENTICATION_REQUIRED: '请先登录后继续。',
+      CAPABILITY_REQUIRED: '当前账户不能参加该比赛。',
+      REGISTRATION_FAILED: '暂时无法报名该比赛。',
+      UNREGISTRATION_FAILED: '暂时无法取消报名。'
+    };
+    return messages[body.error.code] || body.error.message || fallback;
+  }
+document.querySelectorAll('form[data-contest-registration-v2]').forEach(function (form) {
+    form.addEventListener('submit', async function (event) {
+      if (event.defaultPrevented) return;
+      event.preventDefault();
+      var button = form.querySelector('[type="submit"]');
+      var action = form.dataset.contestRegistrationV2;
+      if (button) button.disabled = true;
+      form.setAttribute('aria-busy', 'true');
+      try {
+        var result = await readResponse(await fetch('/api/v2/contests/' + encodeURIComponent(form.dataset.contestId) + '/registration', {
+          method: action === 'unregister' ? 'DELETE' : 'POST',
+          credentials: 'same-origin',
+          headers: { 'Idempotency-Key': operationKey() }
+        }));
+        if (!result.response.ok) throw new Error(apiMessage(result.body, action === 'unregister' ? '取消报名失败。' : '报名失败。'));
+        window.location.reload();
+      } catch (error) {
+        if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '操作失败，请稍后重试。', 'danger');
+        else window.alert(error.message || '操作失败，请稍后重试。');
+        if (button) button.disabled = false;
+        form.removeAttribute('aria-busy');
+      }
+    });
+  });
+})();
+</script>

@@ -1,4 +1,5 @@
 const enums = require('./enums');
+const crypto = require('crypto');
 const util = require('util');
 const winston = require('winston');
 const msgPack = require('msgpack-lite');
@@ -9,6 +10,8 @@ const judgeResult = require('./judgeResult');
 const vjudge = require("./vjudge");
 const TypeORM = require('typeorm');
 const EventEmitter = require('events');
+const taskSignatures = require('../libs/judge-task-signature');
+const compileCacheKeys = require('../libs/compile-cache-key');
 
 const judgeStateCache = new Map();
 const judgeDetailCache = new Map();
@@ -17,10 +20,33 @@ const JUDGE_CACHE_TTL = 30 * 60 * 1000;
 const progressPusher = require('../modules/socketio');
 const judgeStateEvents = new EventEmitter();
 const judgeReportQueues = new Map();
+const judgeTaskSigningKey = crypto.createHash('sha256')
+  .update(String(process.env.SYZOJ_JUDGE_TASK_SIGNING_KEY || syzoj.config.judge_token || syzoj.config.session_secret || ''))
+  .digest('hex');
 judgeStateEvents.setMaxListeners(0);
 
 function emitJudgeStateChange(taskId) {
   if (taskId != null) judgeStateEvents.emit(String(taskId));
+}
+
+async function projectJudgeRuntimeState(taskId, status) {
+  try {
+    if (syzoj.utils.submissionV2 && typeof syzoj.utils.submissionV2.projectRuntimeState === 'function') {
+      await syzoj.utils.submissionV2.projectRuntimeState(taskId, status);
+    }
+  } catch (error) {
+    winston.warn(`[submission-v2] Failed to project ${status} for ${taskId}: ${error.message || error}`);
+  }
+}
+
+async function projectJudgeFinalState(judgeState) {
+  try {
+    if (judgeState && syzoj.utils.submissionV2 && typeof syzoj.utils.submissionV2.projectStatus === 'function') {
+      await syzoj.utils.submissionV2.projectStatus(judgeState, true);
+    }
+  } catch (error) {
+    winston.warn(`[submission-v2] Failed to project final state for ${judgeState && judgeState.id}: ${error.message || error}`);
+  }
 }
 
 function subscribeJudgeState(taskId, listener) {
@@ -184,6 +210,10 @@ async function connect() {
       let obj;
       while (socket.connected && !obj) {
         obj = await judgeQueue.poll(10);
+        if (obj && !taskSignatures.verify(obj.data.content, obj.data.extraData, judgeTaskSigningKey)) {
+          winston.error(`Rejected unsigned or modified judge task ${obj.data.content && obj.data.content.taskId || 'unknown'}.`);
+          obj = null;
+        }
       }
 
       if (!obj) {
@@ -245,6 +275,7 @@ async function connect() {
       } catch (e) {}
 
       if (progress.type === interface.ProgressReportType.Started) {
+        await projectJudgeRuntimeState(progress.taskId, 'compiling');
         progressPusher.createTask(progress.taskId);
         setJudgeDetail(progress.taskId, {});
         judgeStateCache.set(progress.taskId, {
@@ -259,6 +290,7 @@ async function connect() {
         }));
         progressPusher.updateCompileStatus(progress.taskId, progress.progress);
       } else if (progress.type === interface.ProgressReportType.Progress) {
+        await projectJudgeRuntimeState(progress.taskId, 'judging');
         setJudgeDetail(progress.taskId, progress.progress);
         const convertedResult = judgeResult.convertResult(progress.taskId, progress.progress);
         judgeStateCache.set(progress.taskId, {
@@ -341,6 +373,7 @@ async function connect() {
         try {
           await judge_state.updateRelatedInfo(false);
         } finally {
+          await projectJudgeFinalState(judge_state);
           emitJudgeStateChange(result.taskId);
         }
       } else if (result.type == interface.ProgressReportType.Compiled) {
@@ -382,12 +415,16 @@ async function handleVJudgeProgress(judgeStateId, progress) {
     return false;
   }
 
+  if (progress.type === interface.ProgressReportType.Started || progress.type === interface.ProgressReportType.Compiled) {
+    await projectJudgeRuntimeState(progress.taskId, 'compiling');
+  }
   if (progress.type === interface.ProgressReportType.Compiled) {
     setJudgeDetail(progress.taskId, Object.assign({}, judgeDetailCache.get(progress.taskId) || {}, {
       compile: progress.progress
     }));
     progressPusher.updateCompileStatus(progress.taskId, progress.progress);
   } else if (progress.type === interface.ProgressReportType.Progress) {
+    await projectJudgeRuntimeState(progress.taskId, 'judging');
     setJudgeDetail(progress.taskId, progress.progress);
     const convertedResult = judgeResult.convertResult(progress.taskId, progress.progress);
     judgeStateCache.set(progress.taskId, {
@@ -434,6 +471,7 @@ async function handleVJudgeProgress(judgeStateId, progress) {
         where: { id: judgeStateId, task_id: progress.taskId }
       });
       if (finalJudgeState) {
+        await projectJudgeFinalState(finalJudgeState);
         for (let attempt = 1; attempt <= 3; attempt++) {
           try {
             await finalJudgeState.updateRelatedInfo(false);
@@ -477,7 +515,7 @@ module.exports.initializeRecoveredVJudge = function initializeRecoveredVJudge(ju
   });
 };
 
-module.exports.judge = async function (judge_state, problem, priority) {
+module.exports.judge = async function (judge_state, problem, priority, execution = {}) {
   if (typeof problem.type === 'string' && problem.type.startsWith('vjudge:')) {
     progressPusher.createTask(judge_state.task_id);
     setJudgeDetail(judge_state.task_id, {});
@@ -523,12 +561,42 @@ module.exports.judge = async function (judge_state, problem, priority) {
   const content = {
     taskId: judge_state.task_id,
     judgeId: judge_state.id,
-    testData: problem.id.toString(),
+    testData: problem.judge_testdata_path || problem.id.toString(),
     type: type,
     priority: priority,
     realPriority: priority - parseInt(judge_state.id) / 10000000,
     param: param
   };
+
+  const compilerImage = process.env.SYZOJ_JUDGE_COMPILER_IMAGE || 'runner-configured';
+  const compilerVersion = process.env.SYZOJ_JUDGE_COMPILER_VERSION || compilerImage;
+  const compileMetadata = param ? compileCacheKeys.compilerMetadata({
+    source: judge_state.code,
+    language: judge_state.language,
+    languageConfig: syzoj.languages[judge_state.language] || {},
+    compilerImage,
+    compilerVersion
+  }) : null;
+
+  const projections = execution.snapshotId ? [] : await TypeORM.getConnection().query('SELECT snapshot_id FROM submission_v2_projection WHERE submission_id=? LIMIT 1', [judge_state.id]).catch(() => []);
+  const snapshotId = execution.snapshotId || projections[0] && projections[0].snapshot_id || problem.judge_snapshot_id || null;
+  content.securityPolicy = {
+    version: 1,
+    submissionId: Number(judge_state.id),
+    language: judge_state.language || null,
+    timeLimit: Number(problem.time_limit || 0),
+    memoryLimit: Number(problem.memory_limit || 0),
+    network: 'deny',
+    filePolicy: problem.file_io ? { input: problem.file_io_input_name || null, output: problem.file_io_output_name || null } : { input: null, output: null },
+    problemSnapshotId: snapshotId,
+    dataVersion: problem.judge_testdata_hash || snapshotId || `legacy-problem:${problem.id}`,
+    compilerImage,
+    compilerVersion,
+    languageConfigHash: compileMetadata ? compileMetadata.languageConfigHash : null,
+    compileCacheKey: compileMetadata ? compileMetadata.compileCacheKey : null,
+    issuedAt: new Date().toISOString()
+  };
+  taskSignatures.attach(content, extraData, judgeTaskSigningKey);
 
   judgeQueue.push({
     content: content,
@@ -542,3 +610,4 @@ module.exports.getCachedJudgeState = taskId => judgeStateCache.get(taskId);
 module.exports.getCachedJudgeDetail = taskId => judgeDetailCache.get(taskId);
 module.exports.emitJudgeStateChange = emitJudgeStateChange;
 module.exports.subscribeJudgeState = subscribeJudgeState;
+module.exports.verifySignedTask = task => !!(task && task.content && taskSignatures.verify(task.content, task.extraData, judgeTaskSigningKey));

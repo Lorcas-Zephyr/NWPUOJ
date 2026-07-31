@@ -1,0 +1,7 @@
+FROM menci/syzoj-web@sha256:ee6fa55686af32ec92a2cefe6e1df1022b9e4ebd7f59fbf75a0bf17c7f3ae747
+
+COPY custom/scripts/retire-v1-routes.js /app/retire-v1-routes.js
+RUN node /app/retire-v1-routes.js --write --modules-root=/app/modules \
+    && node /app/retire-v1-routes.js --modules-root=/app/modules \
+    && rm /app/modules/legacy.js \
+    && rm /app/retire-v1-routes.js

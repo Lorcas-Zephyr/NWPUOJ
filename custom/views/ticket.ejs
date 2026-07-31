@@ -1,421 +1,94 @@
 <% this.title = '工单 #' + ticket.id + ' - ' + ticket.title %>
-<% include header %>
-
+<% include app_header %>
 <%
-let cat = categories[ticket.category];
-let st = statusMeta[ticket.status];
-let subInfo = cat ? cat.subtypes.find(s => s.value === ticket.subtype) : null;
+const appCat = categories[ticket.category];
+const appState = statusMeta[ticket.status];
+const appSubtype = appCat ? appCat.subtypes.find(function (item) { return item.value === ticket.subtype; }) : null;
+const appStateClasses = { pending: 'app-status-pending', in_progress: 'app-status-running', resolved: 'app-status-accepted', rejected: 'app-status-rejected', closed: 'app-status-muted' };
+const appTerminal = ['closed', 'rejected', 'resolved'].includes(ticket.status);
 %>
 
-<div class="padding">
-  <!-- 顶部：工单标题 + 编号 -->
-  <div style="margin-bottom: 18px;">
-    <div style="color: #888; font-size: 0.9em; margin-bottom: 6px;">
-      <a href="<%= syzoj.utils.makeUrl(['tickets']) %>"><i class="angle left icon"></i>返回工单列表</a>
-    </div>
-    <h2 style="margin: 0; word-break: break-word;">
-      <span style="color: #999; font-size: 0.7em; margin-right: 10px;">#<%= ticket.id %></span>
-      <%= ticket.title %>
-    </h2>
-    <div style="margin-top: 8px;">
-      <span class="ui <%= cat ? cat.color : 'grey' %> label">
-        <%= cat ? cat.label : ticket.category %>
-      </span>
-      <% if (subInfo) { %>
-        <span class="ui basic label"><%= subInfo.label %></span>
-      <% } %>
-      <span class="ui <%= st ? st.color : 'grey' %> label">
-        <i class="<%= st ? st.icon : 'help' %> icon"></i>
-        <%= st ? st.label : ticket.status %>
-      </span>
-    </div>
-  </div>
+<div class="app-page app-ticket-detail-page">
+  <header class="app-page-header app-ticket-detail-header">
+    <div class="app-page-heading"><a class="app-back-link" href="<%= syzoj.utils.makeUrl(['tickets']) %>"><i data-lucide="arrow-left"></i>工单列表</a><span class="app-kicker">TICKET #<%= ticket.id %></span><h1 class="app-page-title"><%= ticket.title %></h1><div class="app-ticket-header-meta"><span><%= appCat ? appCat.label : ticket.category %></span><span><%= appSubtype ? appSubtype.label : ticket.subtype %></span><span class="app-status <%= appStateClasses[ticket.status] || 'app-status-muted' %>"><%= appState ? appState.label : ticket.status %></span></div></div>
+    <% if (canWithdraw) { %><form method="post" data-ticket-v2="close" data-ticket-id="<%= ticket.id %>" data-confirm="确定撤回此工单吗？撤回后将无法修改或回复。"><button class="app-button app-button-secondary" type="submit"><i data-lucide="undo"></i>撤回工单</button></form><% } %>
+  </header>
 
-  <div class="ui grid">
-    <!-- 左侧：工单描述 + 附件 + 回复区 -->
-    <div class="eleven wide column">
-      <!-- 工单描述 -->
-      <div class="ui top attached block header">
-        <i class="info circle icon"></i> 工单描述
-        <% if (canWithdraw) { %>
-          <form method="post" action="<%= syzoj.utils.makeUrl(['ticket', ticket.id, 'withdraw']) %>"
-                onsubmit="return confirm('确定撤回此工单吗？\n\n撤回后状态将变为「已关闭」，无法再修改或回复。');"
-                style="display: inline; float: right; margin: 0;">
-            <button type="submit" class="ui mini grey button">
-              <i class="undo icon"></i> 撤回工单
-            </button>
-          </form>
-        <% } %>
-      </div>
-      <div class="ui bottom attached segment">
-        <% if (descRendered) { %>
-          <div class="font-content"><%- descRendered %></div>
-        <% } else { %>
-          <div style="color: #999; font-style: italic;">(无描述)</div>
-        <% } %>
-      </div>
+  <div class="app-ticket-detail-grid">
+    <main class="app-ticket-thread">
+      <section class="app-ticket-description"><div class="app-section-header"><div><h2 class="app-section-title">问题描述</h2><p class="app-section-description">工单创建时提交的原始信息</p></div></div><div class="app-markdown"><% if (descRendered) { %><%- descRendered %><% } else { %><p class="app-muted-copy">未填写详细描述。</p><% } %></div></section>
 
-      <!-- 工单附件 -->
-      <% if (typeof attachments !== 'undefined' && attachments && attachments.length > 0) { %>
-        <div class="ui top attached block header" style="margin-top: 25px;">
-          <i class="paperclip icon"></i> 工单附件 (<%= attachments.length %>)
-        </div>
-        <div class="ui bottom attached segment">
-          <% for (let att of attachments) {
-            let isImg = att.mime_type && att.mime_type.startsWith('image/');
-            let sizeKB = Math.round(att.file_size / 1024);
-            let sizeStr = sizeKB > 1024 ? (sizeKB / 1024).toFixed(2) + ' MB' : sizeKB + ' KB';
-            let downloadUrl = syzoj.utils.makeUrl(['ticket-attachment', att.id]);
-          %>
-            <div style="display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
-              <% if (isImg) { %>
-                <a href="<%= downloadUrl %>" target="_blank" style="flex-shrink: 0;">
-                  <img src="<%= downloadUrl %>" style="width: 60px; height: 60px; object-fit: cover; border: 1px solid #ddd; border-radius: 3px;">
-                </a>
-              <% } else { %>
-                <div style="flex-shrink: 0; width: 60px; height: 60px; background: #f5f5f5; display: flex; align-items: center; justify-content: center; border-radius: 3px;">
-                  <i class="file outline icon" style="font-size: 1.8em; color: #888; margin: 0;"></i>
-                </div>
-              <% } %>
-              <div style="flex: 1; min-width: 0;">
-                <a href="<%= downloadUrl %>" <% if (!isImg) { %>download<% } else { %>target="_blank"<% } %> style="color: #2185d0; word-break: break-all;">
-                  <%= att.original_name %>
-                </a>
-                <div style="color: #999; font-size: 0.85em; margin-top: 3px;">
-                  <%= sizeStr %><% if (att.mime_type) { %> · <%= att.mime_type %><% } %>
-                </div>
-              </div>
-              <% if (att.uploader_id === res.locals.user.id || isAdmin) { %>
-                <form method="post" action="<%= syzoj.utils.makeUrl(['ticket-attachment', att.id, 'delete']) %>"
-                      onsubmit="return confirm('确定删除此附件吗？');"
-                      style="margin: 0; flex-shrink: 0;">
-                  <button type="submit" class="ui mini basic red button" title="删除附件">
-                    <i class="trash icon" style="margin: 0;"></i>
-                  </button>
-                </form>
-              <% } %>
-            </div>
-          <% } %>
-        </div>
-      <% } %>
+      <% if (typeof attachments !== 'undefined' && attachments && attachments.length) { %><section class="app-ticket-attachments"><div class="app-section-header"><div><h2 class="app-section-title">附件</h2><p class="app-section-description"><%= attachments.length %> 个文件</p></div></div><div class="app-file-list"><% for (const attachment of attachments) { const isImage = attachment.mime_type && attachment.mime_type.startsWith('image/'); const sizeKB = Math.round(attachment.file_size / 1024); const size = sizeKB > 1024 ? (sizeKB / 1024).toFixed(2) + ' MB' : sizeKB + ' KB'; const url = syzoj.utils.makeUrl(['ticket-attachment', attachment.id]); %><div class="app-file-row"><% if (isImage) { %><a class="app-file-preview" href="<%= url %>" target="_blank" rel="noopener"><img src="<%= url %>" alt=""></a><% } else { %><span class="app-file-preview"><i data-lucide="file"></i></span><% } %><span><a href="<%= url %>" <%= isImage ? 'target="_blank" rel="noopener"' : 'download' %>><%= attachment.original_name %></a><small><%= size %><% if (attachment.mime_type) { %> · <%= attachment.mime_type %><% } %></small></span><% if (attachment.uploader_id === res.locals.user.id || isAdmin) { %><form method="post" action="/api/v2/ticket-attachments/<%= attachment.id %>" data-ticket-attachment-v2="<%= attachment.id %>" data-confirm="确定删除此附件吗？"><button class="app-icon-button" type="submit" aria-label="删除附件" title="删除附件"><i data-lucide="trash"></i></button></form><% } %></div><% } %></div></section><% } %>
 
-      <!-- 回复时间线 -->
-      <div class="ui top attached block header" style="margin-top: 25px;">
-        <i class="comments icon"></i> 工单回复 (<%= replies.length %>)
-      </div>
-      <div class="ui bottom attached segment" style="padding: 0;">
-        <% if (replies.length === 0) { %>
-          <div style="text-align: center; color: #999; padding: 30px 20px;">
-            <i class="comment outline icon"></i> 暂无回复
-          </div>
-        <% } else { %>
-          <% for (let r of replies) {
-            let ru = replyUserMap[r.user_id];
-            let isSysMsg = r.is_status_change;
-          %>
-            <% if (isSysMsg) { %>
-              <!-- 系统消息样式 -->
-              <div style="text-align: center; padding: 12px 20px; color: #888; font-size: 0.9em; background: #fafafa; border-bottom: 1px solid #eee;">
-                <i class="info circle icon"></i> <%= r.content %>
-                <span style="margin-left: 8px; color: #aaa;">· <%= syzoj.utils.formatDate(r.created_at) %></span>
-              </div>
-            <% } else { %>
-              <!-- 普通回复 -->
-              <div style="padding: 14px 18px; border-bottom: 1px solid #eee; <% if (r.is_internal) { %>background: #fffbe6;<% } %>">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                  <div>
-                    <% if (ru) { %>
-                      <%- syzoj.utils.renderUsername(ru) %>
-                    <% } else { %>
-                      <span style="color: #aaa;">(用户已删除)</span>
-                    <% } %>
-                    <% if (r.is_internal) { %>
-                      <span class="ui mini yellow label" style="margin-left: 6px;">
-                        <i class="lock icon"></i>内部备注
-                      </span>
-                    <% } %>
-                  </div>
-                  <div style="color: #aaa; font-size: 0.85em;">
-                    <%= syzoj.utils.formatDate(r.created_at) %>
-                  </div>
-                </div>
-                <div class="font-content"><%- r.contentRendered %></div>
-              </div>
-            <% } %>
-          <% } %>
-        <% } %>
-      </div>
+      <section class="app-ticket-replies"><div class="app-section-header"><div><h2 class="app-section-title">处理记录</h2><p class="app-section-description"><%= replies.length %> 条记录</p></div></div>
+        <% if (!replies.length) { %><div class="app-empty app-empty-compact"><div class="app-empty-inner"><i data-lucide="messages-square"></i><strong>暂无回复</strong><p>新的处理进展会显示在这里。</p></div></div><% } else { %><div class="app-ticket-timeline"><% for (const reply of replies) { const replyUser = replyUserMap[reply.user_id]; %><% if (reply.is_status_change) { %><div class="app-ticket-event"><span><i data-lucide="refresh-cw"></i></span><p><%= reply.content %><time><%= syzoj.utils.formatDate(reply.created_at) %></time></p></div><% } else { %><article class="app-ticket-reply <%= reply.is_internal ? 'is-internal' : '' %>"><div class="app-ticket-reply-head"><span class="app-avatar"><%= replyUser ? replyUser.username.charAt(0).toUpperCase() : '?' %></span><span><strong><% if (replyUser) { %><%- syzoj.utils.renderUsername(replyUser) %><% } else { %>账户已删除<% } %></strong><small><%= syzoj.utils.formatDate(reply.created_at) %></small></span><% if (reply.is_internal) { %><em><i data-lucide="lock-keyhole"></i>内部备注</em><% } %></div><div class="app-markdown"><%- reply.contentRendered %></div></article><% } %><% } %></div><% } %>
+      </section>
 
-      <!-- 回复表单 + 附件上传 -->
-      <% if (canReply) { %>
-        <div class="ui top attached block header" style="margin-top: 25px;">
-          <i class="reply icon"></i> 添加回复
-        </div>
-        <div class="ui bottom attached segment">
-          <form method="post" action="<%= syzoj.utils.makeUrl(['ticket', ticket.id, 'reply']) %>" class="ui form">
-            <div class="field">
-              <textarea name="content" rows="5" placeholder="支持 Markdown 语法。回复后无法编辑或删除，请谨慎填写。" required></textarea>
-            </div>
-            <% if (isAdmin) { %>
-              <div class="field">
-                <div class="ui checkbox">
-                  <input type="checkbox" name="is_internal" id="is_internal_check">
-                  <label for="is_internal_check" style="cursor: pointer;">
-                    标记为内部备注（仅其他超级管理员可见，工单创建者不可见）
-                  </label>
-                </div>
-              </div>
-            <% } %>
-            <button type="submit" class="ui primary button">
-              <i class="paper plane icon"></i> 提交回复
-            </button>
-          </form>
+      <% if (canReply) { %><section class="app-ticket-compose"><div class="app-section-header"><div><h2 class="app-section-title">添加回复</h2><p class="app-section-description">支持 Markdown，回复提交后不可编辑或删除。</p></div></div><form class="app-form" method="post" data-ticket-v2="reply" data-ticket-id="<%= ticket.id %>"><label class="app-field app-field-full"><span class="app-label">回复内容</span><textarea class="app-textarea" name="content" rows="6" maxlength="50000" placeholder="填写回复内容" required></textarea></label><div class="app-form-actions app-form-actions-split"><% if (isAdmin) { %><label class="app-check"><input type="checkbox" name="is_internal"><span>仅管理员可见的内部备注</span></label><% } else { %><span></span><% } %><button class="app-button app-button-primary" type="submit"><i data-lucide="send"></i>提交回复</button></div></form>
+        <form class="app-upload-strip" id="attachment-upload-form" method="post" enctype="multipart/form-data" action="/api/v2/tickets/<%= ticket.id %>/attachments"><label><i data-lucide="paperclip"></i><span><strong>添加附件</strong><small>单文件最大 <%= typeof MAX_ATTACHMENT_SIZE_MB !== 'undefined' ? MAX_ATTACHMENT_SIZE_MB : 20 %> MB，累计最多 <%= typeof MAX_ATTACHMENT_FILES !== 'undefined' ? MAX_ATTACHMENT_FILES : 10 %> 个</small></span><input type="file" name="attachments" multiple id="attachment-file-input"></label><button class="app-button app-button-secondary" type="submit" id="attachment-upload-btn">上传文件</button><span id="attachment-upload-status" class="app-form-status" aria-live="polite"></span></form>
+      </section><% } else if (appTerminal) { %><div class="app-notice"><i data-lucide="lock-keyhole"></i><span><strong>此工单已结案</strong><small>状态为“<%= appState ? appState.label : ticket.status %>”，无法继续回复。</small></span></div><% } else if (isAdmin && ticket.assignee_id !== res.locals.user.id) { %><div class="app-notice"><i data-lucide="hand"></i><span><strong>请先认领工单</strong><small>认领后可以回复并更新状态。</small></span></div><% } %>
+    </main>
 
-          <!-- 附件上传 -->
-          <div class="ui divider"></div>
-          <div>
-            <h5 style="margin-bottom: 8px;">
-              <i class="paperclip icon"></i> 上传附件
-              <span style="color: #999; font-size: 0.85em; font-weight: normal;">
-                (单文件最大 <%= typeof MAX_ATTACHMENT_SIZE_MB !== 'undefined' ? MAX_ATTACHMENT_SIZE_MB : 20 %> MB，本工单累计最多 <%= typeof MAX_ATTACHMENT_FILES !== 'undefined' ? MAX_ATTACHMENT_FILES : 10 %> 个)
-              </span>
-            </h5>
-            <form id="attachment-upload-form" method="post" enctype="multipart/form-data"
-                  action="<%= syzoj.utils.makeUrl(['ticket', ticket.id, 'upload']) %>"
-                  style="margin-bottom: 0;">
-              <input type="file" name="attachments" multiple
-                     style="margin-bottom: 8px;"
-                     id="attachment-file-input">
-              <br>
-              <button type="submit" class="ui small button" id="attachment-upload-btn">
-                <i class="upload icon"></i> 上传选中文件
-              </button>
-              <span id="attachment-upload-status" style="margin-left: 12px; color: #888;"></span>
-            </form>
-            <script>
-            (function() {
-              var form = document.getElementById('attachment-upload-form');
-              var btn = document.getElementById('attachment-upload-btn');
-              var input = document.getElementById('attachment-file-input');
-              var status = document.getElementById('attachment-upload-status');
-              if (!form) return;
-              var maxSizeMB = <%= typeof MAX_ATTACHMENT_SIZE_MB !== 'undefined' ? MAX_ATTACHMENT_SIZE_MB : 20 %>;
-
-              form.addEventListener('submit', function(e) {
-                e.preventDefault();
-                if (!input.files || input.files.length === 0) {
-                  status.textContent = '请先选择文件';
-                  status.style.color = '#db2828';
-                  return;
-                }
-                var maxSize = maxSizeMB * 1024 * 1024;
-                for (var i = 0; i < input.files.length; i++) {
-                  if (input.files[i].size > maxSize) {
-                    status.textContent = '文件 "' + input.files[i].name + '" 超过 ' + maxSizeMB + ' MB 限制';
-                    status.style.color = '#db2828';
-                    return;
-                  }
-                }
-
-                btn.disabled = true;
-                status.textContent = '上传中...';
-                status.style.color = '#888';
-
-                var fd = new FormData(form);
-                fetch(form.action, { method: 'POST', body: fd })
-                  .then(function(r) { return r.json(); })
-                  .then(function(d) {
-                    if (d.ok) {
-                      status.textContent = '上传成功!正在刷新...';
-                      status.style.color = '#21ba45';
-                      setTimeout(function() { location.reload(); }, 600);
-                    } else {
-                      status.textContent = '失败: ' + (d.message || '未知错误');
-                      status.style.color = '#db2828';
-                      btn.disabled = false;
-                    }
-                  })
-                  .catch(function(e) {
-                    status.textContent = '网络错误: ' + e.message;
-                    status.style.color = '#db2828';
-                    btn.disabled = false;
-                  });
-              });
-            })();
-            </script>
-          </div>
-        </div>
-      <% } else if (['closed', 'rejected', 'resolved'].includes(ticket.status)) { %>
-        <div class="ui icon message" style="margin-top: 20px;">
-          <i class="lock icon"></i>
-          <div class="content">
-            <div class="header">此工单已结案</div>
-            <p>状态为「<%= st.label %>」,无法再添加回复。</p>
-          </div>
-        </div>
-      <% } else if (isAdmin && ticket.assignee_id !== res.locals.user.id) { %>
-        <div class="ui icon message" style="margin-top: 20px;">
-          <i class="hand paper icon"></i>
-          <div class="content">
-            <div class="header">请先认领此工单</div>
-            <p>需要先认领此工单后才能进行回复或状态变更。</p>
-          </div>
-        </div>
-      <% } %>
-
-    </div>
-
-    <!-- 右侧：基本信息卡 + admin 操作面板 -->
-    <div class="five wide column">
-      <!-- 基本信息卡 -->
-      <div class="ui segment">
-        <h4 style="margin-top: 0;">基本信息</h4>
-        <table style="width: 100%;">
-          <tr>
-            <td style="color: #888; padding: 4px 0; vertical-align: top; width: 78px;">工单状态</td>
-            <td style="padding: 4px 0;">
-              <span class="ui mini <%= st ? st.color : 'grey' %> label">
-                <%= st ? st.label : ticket.status %>
-              </span>
-            </td>
-          </tr>
-          <tr>
-            <td style="color: #888; padding: 4px 0; vertical-align: top;">创建者</td>
-            <td style="padding: 4px 0;">
-              <% if (creator) { %>
-                <%- syzoj.utils.renderUsername(creator) %>
-              <% } else { %>
-                <span style="color: #aaa;">(已删除)</span>
-              <% } %>
-            </td>
-          </tr>
-          <tr>
-            <td style="color: #888; padding: 4px 0; vertical-align: top;">责任人</td>
-            <td style="padding: 4px 0;">
-              <% if (assignee) { %>
-                <%- syzoj.utils.renderUsername(assignee) %>
-              <% } else { %>
-                <span style="color: #aaa;">暂无</span>
-              <% } %>
-            </td>
-          </tr>
-          <tr>
-            <td style="color: #888; padding: 4px 0; vertical-align: top;">工单类型</td>
-            <td style="padding: 4px 0;">
-              <%= cat ? cat.label : ticket.category %>
-              <% if (subInfo) { %> - <%= subInfo.label %><% } %>
-            </td>
-          </tr>
-          <% if (relationInfo) { %>
-            <tr>
-              <td style="color: #888; padding: 4px 0; vertical-align: top;">关联对象</td>
-              <td style="padding: 4px 0; word-break: break-all;">
-                <a href="<%= relationInfo.url %>" style="color: #21ba45;"><%= relationInfo.name %></a>
-              </td>
-            </tr>
-          <% } %>
-          <tr>
-            <td style="color: #888; padding: 4px 0; vertical-align: top;">创建时间</td>
-            <td style="padding: 4px 0;"><%= syzoj.utils.formatDate(ticket.created_at) %></td>
-          </tr>
-          <% if (ticket.updated_at !== ticket.created_at) { %>
-            <tr>
-              <td style="color: #888; padding: 4px 0; vertical-align: top;">最后更新</td>
-              <td style="padding: 4px 0;"><%= syzoj.utils.formatDate(ticket.updated_at) %></td>
-            </tr>
-          <% } %>
-        </table>
-        <div style="margin-top: 12px; color: #aaa; font-size: 0.85em; text-align: center;">
-          非公开工单
-        </div>
-      </div>
-
-      <!-- 额外字段(举报原因等) -->
-      <% if (Object.keys(extraData).length > 0) { %>
-        <div class="ui segment">
-          <h4 style="margin-top: 0;">附加信息</h4>
-          <% Object.keys(extraData).forEach(function(key) { %>
-            <div style="margin-bottom: 8px;">
-              <div style="color: #888; font-size: 0.85em;">
-                <% if (key === 'report_reason') { %>举报原因<% } else { %><%= key %><% } %>
-              </div>
-              <div style="color: #333; word-break: break-word;"><%= extraData[key] %></div>
-            </div>
-          <% }); %>
-        </div>
-      <% } %>
-
-      <!-- admin 操作面板 -->
+    <aside class="app-ticket-sidebar">
+      <section><h2>工单信息</h2><dl><div><dt>状态</dt><dd><span class="app-status <%= appStateClasses[ticket.status] || 'app-status-muted' %>"><%= appState ? appState.label : ticket.status %></span></dd></div><div><dt>创建者</dt><dd><% if (creator) { %><%- syzoj.utils.renderUsername(creator) %><% } else { %>账户已删除<% } %></dd></div><div><dt>处理人</dt><dd><% if (assignee) { %><%- syzoj.utils.renderUsername(assignee) %><% } else { %>尚未分配<% } %></dd></div><div><dt>类型</dt><dd><%= appCat ? appCat.label : ticket.category %><% if (appSubtype) { %> · <%= appSubtype.label %><% } %></dd></div><% if (relationInfo) { %><div><dt>关联对象</dt><dd><a href="<%= relationInfo.url %>"><%= relationInfo.name %></a></dd></div><% } %><div><dt>创建时间</dt><dd><%= syzoj.utils.formatDate(ticket.created_at) %></dd></div><% if (ticket.updated_at !== ticket.created_at) { %><div><dt>最后更新</dt><dd><%= syzoj.utils.formatDate(ticket.updated_at) %></dd></div><% } %></dl><p class="app-private-note"><i data-lucide="lock-keyhole"></i>非公开工单</p></section>
+      <% if (Object.keys(extraData).length) { %><section><h2>附加信息</h2><dl><% Object.keys(extraData).forEach(function (key) { %><div><dt><%= key === 'report_reason' ? '举报原因' : key %></dt><dd><%= extraData[key] %></dd></div><% }); %></dl></section><% } %>
       <% if (isAdmin) { %>
-        <div class="ui segment">
-          <h4 style="margin-top: 0;"><i class="shield alternate icon"></i> 管理员操作</h4>
-
-          <!-- 认领按钮 -->
+        <section class="app-ticket-admin">
+          <h2>处理操作</h2>
           <% if (ticket.assignee_id !== res.locals.user.id) { %>
-            <form method="post" action="<%= syzoj.utils.makeUrl(['ticket', ticket.id, 'assign']) %>"
-                  onsubmit="return confirm('<%= ticket.assignee_id ? '确定接手此工单吗?原处理人将被替换为您。' : '确定认领此工单吗?认领后才能回复和改状态。' %>');"
-                  style="margin-bottom: 12px;">
-              <button type="submit" class="ui fluid blue button">
-                <i class="hand paper icon"></i>
-                <%= ticket.assignee_id ? '接手此工单' : '认领此工单' %>
-              </button>
+            <form class="app-admin-action-stack" method="post" data-ticket-v2="assign" data-ticket-id="<%= ticket.id %>" data-confirm="<%= ticket.assignee_id ? '确定接手此工单吗？' : '确定认领此工单吗？' %>">
+              <button class="app-button app-button-primary" type="submit"><i data-lucide="hand"></i><%= ticket.assignee_id ? '接手工单' : '认领工单' %></button>
             </form>
-          <% } else { %>
-            <!-- 状态变更按钮(已认领) -->
-            <% if (canChangeStatus && !['closed', 'rejected', 'resolved'].includes(ticket.status)) { %>
-              <form method="post" action="<%= syzoj.utils.makeUrl(['ticket', ticket.id, 'status']) %>"
-                    onsubmit="return confirm('确定将工单状态变更为「已处理」吗？变更后将不能再回复。');"
-                    style="margin-bottom: 8px;">
-                <input type="hidden" name="status" value="resolved">
-                <button type="submit" class="ui fluid green button">
-                  <i class="check circle icon"></i> 标记为已处理
-                </button>
-              </form>
-              <form method="post" action="<%= syzoj.utils.makeUrl(['ticket', ticket.id, 'status']) %>"
-                    onsubmit="return confirm('确定驳回此工单吗？变更后将不能再回复。');"
-                    style="margin-bottom: 8px;">
-                <input type="hidden" name="status" value="rejected">
-                <button type="submit" class="ui fluid red button">
-                  <i class="times circle icon"></i> 驳回工单
-                </button>
-              </form>
-              <% if (ticket.status !== 'in_progress') { %>
-                <form method="post" action="<%= syzoj.utils.makeUrl(['ticket', ticket.id, 'status']) %>"
-                      style="margin-bottom: 8px;">
-                  <input type="hidden" name="status" value="in_progress">
-                  <button type="submit" class="ui fluid basic button">
-                    <i class="spinner icon"></i> 设为处理中
-                  </button>
-                </form>
-              <% } %>
-            <% } else if (['closed', 'rejected', 'resolved'].includes(ticket.status)) { %>
-              <!-- 已结案，允许重新打开 -->
-              <form method="post" action="<%= syzoj.utils.makeUrl(['ticket', ticket.id, 'status']) %>"
-                    onsubmit="return confirm('确定重新打开此工单吗？');"
-                    style="margin-bottom: 8px;">
-                <input type="hidden" name="status" value="in_progress">
-                <button type="submit" class="ui fluid basic blue button">
-                  <i class="redo icon"></i> 重新打开
-                </button>
+          <% } else if (canChangeStatus && !appTerminal) { %>
+            <% for (const action of [{ status: 'resolved', label: '标记为已处理', icon: 'circle-check', style: 'app-button-primary' }, { status: 'in_progress', label: '设为处理中', icon: 'loader-circle', style: 'app-button-secondary', hidden: ticket.status === 'in_progress' }, { status: 'rejected', label: '驳回工单', icon: 'circle-x', style: 'app-button-danger-outline' }]) { if (action.hidden) continue; %>
+              <form class="app-admin-action-stack" method="post" data-ticket-v2="status" data-ticket-id="<%= ticket.id %>" data-confirm="确定执行“<%= action.label %>”吗？">
+                <input type="hidden" name="status" value="<%= action.status %>">
+                <button class="app-button <%= action.style %>" type="submit"><i data-lucide="<%= action.icon %>"></i><%= action.label %></button>
               </form>
             <% } %>
-          <% } %>
-
-          <!-- 危险区域：删除(仅 super admin) -->
-          <% if (res.locals.user.is_admin) { %>
-            <div class="ui divider"></div>
-            <form method="post" action="<%= syzoj.utils.makeUrl(['ticket', ticket.id, 'delete']) %>"
-                  onsubmit="return confirm('真的要永久删除此工单吗？\n\n所有回复也会一并删除，此操作不可撤销！');"
-                  style="margin: 0;">
-              <button type="submit" class="ui fluid mini red basic button">
-                <i class="trash icon"></i> 永久删除工单
-              </button>
+          <% } else if (appTerminal) { %>
+            <form class="app-admin-action-stack" method="post" data-ticket-v2="status" data-ticket-id="<%= ticket.id %>" data-confirm="确定重新打开此工单吗？">
+              <input type="hidden" name="status" value="in_progress">
+              <button class="app-button app-button-secondary" type="submit"><i data-lucide="rotate-ccw"></i>重新打开</button>
             </form>
           <% } %>
-        </div>
+          <% if (ticket.status !== 'closed') { %>
+            <div class="app-danger-zone"><span>关闭后仍保留全部历史</span><form class="app-admin-action-stack" method="post" data-ticket-v2="admin-close" data-ticket-id="<%= ticket.id %>" data-confirm="确定关闭此工单吗？"><button class="app-button app-button-danger-outline" type="submit"><i data-lucide="lock-keyhole"></i>关闭工单</button></form></div>
+          <% } %>
+        </section>
       <% } %>
-    </div>
+    </aside>
   </div>
 </div>
 
-<% include footer %>
+<% if (canReply) { %><script>
+(function () {
+  var form = document.getElementById('attachment-upload-form'); var button = document.getElementById('attachment-upload-btn'); var input = document.getElementById('attachment-file-input'); var status = document.getElementById('attachment-upload-status'); var max = <%= typeof MAX_ATTACHMENT_SIZE_MB !== 'undefined' ? MAX_ATTACHMENT_SIZE_MB : 20 %>;
+  form.addEventListener('submit', async function (event) { event.preventDefault(); if (!input.files.length) { status.textContent = '请先选择文件'; return; } for (var i = 0; i < input.files.length; i++) { if (input.files[i].size > max * 1024 * 1024) { status.textContent = input.files[i].name + ' 超过 ' + max + ' MB'; return; } } button.disabled = true; status.textContent = '正在上传...'; try { var response = await fetch(form.action, { method: 'POST', body: new FormData(form) }); var data = await response.json(); if (!response.ok || !data.data) throw new Error(data && data.error && data.error.message || '上传失败'); status.textContent = '上传成功，正在刷新...'; window.setTimeout(function () { location.reload(); }, 450); } catch (error) { status.textContent = error.message; button.disabled = false; } });
+})();
+</script><% } %>
+
+<script>
+(function () {
+  document.addEventListener('submit', async function (event) {
+    var form = event.target.closest('[data-ticket-attachment-v2]');
+    if (!form || event.defaultPrevented) return;
+    event.preventDefault();
+    var button = form.querySelector('button[type="submit"]');
+    if (button) button.disabled = true;
+    try {
+      var response = await fetch(form.action, { method: 'DELETE', credentials: 'same-origin' });
+      var body = await response.json();
+      if (!response.ok) throw new Error(body && body.error && body.error.message || '附件删除失败。');
+      window.location.reload();
+    } catch (error) {
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '附件删除失败。', 'danger');
+      if (button) button.disabled = false;
+    }
+  });
+})();
+</script>
+
+<% include ticket_v2_script %>
+
+<% include app_footer %>

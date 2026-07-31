@@ -1,63 +1,80 @@
 <% this.title = '注册'; %>
-<% include header %>
 <%
-var formValues = (typeof registrationValues !== 'undefined' && registrationValues) ? registrationValues : {};
-var initialError = (typeof registrationErrorInfo !== 'undefined') ? registrationErrorInfo : null;
-var initialNotice = (typeof registrationNotice !== 'undefined') ? registrationNotice : null;
+const formValues = typeof registrationValues !== 'undefined' && registrationValues ? registrationValues : {};
+const initialError = typeof registrationErrorInfo !== 'undefined' ? registrationErrorInfo : null;
+const initialNotice = typeof registrationNotice !== 'undefined' ? registrationNotice : null;
 %>
-<div class="nwpuoj-auth-page">
-  <div class="nwpuoj-auth-panel nwpuoj-auth-panel--wide">
-  <h2 class="ui center aligned header">注册</h2>
-  <form class="ui form nwpuoj-auth-form-panel" id="sign-up-form" action="/sign_up" method="post" novalidate>
-    <input type="hidden" id="registration_csrf_token" name="registration_csrf_token" value="<%= registrationCsrfToken %>">
-    <input type="hidden" name="prevUrl" value="<%= registrationPrevUrl %>">
-    <div class="field">
-      <label for="username">用户名</label>
-      <input type="text" id="username" name="username" value="<%= formValues.username || '' %>" autocomplete="username" required>
-    </div>
-    <div class="field">
-      <label for="student_id">学号</label>
-      <input type="text" id="student_id" name="student_id" value="<%= formValues.student_id || '' %>" inputmode="numeric" pattern="\d{10}" minlength="10" maxlength="10" autocomplete="off" required>
-    </div>
-    <div class="field">
-      <label for="real_name">姓名</label>
-      <input type="text" id="real_name" name="real_name" value="<%= formValues.real_name || '' %>" maxlength="64" autocomplete="name" required>
-    </div>
-    <div class="field">
-      <label for="college">学院</label>
-      <select class="ui search dropdown" id="college" name="college" required>
-        <option value="">请选择学院</option>
-        <% colleges.forEach(function (college) { %>
-          <option value="<%= college %>"<% if (formValues.college === college) { %> selected<% } %>><%= college %></option>
-        <% }); %>
-      </select>
-    </div>
-    <div class="field">
-      <label for="email">邮箱</label>
-      <input type="email" id="email" name="email" value="<%= formValues.email || '' %>" autocomplete="email" required>
-    </div>
-    <div class="two fields">
-      <div class="field">
-        <label for="password1">密码</label>
-        <input type="password" id="password1" name="password" minlength="10" maxlength="128" autocomplete="new-password" required>
+<% include app_header %>
+
+<div class="app-auth app-auth-wide">
+  <section class="app-auth-intro">
+    <img src="/self/logo.png?v=<%= encodeURIComponent(syzoj.config.nwpuoj_version || '2.0.0') %>" alt="" width="52" height="52">
+    <h1>建立你的训练档案</h1>
+    <p>账户用于保存做题记录、比赛报名、Rating 和站内通知。</p>
+  </section>
+  <section class="app-auth-panel">
+    <h2>创建账户</h2>
+    <p>请使用真实学籍信息完成注册。</p>
+    <% if (initialError || initialNotice) { %><div class="app-notice <%= initialNotice ? 'app-notice-success' : 'app-notice-danger' %>" role="alert"><i data-lucide="<%= initialNotice ? 'circle-check' : 'circle-alert' %>"></i><span><%= initialError || initialNotice %></span></div><% } %>
+    <div class="app-notice app-notice-danger" id="sign-up-v2-error" role="alert" hidden><i data-lucide="circle-alert"></i><span></span></div>
+    <form class="app-form" id="sign-up-form" method="post" novalidate data-sign-up-v2>
+      <input type="hidden" name="registration_csrf_token" value="<%= registrationCsrfToken %>">
+      <input type="hidden" name="prevUrl" value="<%= registrationPrevUrl %>">
+      <div class="app-form-grid">
+        <label class="app-field"><span class="app-label">用户名<span class="app-required">*</span></span><input class="app-input" type="text" name="username" value="<%= formValues.username || '' %>" autocomplete="username" required></label>
+        <label class="app-field"><span class="app-label">学号<span class="app-required">*</span></span><input class="app-input" type="text" name="student_id" value="<%= formValues.student_id || '' %>" inputmode="numeric" pattern="\d{10}" minlength="10" maxlength="10" autocomplete="off" required></label>
+        <label class="app-field"><span class="app-label">姓名<span class="app-required">*</span></span><input class="app-input" type="text" name="real_name" value="<%= formValues.real_name || '' %>" maxlength="64" autocomplete="name" required></label>
+        <label class="app-field"><span class="app-label">学院<span class="app-required">*</span></span><select class="app-select" name="college" required><option value="">请选择学院</option><% colleges.forEach(function (college) { %><option value="<%= college %>"<% if (formValues.college === college) { %> selected<% } %>><%= college %></option><% }); %></select></label>
+        <label class="app-field app-field-full"><span class="app-label">邮箱<span class="app-required">*</span></span><input class="app-input" type="email" name="email" value="<%= formValues.email || '' %>" autocomplete="email" required></label>
+        <label class="app-field"><span class="app-label">密码<span class="app-required">*</span></span><span class="app-input-wrap app-password-wrap"><i data-lucide="lock-keyhole"></i><input class="app-input" type="password" id="password1" name="password" minlength="10" maxlength="128" autocomplete="new-password" required><button class="app-password-toggle" type="button" data-password-toggle="password1" aria-label="显示密码"><i data-lucide="eye"></i></button></span><span class="app-help">至少 10 个字符</span></label>
+        <label class="app-field"><span class="app-label">确认密码<span class="app-required">*</span></span><span class="app-input-wrap app-password-wrap"><i data-lucide="lock-keyhole"></i><input class="app-input" type="password" id="password2" name="confirm_password" minlength="10" maxlength="128" autocomplete="new-password" required><button class="app-password-toggle" type="button" data-password-toggle="password2" aria-label="显示密码"><i data-lucide="eye"></i></button></span></label>
       </div>
-      <div class="field">
-        <label for="password2">确认密码</label>
-        <input type="password" id="password2" name="confirm_password" minlength="10" maxlength="128" autocomplete="new-password" required>
-      </div>
-    </div>
-    <div class="ui <%= initialNotice ? 'success' : 'error' %> message" id="error" role="alert" aria-live="polite"<% if (!initialError && !initialNotice) { %> hidden<% } %>>
-      <p id="error_info"><%= initialError || initialNotice || '' %></p>
-    </div>
-    <button id="sign_up" class="ui primary labeled icon button" type="submit">
-      <i class="user plus icon"></i>注册
-    </button>
-  </form>
-  </div>
+      <div class="app-form-actions"><a class="app-button app-button-quiet" href="<%= syzoj.utils.makeUrl(['login']) %>">已有账户</a><button class="app-button app-button-primary" type="submit"><i data-lucide="user-plus"></i>注册</button></div>
+    </form>
+  </section>
 </div>
-<script type="text/javascript">
-$(function () {
-  $('#college').dropdown();
-});
+
+<script>
+(function () {
+  var form = document.getElementById('sign-up-form');
+  var notice = document.getElementById('sign-up-v2-error');
+  if (!form || !notice) return;
+function showError(message) {
+    notice.querySelector('span').textContent = message;
+    notice.hidden = false;
+  }
+  form.addEventListener('submit', async function (event) {
+    if (event.defaultPrevented) return;
+    event.preventDefault();
+    var submit = form.querySelector('[type="submit"]');
+    if (submit) submit.disabled = true;
+    form.setAttribute('aria-busy', 'true');
+    try {
+      var body = {
+        username: form.elements.username.value,
+        student_id: form.elements.student_id.value,
+        real_name: form.elements.real_name.value,
+        college: form.elements.college.value,
+        email: form.elements.email.value,
+        password: form.elements.password.value,
+        confirm_password: form.elements.confirm_password.value
+      };
+      var response = await fetch('/api/v2/auth/register', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      var result = await response.json();
+      if (!response.ok) throw new Error(result && result.error && result.error.message || '注册失败，请检查表单内容。');
+      window.location.assign(result.data && result.data.redirect_url || '/');
+    } catch (error) {
+      showError(error.message || '注册服务暂时不可用。');
+      if (submit) submit.disabled = false;
+      form.removeAttribute('aria-busy');
+    }
+  });
+})();
 </script>
-<% include footer %>
+
+<% include app_footer %>

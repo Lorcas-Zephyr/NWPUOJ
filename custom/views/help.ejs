@@ -1,27 +1,12 @@
-<% this.title = '帮助'; %>
-<% include header %>
-<div class="padding">
-  <div class="nwpuoj-page-header">
-    <div>
-      <h1 class="nwpuoj-page-title"><i class="help circle icon"></i>帮助</h1>
-      <% if (helpPage.updated_by) { %><div class="nwpuoj-meta">最后更新：<%= helpPage.updater_name || '账户已删除' %> · <%= syzoj.utils.formatDate(helpPage.updated_at) %></div><% } %>
-    </div>
-    <% if (user && user.is_admin) { %>
-      <a class="ui basic labeled icon button" href="<%= syzoj.utils.makeUrl(['admin', 'help']) %>"><i class="edit icon"></i>编辑帮助页</a>
-    <% } %>
-  </div>
-  <article class="font-content nwpuoj-help-content"><%- helpContentRendered %></article>
+<% this.title = '帮助' %>
+<% include app_header %>
+
+<div class="app-page app-help-page">
+  <header class="app-page-header"><div class="app-page-heading"><span class="app-kicker">DOCUMENTATION</span><h1 class="app-page-title">帮助中心</h1><p class="app-page-description"><% if (helpPage.updated_by) { %>由 <%= helpPage.updater_name || '账户已删除' %> 更新于 <%= syzoj.utils.formatDate(helpPage.updated_at) %><% } else { %>平台使用说明与常见问题。<% } %></p></div><div class="app-page-actions"><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['help', 'hit-value']) %>"><i data-lucide="gauge"></i>Hit 值说明</a><% if (user && typeof appHasCapability === 'function' && appHasCapability('admin:config.write')) { %><a class="app-button app-button-primary" href="<%= syzoj.utils.makeUrl(['admin', 'help']) %>"><i data-lucide="square-pen"></i>编辑内容</a><% } %></div></header>
+  <div class="app-help-layout"><aside class="app-help-toc" aria-label="本页目录"><strong>本页目录</strong><nav id="help-toc"></nav></aside><article class="app-markdown app-help-content" id="help-content"><%- helpContentRendered %></article></div>
 </div>
+
 <script>
-(function () {
-  var headings = document.querySelectorAll('.nwpuoj-help-content h2');
-  for (var i = 0; i < headings.length; i++) {
-    if (headings[i].textContent.trim() === 'ZIP 批量导入严格格式') {
-      headings[i].id = 'zip-bulk-import-format';
-      if (window.location.hash === '#zip-bulk-import-format') headings[i].scrollIntoView();
-      break;
-    }
-  }
-})();
+(function () { var content = document.getElementById('help-content'); var toc = document.getElementById('help-toc'); var headings = content.querySelectorAll('h2'); headings.forEach(function (heading, index) { var id = heading.textContent.trim() === 'ZIP 批量导入严格格式' ? 'zip-bulk-import-format' : 'help-section-' + (index + 1); heading.id = heading.id || id; var link = document.createElement('a'); link.href = '#' + heading.id; link.textContent = heading.textContent; toc.appendChild(link); }); if (!headings.length) document.querySelector('.app-help-toc').hidden = true; })();
 </script>
-<% include footer %>
+<% include app_footer %>

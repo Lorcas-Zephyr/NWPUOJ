@@ -1,0 +1,39 @@
+<% this.adminPage = 'links'; %>
+<% include admin_header %>
+
+<div class="app-admin-toolbar"><div><h3>友情链接</h3><p>管理在站点页脚等位置展示的外部链接。</p></div></div>
+<% if (links.length) { %><div class="app-table-region"><table class="app-table"><thead><tr><th>名称</th><th>链接</th><th aria-label="操作"></th></tr></thead><tbody><% for (let index = 0; index < links.length; index++) { %><tr><td class="app-cell-primary"><strong><%= links[index].title %></strong></td><td><a href="<%= links[index].url %>" target="_blank" rel="noopener"><%= links[index].url %></a></td><td class="app-cell-actions"><button class="app-icon-button app-icon-danger" type="button" data-remove-link="<%= index %>" title="删除友链" aria-label="删除友链"><i data-lucide="trash"></i></button></td></tr><% } %></tbody></table></div><% } else { %><div class="app-empty app-empty-compact"><div class="app-empty-inner"><i data-lucide="link-2-off"></i><strong>暂无友情链接</strong></div></div><% } %>
+<section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">NEW LINK</span><h2>添加友链</h2><p>名称应简短清晰，链接需包含完整协议。</p></div><div class="app-settings-fields"><div class="app-form-grid"><label class="app-field"><span class="app-label">名称</span><input class="app-input" type="text" id="add-link-title" maxlength="100"></label><label class="app-field"><span class="app-label">链接</span><input class="app-input" type="url" id="add-link-url" placeholder="https://..."></label></div><div><button class="app-button app-button-primary" id="add-link-button" type="button"><i data-lucide="plus"></i>添加友链</button></div></div></section>
+<form method="post" id="links-form" data-admin-links-v2><input type="hidden" name="data" id="links-data"></form>
+<script>
+(function () {
+  var links = <%- serializejs(links) %>;
+  var form = document.getElementById('links-form');
+  var data = document.getElementById('links-data');
+  async function submit() {
+    data.value = JSON.stringify(links);
+    var current = await fetch('/api/v2/admin/links', { credentials: 'same-origin', cache: 'no-store' });
+    var currentBody = await current.json();
+    if (!current.ok) throw new Error(currentBody && currentBody.error && currentBody.error.message || '友情链接读取失败。');
+    var response = await fetch('/api/v2/admin/links', { method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'If-Match': current.headers.get('ETag') || '' }, body: JSON.stringify({ links: links }) });
+    var body = await response.json();
+    if (!response.ok) throw new Error(body && body.error && body.error.message || '友情链接保存失败。');
+    window.location.reload();
+  }
+  document.querySelectorAll('[data-remove-link]').forEach(function (button) {
+    button.addEventListener('click', function () {
+      if (!window.confirm('确认删除该友情链接吗？')) return;
+      links.splice(Number(button.getAttribute('data-remove-link')), 1);
+      submit().catch(function (error) { if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message, 'danger'); });
+    });
+  });
+  document.getElementById('add-link-button').addEventListener('click', function () {
+    var title = document.getElementById('add-link-title');
+    var url = document.getElementById('add-link-url');
+    if (!title.value.trim() || !url.reportValidity()) { title.focus(); return; }
+    links.push({ title: title.value.trim(), url: url.value.trim() });
+    submit().catch(function (error) { if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message, 'danger'); });
+  });
+})();
+</script>
+<% include admin_footer %>

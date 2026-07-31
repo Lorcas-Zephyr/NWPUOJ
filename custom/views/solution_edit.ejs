@@ -1,67 +1,104 @@
 <% this.title = solution.id ? '编辑题解' : '投稿题解' %>
-<% include header %>
+<% include app_header %>
 
-<div class="padding">
-  <div class="ui breadcrumb nwpuoj-meta" style="margin-bottom:15px;">
-    <a class="section" href="<%= syzoj.utils.makeUrl(['problem', problem.id]) %>"><%= problem.getDisplayId() %>. <%= problem.title %></a>
-    <i class="right angle icon divider"></i>
-    <a class="section" href="<%= syzoj.utils.makeUrl(['problem', problem.id, 'solutions']) %>">题解</a>
-    <i class="right angle icon divider"></i>
-    <div class="active section"><%= solution.id ? '编辑' : '投稿' %></div>
-  </div>
-
-  <div class="nwpuoj-page-header">
-    <h2 class="nwpuoj-page-title"><%= solution.id ? '编辑题解' : '投稿题解' %></h2>
-    <span class="nwpuoj-meta"><%= problem.getDisplayId() %> · <%= problem.title %></span>
-  </div>
-
-  <% if (!solution.id && !user.is_admin) { %>
-    <div class="ui info message">
-      <i class="info circle icon"></i> 投稿后将进入审核状态，管理员通过后才会公开。审核期间仅你自己和管理员可见。
+<div class="app-page app-editor-page">
+  <nav class="app-breadcrumb" aria-label="面包屑"><a href="<%= syzoj.utils.makeUrl(['problem', problem.id]) %>"><%= problem.getDisplayId() %>. <%= syzoj.utils.removeTitleTag(problem.title) %></a><i data-lucide="chevron-right"></i><a href="<%= syzoj.utils.makeUrl(['problem', problem.id, 'solutions']) %>">题解</a><i data-lucide="chevron-right"></i><span><%= solution.id ? '编辑' : '投稿' %></span></nav>
+  <header class="app-page-header"><div class="app-page-heading"><a class="app-back-link" href="<%= syzoj.utils.makeUrl(['problem', problem.id]) %>"><i data-lucide="arrow-left"></i>返回题目</a><span class="app-kicker">SOLUTION EDITOR</span><h1 class="app-page-title"><%= solution.id ? '编辑题解' : '投稿题解' %></h1><p class="app-page-description"><%= problem.getDisplayId() %>. <%= syzoj.utils.removeTitleTag(problem.title) %></p></div></header>
+  <% if (!solution.id && !user.is_admin) { %><div class="app-notice"><i data-lucide="info"></i><span>投稿后将进入审核状态，审核期间仅你自己和管理员可见。</span></div><% } %>
+  <form class="app-form app-editor" method="post" data-markdown-editor data-solution-v2-edit data-draft-key="content-draft:solution:<%= user.id %>:<%= solution.id %>:<%= problem.id %>">
+    <input type="hidden" name="_content_token" value="<%= contentFormTokens.solutionEdit %>"><input type="hidden" name="problem_id" value="<%= problem.id %>">
+    <div class="app-editor-toolbar"><div class="app-segmented" role="tablist" aria-label="编辑模式"><button type="button" role="tab" aria-selected="true" data-tab="edit"><i data-lucide="square-pen"></i>编辑</button><button type="button" role="tab" aria-selected="false" data-tab="preview" data-preview-tab><i data-lucide="eye"></i>预览</button></div><span data-draft-status aria-live="polite">草稿自动保存</span></div>
+    <div class="app-editor-workspace">
+      <div class="app-editor-panel" data-editor-panel="edit"><label class="app-field"><span class="app-label">标题</span><input class="app-input app-editor-title" type="text" name="title" value="<%= solution.title || '' %>" maxlength="80" placeholder="例如：思路分析与完整代码" required></label><label class="app-field app-editor-content-field"><span class="app-label">内容</span><textarea class="app-textarea app-editor-textarea" name="content" required><%= solution.content || '' %></textarea></label><label class="app-check"><input type="checkbox" name="allow_comment"<%= solution.id === 0 || solution.allow_comment ? ' checked' : '' %>><span>允许其他用户发表评论</span></label></div>
+      <div class="app-editor-panel app-editor-preview" data-editor-panel="preview" hidden aria-live="polite"><h2 data-preview-title></h2><div class="app-markdown" data-preview-content></div></div>
     </div>
-  <% } %>
-
-  <form class="ui form" action="<%= syzoj.utils.makeUrl(['solution', solution.id, 'edit']) %>" method="post"
-        data-markdown-editor data-draft-key="content-draft:solution:<%= user.id %>:<%= solution.id %>:<%= problem.id %>">
-    <input type="hidden" name="_content_token" value="<%= contentFormTokens.solutionEdit %>">
-    <input type="hidden" name="problem_id" value="<%= problem.id %>">
-
-    <div class="ui top attached tabular menu nwpuoj-editor-mode" role="tablist">
-      <a class="active item" role="tab" aria-selected="true" data-tab="edit"><i class="edit icon"></i>编辑</a>
-      <a class="item" role="tab" aria-selected="false" data-tab="preview" data-preview-tab><i class="eye icon"></i>预览</a>
-    </div>
-    <div class="ui bottom attached active tab segment" data-tab="edit">
-      <div class="field">
-        <label>标题</label>
-        <input type="text" name="title" value="<%= solution.title || '' %>" maxlength="80" placeholder="例如：思路分析 + 完整代码" required>
-      </div>
-      <div class="field">
-        <label>内容（支持 Markdown）</label>
-        <textarea name="content" class="markdown-edit" rows="20" required><%= solution.content || '' %></textarea>
-      </div>
-      <div class="field">
-        <div class="ui toggle checkbox">
-          <input type="checkbox" name="allow_comment" <% if (solution.id === 0 || solution.allow_comment) { %>checked<% } %>>
-          <label>允许其他用户对本题解发表评论</label>
-        </div>
-      </div>
-    </div>
-    <div class="ui bottom attached tab segment" data-tab="preview">
-      <h3 class="ui header" data-preview-title></h3>
-      <div class="font-content" data-preview-content></div>
-    </div>
-    <div class="nwpuoj-editor-actions">
-      <button type="button" class="ui basic labeled icon button" data-save-draft>
-        <i class="save icon"></i>保存草稿
-      </button>
-      <button type="submit" class="ui primary labeled icon button">
-        <i class="checkmark icon"></i> 提交
-      </button>
-      <a class="ui button" href="<%= syzoj.utils.makeUrl(['problem', problem.id, 'solutions']) %>">取消</a>
-      <span class="nwpuoj-draft-status" data-draft-status aria-live="polite"></span>
-    </div>
+    <div class="app-editor-actions"><span class="app-inline-actions"><button class="app-button app-button-secondary" type="button" data-save-draft><i data-lucide="save"></i>保存草稿</button><a class="app-button app-button-quiet" href="<%= syzoj.utils.makeUrl(['problem', problem.id, 'solutions']) %>">取消</a></span><button class="app-button app-button-primary" type="submit"><i data-lucide="send"></i><%= solution.id ? '保存修改' : '提交审核' %></button></div>
   </form>
 </div>
 
 <% include markdown_editor_script %>
-<% include footer %>
+<script>
+(function () {
+  var form = document.querySelector('[data-solution-v2-edit]');
+  if (!form) return;
+  var solutionId = Number('<%= solution.id %>');
+  var problemId = Number('<%= problem.id %>');
+
+  function operationKey() {
+    return window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random();
+  }
+
+  async function readResponse(response) {
+    var body = null;
+    try { body = await response.json(); } catch (error) {}
+    return { response: response, body: body };
+  }
+function apiMessage(body, fallback) {
+    if (!body || !body.error) return fallback;
+    var messages = {
+      VERIFIED_EMAIL_REQUIRED: '请先验证邮箱后再投稿题解。',
+      SOLUTION_SUBMISSION_DISABLED: '该题已关闭题解提交。',
+      SOLUTION_FORBIDDEN: '你没有权限编辑此题解。',
+      SOLUTION_NOT_FOUND: '题解已被删除。',
+      ETAG_MISMATCH: '题解已在其他页面修改，请刷新后重试。',
+      VALIDATION_FAILED: '请检查标题和题解内容。'
+    };
+    return messages[body.error.code] || body.error.message || fallback;
+  }
+function preserveDraft() {
+    try {
+      localStorage.setItem(form.dataset.draftKey, JSON.stringify({
+        title: form.elements.title.value,
+        content: form.elements.content.value,
+        allowComment: !!form.elements.allow_comment.checked,
+        savedAt: Date.now()
+      }));
+    } catch (error) {}
+  }
+
+  form.addEventListener('submit', async function (event) {
+    if (event.defaultPrevented) return;
+    event.preventDefault();
+    var submit = form.querySelector('[type="submit"]');
+    form.setAttribute('aria-busy', 'true');
+    try {
+      var endpoint = '/api/v2/problems/' + encodeURIComponent(problemId) + '/solutions';
+      var method = 'POST';
+      var headers = { 'Content-Type': 'application/json', 'Idempotency-Key': operationKey() };
+      if (solutionId > 0) {
+        var current = await readResponse(await fetch('/api/v2/solutions/' + encodeURIComponent(solutionId), {
+          credentials: 'same-origin',
+          cache: 'no-store'
+        }));
+        if (!current.response.ok) throw new Error(apiMessage(current.body, '暂时无法读取题解状态。'));
+        var etag = current.response.headers.get('ETag');
+        if (!etag) throw new Error('题解版本信息缺失，请刷新后重试。');
+        endpoint = '/api/v2/solutions/' + encodeURIComponent(solutionId);
+        method = 'PATCH';
+        headers['If-Match'] = etag;
+      }
+      var result = await readResponse(await fetch(endpoint, {
+        method: method,
+        credentials: 'same-origin',
+        headers: headers,
+        body: JSON.stringify({
+          problem_id: problemId,
+          title: form.elements.title.value,
+          content: form.elements.content.value,
+          allow_comment: !!form.elements.allow_comment.checked
+        })
+      }));
+      if (!result.response.ok) throw new Error(apiMessage(result.body, solutionId > 0 ? '题解保存失败。' : '题解投稿失败。'));
+      try { localStorage.removeItem(form.dataset.draftKey); } catch (error) {}
+      window.location.assign('/solution/' + encodeURIComponent(result.body.data.id));
+    } catch (error) {
+      preserveDraft();
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '保存失败，请稍后重试。', 'danger');
+      else window.alert(error.message || '保存失败，请稍后重试。');
+      if (submit) { submit.disabled = false; submit.classList.remove('is-loading'); }
+      form.removeAttribute('aria-busy');
+    }
+  });
+})();
+</script>
+<% include app_footer %>

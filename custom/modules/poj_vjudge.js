@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const TypeORM = require('typeorm');
 const Problem = syzoj.model('problem');
 const ProblemTag = syzoj.model('problem_tag');
 const JudgeState = syzoj.model('judge_state');
@@ -10,12 +11,15 @@ const BULK_IMPORT_INTERVAL = 500;
 const bulkImportStatus = { state: 'idle' };
 const importStatus = createImportStatus('poj', bulkImportStatus);
 
-function requireAdmin(res) {
-  if (!res.locals.user || !res.locals.user.is_admin) throw new ErrorMessage('您没有权限进行此操作。');
+async function requireAdmin(res) {
+  if (!res.locals.user || !await syzoj.utils.authorizationV2.authorize(res.locals.user, 'vjudge:import.create', null, { scope: 'global' })) throw new ErrorMessage('您没有权限进行此操作。');
 }
 
-function requireAdminAction(req, res) {
-  requireAdmin(res);
+async function requireAdminAction(req, res) {
+  await requireAdmin(res);
+  if (!syzoj.utils.authorizationV2.recentLoginSatisfied(req)) {
+    const error = new ErrorMessage('高风险 VJudge 操作需要近期登录或 MFA 验证。'); error.statusCode = 403; throw error;
+  }
   const expected = req.session && req.session.adminCsrfToken;
   const actual = req.body && req.body.csrf_token;
   if (typeof expected !== 'string' || typeof actual !== 'string' || expected.length !== actual.length ||
@@ -42,6 +46,8 @@ async function ensurePojSourceTag() {
       sourceTag.color = 'pink';
       await sourceTag.save();
     }
+    if (syzoj.utils.problemWorkflowV2) await syzoj.utils.problemWorkflowV2.ensureSchema();
+    await TypeORM.getConnection().query("UPDATE problem_tag SET category='source',color='pink' WHERE id=?", [sourceTag.id]);
   });
   return sourceTag;
 }
@@ -162,50 +168,27 @@ async function startBulkImport(userId, isPublic) {
   return true;
 }
 
-app.post('/admin/poj/check', async (req, res) => {
-  try {
-    requireAdminAction(req, res);
-    await poj.verifyAccount();
-    res.render('admin_other', { success: true, successMessage: 'POJ 账号连接成功。' });
-  } catch (error) {
-    syzoj.log('[poj-account-check] ' + (error.stack || error.message || error));
-    res.render('error', { err: error });
-  }
-});
+syzoj.utils.vjudgeImporters = syzoj.utils.vjudgeImporters || {};
+syzoj.utils.vjudgeImporters.poj = {
+  withCredential: (reference, operation) => poj.withCredential(reference, operation, { secretResolver: syzoj.utils.vjudgeSecretResolver }),
+  checkAccount: () => poj.checkAccount(),
+  verifyAccount: () => poj.checkAccount(),
+  searchProblems: (query, cursor) => poj.searchProblems(query, cursor),
+  fetchProblem: remoteId => poj.fetchProblem(remoteId),
+  fetchProblemList: cursor => poj.fetchProblemList(cursor),
+  submit: (remoteProblem, language, source, options) => poj.submit(remoteProblem, language, source, options),
+  pollSubmission: (remoteSubmissionId, options) => poj.pollSubmission(remoteSubmissionId, options),
+  normalizeResult: rawResult => poj.normalizeResult(rawResult),
+  fetchProblemIds: () => poj.fetchProblemIds(),
+  importProblem: (remoteId, options) => importPojProblem(remoteId, options)
+};
 
-app.post('/admin/poj/import', async (req, res) => {
-  try {
-    requireAdminAction(req, res);
-    const remoteId = parseInt(req.body.problem_id);
-    if (!Number.isSafeInteger(remoteId) || remoteId <= 0) throw new ErrorMessage('POJ 题号不正确。');
-    const result = await importPojProblem(remoteId, {
-      userId: res.locals.user.id,
-      isPublic: req.body.is_public === 'on',
-      skipExisting: false
-    });
-    res.redirect(syzoj.utils.makeUrl(['problem', result.localId]));
-  } catch (error) {
-    syzoj.log('[poj-import] ' + (error.stack || error.message || error));
-    res.render('error', { err: error });
-  }
-});
 
-app.post('/admin/poj/import-all', async (req, res) => {
-  try {
-    requireAdminAction(req, res);
-    if (!await startBulkImport(res.locals.user.id, req.body.is_public === 'on')) {
-      return res.status(409).render('error', { err: new ErrorMessage('POJ 批量导入正在运行。') });
-    }
-    res.redirect('/admin/other');
-  } catch (error) {
-    syzoj.log('[poj-import-all] ' + (error.stack || error.message || error));
-    res.render('error', { err: error });
-  }
-});
+
 
 app.get('/admin/poj/import-all/status', async (req, res) => {
   try {
-    requireAdmin(res);
+    await requireAdmin(res);
     await importStatus.ready();
     res.json(bulkImportStatus);
   } catch (error) {

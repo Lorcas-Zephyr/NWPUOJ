@@ -23,10 +23,3 @@ async function rejectIfUsedByContest(req, res, next) {
     next(error);
   }
 }
-
-app.post('/problem/:id/delete', rejectIfUsedByContest);
-app.post('/problem/:id/edit', (req, res, next) => {
-  const requestedId = Number(req.body && req.body.id);
-  if (!Number.isSafeInteger(requestedId) || requestedId <= 0 || requestedId === Number(req.params.id)) return next();
-  rejectIfUsedByContest(req, res, next);
-});

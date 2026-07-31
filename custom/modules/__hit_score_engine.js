@@ -17,6 +17,9 @@ let ProblemTagMap = syzoj.model('problem_tag_map');
 let UserEmailStatus = syzoj.model('user-email-status');
 let UserHitSetting = syzoj.model('user-hit-setting');
 let Contest = syzoj.model('contest');
+const crypto = require('crypto');
+const TypeORM = require('typeorm');
+const contentDomain = require('../libs/content-domain');
 
 const CACHE_REFRESH_INTERVAL_MS = 60 * 1000;
 const INITIAL_DELAY_MS = 30 * 1000;
@@ -339,31 +342,27 @@ setTimeout(async () => {
   }
 }, INITIAL_DELAY_MS);
 // ============ 管理员手动触发重算 ============
-app.post('/admin/recalc-hit-scores', async (req, res) => {
-  try {
-    if (!res.locals.user || !res.locals.user.is_admin) {
-      throw new ErrorMessage('您没有权限进行此操作。');
-    }
-
-    // 异步触发,不等结果(因为 134 个用户全量算可能要十几秒)
-    fullRecalc().catch(function(e) {
-      syzoj.log('[hit-engine] Manual recalc failed: ' + e.message);
-    });
-
-    res.render('success', {
-      title: 'Hit 值重算',
-      message: 'Hit 值重算已开始',
-      details: '这是后台异步任务，大约需要 10-30 秒完成。完成后内存缓存将自动刷新，可在用户主页查看新分数。',
-      nextUrls: {
-        '返回首页': '/',
-        '返回后台': '/admin/info'
-      }
-    });
-  } catch (e) {
-    syzoj.log(e);
-    res.render('error', { err: e });
+app.post('/api/v2/admin/hit/recalculate', async (req, res) => {
+  const api = syzoj.utils.apiV2;
+  const user = res.locals.user;
+  if (!user) return api.fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.');
+  if (!await syzoj.utils.authorizationV2.authorize(user, 'admin:job.manage', null, { scope: 'global' })) {
+    return api.fail(res, 403, 'CAPABILITY_REQUIRED', 'Capability required: admin:job.manage.');
   }
+  if (!syzoj.utils.authorizationV2.recentLoginSatisfied(req)) {
+    return api.fail(res, 403, 'RECENT_LOGIN_REQUIRED', 'Sign in again before recalculating Hit scores.');
+  }
+  const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, {
+    action: 'admin:hit.recalculate', resourceType: 'hit_score', resourceId: 'all', details: {}
+  });
+  await api.appendEvent({
+    stream: 'admin:hit-score', type: 'hit_score.recalculation.queued', aggregateId: 'all',
+    actor: user, payload: { audit_event_id: auditEventId }
+  });
+  fullRecalc().catch(error => syzoj.log('[hit-engine] Manual recalc failed: ' + error.message));
+  return api.send(res, { state: 'queued', audit_event_id: String(auditEventId) }, 202);
 });
+
 
 // ============ 工具:获取或创建 Hit 设置记录 ============
 async function getOrCreateHitSetting(userId) {
@@ -397,29 +396,78 @@ setTimeout(refreshHitHiddenSet, 30 * 1000);
 setInterval(refreshHitHiddenSet, 60 * 1000);
 
 // ============ 用户保存 Hit 隐藏设置 ============
-app.post('/user/:id/hit-setting', async (req, res) => {
+function hitSettingResource(row) {
+  return {
+    hide_hit: !!(row && row.hide_hit),
+    updated_at: row && row.update_time ? new Date(Number(row.update_time) * 1000).toISOString() : null
+  };
+}
+
+app.get('/api/v2/me/hit-settings', async (req, res) => {
+  const user = res.locals.user;
+  const api = syzoj.utils.apiV2;
+  if (!user) return api.fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.');
+  if (!await syzoj.utils.authorizationV2.authorize(user, 'profile:edit', { ownerId: user.id, scope: `user:${user.id}` }, { scope: `user:${user.id}` })) {
+    return api.fail(res, 403, 'CAPABILITY_REQUIRED', 'Capability required: profile:edit.');
+  }
+  const rows = await TypeORM.getConnection().query(
+    'SELECT hide_hit,update_time FROM user_hit_setting WHERE user_id=? LIMIT 1',
+    [user.id]
+  );
+  const resource = hitSettingResource(rows[0]);
+  if (api.apiNotModified(req, res, resource)) return;
+  return api.send(res, resource);
+});
+
+app.patch('/api/v2/me/hit-settings', async (req, res) => {
+  const user = res.locals.user;
+  const api = syzoj.utils.apiV2;
+  if (!user) return api.fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.');
+  if (!await syzoj.utils.authorizationV2.authorize(user, 'profile:edit', { ownerId: user.id, scope: `user:${user.id}` }, { scope: `user:${user.id}` })) {
+    return api.fail(res, 403, 'CAPABILITY_REQUIRED', 'Capability required: profile:edit.');
+  }
+  if (!req.get('If-Match')) return api.fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when editing Hit settings.', { if_match: 'required' });
+  const hideHit = req.body && (req.body.hide_hit === true || req.body.hide_hit === 1 || req.body.hide_hit === '1' || req.body.hide_hit === 'true' || req.body.hide_hit === 'on');
   try {
-    if (!res.locals.user) throw new ErrorMessage('请登录后继续。');
-    let uid = parseInt(req.params.id);
-    if (uid !== res.locals.user.id && !res.locals.user.is_admin) {
-      throw new ErrorMessage('您没有权限修改他人的设置。');
-    }
-
-    let s = await getOrCreateHitSetting(uid);
-    s.hide_hit = (req.body.hide_hit === 'on' || req.body.hide_hit === 'true' || req.body.hide_hit === '1');
-    s.update_time = parseInt((new Date()).getTime() / 1000);
-    await s.save();
-
-    // 立刻刷新内存缓存
-    if (s.hide_hit) syzoj.userHitHidden.add(uid);
-    else syzoj.userHitHidden.delete(uid);
-
-    res.redirect(syzoj.utils.makeUrl(['user', uid, 'edit']));
-  } catch (e) {
-    syzoj.log(e);
-    res.render('error', { err: e });
+    await api.ensureFoundationSchema();
+    const saved = await TypeORM.getConnection().transaction(async manager => {
+      const rows = await manager.query(
+        'SELECT hide_hit,update_time FROM user_hit_setting WHERE user_id=? LIMIT 1 FOR UPDATE',
+        [user.id]
+      );
+      const current = hitSettingResource(rows[0]);
+      if (!api.ifMatch(req, current)) {
+        const error = new Error('Hit settings changed. Refresh them and try again.');
+        error.code = 'ETAG_MISMATCH';
+        error.statusCode = 412;
+        throw error;
+      }
+      const now = Math.floor(Date.now() / 1000);
+      await manager.query(
+        `INSERT INTO user_hit_setting (user_id,hide_hit,update_time) VALUES (?,?,?)
+         ON DUPLICATE KEY UPDATE hide_hit=VALUES(hide_hit),update_time=VALUES(update_time)`,
+        [user.id, hideHit ? 1 : 0, now]
+      );
+      const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, {
+        action: 'profile:hit-settings.update', resourceType: 'user', resourceId: user.id,
+        details: { hide_hit: hideHit }
+      }, manager);
+      const eventId = await contentDomain.appendEvent(manager, {
+        stream: `user:${user.id}`, type: 'profile.hit-settings.updated', aggregateId: user.id,
+        actorId: user.id, payload: { hide_hit: hideHit, audit_event_id: auditEventId }
+      });
+      return { resource: hitSettingResource({ hide_hit: hideHit, update_time: now }), auditEventId, eventId };
+    });
+    if (hideHit) syzoj.userHitHidden.add(user.id);
+    else syzoj.userHitHidden.delete(user.id);
+    return api.send(res, { ...saved.resource, audit_event_id: saved.auditEventId, event_id: saved.eventId });
+  } catch (error) {
+    if (error && error.code === 'ETAG_MISMATCH') return api.fail(res, 412, error.code, error.message);
+    syzoj.log('[hit-setting-v2] ' + (error.stack || error));
+    return api.fail(res, 500, 'CONTENT_WRITE_FAILED', 'Hit settings could not be updated.');
   }
 });
+
 
 // ============ Hit 值帮助页 ============
 app.get('/help/hit-value', async (req, res) => {
@@ -428,52 +476,5 @@ app.get('/help/hit-value', async (req, res) => {
   } catch (e) {
     syzoj.log(e);
     res.render('error', { err: e });
-  }
-});
-
-// ============ 历史趋势 API:返回某用户过去 N 天的 Hit 历史 ============
-app.get('/api/hit-history/:uid', async (req, res) => {
-  try {
-    let uid = parseInt(req.params.uid);
-    if (!uid) {
-      return res.json({ ok: false, message: 'invalid uid' });
-    }
-
-    // 检查目标用户是否隐藏了 Hit 卡片
-    if (syzoj.userHitHidden && syzoj.userHitHidden.has(uid)) {
-      // 隐藏开关开启时,只允许本人看
-      if (!res.locals.user || res.locals.user.id !== uid) {
-        return res.json({ ok: false, message: 'hidden by user' });
-      }
-    }
-
-    let days = parseInt(req.query.days) || 30;
-    if (days < 1 || days > 90) days = 30;
-
-    let now = parseInt((new Date()).getTime() / 1000);
-    let cutoff = now - days * 86400;
-
-    let rows = await UserHitScoreHistory.createQueryBuilder()
-      .where('user_id = :uid', { uid: uid })
-      .andWhere('recorded_at >= :cutoff', { cutoff: cutoff })
-      .orderBy('recorded_at', 'ASC')
-      .getMany();
-
-    // 序列化成前端友好的格式
-    let points = rows.map(function(r) {
-      return {
-        t: r.recorded_at,
-        basic: r.basic_score,
-        contribution: r.contribution_score,
-        contest: r.contest_score,
-        practice: r.practice_score
-      };
-    });
-
-    res.set('Cache-Control', 'no-store');
-    res.json({ ok: true, points: points, days: days });
-  } catch (e) {
-    syzoj.log(e);
-    res.json({ ok: false, message: e.message });
   }
 });

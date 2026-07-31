@@ -1,119 +1,134 @@
 <% this.title = '比赛' %>
-<% include header %>
-<div class="padding">
-  <% if (contests.length) { %>
-    <div class="nwpuoj-toolbar" style="margin-bottom:16px;">
-      <span class="nwpuoj-meta">共 <%= contests.length %> 场比赛</span>
-      <% if (user && (user.is_admin || (user.privileges && user.privileges.includes('manage_contest')))) { %>
-      <div class="nwpuoj-toolbar-actions">
-        <a href="<%= syzoj.utils.makeUrl(['contest', 0, 'edit']) %>" class="ui small primary labeled icon button">
-          <i class="plus icon"></i>添加比赛
-        </a>
+<%
+const canManageContests = !!(user && typeof appHasCapability === 'function' && appHasCapability('contest:create'));
+const contestNow = syzoj.utils.getCurrentDate();
+function contestListState(contest) {
+  if (contestNow < contest.start_time) return { key: 'upcoming', label: '未开始', className: 'app-status-waiting' };
+  if (contestNow < contest.end_time) return { key: 'running', label: '进行中', className: 'app-status-running' };
+  return { key: 'ended', label: '已结束', className: 'app-status-muted' };
+}
+function contestListType(contest) {
+  return { noi: 'NOI', ioi: 'IOI', acm: 'ACM' }[contest.type] || String(contest.type || '').toUpperCase();
+}
+function contestDuration(contest) {
+  const seconds = Math.max(0, Number(contest.end_time) - Number(contest.start_time));
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor(seconds % 86400 / 3600);
+  const minutes = Math.floor(seconds % 3600 / 60);
+  if (days) return days + ' 天' + (hours ? ' ' + hours + ' 小时' : '');
+  if (hours) return hours + ' 小时' + (minutes ? ' ' + minutes + ' 分钟' : '');
+  return Math.max(1, minutes) + ' 分钟';
+}
+const contestRows = contests.map(function (contest) {
+  return { contest: contest, state: contestListState(contest) };
+});
+const contestCounts = contestRows.reduce(function (counts, item) {
+  counts[item.state.key] += 1;
+  return counts;
+}, { running: 0, upcoming: 0, ended: 0 });
+%>
+<% include app_header %>
+
+<div class="app-page app-contests-page">
+  <header class="app-page-header">
+    <div class="app-page-heading">
+      <span class="app-kicker">CONTESTS</span>
+      <h1 class="app-page-title">比赛</h1>
+      <p class="app-page-description">查看当前赛程、报名状态和比赛结果。</p>
+    </div>
+    <% if (canManageContests) { %>
+      <div class="app-page-actions"><a class="app-button app-button-primary" href="<%= syzoj.utils.makeUrl(['contest', 0, 'edit']) %>"><i data-lucide="plus"></i>创建比赛</a></div>
+    <% } %>
+  </header>
+
+  <% if (Number(req.query.deleted) === 1) { %><div class="app-notice app-notice-success"><i data-lucide="circle-check"></i><span><strong>比赛已删除</strong><small>已按顺序重新计算 <%= Math.max(0, Number(req.query.rating_contests) || 0) %> 场后续 Rated 比赛，更新 <%= Math.max(0, Number(req.query.rating_users) || 0) %> 名用户。</small></span></div><% } %>
+
+  <% if (contestRows.length) { %>
+    <div class="app-contest-toolbar">
+      <div class="app-segmented" role="group" aria-label="按比赛状态筛选">
+        <button type="button" data-contest-filter="all" aria-pressed="true">全部 <span><%= contestRows.length %></span></button>
+        <button type="button" data-contest-filter="running" aria-pressed="false">进行中 <span><%= contestCounts.running %></span></button>
+        <button type="button" data-contest-filter="upcoming" aria-pressed="false">未开始 <span><%= contestCounts.upcoming %></span></button>
+        <button type="button" data-contest-filter="ended" aria-pressed="false">已结束 <span><%= contestCounts.ended %></span></button>
       </div>
+      <span class="app-contest-result-count" aria-live="polite">显示 <strong data-contest-visible-count><%= contestRows.length %></strong> 场</span>
+    </div>
+
+    <section class="app-contest-list" data-contest-list aria-label="比赛列表">
+      <% for (const item of contestRows) {
+        const contest = item.contest;
+        const state = item.state;
+        const type = contestListType(contest);
+        const registration = typeof contestRegistrations !== 'undefined' && contestRegistrations ? contestRegistrations[contest.id] : null;
+        const isRated = typeof contestRatedById !== 'undefined' && !!contestRatedById[contest.id];
+      %>
+        <article class="app-contest-list-row" data-contest-state="<%= state.key %>" data-reveal>
+          <div class="app-contest-list-main">
+            <span class="app-contest-state-marker is-<%= state.key %>" aria-hidden="true"></span>
+            <span>
+              <span class="app-row-title"><a href="<%= syzoj.utils.makeUrl(['contest', contest.id]) %>"><%= contest.title %></a></span>
+              <span class="app-list-meta">
+                <span><%= type || '自定义赛制' %></span>
+                <span><%= isRated ? 'Rated' : 'Unrated' %></span>
+                <% if (!contest.is_public) { %><span>隐藏</span><% } %>
+              </span>
+            </span>
+          </div>
+          <div class="app-contest-list-schedule">
+            <strong><%= syzoj.utils.formatDate(contest.start_time) %></strong>
+            <span><%= contestDuration(contest) %> · <%= syzoj.utils.formatDate(contest.end_time) %> 结束</span>
+          </div>
+          <div class="app-contest-list-attendance">
+            <span><i data-lucide="users-round"></i><%= registration ? registration.registeredCount : 0 %></span>
+            <span class="app-status <%= state.className %>"><%= state.label %></span>
+          </div>
+          <div class="app-contest-list-action">
+            <% if (!registration) { %><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['contest', contest.id]) %>">查看</a>
+            <% } else if (registration.isSupervisior) { %><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'edit']) %>"><i data-lucide="settings"></i>管理</a>
+            <% } else if (registration.canRegister) { %><form method="post" data-contest-registration-v2="register" data-contest-id="<%= contest.id %>"><input type="hidden" name="csrf_token" value="<%= registration.csrfToken %>"><input type="hidden" name="return_url" value="<%= req.originalUrl %>"><button class="app-button app-button-primary" type="submit"><i data-lucide="user-plus"></i>报名</button></form>
+            <% } else if (registration.canCancel) { %><form method="post" data-contest-registration-v2="unregister" data-contest-id="<%= contest.id %>" data-confirm="确定取消报名吗？"><input type="hidden" name="csrf_token" value="<%= registration.csrfToken %>"><input type="hidden" name="return_url" value="<%= req.originalUrl %>"><button class="app-button app-button-danger-outline" type="submit"><i data-lucide="user-minus"></i>取消报名</button></form>
+            <% } else if (registration.registered) { %><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['contest', contest.id]) %>"><i data-lucide="check"></i>进入比赛</a>
+            <% } else if (registration.removedByAdmin) { %><span class="app-status app-status-danger">已移出</span>
+            <% } else if (registration.registrationOpen && !user) { %><a class="app-button app-button-primary" href="<%= syzoj.utils.makeUrl(['login'], { url: req.originalUrl }) %>">登录后报名</a>
+            <% } else { %><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['contest', contest.id]) %>">查看</a><% } %>
+          </div>
+        </article>
       <% } %>
-    </div>
-
-    <div class="nwpuoj-table-region" role="region" aria-label="比赛列表" tabindex="0">
-    <table class="ui very basic center aligned table nwpuoj-contests-table">
-      <thead>
-        <tr>
-          <th scope="col">比赛名称</th>
-          <th class="nwpuoj-priority-3" scope="col">开始时间</th>
-          <th class="nwpuoj-priority-3" scope="col">结束时间</th>
-          <th class="one wide nwpuoj-priority-3" scope="col">已报名人数</th>
-          <th class="two wide" scope="col">操作</th>
-        </tr>
-      </thead>
-      <tbody>
-        <% for (let contest of contests) {
-          let now = syzoj.utils.getCurrentDate();
-          let statusLabel;
-          if (now < contest.start_time) {
-            statusLabel = '未开始';
-          } else if (now < contest.end_time) {
-            statusLabel = '进行中';
-          } else {
-            statusLabel = '已结束';
-          }
-
-          let typeLabel = '';
-          let typeColor = '';
-          if (contest.type === 'noi') { typeLabel = 'NOI'; typeColor = 'orange'; }
-          else if (contest.type === 'ioi') { typeLabel = 'IOI'; typeColor = 'teal'; }
-          else if (contest.type === 'acm') { typeLabel = 'ICPC'; typeColor = 'blue'; }
-          let registration = (typeof contestRegistrations !== 'undefined' && contestRegistrations)
-            ? contestRegistrations[contest.id]
-            : null;
-          let isRated = typeof contestRatedById !== 'undefined' && !!contestRatedById[contest.id];
-        %>
-          <tr>
-            <td>
-              <a href="<%= syzoj.utils.makeUrl(['contest', contest.id]) %>">
-                <%= contest.title %>
-                <% if (typeLabel) { %><span class="ui mini basic <%= typeColor %> label" style="margin-left:8px;"><%= typeLabel %></span><% } %>
-                <% if (!contest.is_public) { %><span class="nwpuoj-status nwpuoj-status-warning">已隐藏</span><% } %>
-                <span class="nwpuoj-status <%= isRated ? 'nwpuoj-status-success' : 'nwpuoj-status-muted' %>"><%= isRated ? 'Rated' : 'Unrated' %></span>
-                <span class="nwpuoj-status <%= statusLabel === '进行中' ? 'nwpuoj-status-success' : (statusLabel === '未开始' ? 'nwpuoj-status-warning' : 'nwpuoj-status-muted') %>"><%= statusLabel %></span>
-              </a>
-              <div class="nwpuoj-mobile-meta">
-                <i class="clock outline icon"></i><%= syzoj.utils.formatDate(contest.start_time) %> - <%= syzoj.utils.formatDate(contest.end_time) %>
-                · <i class="users icon"></i><%= registration ? registration.registeredCount : 0 %>
-              </div>
-            </td>
-            <td class="nwpuoj-priority-3 nwpuoj-col-number"><%= syzoj.utils.formatDate(contest.start_time) %></td>
-            <td class="nwpuoj-priority-3 nwpuoj-col-number"><%= syzoj.utils.formatDate(contest.end_time) %></td>
-            <td class="nwpuoj-priority-3 nwpuoj-col-number">
-              <%= registration ? registration.registeredCount : 0 %>
-            </td>
-            <td>
-              <% if (!registration) { %>
-                -
-              <% } else if (registration.isSupervisior) { %>
-                <a class="ui mini basic labeled icon button" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'edit']) %>"><i class="settings icon"></i>比赛管理</a>
-              <% } else if (registration.canRegister) { %>
-                <form method="post" action="<%= syzoj.utils.makeUrl(['contest', contest.id, 'register']) %>" style="margin: 0;">
-                  <input type="hidden" name="csrf_token" value="<%= registration.csrfToken %>">
-                  <input type="hidden" name="return_url" value="<%= req.originalUrl %>">
-                  <button type="submit" class="ui mini primary labeled icon button"><i class="user plus icon"></i>报名</button>
-                </form>
-              <% } else if (registration.canCancel) { %>
-                <form method="post" action="<%= syzoj.utils.makeUrl(['contest', contest.id, 'unregister']) %>" style="margin: 0;" onsubmit="return confirm('确定取消报名吗？');">
-                  <input type="hidden" name="csrf_token" value="<%= registration.csrfToken %>">
-                  <input type="hidden" name="return_url" value="<%= req.originalUrl %>">
-                  <button type="submit" class="ui mini basic red labeled icon button"><i class="user times icon"></i>取消报名</button>
-                </form>
-              <% } else if (registration.registered) { %>
-                <span class="ui mini green label"><i class="check icon"></i>已报名</span>
-              <% } else if (registration.removedByAdmin) { %>
-                <span class="ui mini basic red label">已被移出报名</span>
-              <% } else if (registration.registrationOpen && !user) { %>
-                <a class="ui mini primary button" href="<%= syzoj.utils.makeUrl(['login'], { url: req.originalUrl }) %>">登录后报名</a>
-              <% } else if (registration.running) { %>
-                <span class="ui mini basic label">报名截止</span>
-              <% } else if (registration.ended) { %>
-                <span class="ui mini basic label">已结束</span>
-              <% } else { %>
-                -
-              <% } %>
-            </td>
-          </tr>
-        <% } %>
-      </tbody>
-    </table>
-    </div>
+    </section>
+    <div class="app-empty app-empty-compact" data-contest-filter-empty hidden><div class="app-empty-inner"><i data-lucide="calendar-search"></i><strong>当前分类没有比赛</strong><p>切换其他状态查看赛程。</p></div></div>
+    <% include app_pagination %>
   <% } else { %>
-    <div class="nwpuoj-empty-state">
-      <i class="calendar outline icon"></i>
-      <h3>暂无比赛</h3>
-      <% if (user && (user.is_admin || (user.privileges && user.privileges.includes('manage_contest')))) { %>
-        <a href="<%= syzoj.utils.makeUrl(['contest', 0, 'edit']) %>" class="ui primary labeled icon button">
-          <i class="ui icon write"></i>
-          添加第一场比赛
-        </a>
-      <% } %>
-    </div>
+    <div class="app-empty"><div class="app-empty-inner"><i data-lucide="calendar-x"></i><strong>暂无比赛</strong><p>新的比赛发布后会显示在这里。</p><% if (canManageContests) { %><a class="app-button app-button-primary" href="<%= syzoj.utils.makeUrl(['contest', 0, 'edit']) %>">创建第一场比赛</a><% } %></div></div>
   <% } %>
-  <br>
-  <% include page %>
 </div>
-<% include footer %>
+
+<script>
+(function () {
+  var list = document.querySelector('[data-contest-list]');
+  if (!list) return;
+  var buttons = Array.prototype.slice.call(document.querySelectorAll('[data-contest-filter]'));
+  var rows = Array.prototype.slice.call(list.querySelectorAll('[data-contest-state]'));
+  var count = document.querySelector('[data-contest-visible-count]');
+  var empty = document.querySelector('[data-contest-filter-empty]');
+  function select(filter) {
+    var visible = 0;
+    rows.forEach(function (row) {
+      var matches = filter === 'all' || row.dataset.contestState === filter;
+      row.hidden = !matches;
+      if (matches) visible += 1;
+    });
+    buttons.forEach(function (button) {
+      button.setAttribute('aria-pressed', button.dataset.contestFilter === filter ? 'true' : 'false');
+    });
+    if (count) count.textContent = String(visible);
+    if (empty) empty.hidden = visible !== 0;
+  }
+  buttons.forEach(function (button) {
+    button.addEventListener('click', function () { select(button.dataset.contestFilter); });
+  });
+})();
+</script>
+
+<% include contest_registration_v2_script %>
+
+<% include app_footer %>

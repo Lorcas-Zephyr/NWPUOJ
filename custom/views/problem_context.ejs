@@ -1,151 +1,206 @@
 <%
 const contextProblem = problemContext.problem;
-const contextSection = problemContext.section;
+const contextSection = problemContext.section || 'statement';
 const contextTestcases = problemContext.testcases;
 const contextIsVJudge = typeof contextProblem.type === 'string' && contextProblem.type.startsWith('vjudge:');
 const contextContest = problemContext.contest || null;
 const contextContestProblemId = problemContext.contestProblemId || null;
+const contextNow = contextContest ? syzoj.utils.getCurrentDate() : null;
+const contextContestPhase = !contextContest ? null : (contextNow < contextContest.start_time ? 0 : (contextNow < contextContest.end_time ? 1 : 2));
 const contextCanParticipate = !contextContest || (
   typeof contestRegistration !== 'undefined' && contestRegistration
     ? contestRegistration.canParticipate
-    : contextContest.isRunning()
+    : !!(user && contextContest.isRunning())
 );
 const contextCanViewSubmissions = !contextContest || contextContest.isEnded() || contextCanParticipate;
+const contextHasTestdata = contextIsVJudge || (contextTestcases && !contextTestcases.error);
+const contextCanSubmit = contextContest
+  ? !!(user && contextCanParticipate && syzoj.utils.contestSubmissionEnabled(contextProblem))
+  : !!contextHasTestdata;
 const contextTypeNames = {
   'submit-answer': '答案提交',
-  'interaction': '交互',
-  'traditional': '传统',
+  interaction: '交互题',
+  traditional: '传统题',
   'vjudge:luogu': 'VJudge（洛谷）',
   'vjudge:uoj': 'VJudge（UOJ）',
   'vjudge:hdu': 'VJudge（HDU）',
   'vjudge:poj': 'VJudge（POJ）'
 };
+const contextJudgeType = contextIsVJudge
+  ? 'VJudge'
+  : contextHasTestdata
+    ? (contextTestcases.spj ? 'Special Judge' : '文本比较')
+    : '无测试数据';
+const contextNavIconMarkup = {
+  trophy: '<path d="M10 14.66V17a1 1 0 0 1-1 1 2 2 0 0 0-2 2v2"></path><path d="M14 14.66V17a1 1 0 0 0 1 1 2 2 0 0 1 2 2v2"></path><path d="M17.916 10H19.5A2.5 2.5 0 0 0 22 7.5V5a1 1 0 0 0-1-1h-3"></path><path d="M4 22h16"></path><path d="M6 9a6 6 0 0 0 12 0V3a1 1 0 0 0-1-1H7a1 1 0 0 0-1 1z"></path><path d="M6.084 10H4.5A2.5 2.5 0 0 1 2 7.5V5a1 1 0 0 1 1-1h3"></path>',
+  'list-tree': '<path d="M8 5h13"></path><path d="M13 12h8"></path><path d="M13 19h8"></path><path d="M3 10a2 2 0 0 0 2 2h3"></path><path d="M3 5v12a2 2 0 0 0 2 2h3"></path>',
+  'chevron-right': '<path d="m9 18 6-6-6-6"></path>',
+  'file-text': '<path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"></path><path d="M14 2v5a1 1 0 0 0 1 1h5"></path><path d="M10 9H8"></path><path d="M16 13H8"></path><path d="M16 17H8"></path>',
+  send: '<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"></path><path d="m21.854 2.147-10.94 10.939"></path>',
+  activity: '<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"></path>',
+  'chart-no-axes-column-increasing': '<path d="M5 21v-6"></path><path d="M12 21V9"></path><path d="M19 21V3"></path>',
+  database: '<ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M3 5V19A9 3 0 0 0 21 19V5"></path><path d="M3 12A9 3 0 0 0 21 12"></path>',
+  'messages-square': '<path d="M16 10a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 14.286V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path><path d="M20 9a2 2 0 0 1 2 2v10.286a.71.71 0 0 1-1.212.502l-2.202-2.202A2 2 0 0 0 17.172 19H10a2 2 0 0 1-2-2v-1"></path>',
+  'book-open-check': '<path d="M12 5v16"></path><path d="m16 12 2 2 4-4"></path><path d="M22 6V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2h4.001A2 2 0 0022 17v-1.344"></path>',
+  paperclip: '<path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"></path>',
+  'log-in': '<path d="m10 17 5-5-5-5"></path><path d="M15 12H3"></path><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>',
+  settings: '<path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"></path><circle cx="12" cy="12" r="3"></circle>',
+  'chevron-down': '<path d="m6 9 6 6 6-6"></path>',
+  'square-pen': '<path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path>',
+  eye: '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path><circle cx="12" cy="12" r="3"></circle>',
+  'eye-off': '<path d="m2 2 20 20"></path><path d="M6.71 6.71C4.67 8.05 3.2 9.82 2.4 11.57a1 1 0 0 0 0 .86C4.15 16.26 7.8 19 12 19c1.35 0 2.64-.28 3.81-.78"></path><path d="M10.73 5.08A9.8 9.8 0 0 1 12 5c4.2 0 7.85 2.74 9.6 6.57a1 1 0 0 1 0 .86 11.1 11.1 0 0 1-1.3 2.12"></path><path d="M14.12 14.12A3 3 0 0 1 9.88 9.88"></path>',
+  archive: '<rect width="20" height="5" x="2" y="3" rx="1"></rect><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"></path><path d="M10 12h4"></path>'
+};
+function contextNavIcon(name) {
+  return '<svg class="app-static-icon app-static-icon-' + name + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + contextNavIconMarkup[name] + '</svg>';
+}
+const contextTitle = contextContest
+  ? this.alpha(contextContestProblemId) + '. ' + syzoj.utils.removeTitleTag(contextProblem.title)
+  : contextProblem.getDisplayId() + '. ' + syzoj.utils.removeTitleTag(contextProblem.title);
+const contextProblemUrl = contextContest
+  ? syzoj.utils.makeUrl(['contest', contextContest.id, 'problem', contextContestProblemId])
+  : syzoj.utils.makeUrl(['problem', contextProblem.id]);
+const contextSubmitUrl = contextContest
+  ? syzoj.utils.makeUrl(['contest', contextContest.id, 'problem', contextContestProblemId, 'submit'])
+  : syzoj.utils.makeUrl(['problem', contextProblem.id, 'submit']);
+const contextSubmissionsUrl = contextContest
+  ? syzoj.utils.makeUrl(['contest', contextContest.id, 'problem', contextContestProblemId, 'submissions'])
+  : syzoj.utils.makeUrl(['problem', contextProblem.id, 'submissions']);
+const contextAdditionalFileUrl = contextContest
+  ? syzoj.utils.makeUrl(['contest', contextContest.id, contextContestProblemId, 'download', 'additional_file'])
+  : syzoj.utils.makeUrl(['problem', contextProblem.id, 'download', 'additional_file']);
+function contextCurrent(section) { return contextSection === section ? ' is-active' : ''; }
+function contextAriaCurrent(section) { return contextSection === section ? ' aria-current="page"' : ''; }
 %>
 
-<div class="nwpuoj-problem-context" style="margin-bottom: 0.7cm;">
-  <div class="padding" style="padding-bottom: 0;">
-    <div class="ui center aligned grid" style="margin-bottom: 0;">
-    <div class="row">
-      <h1 class="ui header">
-        <% if (contextContest) { %>
-          <%= this.alpha(contextContestProblemId) %>. <%= syzoj.utils.removeTitleTag(contextProblem.title) %>
-        <% } else { %>
-          <%= contextProblem.getDisplayId() %>. <%= contextProblem.title %>
-        <% } %>
-      </h1>
+<section class="app-problem-context-shell" aria-labelledby="problem-context-title"<% if (contextContest) { %> data-problem-contest-clock data-now="<%= contextNow %>" data-start="<%= contextContest.start_time %>" data-end="<%= contextContest.end_time %>"<% } %>>
+  <div class="app-problem-context-origin">
+    <% if (contextContest) { %>
+      <a href="<%= syzoj.utils.makeUrl(['contest', contextContest.id]) %>"><%- contextNavIcon('trophy') %><span><%= contextContest.title %></span></a><%- contextNavIcon('chevron-right') %><span>题目 <%= this.alpha(contextContestProblemId) %></span>
+    <% } else { %>
+      <a href="<%= syzoj.utils.makeUrl(['problems']) %>"><%- contextNavIcon('list-tree') %><span>题库</span></a><%- contextNavIcon('chevron-right') %><span>题目 <%= contextProblem.getDisplayId() %></span>
+    <% } %>
+  </div>
+
+  <div class="app-problem-context-main">
+    <div class="app-problem-context-copy">
+      <span class="app-kicker"><%= contextContest ? 'CONTEST PROBLEM' : 'PROBLEM ' + contextProblem.getDisplayId() %></span>
+      <h1 id="problem-context-title"><%= contextTitle %></h1>
     </div>
-
-    <% if (contextProblem.type !== 'submit-answer') { %>
-      <div class="row" style="margin-top: -15px;">
-        <span class="ui label">内存限制：<%= contextProblem.memory_limit %> MiB</span>
-        <span class="ui label">时间限制：<%= contextProblem.time_limit %> ms</span>
-        <% if (contextProblem.type === 'interaction') { %>
-          <span class="ui label">题目类型：交互</span>
-        <% } else if (contextProblem.file_io) { %>
-          <span class="ui label">输入文件：<%= contextProblem.file_io_input_name %></span>
-          <span class="ui label">输出文件：<%= contextProblem.file_io_output_name %></span>
-        <% } else { %>
-          <span class="ui label">标准输入输出</span>
+    <% if (contextSection === 'statement') { %>
+      <div class="app-problem-context-actions">
+        <% if (contextCanSubmit) { %>
+          <% if (user) { %><a class="app-button app-button-primary" href="<%= contextSubmitUrl %>"><%- contextNavIcon('send') %>提交答案</a><% } else if (!contextContest) { %><a class="app-button app-button-primary" href="<%= syzoj.utils.makeUrl(['login'], { url: contextSubmitUrl }) %>">登录后提交</a><% } %>
+        <% } %>
+        <% if (!contextContest && (contextProblem.allowedEdit || contextProblem.allowedManage)) { %>
+          <details class="app-action-menu">
+            <summary class="app-button app-button-secondary"><%- contextNavIcon('settings') %>题目管理<%- contextNavIcon('chevron-down') %></summary>
+            <div class="app-action-menu-list">
+              <% if (contextProblem.allowedEdit) { %><a href="<%= syzoj.utils.makeUrl(['problem', contextProblem.id, 'edit']) %>"><%- contextNavIcon('square-pen') %>编辑题面</a><% if (!contextIsVJudge) { %><a href="<%= syzoj.utils.makeUrl(['problem', contextProblem.id, 'manage']) %>"><%- contextNavIcon('database') %>管理数据</a><% } %><% } %>
+              <% if (contextProblem.allowedManage) { %><button type="button" data-problem-v2-visibility="<%= contextProblem.is_public ? 'public' : 'private' %>"><%- contextNavIcon(contextProblem.is_public ? 'eye-off' : 'eye') %><%= contextProblem.is_public ? '取消公开' : '公开题目' %></button><button type="button" data-dialog-open="problem-delete-dialog"><%- contextNavIcon('archive') %>归档题目</button><% } %>
+            </div>
+          </details>
         <% } %>
       </div>
+    <% } else if (contextSection === 'testdata' && contextProblem.allowedEdit) { %>
+      <div class="app-problem-context-actions"><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['problem', contextProblem.id, 'manage']) %>"><%- contextNavIcon('settings') %>评测配置</a></div>
     <% } %>
+  </div>
 
-    <% if (contextProblem.type !== 'interaction') { %>
-      <div class="row" style="margin-top: -<%= contextProblem.type === 'submit-answer' ? 15 : 23 %>px;">
-        <span class="ui label">题目类型：<%= contextTypeNames[contextProblem.type] || contextProblem.type %></span>
-        <span class="ui label">评测方式：<%=
-          contextIsVJudge
-            ? 'VJudge'
-            : (contextTestcases && !contextTestcases.error)
-              ? (contextTestcases.spj ? 'Special Judge' : '文本比较')
-              : '无测试数据'
-        %></span>
-      </div>
-    <% } %>
+  <dl class="app-problem-context-facts">
+    <% if (contextContest) { %><div class="app-problem-contest-clock"><dt>比赛状态</dt><dd data-problem-contest-clock-text><%= contextContestPhase === 0 ? '距开始' : (contextContestPhase === 1 ? '剩余时间' : '比赛已结束') %></dd></div><div class="app-problem-contest-schedule"><dt>比赛时段</dt><dd><%= syzoj.utils.formatDate(contextContest.start_time) %> - <%= syzoj.utils.formatDate(contextContest.end_time) %></dd></div><% } %>
+    <% if (contextProblem.type !== 'submit-answer') { %><div><dt>时间限制</dt><dd><%= contextProblem.time_limit %> ms</dd></div><div><dt>内存限制</dt><dd><%= contextProblem.memory_limit %> MiB</dd></div><% } %>
+    <div><dt>题目类型</dt><dd><%= contextTypeNames[contextProblem.type] || contextProblem.type %></dd></div>
+    <div><dt>评测方式</dt><dd><%= contextJudgeType %></dd></div>
+    <% if (contextProblem.file_io && contextProblem.type !== 'interaction') { %><div><dt>输入文件</dt><dd><%= contextProblem.file_io_input_name %></dd></div><div><dt>输出文件</dt><dd><%= contextProblem.file_io_output_name %></dd></div><% } else if (contextProblem.type !== 'interaction' && contextProblem.type !== 'submit-answer') { %><div><dt>输入输出</dt><dd>标准输入输出</dd></div><% } %>
+    <% if (!contextContest) { %><div><dt>上传者</dt><dd><% if (contextProblem.is_anonymous && !contextProblem.allowedManage) { %>匿名<% } else if (contextProblem.user) { %><%- syzoj.utils.renderUsername(contextProblem.user) %><% } else { %>未知<% } %></dd></div><% if (contextProblem.allowedManage) { %><div><dt>公开者</dt><dd><% if (contextProblem.publicizer) { %><%- syzoj.utils.renderUsername(contextProblem.publicizer) %><% } else { %>未知<% } %></dd></div><% } %><% } %>
+  </dl>
 
+  <nav class="app-tabs app-problem-context-tabs" aria-label="题目导航">
+    <a class="app-tab<%= contextCurrent('statement') %>" href="<%= contextProblemUrl %>"<%- contextAriaCurrent('statement') %>><%- contextNavIcon('file-text') %>题目</a>
+    <% if (contextCanSubmit) { %><a class="app-tab<%= contextCurrent('submit') %>" href="<%= contextSubmitUrl %>"<%- contextAriaCurrent('submit') %>><%- contextNavIcon('send') %>提交</a><% } else if (!contextContest && contextHasTestdata && !user) { %><a class="app-tab" href="<%= syzoj.utils.makeUrl(['login'], { url: contextSubmitUrl }) %>"><%- contextNavIcon('log-in') %>登录后提交</a><% } %>
+    <% if (contextCanViewSubmissions) { %><a class="app-tab<%= contextCurrent('submissions') %>" href="<%= contextSubmissionsUrl %>"<%- contextAriaCurrent('submissions') %>><%- contextNavIcon('activity') %>提交记录</a><% } %>
     <% if (!contextContest) { %>
-    <div class="row" style="margin-top: -23px;">
-      <span class="ui label">上传者：
-        <% if (contextProblem.is_anonymous && !contextProblem.allowedManage) { %>
-          匿名
-        <% } else if (contextProblem.user) { %>
-          <%- syzoj.utils.renderUsername(contextProblem.user) %>
-        <% } else { %>
-          未知
-        <% } %>
-      </span>
-      <% if (contextProblem.allowedManage) { %>
-        <span class="ui label">公开者：
-          <% if (contextProblem.publicizer) { %>
-            <%- syzoj.utils.renderUsername(contextProblem.publicizer) %>
-          <% } else { %>
-            未知
-          <% } %>
-        </span>
-      <% } %>
-    </div>
+      <a class="app-tab<%= contextCurrent('statistics') %>" href="<%= syzoj.utils.makeUrl(['problem', contextProblem.id, 'statistics', contextProblem.type === 'submit-answer' ? 'shortest' : 'fastest']) %>"<%- contextAriaCurrent('statistics') %>><%- contextNavIcon('chart-no-axes-column-increasing') %>统计</a>
+      <% if (!contextIsVJudge) { %><a class="app-tab<%= contextCurrent('testdata') %>" href="<%= syzoj.utils.makeUrl(['problem', contextProblem.id, 'testdata']) %>"<%- contextAriaCurrent('testdata') %>><%- contextNavIcon('database') %>测试数据</a><% } %>
+      <a class="app-tab<%= contextCurrent('discussion') %>" href="<%= syzoj.utils.makeUrl(['discussion', 'problem', contextProblem.id]) %>"<%- contextAriaCurrent('discussion') %>><%- contextNavIcon('messages-square') %>讨论<% if (problemContext.discussionCount) { %><span class="app-tab-count"><%= problemContext.discussionCount %></span><% } %></a>
+      <a class="app-tab<%= contextCurrent('solutions') %>" href="<%= syzoj.utils.makeUrl(['problem', contextProblem.id, 'solutions']) %>"<%- contextAriaCurrent('solutions') %>><%- contextNavIcon('book-open-check') %>题解</a>
     <% } %>
-    </div>
-  </div>
+    <% if (contextProblem.additional_file) { %><a class="app-tab" href="<%= contextAdditionalFileUrl %>"><%- contextNavIcon('paperclip') %>附加文件</a><% } %>
+  </nav>
+</section>
 
-  <div class="ui grid" style="margin-top: 0;">
-    <div class="row">
-      <div class="column">
-        <div class="ui buttons">
-          <% if (contextContest) { %>
-            <a class="small ui blue button" href="<%= syzoj.utils.makeUrl(['contest', contextContest.id, 'problem', contextContestProblemId]) %>">题目</a>
-            <% if (contextCanParticipate && syzoj.utils.contestSubmissionEnabled(contextProblem)) { %>
-              <a class="small ui primary active button" href="<%= syzoj.utils.makeUrl(['contest', contextContest.id, 'problem', contextContestProblemId, 'submit']) %>">提交</a>
-            <% } %>
-            <% if (contextCanViewSubmissions) { %><a class="small ui positive <%= contextSection === 'submissions' ? 'active ' : '' %>button"
-               href="<%= syzoj.utils.makeUrl(['contest', contextContest.id, 'problem', contextContestProblemId, 'submissions']) %>">提交记录</a>
-            <% } %>
-            <% if (contextProblem.additional_file) { %>
-              <a class="small ui teal button" href="<%= syzoj.utils.makeUrl(['contest', contextContest.id, contextContestProblemId, 'download', 'additional_file']) %>">附加文件</a>
-            <% } %>
-            <a class="small ui orange button" href="<%= syzoj.utils.makeUrl(['contest', contextContest.id]) %>">返回比赛</a>
-          <% } else { %>
-          <a class="small ui blue button" href="<%= syzoj.utils.makeUrl(['problem', contextProblem.id]) %>">题目</a>
-          <% if (contextTestcases && !contextTestcases.error && user) { %>
-            <a class="small ui primary <%= contextSection === 'submit' ? 'active ' : '' %>button"
-               href="<%= syzoj.utils.makeUrl(['problem', contextProblem.id, 'submit']) %>">提交</a>
-          <% } else if (contextTestcases && !contextTestcases.error) { %>
-            <a class="small ui primary button" href="<%= syzoj.utils.makeUrl(['login'], { url: syzoj.utils.makeUrl(['problem', contextProblem.id, 'submit']) }) %>">登录后提交</a>
-          <% } %>
-          <a class="small ui positive <%= contextSection === 'submissions' ? 'active ' : '' %>button"
-             href="<%= syzoj.utils.makeUrl(['problem', contextProblem.id, 'submissions']) %>">提交记录</a>
-          <a class="small ui orange <%= contextSection === 'statistics' ? 'active ' : '' %>button"
-             href="<%= syzoj.utils.makeUrl(['problem', contextProblem.id, 'statistics', contextProblem.type === 'submit-answer' ? 'shortest' : 'fastest']) %>">统计</a>
-          <% if (!contextIsVJudge) { %>
-            <a class="small ui yellow <%= contextSection === 'testdata' ? 'active ' : '' %>button"
-               href="<%= syzoj.utils.makeUrl(['problem', contextProblem.id, 'testdata']) %>">测试数据</a>
-          <% } %>
-          <% if (contextProblem.additional_file) { %>
-            <a class="small ui teal button" href="<%= syzoj.utils.makeUrl(['problem', contextProblem.id, 'download', 'additional_file']) %>">附加文件</a>
-          <% } %>
-          <a class="small ui brown <%= contextSection === 'discussion' ? 'active ' : '' %>button"
-             href="<%= syzoj.utils.makeUrl(['discussion', 'problem', contextProblem.id]) %>" style="position: relative;">
-            讨论
-            <% if (problemContext.discussionCount) { %>
-              <span class="floating ui red tiny circular label" style="background-color: #8c5633 !important; top: -0.6em;"><%= problemContext.discussionCount %></span>
-            <% } %>
-          </a>
-          <a class="small ui olive <%= contextSection === 'solutions' ? 'active ' : '' %>button"
-             href="<%= syzoj.utils.makeUrl(['problem', contextProblem.id, 'solutions']) %>">题解</a>
-          <% } %>
-        </div>
-      </div>
-    </div>
-  </div>
-  <% if (contextSection === 'submissions') { %>
-    <script>
-    $(function () {
-      $('form#form').attr('action', <%- JSON.stringify(
-        contextContest
-          ? syzoj.utils.makeUrl(['contest', contextContest.id, 'problem', contextContestProblemId, 'submissions'])
-          : syzoj.utils.makeUrl(['problem', contextProblem.id, 'submissions'])
-      ) %>);
-    });
-    </script>
-  <% } %>
-</div>
+<% if (!contextContest && contextProblem.allowedManage) { %><script>
+(function () {
+  var problemId = '<%= contextProblem.id %>';
+
+  function operationKey() {
+    return window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random();
+  }
+
+  document.addEventListener('click', async function (event) {
+    var visibility = event.target.closest('[data-problem-v2-visibility]');
+    var archive = event.target.closest('[data-problem-v2-archive]');
+    var control = visibility || archive;
+    if (!control || control.getAttribute('aria-disabled') === 'true') return;
+    var action = archive ? 'archive' : (visibility.dataset.problemV2Visibility === 'public' ? 'unpublish' : 'publish');
+    control.setAttribute('aria-disabled', 'true');
+    control.disabled = true;
+    try {
+      var response = await fetch('/api/v2/problems/' + encodeURIComponent(problemId) + '/' + action, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': operationKey()
+        },
+        body: JSON.stringify({})
+      });
+      var body = null;
+      try { body = await response.json(); } catch (error) {}
+      if (!response.ok) throw new Error(body && body.error && body.error.message || '题目状态更新失败。');
+      if (window.NWPUOJApp) {
+        window.NWPUOJApp.showToast(action === 'archive' ? '题目已归档' : action === 'publish' ? '题目已公开' : '题目已取消公开', 'success');
+      }
+      window.setTimeout(function () {
+        if (action === 'archive') return window.location.assign('/problems');
+        window.location.reload();
+      }, 250);
+    } catch (error) {
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '题目状态更新失败。', 'danger');
+      else window.alert(error.message || '题目状态更新失败。');
+      control.removeAttribute('aria-disabled');
+      control.disabled = false;
+    }
+  });
+})();
+</script><% } %>
+
+<% if (contextContest) { %><script>
+(function () {
+  var root = document.currentScript.previousElementSibling;
+  if (!root || !root.hasAttribute('data-problem-contest-clock')) return;
+  var serverOffset = Number(root.dataset.now) * 1000 - Date.now();
+  var start = Number(root.dataset.start);
+  var end = Number(root.dataset.end);
+  var initialPhase = Number(root.dataset.now) < start ? 0 : (Number(root.dataset.now) < end ? 1 : 2);
+  var reloading = false;
+  function duration(seconds) {
+    seconds = Math.max(0, Math.floor(seconds));
+    var days = Math.floor(seconds / 86400);
+    var hours = Math.floor(seconds % 86400 / 3600);
+    var minutes = Math.floor(seconds % 3600 / 60);
+    var secs = seconds % 60;
+    return (days ? days + ' 天 ' : '') + [hours, minutes, secs].map(function (value) { return String(value).padStart(2, '0'); }).join(':');
+  }
+  function update() {
+    var now = (Date.now() + serverOffset) / 1000;
+    var phase = now < start ? 0 : (now < end ? 1 : 2);
+    var text = phase === 0 ? '距开始 ' + duration(start - now) : (phase === 1 ? '剩余 ' + duration(end - now) : '比赛已结束');
+    root.querySelectorAll('[data-problem-contest-clock-text]').forEach(function (node) { node.textContent = text; });
+    if (phase !== initialPhase && !reloading) { reloading = true; location.reload(); }
+  }
+  update();
+  window.setInterval(update, 1000);
+})();
+</script><% } %>

@@ -1,0 +1,212 @@
+<% include util %>
+<%
+const appActive = typeof active === 'string' ? active : '';
+const appPath = req && req.path ? req.path : '/';
+const appVersion = syzoj.config.nwpuoj_version || '2.0.0';
+const isProblemsActive = appActive.startsWith('problem');
+const isContestsActive = appActive.startsWith('contest');
+const isSubmissionsActive = appActive.startsWith('submission');
+const isCommunityActive = appActive.startsWith('discussion') || appActive.startsWith('article');
+const isAdminActive = appActive.startsWith('admin');
+const appNavIconMarkup = {
+  house: '<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"></path><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>',
+  'list-tree': '<path d="M8 5h13"></path><path d="M13 12h8"></path><path d="M13 19h8"></path><path d="M3 10a2 2 0 0 0 2 2h3"></path><path d="M3 5v12a2 2 0 0 0 2 2h3"></path>',
+  trophy: '<path d="M10 14.66V17a1 1 0 0 1-1 1 2 2 0 0 0-2 2v2"></path><path d="M14 14.66V17a1 1 0 0 0 1 1 2 2 0 0 1 2 2v2"></path><path d="M17.916 10H19.5A2.5 2.5 0 0 0 22 7.5V5a1 1 0 0 0-1-1h-3"></path><path d="M4 22h16"></path><path d="M6 9a6 6 0 0 0 12 0V3a1 1 0 0 0-1-1H7a1 1 0 0 0-1 1z"></path><path d="M6.084 10H4.5A2.5 2.5 0 0 1 2 7.5V5a1 1 0 0 1 1-1h3"></path>',
+  activity: '<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"></path>',
+  'chart-no-axes-column-increasing': '<path d="M5 21v-6"></path><path d="M12 21V9"></path><path d="M19 21V3"></path>',
+  megaphone: '<path d="M11 6a13 13 0 0 0 8.4-2.8A1 1 0 0 1 21 4v12a1 1 0 0 1-1.6.8A13 13 0 0 0 11 14H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"></path><path d="M6 14a12 12 0 0 0 2.4 7.2 2 2 0 0 0 3.2-2.4A8 8 0 0 1 10 14"></path><path d="M8 6v8"></path>',
+  'messages-square': '<path d="M16 10a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 14.286V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path><path d="M20 9a2 2 0 0 1 2 2v10.286a.71.71 0 0 1-1.212.502l-2.202-2.202A2 2 0 0 0 17.172 19H10a2 2 0 0 1-2-2v-1"></path>',
+  'circle-help': '<circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><path d="M12 17h.01"></path>',
+  settings: '<path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"></path><circle cx="12" cy="12" r="3"></circle>',
+  menu: '<path d="M4 5h16"></path><path d="M4 12h16"></path><path d="M4 19h16"></path>',
+  command: '<path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"></path>',
+  sun: '<circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path>',
+  moon: '<path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"></path>',
+  bell: '<path d="M10.268 21a2 2 0 0 0 3.464 0"></path><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"></path>',
+  mail: '<path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"></path><rect x="2" y="4" width="20" height="16" rx="2"></rect>',
+  'chevron-down': '<path d="m6 9 6 6 6-6"></path>',
+  'user-round': '<circle cx="12" cy="8" r="5"></circle><path d="M20 21a8 8 0 0 0-16 0"></path>',
+  'square-pen': '<path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"></path>',
+  clipboard: '<rect width="8" height="4" x="8" y="2" rx="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>',
+  'log-out': '<path d="m16 17 5-5-5-5"></path><path d="M21 12H9"></path><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>',
+  x: '<path d="M18 6 6 18"></path><path d="m6 6 12 12"></path>',
+  search: '<path d="m21 21-4.34-4.34"></path><circle cx="11" cy="11" r="8"></circle>',
+  'search-x': '<path d="m13.5 8.5-5 5"></path><path d="m8.5 8.5 5 5"></path><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path>',
+  'wifi-off': '<path d="M12 20h.01"></path><path d="M8.5 16.429a5 5 0 0 1 7 0"></path><path d="M5 12.859a10 10 0 0 1 5.17-2.69"></path><path d="M19 12.859a10 10 0 0 0-2.007-1.523"></path><path d="M2 8.82a15 15 0 0 1 4.177-2.643"></path><path d="M22 8.82a15 15 0 0 0-11.288-3.764"></path><path d="m2 2 20 20"></path>',
+  'circle-check': '<circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path>',
+  'log-in': '<path d="m10 17 5-5-5-5"></path><path d="M15 12H3"></path><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>'
+};
+function appNavIcon(name, extraClass) {
+  return '<svg class="app-static-icon app-static-icon-' + name + (extraClass ? ' ' + extraClass : '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + appNavIconMarkup[name] + '</svg>';
+}
+let appTierMap = {};
+if (syzoj.adminUserIds) {
+  for (const uid of syzoj.adminUserIds) appTierMap[uid] = 'admin';
+}
+if (syzoj.cheaterUserIds) {
+  for (const uid of syzoj.cheaterUserIds) {
+    if (appTierMap[uid] !== 'admin') appTierMap[uid] = 'cheater';
+  }
+}
+if (syzoj.userHitScores) {
+  for (const [uid, scoreData] of syzoj.userHitScores) {
+    if (appTierMap[uid]) continue;
+    const score = scoreData.total || 0;
+    if (score >= 350) appTierMap[uid] = 'red';
+    else if (score >= 280) appTierMap[uid] = 'orange';
+    else if (score >= 200) appTierMap[uid] = 'green';
+    else if (score >= 100) appTierMap[uid] = 'blue';
+  }
+}
+const appCheatedJudgeIds = [];
+const appCancelledJudgeIds = [];
+const appCheaterUserIds = [];
+if (typeof info !== 'undefined' && info && info.submissionId) {
+  if (syzoj.cheatedJudgeIds && syzoj.cheatedJudgeIds.has(info.submissionId)) appCheatedJudgeIds.push(info.submissionId);
+  if (syzoj.cancelledJudgeIds && syzoj.cancelledJudgeIds.has(info.submissionId)) appCancelledJudgeIds.push(info.submissionId);
+}
+if (syzoj.cheaterUserIds) for (const id of syzoj.cheaterUserIds) appCheaterUserIds.push(id);
+let appUserTags = {};
+if (syzoj.userTagsEnabled !== false && syzoj.userTags) {
+  for (const [uid, tagInfo] of syzoj.userTags) appUserTags[uid] = { text: tagInfo.text, tier: tagInfo.tier };
+}
+%>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="csrf-token" content="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
+  <meta name="application-name" content="NWPUOJ">
+  <meta name="theme-color" content="#111318">
+  <title><%= title %> - <%= syzoj.config.title %></title>
+  <link rel="icon" type="image/png" href="/self/favicon.png?v=<%= encodeURIComponent(appVersion) %>">
+  <link rel="apple-touch-icon" href="/self/favicon.png?v=<%= encodeURIComponent(appVersion) %>">
+  <link rel="stylesheet" href="<%- selfLib('syntect-tomorrow.css') %>?20220512">
+  <link rel="stylesheet" href="/self/app-shell.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20260801-9">
+  <link rel="stylesheet" href="/self/app-shared.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20260731-5">
+  <link rel="stylesheet" href="/self/app-features.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20260801-18">
+  <link rel="stylesheet" href="/self/username_tiers.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20260731-3">
+  <!-- Load before Monaco installs its AMD loader on submission pages. -->
+  <script src="/self/lucide-1.27.0.min.js?v=1.27.0-20260730-3"></script>
+  <script>
+    (function () {
+      window.__NWPUOJ_RENDER_ICONS = function (scope) {
+        if (!window.lucide || typeof window.lucide.createIcons !== 'function') return false;
+        try {
+          window.lucide.createIcons({
+            icons: window.lucide.icons,
+            root: scope && typeof scope.querySelectorAll === 'function' ? scope : document,
+            attrs: { 'aria-hidden': 'true', focusable: 'false' }
+          });
+          return true;
+        } catch (error) {
+          return false;
+        }
+      };
+    })();
+  </script>
+  <script>
+    (function () {
+      var storedTheme = null;
+      try { storedTheme = localStorage.getItem('nwpuoj_theme'); } catch (error) {}
+      var theme = storedTheme === 'dark' || storedTheme === 'light'
+        ? storedTheme
+        : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+    })();
+  </script>
+  <script>
+    window.__NWPUOJ_APP = {
+      csrfToken: <%- serializejs(typeof csrfToken !== 'undefined' ? csrfToken : '') %>,
+      path: <%- serializejs(appPath) %>,
+      user: <%- serializejs(user ? { id: user.id, username: user.username } : null) %>
+    };
+    window.__SYZOJ_USER_TIERS = <%- serializejs(appTierMap) %>;
+    window.__SYZOJ_CHEATED_JUDGE_IDS = <%- serializejs(appCheatedJudgeIds) %>;
+    window.__SYZOJ_CANCELLED_JUDGE_IDS = <%- serializejs(appCancelledJudgeIds) %>;
+    window.__SYZOJ_CHEATER_USER_IDS = <%- serializejs(appCheaterUserIds) %>;
+    window.__SYZOJ_USER_TAGS = <%- serializejs(appUserTags) %>;
+  </script>
+</head>
+<body class="app-v2">
+  <a class="app-skip-link" href="#app-main">跳到主要内容</a>
+  <div class="app-shell" data-app-shell>
+    <aside class="app-sidebar" id="app-sidebar" aria-label="主导航">
+      <a class="app-brand" href="/" aria-label="<%= syzoj.config.title %> 首页">
+        <img src="/self/logo.png?v=<%= encodeURIComponent(appVersion) %>" alt="" width="34" height="34">
+        <span><%= syzoj.config.title %></span>
+      </a>
+      <nav class="app-nav">
+        <span class="app-nav-label">工作区</span>
+        <a class="app-nav-item<%= appActive === '' ? ' is-active' : '' %>" href="/"<% if (appActive === '') { %> aria-current="page"<% } %>><%- appNavIcon('house') %><span>首页</span></a>
+        <a class="app-nav-item<%= isProblemsActive ? ' is-active' : '' %>" href="/problems"<% if (isProblemsActive) { %> aria-current="page"<% } %>><%- appNavIcon('list-tree') %><span>题库</span></a>
+        <a class="app-nav-item<%= isContestsActive ? ' is-active' : '' %>" href="/contests"<% if (isContestsActive) { %> aria-current="page"<% } %>><%- appNavIcon('trophy') %><span>比赛</span></a>
+        <a class="app-nav-item<%= isSubmissionsActive ? ' is-active' : '' %>" href="/submissions"<% if (isSubmissionsActive) { %> aria-current="page"<% } %>><%- appNavIcon('activity') %><span>评测</span></a>
+        <a class="app-nav-item<%= appActive.startsWith('ranklist') ? ' is-active' : '' %>" href="/ranklist"><%- appNavIcon('chart-no-axes-column-increasing') %><span>排名</span></a>
+        <span class="app-nav-label">内容</span>
+        <a class="app-nav-item<%= appActive.startsWith('announcement') ? ' is-active' : '' %>" href="<%= syzoj.utils.makeUrl(['announcements']) %>"><%- appNavIcon('megaphone') %><span>公告</span></a>
+        <a class="app-nav-item<%= isCommunityActive ? ' is-active' : '' %>" href="/discussion/global"><%- appNavIcon('messages-square') %><span>讨论</span></a>
+        <a class="app-nav-item<%= appActive.startsWith('help') ? ' is-active' : '' %>" href="/help"><%- appNavIcon('circle-help') %><span>帮助</span></a>
+        <% if (user && typeof appCanAccessAdmin !== 'undefined' && appCanAccessAdmin) { %>
+          <span class="app-nav-label">管理</span>
+          <a class="app-nav-item<%= isAdminActive ? ' is-active' : '' %>" href="<%= appAdminHome %>"><%- appNavIcon('settings') %><span>管理后台</span></a>
+        <% } %>
+      </nav>
+      <div class="app-sidebar-foot"><span class="app-system-dot" aria-hidden="true"></span><span>NWPUOJ <%= appVersion %></span></div>
+    </aside>
+    <button class="app-sidebar-backdrop" type="button" data-sidebar-close aria-label="关闭导航" hidden></button>
+    <div class="app-stage">
+      <header class="app-topbar">
+        <div class="app-topbar-context">
+          <button class="app-icon-button app-mobile-menu" type="button" data-sidebar-open aria-label="打开导航" aria-controls="app-sidebar" aria-expanded="false"><%- appNavIcon('menu') %></button>
+          <div class="app-context-copy"><span class="app-context-eyebrow">NWPUOJ</span><span class="app-context-title"><%= title %></span></div>
+        </div>
+        <div class="app-topbar-actions">
+          <button class="app-icon-button app-hide-phone" type="button" data-command-open aria-label="快捷跳转" title="快捷跳转" aria-haspopup="dialog" aria-controls="app-command-dialog"><%- appNavIcon('command') %></button>
+          <button class="app-icon-button" type="button" data-theme-toggle aria-label="切换显示模式" title="切换显示模式"><%- appNavIcon('sun', 'app-theme-light') %><%- appNavIcon('moon', 'app-theme-dark') %></button>
+          <% if (user) { %>
+            <a class="app-icon-button" href="<%= syzoj.utils.makeUrl(['notifications']) %>" aria-label="通知中心" title="通知中心"><%- appNavIcon('bell') %><% if (typeof unreadNotificationsCount !== 'undefined' && unreadNotificationsCount > 0) { %><span class="app-notification-count"><%= unreadNotificationsCount > 99 ? '99+' : unreadNotificationsCount %></span><% } %></a>
+            <a class="app-icon-button app-hide-phone" href="/messages" aria-label="站内信" title="站内信"><%- appNavIcon('mail') %><% if (typeof unreadMessagesCount !== 'undefined' && unreadMessagesCount > 0) { %><span class="app-notification-count"><%= unreadMessagesCount > 99 ? '99+' : unreadMessagesCount %></span><% } %></a>
+            <details class="app-account">
+              <summary><img class="app-avatar" src="<%= syzoj.utils.avatar(user, 64) %>" alt=""><span class="app-account-name"><%- syzoj.utils.renderUsername(user, { noLink: true, noTag: true }) %></span><%- appNavIcon('chevron-down') %></summary>
+              <div class="app-account-menu">
+                <div class="app-account-meta"><strong><%- syzoj.utils.renderUsername(user, { noLink: true, noTag: true }) %></strong><span>已登录</span></div>
+                <a href="<%= syzoj.utils.makeUrl(['user', user.id]) %>"><%- appNavIcon('user-round') %>个人主页</a>
+                <a href="<%= syzoj.utils.makeUrl(['user', user.id, 'edit']) %>"><%- appNavIcon('square-pen') %>账号设置</a>
+                <a href="<%= syzoj.utils.makeUrl(['clipboard']) %>"><%- appNavIcon('clipboard') %>剪贴板</a>
+                <% if (typeof appCanAccessAdmin !== 'undefined' && appCanAccessAdmin) { %><a href="<%= appAdminHome %>"><%- appNavIcon('settings') %>管理后台</a><% } %>
+                <a class="app-account-danger" href-post="<%= syzoj.utils.makeUrl(['api', 'v2', 'auth', 'logout']) %>"><%- appNavIcon('log-out') %>退出登录</a>
+              </div>
+            </details>
+          <% } else { %>
+            <a class="app-button app-button-quiet app-hide-phone" href="<%= syzoj.utils.makeUrl(['login'], { url: req.query.url || req.originalUrl }) %>">登录</a>
+            <a class="app-button app-button-primary" href="<%= syzoj.utils.makeUrl(['sign_up'], { url: req.query.url || req.originalUrl }) %>">注册</a>
+          <% } %>
+        </div>
+      </header>
+      <dialog class="app-dialog app-command-dialog" id="app-command-dialog" aria-modal="true" aria-labelledby="app-command-title">
+        <div class="app-dialog-header"><h2 id="app-command-title">快捷跳转</h2><button class="app-icon-button" type="button" data-dialog-close aria-label="关闭"><%- appNavIcon('x') %></button></div>
+        <div class="app-command-search"><%- appNavIcon('search') %><input type="search" data-command-input placeholder="输入页面名称" autocomplete="off" spellcheck="false" aria-label="筛选可跳转页面"></div>
+        <nav class="app-command-list" aria-label="可跳转页面">
+          <section class="app-command-group"><h3>工作区</h3><a href="/" data-command-item data-command-terms="首页 工作台"><%- appNavIcon('house') %><span>首页</span></a><a href="/problems" data-command-item data-command-terms="题库 题目 训练"><%- appNavIcon('list-tree') %><span>题库</span></a><a href="/contests" data-command-item data-command-terms="比赛 赛程"><%- appNavIcon('trophy') %><span>比赛</span></a><a href="/submissions" data-command-item data-command-terms="评测 提交 记录"><%- appNavIcon('activity') %><span>评测记录</span></a><a href="/ranklist" data-command-item data-command-terms="排名 Rating"><%- appNavIcon('chart-no-axes-column-increasing') %><span>排名</span></a></section>
+          <section class="app-command-group"><h3>内容</h3><a href="<%= syzoj.utils.makeUrl(['announcements']) %>" data-command-item data-command-terms="公告 通知"><%- appNavIcon('megaphone') %><span>公告</span></a><a href="/discussion/global" data-command-item data-command-terms="讨论 社区"><%- appNavIcon('messages-square') %><span>讨论</span></a><a href="/help" data-command-item data-command-terms="帮助 文档"><%- appNavIcon('circle-help') %><span>帮助</span></a></section>
+          <% if (user) { %><section class="app-command-group"><h3>个人</h3><a href="<%= syzoj.utils.makeUrl(['user', user.id]) %>" data-command-item data-command-terms="个人主页 账号"><%- appNavIcon('user-round') %><span>个人主页</span></a><a href="<%= syzoj.utils.makeUrl(['notifications']) %>" data-command-item data-command-terms="通知 消息"><%- appNavIcon('bell') %><span>通知中心</span></a><a href="/messages" data-command-item data-command-terms="站内信 私信"><%- appNavIcon('mail') %><span>站内信</span></a><a href="<%= syzoj.utils.makeUrl(['clipboard']) %>" data-command-item data-command-terms="剪贴板 代码"><%- appNavIcon('clipboard') %><span>剪贴板</span></a></section><% } %>
+          <% if (user && typeof appCanAccessAdmin !== 'undefined' && appCanAccessAdmin) { %><section class="app-command-group"><h3>管理</h3><a href="<%= appAdminHome %>" data-command-item data-command-terms="管理后台 运维"><%- appNavIcon('settings') %><span>管理后台</span></a></section><% } %>
+        </nav>
+        <div class="app-command-empty" data-command-empty hidden><%- appNavIcon('search-x') %><span>没有匹配页面</span></div>
+      </dialog>
+      <main class="app-main" id="app-main" tabindex="-1" aria-busy="true">
+        <div class="app-page-progress" data-page-progress role="progressbar" aria-label="页面加载中" aria-valuetext="正在加载"><span></span></div>
+        <div class="app-connectivity-state" data-connectivity-state role="status" aria-live="polite" hidden>
+          <span class="app-connectivity-icon" aria-hidden="true"><%- appNavIcon('wifi-off', 'app-connectivity-icon-offline') %><%- appNavIcon('circle-check', 'app-connectivity-icon-restored') %></span>
+          <span data-connectivity-message>网络连接已中断，页面会保留当前内容。</span>
+          <button class="app-button app-button-secondary app-button-small" type="button" data-connectivity-retry>重新连接</button>
+        </div>
+  <nav class="app-mobile-nav" aria-label="移动端导航">
+    <a class="<%= appActive === '' ? 'is-active' : '' %>" href="/"><%- appNavIcon('house') %><span>首页</span></a>
+    <a class="<%= isProblemsActive ? 'is-active' : '' %>" href="/problems"><%- appNavIcon('list-tree') %><span>题库</span></a>
+    <a class="<%= isContestsActive ? 'is-active' : '' %>" href="/contests"><%- appNavIcon('trophy') %><span>比赛</span></a>
+    <a class="<%= isSubmissionsActive ? 'is-active' : '' %>" href="/submissions"><%- appNavIcon('activity') %><span>评测</span></a>
+    <% if (user) { %><a href="<%= syzoj.utils.makeUrl(['user', user.id]) %>"><%- appNavIcon('user-round') %><span>我的</span></a><% } else { %><a href="<%= syzoj.utils.makeUrl(['login'], { url: req.query.url || req.originalUrl }) %>"><%- appNavIcon('log-in') %><span>登录</span></a><% } %>
+  </nav>

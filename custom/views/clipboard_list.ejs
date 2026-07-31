@@ -1,77 +1,10 @@
 <% this.title = isOwn ? '我的剪贴板' : (pageOwner.username + ' 的剪贴板') %>
-<% include header %>
+<% include app_header %>
+<% const appVisibility = { private: { label: '私有', icon: 'lock-keyhole', className: 'app-status-muted' }, public: { label: '公开', icon: 'globe-2', className: 'app-status-accepted' }, link: { label: '分享链接', icon: 'link', className: 'app-status-info' } }; %>
 
-<div class="padding">
-  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-    <h2 style="margin: 0;">
-      <i class="clipboard outline icon"></i>
-      <% if (isOwn) { %>
-        我的剪贴板
-      <% } else { %>
-        <%- syzoj.utils.renderUsername(pageOwner) %> 的公开剪贴板
-      <% } %>
-    </h2>
-    <% if (isOwn) { %>
-      <a class="ui primary button" href="<%= syzoj.utils.makeUrl(['clipboard', 0, 'edit']) %>">
-        <i class="plus icon"></i> 新建
-      </a>
-    <% } %>
-  </div>
-
-  <% if (items.length === 0) { %>
-    <div class="ui placeholder segment">
-      <div class="ui icon header">
-        <i class="clipboard outline icon"></i>
-        <% if (isOwn) { %>
-          剪贴板空空如也
-        <% } else { %>
-          该用户暂无公开剪贴板
-        <% } %>
-      </div>
-      <% if (isOwn) { %>
-        <a class="ui primary button" href="<%= syzoj.utils.makeUrl(['clipboard', 0, 'edit']) %>">
-          创建第一条
-        </a>
-      <% } %>
-    </div>
-  <% } else { %>
-    <div style="color: #888; margin-bottom: 12px;">
-      共 <b><%= total %></b> 条
-    </div>
-    <table class="ui celled table">
-      <thead>
-        <tr>
-          <th style="width: 55%;">标题</th>
-          <% if (isOwn) { %>
-            <th>可见性</th>
-          <% } %>
-          <th>更新时间</th>
-        </tr>
-      </thead>
-      <tbody>
-        <% for (let it of items) { %>
-          <tr>
-            <td>
-              <a href="<%= syzoj.utils.makeUrl(['clipboard', it.id]) %>"><%= it.title || '(无标题)' %></a>
-            </td>
-            <% if (isOwn) { %>
-              <td>
-                <% if (it.visibility === 'private') { %>
-                  <span class="ui grey tiny label"><i class="lock icon"></i>私有</span>
-                <% } else if (it.visibility === 'public') { %>
-                  <span class="ui green tiny label"><i class="globe icon"></i>公开</span>
-                <% } else if (it.visibility === 'link') { %>
-                  <span class="ui blue tiny label"><i class="linkify icon"></i>分享链接</span>
-                <% } %>
-              </td>
-            <% } %>
-            <td><%= syzoj.utils.formatDate(it.update_time || it.public_time) %></td>
-          </tr>
-        <% } %>
-      </tbody>
-    </table>
-    <% include page %>
-  <% } %>
+<div class="app-page app-clipboard-page">
+  <header class="app-page-header"><div class="app-page-heading"><span class="app-kicker">CLIPBOARD</span><h1 class="app-page-title"><% if (isOwn) { %>我的剪贴板<% } else { %><%- syzoj.utils.renderUsername(pageOwner) %> 的公开剪贴板<% } %></h1><p class="app-page-description"><%= isOwn ? '保存代码片段、解题笔记和临时文本。' : '该用户主动公开的剪贴板内容。' %></p></div><% if (isOwn) { %><div class="app-page-actions"><a class="app-button app-button-primary" href="<%= syzoj.utils.makeUrl(['clipboard', 0, 'edit']) %>"><i data-lucide="plus"></i>新建内容</a></div><% } %></header>
+  <% if (!items.length) { %><div class="app-empty"><div class="app-empty-inner"><i data-lucide="clipboard"></i><strong><%= isOwn ? '剪贴板中还没有内容' : '暂无公开内容' %></strong><p><%= isOwn ? '新建一条内容，随时回来查阅。' : '该用户尚未公开任何剪贴板。' %></p><% if (isOwn) { %><a class="app-button app-button-primary" href="<%= syzoj.utils.makeUrl(['clipboard', 0, 'edit']) %>">创建第一条</a><% } %></div></div><% } else { %><div class="app-toolbar"><div class="app-toolbar-start"><span class="app-page-count">共 <strong><%= total %></strong> 条</span></div></div><div class="app-table-region"><table class="app-table app-clipboard-table"><thead><tr><th>标题</th><% if (isOwn) { %><th>可见性</th><% } %><th>更新时间</th><th aria-label="操作"></th></tr></thead><tbody><% for (const item of items) { const visibility = appVisibility[item.visibility] || appVisibility.private; %><tr><td class="app-cell-primary"><a href="<%= syzoj.utils.makeUrl(['clipboard', item.id]) %>"><%= item.title || '(无标题)' %></a></td><% if (isOwn) { %><td><span class="app-status <%= visibility.className %>"><%= visibility.label %></span></td><% } %><td class="app-cell-number"><%= syzoj.utils.formatDate(item.update_time || item.public_time) %></td><td class="app-cell-actions"><a class="app-icon-button" href="<%= syzoj.utils.makeUrl(['clipboard', item.id]) %>" aria-label="查看" title="查看"><i data-lucide="arrow-up-right"></i></a></td></tr><% } %></tbody></table></div><% include app_pagination %><% } %>
 </div>
 
-<% include footer %>
+<% include app_footer %>

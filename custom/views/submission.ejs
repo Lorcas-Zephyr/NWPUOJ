@@ -1,448 +1,213 @@
 <% this.title = '提交记录 #' + info.submissionId %>
 <% include util %>
-<% include header %>
 <%
-// ============ 数据准备(实际数据由 _judge_admin_action_loader.js middleware 注入到 res.locals) ============
-let isAdminCheating = (typeof judgeAdminAction !== 'undefined' && judgeAdminAction && judgeAdminAction.action_type === 'cheated');
-let isAdminCancelled = (typeof judgeAdminAction !== 'undefined' && judgeAdminAction && judgeAdminAction.action_type === 'cancelled');
-let isMarked = isAdminCheating || isAdminCancelled;
-let canManageAction = res.locals.user && (res.locals.user.is_admin ||
-  (res.locals.user.privileges && res.locals.user.privileges.includes('manage_problem')));
-let markedDetail = (typeof judgeAdminAction !== 'undefined' && judgeAdminAction) ? judgeAdminAction : null;
-let isCheated = (typeof judgeAdminAction !== 'undefined' && judgeAdminAction && judgeAdminAction.action_type === 'cheated');
+const appAdminAction = typeof judgeAdminAction !== 'undefined' && judgeAdminAction ? judgeAdminAction : null;
+const appIsCheated = !!(appAdminAction && appAdminAction.action_type === 'cheated');
+const appIsCancelled = !!(appAdminAction && appAdminAction.action_type === 'cancelled');
+const appIsMarked = appIsCheated || appIsCancelled;
+const appCanManage = typeof canManageSubmissionAction !== 'undefined' && canManageSubmissionAction;
+if (appIsCheated) detailResult = null;
+const appResultTypes = ['', 'Accepted', 'Wrong Answer', 'Partially Correct', 'Memory Limit Exceeded', 'Time Limit Exceeded', 'Output Limit Exceeded', 'File Error', 'Runtime Error', 'Judgement Failed', 'Invalid Interaction'];
+function appStatusClass(status) {
+  const value = String(status || '').toLowerCase();
+  if (value === 'accepted') return 'app-verdict app-verdict-accepted';
+  if (value === 'waiting') return 'app-status-waiting';
+  if (value === 'running' || value === 'judging' || value === 'compiling') return 'app-status-judging';
+  if (value === 'partially correct') return 'app-status-partial';
+  if (value === 'skipped' || value === '已取消') return '';
+  if (value === '作弊' || value === 'cheated' || value === 'wrong answer') return 'app-verdict app-verdict-wrong';
+  if (value === 'runtime error' || value === 'invalid interaction') return 'app-verdict app-verdict-runtime';
+  if (value === 'time limit exceeded') return 'app-verdict app-verdict-time';
+  if (value === 'memory limit exceeded' || value === 'output limit exceeded') return 'app-verdict app-verdict-memory';
+  if (value.includes('error') || value === 'judgement failed') return 'app-verdict app-verdict-compile';
+  return '';
+}
+function appCaseStatus(testcase) {
+  if (!testcase) return 'System Error';
+  if (testcase.status === 0) return 'Waiting';
+  if (testcase.status === 1) return 'Running';
+  if (testcase.status === 4) return 'Skipped';
+  if (testcase.status === 2 && testcase.result) return appResultTypes[testcase.result.type] || 'System Error';
+  return 'System Error';
+}
+function appSubtaskStatus(subtask) {
+  if (subtask.resultStatus === 'Skipped') return 'Skipped';
+  if (subtask.resultType != null) return appResultTypes[subtask.resultType] || 'System Error';
+  const statuses = (subtask.cases || []).map(appCaseStatus);
+  if (statuses.includes('Running')) return 'Running';
+  if (statuses.includes('Waiting')) return 'Waiting';
+  if (statuses.length && statuses.every(status => status === 'Skipped')) return 'Skipped';
+  return statuses.find(status => status !== 'Accepted' && status !== 'Skipped') || (statuses.length ? 'Accepted' : 'System Error');
+}
+function appFormatSize(bytes) {
+  let value = Number(bytes || 0); const units = ['B', 'K', 'M', 'G']; let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }
+  return (value === Math.round(value) ? value : value.toFixed(1)) + ' ' + units[unit];
+}
+const appStatus = appIsCheated ? '作弊' : (appIsCancelled ? '已取消' : (roughResult ? roughResult.result : (submissionPending ? 'Judging' : 'Waiting')));
+const appScore = appIsMarked ? 0 : (roughResult ? Math.floor(roughResult.score || 0) : 0);
+const appProblemUrl = displayConfig.inContest && typeof contest !== 'undefined' && contest
+  ? syzoj.utils.makeUrl(['contest', contest.id, 'problem', info.problemId])
+  : syzoj.utils.makeUrl(['problem', info.sourceProblemId || info.problemId]);
+const appPreferredFormatted = !!(preferFormattedCode && formattedCode !== null);
+const appCodeHtml = appPreferredFormatted ? formattedCode : code;
+const appSubtasks = detailResult && detailResult.judge && Array.isArray(detailResult.judge.subtasks) ? detailResult.judge.subtasks : [];
 %>
-<script src="<%- lib('textfit/2.3.1/textFit.min.js') %>"></script>
-<style>
-.single-subtask {
-    box-shadow: none !important;
-}
+<% include app_header %>
+<% if (typeof contestHeader !== 'undefined' && contestHeader) { %><% include contest_context %><% } %>
 
-.single-subtask > .title {
-    display: none;
-}
+<div class="app-page app-submission-detail-page">
+  <header class="app-page-header">
+    <div class="app-page-heading">
+      <span class="app-kicker">SUBMISSION <%= info.submissionId %></span>
+      <h1 class="app-page-title"><a href="<%= appProblemUrl %>"><%= displayConfig.inContest ? this.alpha(info.problemId) : info.problemDisplayId %>. <%= info.problemName %></a></h1>
+      <p class="app-page-description">由 <a href="<%= syzoj.utils.makeUrl(['user', info.userId]) %>"><%= info.user %></a> 于 <%= info.submitTime %> 提交</p>
+    </div>
+    <div class="app-page-actions">
+      <% if (displayConfig.showRejudge && !submissionPending) { %><button class="app-button app-button-secondary" type="button" data-dialog-open="submission-rejudge-dialog"><i data-lucide="refresh-cw"></i>重新评测</button><% } %>
+      <a class="app-button app-button-quiet" href="<%= displayConfig.inContest && typeof contest !== 'undefined' && contest ? syzoj.utils.makeUrl(['contest', contest.id, 'submissions']) : syzoj.utils.makeUrl(['submissions']) %>"><i data-lucide="arrow-left"></i>返回列表</a>
+    </div>
+  </header>
 
-.single-subtask > .content {
-    padding: 0 !important;
-}
+  <% if (appIsMarked && appAdminAction) { %>
+    <div class="app-notice <%= appIsCheated ? 'app-notice-danger' : 'app-notice-warning' %>"><i data-lucide="<%= appIsCheated ? 'ban' : 'circle-slash' %>"></i><span><strong>该提交已被标记为“<%= appIsCheated ? '作弊' : '取消评测' %>”</strong> · 操作人：<a href="<%= syzoj.utils.makeUrl(['user', appAdminAction.operator_id]) %>"><%= appAdminAction.operator_username %></a> · <%= syzoj.utils.formatDate(appAdminAction.operator_time) %><% if (appAdminAction.reason) { %><small>原因：<%= appAdminAction.reason %></small><% } %></span></div>
+  <% } %>
 
-.accordion > .content > .accordion {
-    margin-top: 0;
-    margin-bottom: 0;
-}
+  <section class="app-submission-summary" aria-label="提交摘要">
+    <div><span>状态</span><strong class="app-status <%= appStatusClass(appStatus) %>" data-detail-status><%= appStatus %></strong></div>
+    <% if (displayConfig.showScore) { %><div><span>分数</span><strong class="app-score <%= appScore === 100 ? 'app-score-perfect' : (appScore === 0 ? 'app-score-zero' : '') %>" data-detail-score><%= appScore %></strong></div><% } %>
+    <% if (displayConfig.showUsage) { %><div><span>总时间</span><strong data-detail-time><%= roughResult ? roughResult.time || 0 : 0 %> ms</strong></div><div><span>内存</span><strong data-detail-memory><%= roughResult ? appFormatSize((roughResult.memory || 0) * 1024) : '0 B' %></strong></div><% } %>
+    <% if (displayConfig.showCode) { %><div><span>语言 / 大小</span><strong><%= info.language || '答案文件' %> · <%= appFormatSize(info.codeSize) %></strong></div><% } %>
+  </section>
 
-.accordion > .content > .accordion > .content {
-    margin-top: 0;
-    margin-bottom: 14px;
-}
-
-.accordion > .content > .accordion > .content > :last-child {
-    margin-bottom: -10px !important;
-}
-</style>
-<span id="submission_content">
-<div class="padding" id="vueAppFuckSafari">
-<% if (isMarked && markedDetail) { %>
-    <div class="ui <%= markedDetail.action_type === 'cheated' ? 'red' : 'grey' %> message" style="margin-top: 10px;">
-      <i class="<%= markedDetail.action_type === 'cheated' ? 'ban' : 'remove circle' %> icon" style="font-size: 1.4em; vertical-align: middle;"></i>
-      <span style="font-size: 1.05em; vertical-align: middle;">
-        <b>该提交已被标记为「<%= markedDetail.action_type === 'cheated' ? '作弊' : '取消评测' %>」</b>
-        &nbsp; — &nbsp;
-        操作人： <a href="<%= syzoj.utils.makeUrl(['user', markedDetail.operator_id]) %>"><%= markedDetail.operator_username %></a>
-        &nbsp; · &nbsp;
-        时间：<%= syzoj.utils.formatDate(markedDetail.operator_time) %>
-        <% if (markedDetail.reason) { %>
-          <br><span style="color: #555;">原因：<%= markedDetail.reason %></span>
+  <% if (appCanManage) { %>
+    <details class="app-admin-operation">
+      <summary><span><i data-lucide="shield"></i>管理员操作</span><i data-lucide="chevron-down"></i></summary>
+      <div class="app-admin-operation-body">
+        <% if (!appIsMarked) { %>
+          <form class="app-form app-inline-admin-form" method="post" action="/api/v2/submissions/<%= info.submissionId %>/admin-actions" data-submission-admin-v2="create" data-confirm="确定执行此操作吗？提交状态、AC 数与 Hit 统计将同步更新。"><span class="app-inline-actions"><button class="app-button app-button-danger" type="submit" name="action_type" value="cheated"><i data-lucide="ban"></i>判定作弊</button><button class="app-button app-button-secondary" type="submit" name="action_type" value="cancelled"><i data-lucide="circle-slash"></i>取消评测</button></span></form>
+        <% } else { %>
+          <div class="app-admin-action-stack"><form class="app-inline-form" method="post" action="/api/v2/submissions/<%= info.submissionId %>/admin-actions" data-submission-admin-v2="revoke" data-confirm="确定撤销此标记吗？提交将恢复原有评测状态。"><button class="app-button app-button-secondary" type="submit"><i data-lucide="undo"></i>撤销标记</button></form><% if (appIsCancelled) { %><form class="app-inline-form" method="post" action="/api/v2/submissions/<%= info.submissionId %>/restore-and-rejudge" data-submission-admin-v2="restore" data-confirm="确定清除取消标记并重新评测吗？"><button class="app-button app-button-primary" type="submit"><i data-lucide="refresh-cw"></i>恢复并重测</button></form><% } %></div>
         <% } %>
-      </span>
-      <% if (markedDetail.action_type === 'cancelled' && canManageAction) { %>
-        <div style="margin-top: 12px;">
-          <form method="post" action="<%= syzoj.utils.makeUrl(['submission', info.submissionId, 'restore-and-rejudge']) %>"
-                onsubmit="return confirm('确定要重新评测这条提交吗？\n\n这会清除取消标记，重新放回评测队列。');"
-                style="margin: 0;">
-            <button type="submit" class="ui small blue button">
-              <i class="redo icon"></i> 重新评测此提交
-            </button>
-          </form>
-        </div>
-      <% } %>
-    </div>
+      </div>
+    </details>
   <% } %>
 
-  <% if (canManageAction) { %>
-    <div class="ui segment" style="margin-top: 10px; background: #f9fafb;">
-      <h4 style="margin-top: 0;"><i class="shield alternate icon"></i> 管理员操作</h4>
-      <% if (!isMarked) { %>
-        <form method="post" action="<%= syzoj.utils.makeUrl(['submission', info.submissionId, 'admin-action']) %>"
-              onsubmit="return confirm('确定执行此操作吗？\n\n如果原本是 AC 提交且该用户对该题没有其他有效 AC，user.ac_num 将自动减 1。\nHit 值会在下次重算时自动过滤此提交。');"
-              style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-          <input type="text" name="reason" placeholder="原因(可选)" maxlength="255" style="flex: 1; min-width: 200px; padding: 6px 10px;">
-          <button type="submit" name="action_type" value="cheated" class="ui red button">
-            <i class="ban icon"></i> 判定作弊
-          </button>
-          <button type="submit" name="action_type" value="cancelled" class="ui grey button">
-            <i class="remove circle icon"></i> 取消评测
-          </button>
-        </form>
-        <p style="color: #888; font-size: 0.9em; margin: 8px 0 0 0;">
-          <i class="info circle icon"></i>
-          标记后该提交会在站内显示为对应状态，并从该用户 Hit 值计算中剔除。如果原本是 AC 状态，user.ac_num 也会同步调整。
-        </p>
-      <% } else { %>
-        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-          <form method="post" action="<%= syzoj.utils.makeUrl(['submission', info.submissionId, 'admin-action', 'revoke']) %>"
-                onsubmit="return confirm('确定撤销此标记吗？\n\n该提交将恢复为原本的评测状态；如果当时减过 ac_num，会自动恢复。');"
-                style="margin: 0;">
-            <button type="submit" class="ui green button">
-              <i class="undo icon"></i> 撤销此标记
-            </button>
-          </form>
-          <% if (markedDetail && markedDetail.action_type === 'cancelled') { %>
-            <form method="post" action="<%= syzoj.utils.makeUrl(['submission', info.submissionId, 'restore-and-rejudge']) %>"
-                  onsubmit="return confirm('确定要重新评测这条提交吗？\n\n这会清除取消标记，重新放回评测队列。');"
-                  style="margin: 0;">
-              <button type="submit" class="ui blue button">
-                <i class="redo icon"></i> 重新评测
-              </button>
-            </form>
-          <% } %>
-        </div>
-      <% } %>
-    </div>
-  <% } %>
-  <table class="ui very basic center aligned table" id="status_table">
-    <thead>
-      <tr>
-        <th>编号</th>
-        <th>题目</th>
-        <th>状态</th>
-        <th v-if="displayConfig.showScore">分数</th>
-        <th v-if="displayConfig.showUsage">总时间</th>
-        <th v-if="displayConfig.showUsage">内存</th>
-        <th v-if="displayConfig.showCode">代码 / 答案文件</th>
-        <th>提交者</th>
-        <th>提交时间</th>
-        <th v-if="showRejudge">重新评测</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr is="submission-item" v-bind:data="roughData" :config="displayConfig" :show-rejudge="showRejudge" :progress="getProgress()" :compiling="detailResult && !detailResult.compile"></tr>
-    </tbody>
-  </table>
-
-  <code-box no-escape v-bind:content="code">
-    <% if (formattedCode !== null) { %>
-      <a onclick="toggleFormattedCode()" class="ui button" style="position: absolute; top: 0px; right: -4px; border-top-left-radius: 0; border-bottom-right-radius: 0; ">
-        <template v-if="currentFormatted">
-          显示原始代码
-        </template>
-        <template v-if="!currentFormatted">
-          格式化代码
-        </template>
-      </a>
-    <% } %>
-  </code-box>
-  <code-box v-if="detailResult && detailResult.compile" title="编译信息" v-bind:content="detailResult.compile.message"></code-box>
-  <code-box v-if="detailResult" title="系统信息" v-bind:content="detailResult.systemMessage"></code-box>
-
-  <div class="ui styled fluid accordion" :class="singleSubtask ? 'single-subtask' : '' " v-if="detailResult && detailResult.judge && detailResult.judge.subtasks">
-    <template v-for="subtask, $index in detailResult.judge.subtasks">
-      <div class="title" :class="singleSubtask ? 'active' : ''">
-        <div class="ui grid">
-          <div class="three wide column">
-            <i class="dropdown icon"></i>
-            子任务 #{{ $index + 1 }}
-          </div>
-          <div class="four wide column">
-            <status-label :status="getSubtaskResult(subtask)" :indetail="true" :progress="getProgress($index)"></status-label>
-          </div>
-          <div class="three wide column" v-if="subtask.score != null">
-            得分：<span style="font-weight: normal; ">{{ Math.trunc(subtask.score) }}</span>
-          </div>
-        </div>
-      </div>
-      <div class="content" :class="singleSubtask ? 'active' : ''">
-        <div class="accordion">
-          <template v-for="curCase, $caseIndex in subtask.cases">
-            <div class="title" :class="checkTestcaseOK(curCase) || curCase.errorMessage ? '' : 'unexpandable'">
-              <div class="ui grid">
-                <div class="three wide column">
-                    <i class="dropdown icon"></i>
-                    测试点 #{{ $caseIndex + 1 }}
-                </div>
-                <div class="four wide column">
-                  <status-label :status="getTestcaseStatus(curCase)" :indetail="true"></status-label>
-                </div>
-                <template v-if="checkTestcaseOK(curCase)">
-                  <div class="three wide column">
-                      得分：<span style="font-weight: normal; ">{{ Math.trunc(curCase.result.scoringRate * 100) }}</span>
-                  </div>
-                  <div class="three wide column" v-if="curCase.result.time != null && curCase.result.time !== NaN">
-                      用时：<span style="font-weight: normal; ">{{ curCase.result.time }} ms</span>
-                  </div>
-                  <div class="three wide column" v-if="curCase.result.memory != null && curCase.result.memory !== NaN">
-                      内存：<span style="font-weight: normal; ">{{ curCase.result.memory }} KiB</span>
-                  </div>
-                </template>
-              </div>
-            </div>
-              <div class="content">
-                <template v-if="checkTestcaseOK(curCase)">
-                  <code-box v-if="curCase.result.input" :title="'输入文件（<span style=\'font-family: monospace; \'>'+ curCase.result.input.name +'</span>）'" :content="curCase.result.input.content" :download="curCase.result.input.remote ? null : <%= serializejs(syzoj.utils.makeUrl(['problem', info.problemId, 'testdata', 'download'])) %> + '/' + curCase.result.input.name"></code-box>
-                  <code-box v-if="curCase.result.output" :title="'答案文件（<span style=\'font-family: monospace; \'>'+ curCase.result.output.name +'</span>）'" :content="curCase.result.output.content" :download="<%= serializejs(syzoj.utils.makeUrl(['problem', info.problemId, 'testdata', 'download'])) %> + '/' + curCase.result.output.name"></code-box>
-                  <code-box title="用户输出" :content="curCase.result.userOutput"></code-box>
-                  <code-box title="标准错误流" :content="curCase.result.userError"></code-box>
-                  <code-box title="Special Judge 信息" :content="curCase.result.spjMessage"></code-box>
-                  <code-box title="系统信息" :content="curCase.result.systemMessage"></code-box>
-                </template>
-                <code-box title="错误信息" :content="curCase.errorMessage"></code-box>
-              </div>
-          </template>
-        </div>
-      </div>
-    </template>
-  </div>
-</div>
-<script src="<%- lib('vue/2.5.21/vue.min.js') %>"></script>
-
-<% include submissions_item %>
-
-<script type="text/x-template" id="codeBoxTemplate">
-    <div style="margin-top: 0px; margin-bottom: 14px; " v-if="content != null && content !== ''">
-        <p v-if="title" class="transition visible">
-           <strong>{{ plainTitle }}</strong>
-           <a v-if="download" style="color: #000; " :href="download"><i class="download icon"></i></a>
-        </p>
-        <div class="ui existing segment">
-          <slot></slot>
-          <pre v-if="!noEscape" style="margin-top: 0; margin-bottom: 0; "><code>{{ content }}</code></pre>
-          <pre v-if="noEscape" style="margin-top: 0; margin-bottom: 0; "><code v-html="content"></code></pre>
-        </div>
-    </div>
-</script>
-
-<script>
-Vue.component("code-box", {
-    template: "#codeBoxTemplate",
-    props: {
-        title: String,
-        content: String,
-        noEscape: {
-            type: Boolean,
-            default: false
-        },
-    download: String
-    },
-    computed: {
-      plainTitle() {
-        return String(this.title || '').replace(/<span[^>]*>/gi, '').replace(/<\/span>/gi, '');
-      }
-    }
-});
-const displayConfig = <%- serializejs(displayConfig) %>;
-
-const TestcaseResultType = {};
-(function (TestcaseResultType) {
-    TestcaseResultType[TestcaseResultType["Accepted"] = 1] = "Accepted";
-    TestcaseResultType[TestcaseResultType["WrongAnswer"] = 2] = "WrongAnswer";
-    TestcaseResultType[TestcaseResultType["PartiallyCorrect"] = 3] = "PartiallyCorrect";
-    TestcaseResultType[TestcaseResultType["MemoryLimitExceeded"] = 4] = "MemoryLimitExceeded";
-    TestcaseResultType[TestcaseResultType["TimeLimitExceeded"] = 5] = "TimeLimitExceeded";
-    TestcaseResultType[TestcaseResultType["OutputLimitExceeded"] = 6] = "OutputLimitExceeded";
-    TestcaseResultType[TestcaseResultType["FileError"] = 7] = "FileError";
-    TestcaseResultType[TestcaseResultType["RuntimeError"] = 8] = "RuntimeError";
-    TestcaseResultType[TestcaseResultType["JudgementFailed"] = 9] = "JudgementFailed";
-    TestcaseResultType[TestcaseResultType["InvalidInteraction"] = 10] = "InvalidInteraction";
-})(TestcaseResultType);
-
-const statusToString = {};
-statusToString[TestcaseResultType.Accepted] = "Accepted";
-statusToString[TestcaseResultType.WrongAnswer] = "Wrong Answer";
-statusToString[TestcaseResultType.PartiallyCorrect] = "Partially Correct";
-statusToString[TestcaseResultType.MemoryLimitExceeded] = "Memory Limit Exceeded";
-statusToString[TestcaseResultType.TimeLimitExceeded] = "Time Limit Exceeded";
-statusToString[TestcaseResultType.OutputLimitExceeded] = "Output Limit Exceeded";
-statusToString[TestcaseResultType.RuntimeError] = "Runtime Error";
-statusToString[TestcaseResultType.FileError] = "File Error";
-statusToString[TestcaseResultType.JudgementFailed] = "Judgement Failed";
-statusToString[TestcaseResultType.InvalidInteraction] = "Invalid Interaction";
-
-const TaskStatus = {};
-(function (TaskStatus) {
-    TaskStatus[TaskStatus["Waiting"] = 0] = "Waiting";
-    TaskStatus[TaskStatus["Running"] = 1] = "Running";
-    TaskStatus[TaskStatus["Done"] = 2] = "Done";
-    TaskStatus[TaskStatus["Failed"] = 3] = "Failed";
-    TaskStatus[TaskStatus["Skipped"] = 4] = "Skipped";
-})(TaskStatus);
-
-const unformattedCode = <%- serializejs(code) %>;
-const formattedCode = <%- serializejs(formattedCode) %>;
-
-function toggleFormattedCode() {
-  if (vueApp.currentFormatted) {
-    vueApp.currentFormatted = false;
-    vueApp.code = unformattedCode;
-  } else {
-    vueApp.currentFormatted = true;
-    vueApp.code = formattedCode;
-  }
-}
-
-const vueApp = new Vue({
-  el: '#vueAppFuckSafari',
-  data: {
-    roughData: {
-      info: <%- serializejs(info) %>,
-      result: <%- serializejs(roughResult) %>,
-      running: <%- serializejs(!!submissionPending) %>,
-      displayConfig: displayConfig
-    },
-    code: <%- serializejs(preferFormattedCode && formattedCode !== null) -%> ? formattedCode : unformattedCode,
-    currentFormatted: <%- serializejs(preferFormattedCode && formattedCode !== null) -%>,
-    <% if (typeof judgeAdminAction !== 'undefined' && judgeAdminAction && judgeAdminAction.action_type === 'cheated') { detailResult = null; } %>
-    detailResult: <%- serializejs(detailResult) %>,
-    displayConfig: displayConfig,
-  },
-  computed: {
-    singleSubtask() {
-      return !!(this.detailResult && this.detailResult.judge && this.detailResult.judge.subtasks && this.detailResult.judge.subtasks.length === 1);
-    },
-    showRejudge() {
-      return this.displayConfig.showRejudge && (!this.roughData.running);
-    }
-  },
-  methods: {
-    testdataDownload(name) {
-      return <%- serializejs(syzoj.utils.makeUrl(['problem', info.sourceProblemId || info.problemId, 'testdata', 'download'])) %> + '/' + encodeURIComponent(name);
-    },
-    getStatusString(statusCode) {
-      return statusToString[statusCode];
-    },
-    firstNonAC(t) {
-      if (t.every(function(v){ return v === TestcaseResultType.Accepted;})) {
-        return TestcaseResultType.Accepted;
-      } else {
-        return t.find(function(r) { return r !== TestcaseResultType.Accepted;});
-      }
-    },
-    getSubtaskResult(t) {
-      if (t.resultStatus === 'Skipped') {
-        return 'Skipped';
-      } else if (t.resultType != null) {
-        return this.getStatusString(t.resultType);
-      } else if (t.cases.some(function(c){ return c.status === TaskStatus.Running;})) {
-        return "Running";
-      } else if (t.cases.some(function(c) { return c.status === TaskStatus.Waiting;})) {
-        return "Waiting";
-      } else if (t.cases.every(function(c) { return c.status === TaskStatus.Skipped;})) {
-        return "Skipped";
-      } else if (t.cases.every(function(c){ return c.status === TaskStatus.Done || c.status === TaskStatus.Skipped;})) {
-        return this.getStatusString(this.firstNonAC(t.cases.filter(function(c) { return c.result; })
-          .map(function(c) { return c.result.type;})));
-      } else {
-        return "System Error";
-      }
-    },
-    getTestcaseStatus(c) {
-      if (c.status === TaskStatus.Done) {
-        return this.getStatusString(c.result.type);
-      } else if (c.status === TaskStatus.Waiting) {
-        return "Waiting";
-      } else if (c.status === TaskStatus.Running) {
-        return "Running";
-      } else if (c.status === TaskStatus.Skipped) {
-        return "Skipped";
-      } else {
-        return "System Error";
-      }
-    },
-    checkTestcaseOK(c) {
-      return c.status === TaskStatus.Done;
-    },
-    getProgress(index) {
-      if (!this.detailResult || !this.detailResult.judge || !this.detailResult.judge.subtasks) return {
-        finished: 0,
-        total: 0
-      };
-
-      var isPending = status => [TaskStatus.Waiting, TaskStatus.Running].includes(status);
-      var subtaskProgress = [], allFinished = 0, allTotal = 0;
-      for (var i in this.detailResult.judge.subtasks) {
-        var subtaskFinished = 0, subtaskTotal = 0;
-        for (var j in this.detailResult.judge.subtasks[i].cases) {
-          subtaskTotal++, allTotal++;
-          if (!isPending(this.detailResult.judge.subtasks[i].cases[j].status)) subtaskFinished++, allFinished++;
-        }
-
-        subtaskProgress.push({
-          finished: subtaskFinished,
-          total: subtaskTotal
-        });
-      }
-
-      var allProgress = {
-        finished: allFinished,
-        total: allTotal
-      };
-
-      return typeof index === 'undefined' ? allProgress : subtaskProgress[index];
-    }
-  },
-  mounted() {
-    $(document).ready(function(){ $('.ui.accordion').accordion({ selector: { trigger: '.title:not(.unexpandable)' } })});
-  },
-  updated() {
-    $('.ui.accordion').off().accordion({ selector: { trigger: '.title:not(.unexpandable)' } });
-  }
-});
-let submissionEvents;
-let submissionRetryDelay = 1000;
-function connectSubmissionEvents() {
-  const connectedAt = Date.now();
-  let receivedStatus = false;
-  let failed = false;
-  submissionEvents = new EventSource('/api/submission/<%= info.submissionId %>/events');
-  submissionEvents.addEventListener('status', function (event) {
-    receivedStatus = true;
-    const status = JSON.parse(event.data);
-    if (JSON.stringify(vueApp.roughData.result) !== JSON.stringify(status.result)) {
-      vueApp.roughData.result = status.result;
-    }
-    const running = !!status.pending;
-    if (vueApp.roughData.running !== running) vueApp.roughData.running = running;
-    if (Object.prototype.hasOwnProperty.call(status, 'detailResult') &&
-      JSON.stringify(vueApp.detailResult) !== JSON.stringify(status.detailResult)) {
-      vueApp.detailResult = status.detailResult;
-    }
-    if (!running) submissionEvents.close();
-  });
-  submissionEvents.addEventListener('unavailable', function () {
-    submissionEvents.close();
-    location.reload();
-  });
-  submissionEvents.onerror = function () {
-    if (failed || !vueApp.roughData.running) return;
-    failed = true;
-    submissionEvents.close();
-    if (receivedStatus && Date.now() - connectedAt > 30000) submissionRetryDelay = 1000;
-    const delay = submissionRetryDelay;
-    submissionRetryDelay = Math.min(submissionRetryDelay * 2, 30000);
-    setTimeout(connectSubmissionEvents, delay);
-  };
-}
-if (vueApp.roughData.running) connectSubmissionEvents();
-</script>
-<script>
-  document.addEventListener('keydown', function (event) {
-    if ((event.ctrlKey || event.metaKey) && event.key === 'a') {
-      var sel = window.getSelection();
-      var rg = document.createRange()
-      rg.selectNodeContents(document.querySelector('code'));
-      sel.removeAllRanges();
-      sel.addRange(rg);
+  <script>
+  (function () {
+    document.addEventListener('submit', async function (event) {
+      var form = event.target.closest('[data-submission-admin-v2]');
+      if (!form || event.defaultPrevented) return;
       event.preventDefault();
+      var action = form.dataset.submissionAdminV2;
+      var submitter = event.submitter || form.querySelector('button[type="submit"]');
+      var buttons = form.querySelectorAll('button[type="submit"]');
+      buttons.forEach(function (button) { button.disabled = true; });
+      try {
+        var method = action === 'revoke' ? 'DELETE' : 'POST';
+        var payload = action === 'create' ? { action_type: submitter && submitter.value } : {};
+        var response = await fetch(form.action, { method: method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: method === 'DELETE' ? undefined : JSON.stringify(payload) });
+        var body = await response.json();
+        if (!response.ok) throw new Error(body && body.error && body.error.message || '提交管理操作失败。');
+        window.location.reload();
+      } catch (error) {
+        if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '提交管理操作失败。', 'danger');
+        buttons.forEach(function (button) { button.disabled = false; });
+      }
+    });
+  })();
+  </script>
+
+  <% if (displayConfig.showCode && appCodeHtml != null) { %>
+    <section class="app-code-panel">
+      <header><div><span class="app-kicker">SOURCE</span><h2>源代码</h2></div><span class="app-inline-actions"><% if (formattedCode !== null) { %><button class="app-icon-button" type="button" data-code-format-toggle aria-label="切换代码格式" title="切换代码格式"><i data-lucide="braces"></i></button><% } %><button class="app-icon-button" type="button" data-copy="#submission-source" aria-label="复制源代码" title="复制源代码"><i data-lucide="copy"></i></button></span></header>
+      <pre><code id="submission-source"><%- appCodeHtml %></code></pre>
+    </section>
+  <% } %>
+
+  <% if (detailResult && detailResult.compile && detailResult.compile.message) { %><details class="app-log-panel" open><summary><span><i data-lucide="square-terminal"></i>编译信息</span><i data-lucide="chevron-down"></i></summary><pre><code><%= detailResult.compile.message %></code></pre></details><% } %>
+  <% if (detailResult && detailResult.systemMessage) { %><details class="app-log-panel"><summary><span><i data-lucide="server-cog"></i>系统信息</span><i data-lucide="chevron-down"></i></summary><pre><code><%= detailResult.systemMessage %></code></pre></details><% } %>
+
+  <% if (appSubtasks.length) { %>
+    <section class="app-judge-details">
+      <div class="app-section-heading"><div><span class="app-kicker">JUDGE DETAILS</span><h2>测试结果</h2></div><span class="app-section-count"><%= appSubtasks.length %> 个子任务</span></div>
+      <div class="app-subtask-list">
+        <% let appSubtaskIndex = 0; for (const subtask of appSubtasks) { appSubtaskIndex += 1; const appSubtaskState = appSubtaskStatus(subtask); %>
+          <details class="app-subtask"<%= appSubtasks.length === 1 ? ' open' : '' %>>
+            <summary><span class="app-subtask-title"><i data-lucide="chevron-right"></i><strong>子任务 <%= appSubtaskIndex %></strong><span class="app-status <%= appStatusClass(appSubtaskState) %>"><%= appSubtaskState %></span></span><span class="app-subtask-metrics"><% if (subtask.score != null) { %><span>得分 <strong><%= Math.trunc(subtask.score) %></strong></span><% } %><span><%= (subtask.cases || []).length %> 个测试点</span></span></summary>
+            <div class="app-testcase-list">
+              <% let appCaseIndex = 0; for (const testcase of subtask.cases || []) { appCaseIndex += 1; const appTestcaseState = appCaseStatus(testcase); const appCaseResult = testcase.result || {}; const appHasCaseDetail = !!(testcase.errorMessage || appCaseResult.input || appCaseResult.output || appCaseResult.userOutput || appCaseResult.userError || appCaseResult.spjMessage || appCaseResult.systemMessage); %>
+                <% if (appHasCaseDetail) { %><details class="app-testcase"><summary><% } else { %><div class="app-testcase app-testcase-static"><% } %>
+                  <span class="app-testcase-title"><% if (appHasCaseDetail) { %><i data-lucide="chevron-right"></i><% } %><strong>#<%= appCaseIndex %></strong><span class="app-status <%= appStatusClass(appTestcaseState) %>"><%= appTestcaseState %></span></span>
+                  <span class="app-testcase-metrics"><% if (appCaseResult.scoringRate != null) { %><span><%= Math.trunc(appCaseResult.scoringRate * 100) %> 分</span><% } %><% if (appCaseResult.time != null) { %><span><%= appCaseResult.time %> ms</span><% } %><% if (appCaseResult.memory != null) { %><span><%= appCaseResult.memory %> KiB</span><% } %></span>
+                <% if (appHasCaseDetail) { %></summary><div class="app-testcase-detail">
+                  <% if (appCaseResult.input) { %><section><h3>输入文件 <code><%= appCaseResult.input.name %></code><% if (!appCaseResult.input.remote) { %><a class="app-icon-button" href="<%= syzoj.utils.makeUrl(['problem', info.sourceProblemId || info.problemId, 'testdata', 'download']) %>/<%= encodeURIComponent(appCaseResult.input.name) %>" aria-label="下载输入文件"><i data-lucide="download"></i></a><% } %></h3><pre><code><%= appCaseResult.input.content %></code></pre></section><% } %>
+                  <% if (appCaseResult.output) { %><section><h3>答案文件 <code><%= appCaseResult.output.name %></code><a class="app-icon-button" href="<%= syzoj.utils.makeUrl(['problem', info.sourceProblemId || info.problemId, 'testdata', 'download']) %>/<%= encodeURIComponent(appCaseResult.output.name) %>" aria-label="下载答案文件"><i data-lucide="download"></i></a></h3><pre><code><%= appCaseResult.output.content %></code></pre></section><% } %>
+                  <% for (const appOutput of [{ title: '用户输出', value: appCaseResult.userOutput }, { title: '标准错误流', value: appCaseResult.userError }, { title: 'Special Judge 信息', value: appCaseResult.spjMessage }, { title: '系统信息', value: appCaseResult.systemMessage }, { title: '错误信息', value: testcase.errorMessage }]) { if (!appOutput.value) continue; %><section><h3><%= appOutput.title %></h3><pre><code><%= appOutput.value %></code></pre></section><% } %>
+                </div></details><% } else { %></div><% } %>
+              <% } %>
+            </div>
+          </details>
+        <% } %>
+      </div>
+    </section>
+  <% } else if (!submissionPending && !appIsMarked) { %><div class="app-empty app-empty-compact"><div class="app-empty-inner"><i data-lucide="scan-search"></i><strong>暂无测试点详情</strong><p>当前评测没有可公开的详细结果。</p></div></div><% } %>
+</div>
+
+<% if (displayConfig.showRejudge && !submissionPending) { %><dialog class="app-dialog" id="submission-rejudge-dialog"><div class="app-dialog-header"><h2>重新评测</h2><button class="app-icon-button" type="button" data-dialog-close aria-label="关闭"><i data-lucide="x"></i></button></div><div class="app-dialog-body"><p>确认将提交 #<%= info.submissionId %> 重新加入评测队列吗？</p></div><div class="app-dialog-actions"><button class="app-button app-button-secondary" type="button" data-dialog-close>取消</button><button class="app-button app-button-primary" type="button" data-submission-v2-rejudge="/api/v2/submissions/<%= info.submissionId %>/rejudge"><i data-lucide="refresh-cw"></i>确认重测</button></div></dialog><% } %>
+
+<script>
+(function () {
+  var source = document.getElementById('submission-source');
+  var toggle = document.querySelector('[data-code-format-toggle]');
+  if (source && toggle) {
+    var raw = <%- serializejs(code) %>;
+    var formatted = <%- serializejs(formattedCode) %>;
+    var showingFormatted = <%- serializejs(appPreferredFormatted) %>;
+    toggle.addEventListener('click', function () { showingFormatted = !showingFormatted; source.innerHTML = showingFormatted ? formatted : raw; });
+  }
+  var rejudge = document.querySelector('[data-submission-v2-rejudge]');
+  if (rejudge) rejudge.addEventListener('click', async function () {
+    rejudge.disabled = true;
+    try {
+      var response = await fetch(rejudge.dataset.submissionV2Rejudge, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      var payload = await response.json();
+      if (!response.ok || !payload.data) throw new Error(payload && payload.error && payload.error.message || '重新评测失败。');
+      var dialog = rejudge.closest('dialog');
+      if (dialog) dialog.close();
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast('提交已重新加入评测队列', 'success');
+      window.setTimeout(function () { window.location.reload(); }, 350);
+    } catch (error) {
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '重新评测失败。', 'danger');
+      rejudge.disabled = false;
     }
   });
+  if (!<%- serializejs(!!submissionPending) %>) return;
+  var retryDelay = 1000;
+  var statusLabels = {
+    created: 'Waiting', queued: 'Waiting', compiling: 'Compiling', judging: 'Judging',
+    accepted: 'Accepted', wrong_answer: 'Wrong Answer', compile_error: 'Compile Error',
+    runtime_error: 'Runtime Error', time_limit: 'Time Limit Exceeded', memory_limit: 'Memory Limit Exceeded',
+    output_limit: 'Output Limit Exceeded', file_error: 'File Error', invalid_interaction: 'Invalid Interaction',
+    partially_correct: 'Partially Correct', system_error: 'System Error', cancelled: 'Cancelled'
+  };
+  function connect() {
+    var received = false;
+    var events = new EventSource('/api/v2/submissions/<%= info.submissionId %>/events');
+    events.onmessage = function (event) {
+      received = true;
+      var update = JSON.parse(event.data);
+      var projected = update && update.payload && update.payload.status;
+      if (!projected) return;
+      var label = statusLabels[projected] || projected;
+      var status = document.querySelector('[data-detail-status]');
+      if (status) { status.textContent = label; status.className = 'app-status ' + (<%- appStatusClass.toString() %>)(label); }
+      if (!['created', 'queued', 'compiling', 'judging'].includes(projected)) { events.close(); location.reload(); }
+    };
+    events.onerror = function () { events.close(); var delay = retryDelay; retryDelay = received ? 1000 : Math.min(retryDelay * 2, 30000); window.setTimeout(connect, delay); };
+  }
+  connect();
+})();
 </script>
-</span>
-<% include footer %>
+
+<% include app_footer %>

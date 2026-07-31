@@ -1,63 +1,36 @@
-<%
-this.adminPage = 'privilege';
-let privileges = {
-  manage_problem: '管理题目',
-  manage_problem_tag: '管理题目标签',
-  manage_contest: '管理比赛',
-  manage_user: '管理用户'
-};
-%>
+<% this.adminPage = 'privilege'; const appPrivileges = { manage_problem: '管理题目', manage_problem_tag: '管理题目标签', manage_contest: '管理比赛', manage_user: '管理用户' }; %>
 <% include admin_header %>
-<div class="nwpuoj-meta" style="margin-bottom:12px;">在用户管理页进入资料编辑可为新用户授予首个权限；此处用于批量调整已有权限用户。</div>
-<div class="nwpuoj-table-region" role="region" aria-label="权限管理" tabindex="0">
-  <table class="ui center aligned celled table">
-    <thead>
-      <tr>
-        <th>UID</th>
-        <th>用户名</th>
-        <% for (let privilege in privileges) { %>
-          <th style="min-width:120px;"><%= privileges[privilege] %></th>
-        <% } %>
-      </tr>
-    </thead>
-    <tbody>
-      <% for (let item of users) { %>
-        <tr>
-          <td><%= item.user.id %></td>
-          <td><a href="<%= syzoj.utils.makeUrl(['user', item.user.id, 'edit']) %>"><%= item.user.username %></a></td>
-          <% for (let privilege in privileges) { %>
-            <td>
-              <div class="ui fitted toggle checkbox checkbox_privilege" data-user="<%= item.user.id %>" data-name="<%= privilege %>">
-                <input type="checkbox"<% if (item.privileges.includes(privilege)) { %> checked<% } %>>
-                <label aria-label="<%= privileges[privilege] %>"></label>
-              </div>
-            </td>
-          <% } %>
-        </tr>
-      <% } %>
-    </tbody>
-  </table>
-</div>
 
-<div style="text-align:center;margin-top:16px;">
-  <button type="button" class="ui blue labeled icon button" onclick="submitPrivileges()"><i class="save icon"></i>保存权限</button>
-</div>
-
-<form method="post" id="submit_form">
-  <input type="hidden" name="data" id="submit_data">
-</form>
-
+<div class="app-admin-toolbar"><div><h3>权限矩阵</h3><p>批量调整已有权限用户；新用户的首个权限请在用户编辑页授予。</p></div><button class="app-button app-button-primary" type="button" id="save-privileges"><i data-lucide="save"></i>保存权限</button></div>
+<form method="post" id="privilege-form" data-admin-privileges-v2><div class="app-table-region"><table class="app-table app-admin-permission-table"><thead><tr><th>UID</th><th>用户</th><% for (const privilege in appPrivileges) { %><th><%= appPrivileges[privilege] %></th><% } %></tr></thead><tbody><% for (const item of users) { %><tr><td class="app-cell-number">#<%= item.user.id %></td><td class="app-cell-primary"><a href="<%= syzoj.utils.makeUrl(['user', item.user.id, 'edit']) %>"><%= item.user.username %></a></td><% for (const privilege in appPrivileges) { %><td><input class="app-switch" type="checkbox" data-privilege-user="<%= item.user.id %>" data-privilege-name="<%= privilege %>"<%= item.privileges.includes(privilege) ? ' checked' : '' %> aria-label="<%= item.user.username %>：<%= appPrivileges[privilege] %>"></td><% } %></tr><% } %></tbody></table></div></form>
 <script>
-function submitPrivileges() {
-  var users = {};
-  $('.checkbox_privilege').each(function () {
-    var user = $(this).data('user');
-    var name = $(this).data('name');
-    if (!users[user]) users[user] = [];
-    if ($(this).checkbox('is checked')) users[user].push(name);
+(function () {
+  var button = document.getElementById('save-privileges');
+  var form = document.getElementById('privilege-form');
+  if (!button || !form) return;
+  button.addEventListener('click', async function () {
+    button.disabled = true;
+    var result = {};
+    document.querySelectorAll('[data-privilege-user]').forEach(function (input) {
+      var userId = input.getAttribute('data-privilege-user');
+      if (!result[userId]) result[userId] = [];
+      if (input.checked) result[userId].push(input.getAttribute('data-privilege-name'));
+    });
+    try {
+      for (var userId in result) {
+        var current = await fetch('/api/v2/admin/users/' + encodeURIComponent(userId), { credentials: 'same-origin', cache: 'no-store' });
+        var currentBody = await current.json();
+        if (!current.ok) throw new Error(currentBody && currentBody.error && currentBody.error.message || '权限读取失败。');
+        var response = await fetch('/api/v2/admin/users/' + encodeURIComponent(userId), { method: 'PATCH', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'If-Match': current.headers.get('ETag') || '' }, body: JSON.stringify({ privileges: result[userId] }) });
+        var body = await response.json();
+        if (!response.ok) throw new Error(body && body.error && body.error.message || '权限保存失败。');
+      }
+      window.location.reload();
+    } catch (error) {
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '权限保存失败。', 'danger');
+      button.disabled = false;
+    }
   });
-  $('#submit_data').val(JSON.stringify(users));
-  $('#submit_form').submit();
-}
+})();
 </script>
 <% include admin_footer %>

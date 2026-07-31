@@ -1,29 +1,31 @@
 <%
-let items = {
-  info: '统计信息',
-  users: '用户管理',
-  'judge-workers': '评测服务',
-  help: '帮助页',
-  config: '系统配置',
-  privilege: '权限管理',
-  rejudge: '一键重测',
-  links: '友链管理',
-  rating: 'Rating 管理',
-  raw: '配置文件',
-  other: '其他操作'
+const appAdminItems = {
+  info: ['概览', 'layout-dashboard'], users: ['用户', 'users-round'], 'judge-workers': ['评测服务', 'server-cog'],
+  announcements: ['公告', 'megaphone'], banners: ['轮播', 'images'], help: ['帮助页', 'circle-help'], solutions: ['题解审核', 'file-check-2'],
+  'user-tags': ['用户名牌', 'badge'], privilege: ['权限', 'key-round'], rating: ['Rating', 'chart-no-axes-column-increasing'],
+  rejudge: ['批量重测', 'refresh-cw'], links: ['友链', 'link'], config: ['系统配置', 'sliders-horizontal'],
+  other: ['维护工具', 'wrench']
 };
+const appAdminCapabilities = {
+  info: ['admin:health.read'], users: ['admin:user.manage'], 'judge-workers': ['judge:read'],
+  announcements: ['announcement:manage'], banners: ['announcement:manage'], help: ['admin:config.read'],
+  solutions: ['solution:moderate'], 'user-tags': ['admin:user.manage'], privilege: ['admin:permission.grant'],
+  rating: ['rating:read'], rejudge: ['submission:rejudge'], links: ['admin:content.manage'],
+  config: ['admin:config.read'], other: ['vjudge:source.manage']
+};
+const appIsFullAdmin = !!(user && (user.is_admin || (typeof isSiteOwner !== 'undefined' && isSiteOwner)));
+const appVisibleAdminItems = Object.keys(appAdminItems).filter(function (key) {
+  const hasMappedCapability = typeof appHasCapability === 'function' && appAdminCapabilities[key].some(function (capability) {
+    return appHasCapability(capability);
+  });
+  return appIsFullAdmin || hasMappedCapability || key === this.adminPage;
+}, this);
+const appAdminCurrent = appAdminItems[this.adminPage] || [this.adminPage, 'settings'];
+this.title = appAdminCurrent[0] + ' - 后台管理';
+this.active = 'admin';
 %>
-<% this.title = items[this.adminPage] + ' - 后台管理'; %>
-<% include header %>
-<h1 style="text-align:center;margin-bottom:27px;">后台管理</h1>
-<div class="ui grid">
-  <div class="three wide column">
-    <div class="ui vertical fluid tabular menu" style="height:100%;">
-    <% for (let itemKey in items) { %>
-      <a class="item<% if (this.adminPage === itemKey) { %> active<% } %>"<% if (this.adminPage !== itemKey) { %> href="<%= syzoj.utils.makeUrl(['admin', itemKey]) %>"<% } %>>
-        <%= items[itemKey] %>
-      </a>
-    <% } %>
-    </div>
-  </div>
-  <div class="thirteen wide stretched column">
+<% include app_header %>
+
+<div class="app-page app-admin-page">
+  <header class="app-admin-heading"><div><span class="app-kicker">ADMIN WORKSPACE</span><h1>后台管理</h1><p>平台内容、用户、评测服务与系统配置。</p></div><a class="app-button app-button-secondary" href="/"><i data-lucide="arrow-left"></i>返回前台</a></header>
+  <div class="app-admin-layout"><aside class="app-admin-nav" aria-label="后台导航"><% for (const key of appVisibleAdminItems) { const item = appAdminItems[key]; %><a class="<%= this.adminPage === key ? 'is-active' : '' %>" href="<%= syzoj.utils.makeUrl(['admin', key]) %>"<%= this.adminPage === key ? ' aria-current="page"' : '' %>><i data-lucide="<%= item[1] %>"></i><span><%= item[0] %></span></a><% } %></aside><main class="app-admin-content"><header class="app-admin-content-heading"><span class="app-admin-title-icon"><i data-lucide="<%= appAdminCurrent[1] %>"></i></span><div><span class="app-kicker">MANAGEMENT</span><h2><%= appAdminCurrent[0] %></h2></div></header>

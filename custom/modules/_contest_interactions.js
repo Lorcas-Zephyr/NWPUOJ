@@ -183,7 +183,32 @@ function cloneRanklistItem(item) {
   };
 }
 
-app.get('/contest/:id', (req, res, next) => contestOverviewContext.run(true, next));
+app.get('/contest/:id', (req, res, next) => {
+  if (req.query.view === 'problems') return contestOverviewContext.run(true, next);
+  return res.redirect(302, syzoj.utils.makeUrl(['contest', req.params.id, 'details']));
+});
+
+app.get('/contest/:id/details', async (req, res) => {
+  try {
+    const contestId = Number(req.params.id);
+    const contest = Number.isSafeInteger(contestId) && contestId > 0 ? await Contest.findById(contestId) : null;
+    if (!contest) throw new ErrorMessage('无此比赛。');
+    const supervisor = await contest.isSupervisior(res.locals.user);
+    if (!contest.is_public && !supervisor) throw new ErrorMessage('比赛未公开，请耐心等待。');
+    const content = {
+      subtitle: String(contest.subtitle || ''),
+      information: String(contest.information || '')
+    };
+    await syzoj.utils.markdown(content, ['subtitle', 'information']);
+    res.render('contest_details', {
+      contest,
+      contestDetails: content
+    });
+  } catch (error) {
+    syzoj.log(error);
+    res.status(error.statusCode || 400).render('error', { err: error });
+  }
+});
 
 app.get('/contest/:id', (req, res, next) => {
   const originalRender = res.render.bind(res);

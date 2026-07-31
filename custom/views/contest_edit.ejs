@@ -1,217 +1,457 @@
 <% this.title = contest.id ? '比赛管理 - ' + contest.title : '新建比赛' %>
-<% include header %>
-<%
-const unavailableContestProblems = problems.filter(problem =>
-  syzoj.utils.contestSubmissionEnabled && !syzoj.utils.contestSubmissionEnabled(problem)
-);
-%>
-<div class="padding">
-        <% if (contest.id) { %>
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
-            <h1 class="ui header" style="margin:0;">比赛管理</h1>
-            <a class="ui basic labeled icon button" href="<%= syzoj.utils.makeUrl(['contest', contest.id]) %>"><i class="angle left icon"></i>返回比赛</a>
-          </div>
-          <h3 class="ui header" style="margin-top:0;"><%= contest.title %></h3>
-          <div class="ui secondary pointing menu" style="margin-bottom:24px;">
-            <a class="active item" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'edit']) %>"><i class="edit outline icon"></i>比赛内容</a>
-            <a class="item" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'registrations']) %>"><i class="users icon"></i>报名管理</a>
-          </div>
-          <% if (req.query && req.query.rating_recalculated === '1') { %>
-            <div class="ui positive message">
-              <div class="header">Rating 已重新计算</div>
-              <p>已级联处理 <%= Math.max(0, Number(req.query.rating_contests) || 0) %> 场 Rated 比赛，更新 <%= Math.max(0, Number(req.query.rating_users) || 0) %> 名用户。</p>
-            </div>
-          <% } %>
-        <% } else { %>
-          <h1 class="ui header">新建比赛</h1>
-        <% } %>
-        <form action="<%= syzoj.utils.makeUrl(['contest', contest.id, 'edit']) %>" method="post">
-          <input type="hidden" name="contest_revision" value="<%= typeof contestRegistration !== 'undefined' && contestRegistration ? contestRegistration.revision : 0 %>">
-          <div class="ui form">
-              <div class="field">
-                <label>比赛名称</label>
-                <input type="text" name="title" value="<%= contest.title %>">
-              </div>
-              <div class="field">
-                <label>比赛描述</label>
-                <input type="text" name="subtitle" class="markdown-edit" value="<%= contest.subtitle %>">
-              </div>
-            <div class="field">
-                <label>试题列表</label>
-                <select class="ui fluid search dropdown" multiple="" id="search_problems" name="problems">
-                <% for (let problem of problems) { %>
-                <option value="<%= problem.id %>" selected><%= problem.getDisplayId() %>. <%= problem.title %><% if (unavailableContestProblems.includes(problem)) { %>（比赛不可用）<% } %></option>
-                <% } %>
-                </select>
-                <% if (unavailableContestProblems.length) { %>
-                  <div class="ui warning message" style="margin-top:8px;">
-                    当前包含 <%= unavailableContestProblems.length %> 道未启用比赛提交的 VJudge 题目，请移除后再保存。
-                  </div>
-                <% } %>
-            </div>
-            <div class="field">
-                <label>比赛管理员</label>
-                <select class="ui fluid search dropdown" multiple="" id="search_admins" name="admins">
-                <% for (let admin of admins) { %>
-                <option value="<%= admin.id %>" selected><%= admin.username %></option>
-                <% } %>
-                </select>
-            </div>
-            <div class="inline fields">
-              <label>赛制</label>
-              <div class="field">
-                <div class="ui radio checkbox">
-                  <input <% if (contest.id) { %>disabled <% } %>type="radio" name="type" id="type-noi" value="noi"<% if (contest.type === 'noi') { %> checked="checked"<% } %>>
-                  <label for="type-noi">NOI</label>
-                </div>
-              </div>
-              <div class="field">
-                <div class="ui radio checkbox">
-                  <input <% if (contest.id) { %>disabled <% } %>type="radio" name="type" id="type-ioi" value="ioi"<% if (contest.type === 'ioi') { %> checked="checked"<% } %>>
-                  <label for="type-ioi">IOI</label>
-                </div>
-              </div>
-              <div class="field">
-                <div class="ui radio checkbox">
-                  <input <% if (contest.id) { %>disabled <% } %>type="radio" name="type" id="type-acm" value="acm"<% if (contest.type === 'acm') { %> checked="checked"<% } %>>
-                  <label for="type-acm">ICPC</label>
-                </div>
-              </div>
-            </div>
-            <div class="field">
-                <label>排行参数（格式：<code>{ "题目 ID": 分值倍数 }</code>）</label>
-                <input type="text" name="ranking_params" value="<%= contest.ranklist ? JSON.stringify(contest.ranklist.ranking_params) : '' %>">
-            </div>
-            <div class="field">
-                <label>比赛公告</label>
-                <textarea rows="5" name="information" class="markdown-edit"><%= contest.information %></textarea>
-            </div>
-            <div class="field">
-                <label>开始时间</label>
-                <input type="text" name="start_time" value="<%= syzoj.utils.formatDate(contest.start_time || syzoj.utils.getCurrentDate()) %>">
-            </div>
-            <div class="field">
-                <label>结束时间</label>
-                <input type="text" name="end_time" value="<%= syzoj.utils.formatDate(contest.end_time || syzoj.utils.getCurrentDate()) %>">
-            </div>
-            <div class="inline field">
-                <label class="ui header">隐藏统计信息</label>
-              <div class="ui toggle checkbox">
-                <input type="checkbox"<% if (contest.hide_statistics) { %> checked<% } %> name="hide_statistics">
-                <label><span style="visibility: hidden; ">　</span></label>
-              </div>
-            </div>
-            <div class="inline field">
-              <label class="ui header">隐藏比赛</label>
-              <div class="ui toggle checkbox">
-                <input type="checkbox" name="hide_contest"<% if (contest.id && !contest.is_public) { %> checked<% } %>>
-                <label>从公开比赛列表隐藏，仅比赛管理员可访问</label>
-              </div>
-            </div>
-            <div class="inline field">
-              <label class="ui header">允许开赛后报名</label>
-              <div class="ui toggle checkbox">
-                <input type="checkbox"<% if (typeof contestRegistration !== 'undefined' && contestRegistration && contestRegistration.allowLateRegistration) { %> checked<% } %> name="allow_late_registration">
-                <label><span style="visibility: hidden; ">　</span></label>
-              </div>
-            </div>
-            <div class="inline field">
-              <label class="ui header">Rated 比赛</label>
-              <div class="ui toggle checkbox<%= typeof contestRatingLocked !== 'undefined' && contestRatingLocked ? ' disabled' : '' %>">
-                <input type="checkbox" name="is_rated"<% if (typeof contestRated !== 'undefined' && contestRated) { %> checked<% } %><% if (typeof contestRatingLocked !== 'undefined' && contestRatingLocked) { %> disabled<% } %>>
-                <label>比赛结束后自动计算参赛者 Rating</label>
-              </div>
-              <% if (typeof contestRatingLocked !== 'undefined' && contestRatingLocked && typeof contestRated !== 'undefined' && contestRated) { %>
-                <input type="hidden" name="is_rated" value="on">
-              <% } %>
-              <% if (typeof contestRatingLocked !== 'undefined' && contestRatingLocked) { %>
-                <div class="nwpuoj-meta" style="margin-top:6px;">比赛开始后不能修改 Rated 状态。</div>
-              <% } %>
-            </div>
-            <div style="text-align: center; "><button id="submit_button" type="submit" class="ui labeled icon blue button"><i class="ui edit icon"></i>提交</button></div>
-          </div>
-        </form>
-<script>
-$(function () {
-  $('#search_admins')
-    .dropdown({
-      debug: true,
-      saveRemoteData: false,
-      apiSettings: {
-        url: '/api/v2/search/users/{query}',
-        onResponse: function (response) {
-          var a = $('#search_admins').val().map(function (x) { return parseInt(x) });
-          if (response.results) {
-            response.results = response.results.filter(function(x){ return !a.includes(parseInt(x.value))});
-          }
-          return response;
-        },
-        cache: false
-      }
-    });
-  $('#search_problems')
-    .dropdown({
-      debug: true,
-      saveRemoteData: false,
-      apiSettings: {
-        url: '/api/v2/search/problems/{query}?contest=1',
-        onResponse: function (response) {
-          var a = $('#search_problems').val().map(function (x) { return parseInt(x) });
-          if (response.results) {
-            response.results = response.results.filter(function(x) {return !a.includes(parseInt(x.value));});
-          }
-          return response;
-        },
-        cache: false
-      }
-    });
-});
-</script>
-<% if (contest.id) { %>
-  <div class="ui divider" style="margin-top:30px;"></div>
-  <section aria-labelledby="contest-rating-management-title">
-    <h3 id="contest-rating-management-title" class="ui header">Rating 管理</h3>
-    <% if (typeof contestRatingCanRecalculate !== 'undefined' && contestRatingCanRecalculate && typeof contestRated !== 'undefined' && contestRated && contest.isEnded()) { %>
-      <p>当前状态：<strong><%= contestRatingFinalizationStatus === 'completed' ? '已结算' : (contestRatingFinalizationStatus === 'skipped' ? '未产生 Rating 变更' : '等待结算') %></strong></p>
-      <form method="post"
-            action="<%= syzoj.utils.makeUrl(['contest', contest.id, 'rating', 'recalculate']) %>"
-            onsubmit="return confirm('将从本场比赛开始，按时间顺序重新计算所有后续 Rated 比赛，并覆盖相关用户的 Rating 历史。确定继续吗？');"
-            style="margin:0;">
-        <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>">
-        <button type="submit" class="ui basic labeled icon button">
-          <i class="refresh icon"></i>重新计算 Rating
-        </button>
-      </form>
-      <div class="nwpuoj-meta" style="margin-top:8px;">后续 Rated 比赛会同步级联重算，避免 Rating 基线不一致。</div>
-    <% } else if (typeof contestRated !== 'undefined' && !contestRated) { %>
-      <p class="nwpuoj-meta">Unrated 比赛不计算 Rating。</p>
-    <% } else if (!contest.isEnded()) { %>
-      <p class="nwpuoj-meta">比赛结束后可重新计算 Rating。</p>
-    <% } else { %>
-      <p class="nwpuoj-meta">只有站点管理员可以重新计算 Rating。</p>
-    <% } %>
-  </section>
-  <div class="ui divider" style="margin-top: 30px;"></div>
-  <div class="ui red segment">
-    <h4 style="margin-top: 0; color: #db2828;">
-      <i class="warning sign icon"></i> 危险操作
-    </h4>
-    <p style="color: #666;">
-      删除比赛后，该比赛所有<b>提交记录</b>、<b>报名记录</b>和<b>排行榜数据</b>将一并清除，此操作不可撤销。
-      <% if (typeof contestRated !== 'undefined' && contestRated) { %>
-        该场 Rating 历史会被撤销，所有后续已结束 Rated 比赛将按时间顺序重新计算。
-      <% } %>
-    </p>
-    <form method="post"
-          action="<%= syzoj.utils.makeUrl(['contest', contest.id, 'delete']) %>"
-          onsubmit="return confirm('真的要删除比赛「<%= contest.title %>」吗？\n\n此操作将删除：\n - 该比赛所有提交记录\n - 该比赛所有报名记录\n - 该比赛排行榜数据<% if (typeof contestRated !== 'undefined' && contestRated) { %>\n - 该场 Rating 历史，并重新计算后续 Rated 比赛<% } %>\n\n此操作不可撤销！');"
-          style="margin: 0;">
-      <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>">
-      <button type="submit" class="ui red button">
-        <i class="trash icon"></i> 删除此比赛
-      </button>
-    </form>
-  </div>
-<% } %>
+<% include app_header %>
+<% const appUnavailableProblems = problems.filter(function (problem) { return syzoj.utils.contestSubmissionEnabled && !syzoj.utils.contestSubmissionEnabled(problem); }); %>
+
+<div class="app-page app-contest-editor-page">
+  <header class="app-page-header"><div class="app-page-heading"><% if (contest.id) { %><a class="app-back-link" href="<%= syzoj.utils.makeUrl(['contest', contest.id]) %>"><i data-lucide="arrow-left"></i>返回比赛</a><% } %><span class="app-kicker">CONTEST WORKSPACE</span><h1 class="app-page-title"><%= contest.id ? contest.title : '新建比赛' %></h1><p class="app-page-description"><%= contest.id ? '维护比赛内容、赛程、权限与计分设置。' : '创建一场新的训练或正式比赛。' %></p></div></header>
+  <% if (contest.id) { %><nav class="app-tabs app-contest-admin-tabs"><a class="is-active" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'edit']) %>"><i data-lucide="square-pen"></i>比赛内容</a><a href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'registrations']) %>"><i data-lucide="users-round"></i>报名管理</a></nav><% } %>
+  <% if (req.query && req.query.rating_recalculated === '1') { %><div class="app-notice app-notice-success"><i data-lucide="circle-check"></i><span><strong>Rating 已重新计算</strong><small>级联处理 <%= Math.max(0, Number(req.query.rating_contests) || 0) %> 场比赛，更新 <%= Math.max(0, Number(req.query.rating_users) || 0) %> 名用户。</small></span></div><% } %>
+  <form id="contest-editor-form" class="app-form app-contest-editor-form" method="post" data-contest-editor-v2 data-contest-id="<%= contest.id %>"><input type="hidden" name="contest_revision" value="<%= typeof contestRegistration !== 'undefined' && contestRegistration ? contestRegistration.revision : 0 %>">
+    <section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">BASICS</span><h2>基本信息</h2><p>比赛名称和描述会显示在比赛列表与详情页。</p></div><div class="app-settings-fields"><label class="app-field"><span class="app-label">比赛名称</span><input class="app-input" type="text" name="title" value="<%= contest.title %>" required></label><label class="app-field"><span class="app-label">简短描述</span><input class="app-input" type="text" name="subtitle" value="<%= contest.subtitle %>"></label><label class="app-field"><span class="app-label">比赛公告</span><textarea class="app-textarea" rows="6" name="information"><%= contest.information %></textarea><span class="app-help">支持 Markdown。</span></label></div></section>
+    <section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">CONTENT</span><h2>题目与管理员</h2><p>搜索后直接加入，已选条目可以单独移除。</p></div><div class="app-settings-fields"><div class="app-field"><span class="app-label">试题列表</span><input type="hidden" name="problems" value="" data-empty-contest-problems><div class="app-entity-picker" data-entity-picker data-endpoint="/api/v2/search/problems/__QUERY__?contest=1" data-name="problems" data-placeholder="输入题号或标题"><div class="app-entity-selected" data-picker-selected><% for (const problem of problems) { %><span data-picker-value="<%= problem.id %>" class="<%= appUnavailableProblems.includes(problem) ? 'is-warning' : '' %>"><input type="hidden" name="problems" value="<%= problem.id %>"><em><%= problem.getDisplayId() %>. <%= problem.title %><%= appUnavailableProblems.includes(problem) ? '（比赛不可用）' : '' %></em><button type="button" data-picker-remove aria-label="移除题目"><i data-lucide="x"></i></button></span><% } %></div><span class="app-input-wrap"><i data-lucide="search"></i><input class="app-input" type="search" data-picker-search placeholder="输入题号或标题添加试题" autocomplete="off"></span><div class="app-entity-results" data-picker-results hidden></div></div><span class="app-help">可以先保存空题目草稿；发布或开始比赛前需要至少添加一道题。</span><% if (appUnavailableProblems.length) { %><div class="app-notice app-notice-warning"><i data-lucide="triangle-alert"></i><span>包含 <%= appUnavailableProblems.length %> 道未启用比赛提交的 VJudge 题目，请移除后再保存。</span></div><% } %></div><div class="app-field"><span class="app-label">比赛管理员</span><div class="app-entity-picker" data-entity-picker data-endpoint="/api/v2/search/users/__QUERY__" data-name="admins" data-placeholder="输入用户名"><div class="app-entity-selected" data-picker-selected><% for (const admin of admins) { %><span data-picker-value="<%= admin.id %>"><input type="hidden" name="admins" value="<%= admin.id %>"><em><%= admin.username %></em><button type="button" data-picker-remove aria-label="移除管理员"><i data-lucide="x"></i></button></span><% } %></div><span class="app-input-wrap"><i data-lucide="search"></i><input class="app-input" type="search" data-picker-search placeholder="输入用户名添加比赛管理员" autocomplete="off"></span><div class="app-entity-results" data-picker-results hidden></div></div></div></div></section>
+    <section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">SCHEDULE</span><h2>赛程与赛制</h2><p>已创建比赛不能更换赛制。</p></div><div class="app-settings-fields"><fieldset class="app-field"><legend class="app-label">赛制</legend><div class="app-choice-row"><% for (const type of [['noi', 'NOI', '提交后仅显示有限反馈'], ['ioi', 'IOI', '按子任务累计得分'], ['acm', 'ACM', '罚时与通过数排名']]) { %><label class="app-choice"><input type="radio" name="type" value="<%= type[0] %>"<%= contest.type === type[0] ? ' checked' : '' %><%= contest.id ? ' disabled' : '' %>><span><i data-lucide="<%= type[0] === 'acm' ? 'timer' : type[0] === 'ioi' ? 'chart-no-axes-column' : 'shield-check' %>"></i><strong><%= type[1] %></strong><small><%= type[2] %></small></span></label><% } %></div></fieldset><div class="app-form-grid"><label class="app-field app-field-half"><span class="app-label">开始时间</span><input class="app-input" type="text" name="start_time" value="<%= syzoj.utils.formatDate(contest.start_time || syzoj.utils.getCurrentDate()) %>" required></label><label class="app-field app-field-half"><span class="app-label">结束时间</span><input class="app-input" type="text" name="end_time" value="<%= syzoj.utils.formatDate(contest.end_time || syzoj.utils.getCurrentDate()) %>" required></label></div><label class="app-field"><span class="app-label">排行参数</span><input class="app-input app-monospace-input" type="text" name="ranking_params" value="<%= contest.ranklist ? JSON.stringify(contest.ranklist.ranking_params) : '' %>" placeholder='{ "题目 ID": 分值倍数 }'></label></div></section>
+    <section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">VISIBILITY</span><h2>访问与计分</h2><p>控制比赛在前台的显示方式和报名范围。</p></div><div class="app-settings-fields"><label class="app-setting-row"><span><strong>隐藏统计信息</strong><small>参赛者无法查看实时统计。</small></span><input class="app-switch" type="checkbox" name="hide_statistics"<%= contest.hide_statistics ? ' checked' : '' %>></label><label class="app-setting-row"><span><strong>隐藏比赛</strong><small>从公开列表隐藏，仅比赛管理员可访问。</small></span><input class="app-switch" type="checkbox" name="hide_contest"<%= contest.id && !contest.is_public ? ' checked' : '' %>></label><label class="app-setting-row"><span><strong>允许开赛后报名</strong><small>比赛开始后仍可加入。</small></span><input class="app-switch" type="checkbox" name="allow_late_registration"<%= typeof contestRegistration !== 'undefined' && contestRegistration && contestRegistration.allowLateRegistration ? ' checked' : '' %>></label><label class="app-setting-row"><span><strong>Rated 比赛</strong><small><%= typeof contestRatingLocked !== 'undefined' && contestRatingLocked ? '比赛开始后不能修改 Rated 状态。' : '比赛结束并处理无效提交后，由管理员统一计算。' %></small></span><input class="app-switch" type="checkbox" name="is_rated"<%= typeof contestRated !== 'undefined' && contestRated ? ' checked' : '' %><%= typeof contestRatingLocked !== 'undefined' && contestRatingLocked ? ' disabled' : '' %>></label><% if (typeof contestRatingLocked !== 'undefined' && contestRatingLocked && typeof contestRated !== 'undefined' && contestRated) { %><input type="hidden" name="is_rated" value="on"><% } %></div></section>
+    <div class="app-settings-submit"><a class="app-button app-button-quiet" href="<%= contest.id ? syzoj.utils.makeUrl(['contest', contest.id]) : syzoj.utils.makeUrl(['contests']) %>">取消</a><button id="submit_button" class="app-button app-button-primary" type="submit"><i data-lucide="save"></i><%= contest.id ? '保存比赛' : '创建比赛' %></button></div>
+  </form>
+  <% if (contest.id) { %><section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">RATING</span><h2>Rating 状态</h2><p>赛后先处理作弊、取消等无效提交，再到 Rating 页面统一计算。</p></div><div class="app-settings-fields"><div class="app-setting-row"><span><strong><%= typeof contestRated !== 'undefined' && contestRated ? 'Rated 比赛' : 'Unrated 比赛' %></strong><small><%= typeof contestRated !== 'undefined' && contestRated ? (contestRatingFinalizationStatus === 'completed' ? 'Rating 已计算' : contestRatingFinalizationStatus === 'skipped' ? '无需 Rating 变更' : contest.isEnded() ? '等待管理员计算' : '比赛结束后可计算') : '不参与 Rating 计算' %></small></span><% if (typeof appHasCapability === 'function' && appHasCapability('rating:read')) { %><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['admin', 'rating']) %>"><i data-lucide="calculator"></i>查看计算状态</a><% } %></div></div></section><section class="app-settings-section app-danger-section"><div class="app-settings-copy"><span class="app-kicker">DELETE</span><h2>删除比赛</h2><p>删除比赛、报名、提交和排行榜；若已有 Rating，系统会按时间顺序重算后续 Rated 比赛。</p></div><div class="app-settings-fields"><form class="app-inline-form" method="post" data-contest-delete-v2 data-contest-id="<%= contest.id %>" data-confirm="确定永久删除比赛“<%= contest.title %>”吗？相关提交与报名会一并删除，后续 Rating 将自动重算。"><input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>"><button class="app-button app-button-danger" type="submit"><i data-lucide="trash-2"></i>删除比赛</button></form></div></section><% } %>
 </div>
-<% include footer %>
+
+<script>
+(function () {
+  var editorForm = document.getElementById('contest-editor-form');
+  var editorSections = Array.prototype.filter.call(editorForm.children, function (element) { return element.classList && element.classList.contains('app-settings-section'); });
+
+  if (editorSections.length === 4) {
+    var existingContest = <%= contest.id ? 'true' : 'false' %>;
+    var stepLabels = ['基本信息', '题目与管理员', '赛程与赛制', existingContest ? '确认保存' : '发布确认'];
+    var currentStep = 0;
+    var formDirty = false;
+    var formSubmitting = false;
+    var originalActions = editorForm.querySelector('.app-settings-submit');
+    var cancelLink = originalActions.querySelector('a');
+    var submitButton = originalActions.querySelector('button[type="submit"]');
+    var stepNav = document.createElement('nav');
+    var stepList = document.createElement('ol');
+    var stepButtons = [];
+
+    stepNav.className = 'app-contest-step-nav';
+    stepNav.setAttribute('aria-label', '比赛编辑步骤');
+    stepLabels.forEach(function (label, index) {
+      var item = document.createElement('li');
+      var button = document.createElement('button');
+      var number = document.createElement('span');
+      var text = document.createElement('em');
+      var sectionId = 'contest-editor-step-' + (index + 1);
+      editorSections[index].id = sectionId;
+      button.type = 'button';
+      button.dataset.contestStepTarget = String(index);
+      button.setAttribute('aria-controls', sectionId);
+      number.textContent = String(index + 1);
+      text.textContent = label;
+      button.appendChild(number);
+      button.appendChild(text);
+      item.appendChild(button);
+      stepList.appendChild(item);
+      stepButtons.push(button);
+    });
+    stepNav.appendChild(stepList);
+    editorForm.parentNode.insertBefore(stepNav, editorForm);
+
+    var review = document.createElement('div');
+    review.className = 'app-contest-review';
+    review.setAttribute('aria-live', 'polite');
+    review.innerHTML = '<div class="app-contest-review-heading"><span class="app-kicker">REVIEW</span><h3>' + (existingContest ? '确认本次修改' : '确认比赛设置') + '</h3></div><dl><div><dt>比赛</dt><dd data-review-title></dd></div><div><dt>题目</dt><dd data-review-problems></dd></div><div><dt>管理员</dt><dd data-review-admins></dd></div><div><dt>赛程</dt><dd data-review-schedule></dd></div><div><dt>赛制</dt><dd data-review-type></dd></div><div><dt>发布方式</dt><dd data-review-visibility></dd></div></dl>';
+    editorSections[3].querySelector('.app-settings-fields').appendChild(review);
+
+    var wizardActions = document.createElement('div');
+    var wizardActionRight = document.createElement('div');
+    var backButton = document.createElement('button');
+    var nextButton = document.createElement('button');
+    wizardActions.className = 'app-contest-wizard-actions';
+    wizardActionRight.className = 'app-contest-wizard-actions-main';
+    backButton.className = 'app-button app-button-secondary';
+    backButton.type = 'button';
+    backButton.dataset.contestStepBack = '';
+    backButton.innerHTML = '<i data-lucide="arrow-left"></i>上一步';
+    nextButton.className = 'app-button app-button-primary';
+    nextButton.type = 'button';
+    nextButton.dataset.contestStepNext = '';
+    nextButton.innerHTML = '下一步<i data-lucide="arrow-right"></i>';
+    while (originalActions.firstChild) originalActions.removeChild(originalActions.firstChild);
+    wizardActions.appendChild(cancelLink);
+    wizardActionRight.appendChild(backButton);
+    wizardActionRight.appendChild(nextButton);
+    wizardActionRight.appendChild(submitButton);
+    wizardActions.appendChild(wizardActionRight);
+    originalActions.replaceWith(wizardActions);
+    editorForm.classList.add('is-wizard-ready');
+
+    function fieldValue(name) {
+      var field = editorForm.elements[name];
+      return field ? String(field.value || '').trim() : '';
+    }
+
+    function checked(name) {
+      var field = editorForm.querySelector('[name="' + name + '"]:checked');
+      return field ? field.value : '';
+    }
+
+    function selectedLabels(name) {
+      var picker = editorForm.querySelector('[data-entity-picker][data-name="' + name + '"]');
+      if (!picker) return [];
+      return Array.prototype.map.call(picker.querySelectorAll('[data-picker-value] em'), function (label) { return label.textContent.trim(); });
+    }
+
+    function setReview(selector, value) {
+      review.querySelector(selector).textContent = value;
+    }
+
+    function renderReview() {
+      var problems = selectedLabels('problems');
+      var admins = selectedLabels('admins');
+      var contestType = checked('type').toUpperCase() || '-';
+      var visibility = [];
+      if (editorForm.elements.hide_contest && editorForm.elements.hide_contest.checked) visibility.push('隐藏比赛');
+      else visibility.push('公开比赛');
+      if (editorForm.elements.is_rated && editorForm.elements.is_rated.checked) visibility.push('Rated');
+      else visibility.push('Unrated');
+      if (editorForm.elements.allow_late_registration && editorForm.elements.allow_late_registration.checked) visibility.push('允许开赛后报名');
+      setReview('[data-review-title]', fieldValue('title') || '未填写');
+      setReview('[data-review-problems]', problems.length ? problems.length + ' 道 · ' + problems.slice(0, 3).join('、') + (problems.length > 3 ? ' 等' : '') : '暂未添加');
+      setReview('[data-review-admins]', admins.length ? admins.length + ' 人 · ' + admins.slice(0, 3).join('、') + (admins.length > 3 ? ' 等' : '') : '仅当前创建者');
+      setReview('[data-review-schedule]', (fieldValue('start_time') || '未设置') + ' 至 ' + (fieldValue('end_time') || '未设置'));
+      setReview('[data-review-type]', contestType);
+      setReview('[data-review-visibility]', visibility.join(' · '));
+    }
+
+    function showStep(index) {
+      currentStep = Math.max(0, Math.min(editorSections.length - 1, index));
+      editorSections.forEach(function (section, sectionIndex) { section.hidden = sectionIndex !== currentStep; });
+      stepButtons.forEach(function (button, buttonIndex) {
+        var item = button.parentElement;
+        item.classList.toggle('is-active', buttonIndex === currentStep);
+        item.classList.toggle('is-complete', buttonIndex < currentStep);
+        if (buttonIndex === currentStep) button.setAttribute('aria-current', 'step');
+        else button.removeAttribute('aria-current');
+      });
+      backButton.hidden = currentStep === 0;
+      nextButton.hidden = currentStep === editorSections.length - 1;
+      submitButton.hidden = currentStep !== editorSections.length - 1;
+      if (currentStep === editorSections.length - 1) renderReview();
+      stepNav.scrollIntoView({ block: 'nearest' });
+    }
+
+    function validateStep(index) {
+      var fields = editorSections[index].querySelectorAll('input, textarea, select');
+      for (var fieldIndex = 0; fieldIndex < fields.length; fieldIndex += 1) {
+        if (!fields[fieldIndex].checkValidity()) {
+          fields[fieldIndex].reportValidity();
+          return false;
+        }
+      }
+      return true;
+    }
+
+    function moveToStep(target) {
+      target = Math.max(0, Math.min(editorSections.length - 1, target));
+      if (target > currentStep) {
+        for (var index = currentStep; index < target; index += 1) {
+          showStep(index);
+          if (!validateStep(index)) return;
+        }
+      }
+      showStep(target);
+    }
+
+    stepNav.addEventListener('click', function (event) {
+      var button = event.target.closest('[data-contest-step-target]');
+      if (button) moveToStep(Number(button.dataset.contestStepTarget));
+    });
+    backButton.addEventListener('click', function () { moveToStep(currentStep - 1); });
+    nextButton.addEventListener('click', function () { moveToStep(currentStep + 1); });
+    editorForm.addEventListener('input', function () { formDirty = true; });
+    editorForm.addEventListener('change', function () { formDirty = true; });
+    editorForm.addEventListener('invalid', function (event) {
+      var section = event.target.closest('.app-settings-section');
+      var index = editorSections.indexOf(section);
+      if (index !== -1 && index !== currentStep) showStep(index);
+    }, true);
+    editorForm.addEventListener('submit', function (event) {
+      if (currentStep !== editorSections.length - 1) {
+        event.preventDefault();
+        moveToStep(currentStep + 1);
+        return;
+      }
+      renderReview();
+    });
+    editorForm.addEventListener('formdata', function () { formSubmitting = true; });
+    window.addEventListener('beforeunload', function (event) {
+      if (!formDirty || formSubmitting) return;
+      event.preventDefault();
+      event.returnValue = '';
+    });
+    showStep(0);
+    if (window.NWPUOJApp) window.NWPUOJApp.refreshIcons(wizardActions);
+  }
+
+  document.querySelectorAll('[data-entity-picker]').forEach(function (picker) {
+    var input = picker.querySelector('[data-picker-search]');
+    var selected = picker.querySelector('[data-picker-selected]');
+    var results = picker.querySelector('[data-picker-results]');
+    var fieldName = picker.dataset.name;
+    var timer;
+    var controller;
+
+    function normalizeValue(value) {
+      var number = Number(value);
+      return Number.isSafeInteger(number) && number > 0 ? String(number) : '';
+    }
+
+    function values() {
+      return Array.prototype.map.call(selected.querySelectorAll('[data-picker-value]'), function (item) {
+        return normalizeValue(item.dataset.pickerValue);
+      }).filter(Boolean);
+    }
+
+    function syncInputs() {
+      var valid = true;
+      selected.querySelectorAll('[data-picker-value]').forEach(function (item) {
+        var value = normalizeValue(item.dataset.pickerValue);
+        if (!value) {
+          item.classList.add('is-warning');
+          valid = false;
+          return;
+        }
+        item.dataset.pickerValue = value;
+        var hidden = item.querySelector('input[type="hidden"]');
+        if (!hidden) {
+          hidden = document.createElement('input');
+          hidden.type = 'hidden';
+          item.insertBefore(hidden, item.firstChild);
+        }
+        hidden.name = fieldName;
+        hidden.value = value;
+        hidden.disabled = false;
+        hidden.setAttribute('form', editorForm.id);
+      });
+      return valid;
+    }
+
+    function add(value, label) {
+      value = normalizeValue(value);
+      label = String(label || '').trim();
+      if (!value || values().includes(value)) return;
+      if (!label) label = '#' + value;
+      var chip = document.createElement('span');
+      chip.dataset.pickerValue = value;
+      var hidden = document.createElement('input');
+      hidden.type = 'hidden';
+      hidden.name = fieldName;
+      hidden.value = value;
+      hidden.setAttribute('form', editorForm.id);
+      var text = document.createElement('em');
+      text.textContent = label;
+      var remove = document.createElement('button');
+      remove.type = 'button';
+      remove.dataset.pickerRemove = '';
+      remove.setAttribute('aria-label', '移除');
+      remove.innerHTML = '<i data-lucide="x"></i>';
+      chip.appendChild(hidden);
+      chip.appendChild(text);
+      chip.appendChild(remove);
+      selected.appendChild(chip);
+      editorForm.dispatchEvent(new Event('change', { bubbles: true }));
+      input.value = '';
+      input.setCustomValidity('');
+      results.hidden = true;
+      if (window.NWPUOJApp) window.NWPUOJApp.refreshIcons(chip);
+    }
+
+    picker.addEventListener('click', function (event) {
+      var remove = event.target.closest('[data-picker-remove]');
+      if (remove) {
+        remove.closest('[data-picker-value]').remove();
+        editorForm.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    });
+
+    input.addEventListener('input', function () {
+      input.setCustomValidity('');
+      clearTimeout(timer);
+      var query = input.value.trim();
+      if (controller) controller.abort();
+      if (!query) {
+        results.hidden = true;
+        return;
+      }
+      timer = setTimeout(async function () {
+        controller = new AbortController();
+        try {
+          var endpoint = picker.dataset.endpoint.replace('__QUERY__', encodeURIComponent(query));
+          var response = await fetch(endpoint, { signal: controller.signal, cache: 'no-store' });
+          var payload = await response.json();
+          var items = payload.results || payload.data || payload || [];
+          if (!Array.isArray(items)) items = [];
+          results.innerHTML = '';
+          items.slice(0, 10).forEach(function (item) {
+            var value = normalizeValue(item.value != null ? item.value : item.id);
+            var label = String(item.name || item.title || item.text || '').trim();
+            if (!value || values().includes(value)) return;
+            if (!label) label = '#' + value;
+            var button = document.createElement('button');
+            button.type = 'button';
+            button.textContent = label;
+            button.addEventListener('click', function () { add(value, label); });
+            results.appendChild(button);
+          });
+          if (!results.children.length) {
+            var empty = document.createElement('span');
+            empty.textContent = '没有可添加的结果';
+            results.appendChild(empty);
+          }
+          results.hidden = false;
+        } catch (error) {
+          if (error.name !== 'AbortError') results.hidden = true;
+        }
+      }, 220);
+    });
+
+    editorForm.addEventListener('submit', function (event) {
+      if (syncInputs()) return;
+      event.preventDefault();
+      input.setCustomValidity(fieldName === 'problems' ? '所选题目数据无效，请移除后重新添加。' : '所选管理员数据无效，请移除后重新添加。');
+      input.reportValidity();
+    });
+
+    editorForm.addEventListener('formdata', function (event) {
+      syncInputs();
+      event.formData.delete(fieldName);
+      values().forEach(function (value) { event.formData.append(fieldName, value); });
+    });
+
+    syncInputs();
+    document.addEventListener('click', function (event) {
+      if (!picker.contains(event.target)) results.hidden = true;
+    });
+  });
+
+  function operationKey() {
+    return window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random();
+  }
+
+  async function readResponse(response) {
+    var body = null;
+    try { body = await response.json(); } catch (error) {}
+    return { response: response, body: body };
+  }
+function apiMessage(result, fallback) {
+    var error = result.body && result.body.error;
+    if (!error) return fallback;
+    var messages = {
+      CONTEST_LOCKED: '比赛已开始，不能再修改题目、赛程、计分规则或 Rated 状态。',
+      CONTEST_PROBLEM_INVALID: '所选题目不存在或当前账户无权使用。',
+      CONTEST_PROBLEM_UNAVAILABLE: '所选题目未启用比赛提交，请先移除。',
+      CONTEST_RANKING_INVALID: '排行参数只能包含已选题目，权重必须大于 0 且不超过 1000。',
+      CONTEST_ADMIN_INVALID: '所选比赛管理员不存在，请移除后重新添加。',
+      ETAG_MISMATCH: '比赛已被其他管理员修改，请刷新后重试。',
+      VALIDATION_FAILED: '请检查比赛名称、赛程和所选内容。'
+    };
+    return messages[error.code] || error.message || fallback;
+  }
+
+  function pickerValues(name) {
+    var picker = editorForm.querySelector('[data-entity-picker][data-name="' + name + '"]');
+    if (!picker) return [];
+    return Array.prototype.map.call(picker.querySelectorAll('[data-picker-value]'), function (item) {
+      return Number(item.dataset.pickerValue);
+    }).filter(function (value) { return Number.isSafeInteger(value) && value > 0; });
+  }
+
+  function dateValue(name) {
+    var value = String(editorForm.elements[name].value || '').trim();
+    var date = new Date(value.replace(' ', 'T'));
+    if (!value || Number.isNaN(date.getTime())) throw new Error('比赛时间格式不正确。');
+    return date.toISOString();
+  }
+
+  function rankingValue() {
+    var text = String(editorForm.elements.ranking_params.value || '').trim();
+    var value;
+    try { value = JSON.parse(text || '{}'); } catch (error) { throw new Error('排行参数必须是 JSON 对象。'); }
+    if (!value || Array.isArray(value) || typeof value !== 'object') throw new Error('排行参数必须是 JSON 对象。');
+    return value;
+  }
+editorForm.addEventListener('submit', async function (event) {
+    if (event.defaultPrevented) return;
+    event.preventDefault();
+    var contestId = Number(editorForm.dataset.contestId);
+    var submit = editorForm.querySelector('[type="submit"]');
+    formSubmitting = true;
+    editorForm.setAttribute('aria-busy', 'true');
+    try {
+      var endpoint = '/api/v2/contests';
+      var method = 'POST';
+      var headers = { 'Content-Type': 'application/json', 'Idempotency-Key': operationKey() };
+      if (contestId > 0) {
+        var current = await readResponse(await fetch('/api/v2/contests/' + encodeURIComponent(contestId), { credentials: 'same-origin', cache: 'no-store' }));
+        if (!current.response.ok) throw new Error(apiMessage(current, '暂时无法读取比赛状态。'));
+        var etag = current.response.headers.get('ETag');
+        if (!etag) throw new Error('比赛版本信息缺失，请刷新后重试。');
+        endpoint += '/' + encodeURIComponent(contestId);
+        method = 'PATCH';
+        headers['If-Match'] = etag;
+      }
+      var selectedType = editorForm.querySelector('[name="type"]:checked');
+      var result = await readResponse(await fetch(endpoint, {
+        method: method,
+        credentials: 'same-origin',
+        headers: headers,
+        body: JSON.stringify({
+          title: editorForm.elements.title.value,
+          subtitle: editorForm.elements.subtitle.value,
+          information: editorForm.elements.information.value,
+          problem_ids: pickerValues('problems'),
+          admins: pickerValues('admins'),
+          type: selectedType ? selectedType.value : 'acm',
+          start_at: dateValue('start_time'),
+          end_at: dateValue('end_time'),
+          ranking_params: rankingValue(),
+          hide_statistics: !!editorForm.querySelector('[name="hide_statistics"]:checked'),
+          visibility: editorForm.querySelector('[name="hide_contest"]:checked') ? 'private' : 'public',
+          allow_late_registration: !!editorForm.querySelector('[name="allow_late_registration"]:checked'),
+          is_rated: !!editorForm.querySelector('[name="is_rated"]:checked')
+        })
+      }));
+      if (!result.response.ok) throw new Error(apiMessage(result, contestId > 0 ? '比赛保存失败。' : '比赛创建失败。'));
+      window.location.assign('/contest/' + encodeURIComponent(result.body.data.id) + '/details');
+    } catch (error) {
+      formSubmitting = false;
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '比赛保存失败。', 'danger');
+      else window.alert(error.message || '比赛保存失败。');
+      if (submit) { submit.disabled = false; submit.classList.remove('is-loading'); }
+      editorForm.removeAttribute('aria-busy');
+    }
+  });
+
+  var deleteForm = document.querySelector('form[data-contest-delete-v2]');
+  if (deleteForm) deleteForm.addEventListener('submit', async function (event) {
+    if (event.defaultPrevented) return;
+    event.preventDefault();
+    var button = deleteForm.querySelector('[type="submit"]');
+    if (button) button.disabled = true;
+    try {
+      var result = await readResponse(await fetch('/api/v2/contests/' + encodeURIComponent(deleteForm.dataset.contestId), {
+        method: 'DELETE', credentials: 'same-origin', headers: { 'Idempotency-Key': operationKey() }
+      }));
+      if (!result.response.ok) throw new Error(apiMessage(result, '比赛删除失败。'));
+      var data = result.body.data || {};
+      window.location.assign('/contests?deleted=1&rating_contests=' + encodeURIComponent(data.recalculated_contests || 0) + '&rating_users=' + encodeURIComponent(data.affected_users || 0));
+    } catch (error) {
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '比赛删除失败。', 'danger');
+      else window.alert(error.message || '比赛删除失败。');
+      if (button) button.disabled = false;
+    }
+  });
+})();
+</script>
+<% include app_footer %>

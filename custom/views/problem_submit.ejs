@@ -3,20 +3,34 @@
 this.title = problem.title + ' - 提交';
 if (typeof contest === 'undefined') contest = null;
 %>
-<% include header %>
+<% include app_header %>
+<% include problem_context %>
+<script>
+if (typeof window.__NWPUOJ_RENDER_ICONS === 'function') window.__NWPUOJ_RENDER_ICONS(document);
+</script>
+<script>
+(function () {
+  window.$ = window.$ || {};
+  if (typeof window.$.getScript === 'function') return;
 
-<style>
-#languages-menu::-webkit-scrollbar, #testcase-menu::-webkit-scrollbar {
-  width: 0;
-  background: transparent;
-}
-#languages-menu .item::after, #testcase-menu .item::after { display: none; }
-</style>
-
+  window.$.getScript = function (source, callback) {
+    var script = document.createElement('script');
+    script.src = source;
+    script.async = true;
+    script.addEventListener('load', function () {
+      if (typeof callback === 'function') callback();
+    });
+    document.head.appendChild(script);
+    return script;
+  };
+})();
+</script>
 <% include monaco-editor %>
+<script src="/self/modern-editor.js?v=<%= encodeURIComponent(syzoj.config.nwpuoj_version || '2.0.0') %>&amp;rev=20260729-1"></script>
 
-<div class="padding">
+<div class="app-page app-submit-page">
+  <div class="app-section-header app-context-section-header"><div><h2 class="app-section-title">提交答案</h2><p class="app-section-description">确认语言与源码后发送到评测队列。</p></div></div>
   <% include problem_submit_form %>
 </div>
 
-<% include footer %>
+<% include app_footer %>

@@ -1,349 +1,190 @@
-<% this.title = '修改资料'; %>
-<% include header %>
+<% this.title = '修改资料' %>
 <%
-let allowedManagePrivilege = user && user.is_admin;
-let currentUserIsSiteOwner = typeof isSiteOwner !== 'undefined' && isSiteOwner;
-let editedUserIsSiteOwner = !!(syzoj.siteOwnerUserId && edited_user.id === syzoj.siteOwnerUserId);
-let canManageSiteAdmin = currentUserIsSiteOwner && !editedUserIsSiteOwner;
-let identityProfile = (typeof registrationProfile !== 'undefined' && registrationProfile) ? registrationProfile : {};
-let identityColleges = (typeof registrationColleges !== 'undefined') ? registrationColleges : [];
-let savedStudentId = identityProfile.student_id || '';
-let savedRealName = identityProfile.real_name || '';
-let savedCollege = identityProfile.college || '';
-let canManageIdentity = !!(user && user.allowedManage);
-let requiresIdentityCompletion = typeof identityProfileComplete !== 'undefined' && !identityProfileComplete && edited_user.id === user.id;
+const appCanManagePrivileges = !!(user && typeof appHasCapability === 'function' && appHasCapability('admin:permission.grant'));
+const appCurrentUserIsSiteOwner = typeof isSiteOwner !== 'undefined' && isSiteOwner;
+const appEditedUserIsSiteOwner = !!(syzoj.siteOwnerUserId && edited_user.id === syzoj.siteOwnerUserId);
+const appCanManageSiteAdmin = appCurrentUserIsSiteOwner && !appEditedUserIsSiteOwner;
+const appIdentity = typeof registrationProfile !== 'undefined' && registrationProfile ? registrationProfile : {};
+const appColleges = typeof registrationColleges !== 'undefined' ? registrationColleges : [];
+const appStudentId = appIdentity.student_id || '';
+const appRealName = appIdentity.real_name || '';
+const appCollege = appIdentity.college || '';
+const appCanManageIdentity = !!(user && user.allowedManage);
+const appRequiresIdentity = typeof identityProfileComplete !== 'undefined' && !identityProfileComplete && edited_user.id === user.id;
+const appTagState = typeof myTagState !== 'undefined' ? myTagState : null;
+const appTagCheater = typeof myTagIsCheater !== 'undefined' ? myTagIsCheater : false;
+const appHideHit = !!(syzoj.userHitHidden && syzoj.userHitHidden.has(edited_user.id));
+let appEditMessage = error_info;
+if (appEditMessage === '') appEditMessage = '修改成功。';
 %>
-<div class="padding">
-    <% if (requiresIdentityCompletion) { %>
-      <div class="ui warning message" role="alert" aria-live="assertive">
-        <div class="header">请先补全实名资料</div>
-        <p>填写学号、姓名和学院并保存后，方可继续使用其他功能。</p>
-      </div>
-    <% } %>
-    <div class="ui <% if (error_info === '') { %>success<% } else { %>error<% } %> message" id="error" <% if (error_info === null) { %>hidden<% } %>>
-      <% if (error_info !== null) {
-          if (error_info === '') error_info = '修改成功。';
-      %>
-      	<p id="error_info"><%= error_info %></p>
-      <% } %>
-    </div>
-    <% if (req.query && (req.query.avatar === 'uploaded' || req.query.avatar === 'removed')) { %>
-      <div class="ui positive message">
-        <i class="check circle icon"></i>
-        <%= req.query.avatar === 'uploaded' ? '头像上传成功。' : '已恢复默认头像。' %>
-      </div>
-    <% } %>
-    <section class="ui segment" aria-labelledby="avatar-title">
-      <h3 id="avatar-title" class="ui header" style="margin-top:0;">头像</h3>
-      <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap;">
-        <img src="<%= syzoj.utils.avatar(edited_user, 160) %>" alt="当前头像" style="width:112px;height:112px;object-fit:cover;border-radius:50%;border:1px solid #dfe3e8;background:#f7f8fa;">
-        <div>
-          <form method="post" action="<%= syzoj.utils.makeUrl(['user', edited_user.id, 'avatar']) %>" enctype="multipart/form-data" style="margin:0;">
-            <input type="hidden" name="avatar_csrf_token" value="<%= avatarCsrfToken %>">
-            <div class="field" style="margin-bottom:10px;">
-              <label for="avatar-upload">选择图片</label>
-              <input id="avatar-upload" type="file" name="avatar" accept="image/jpeg,image/png,image/webp" required>
-            </div>
-            <button type="submit" class="ui primary labeled icon button"><i class="upload icon"></i>上传头像</button>
-          </form>
-          <% if (syzoj.utils.hasCustomAvatar(edited_user)) { %>
-            <form method="post" action="<%= syzoj.utils.makeUrl(['user', edited_user.id, 'avatar', 'delete']) %>" style="display:inline-block;margin-top:10px;" onsubmit="return confirm('确定恢复默认头像吗？');">
-              <input type="hidden" name="avatar_csrf_token" value="<%= avatarCsrfToken %>">
-              <button type="submit" class="ui basic labeled icon button"><i class="undo icon"></i>恢复默认头像</button>
-            </form>
-          <% } %>
-          <div class="nwpuoj-meta" style="margin-top:8px;">支持 JPG、PNG、WebP，文件大小不超过 2MB。</div>
-        </div>
-      </div>
-    </section>
-		<form id="form" action="<%= syzoj.utils.makeUrl(['user', edited_user.id, 'edit']) %>" method="post" onsubmit="return check()">
-      <% if (canManageSiteAdmin) { %>
-        <input type="hidden" name="site_admin_control" value="1">
-        <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>">
-      <% } %>
-      <div class="ui form">
-      <div class="field">
-	    	<label for="username">用户名</label>
-		<input type="text" id="username" name="username" value="<%= edited_user.username %>"<% if (!user.allowedManage || editedUserIsSiteOwner) { %> readonly<% } %>>
-	    </div>
-      <div class="field">
-	    	<label for="sex">性别</label>
-	    	<select class="ui dropdown" name="sex">
-          <option value="0" <%= edited_user.sex == 0 ? 'selected': '' %>>其它</option>
-          <option value="1" <%= edited_user.sex == 1 ? 'selected': '' %>>男</option>
-          <option value="-1" <%= edited_user.sex == -1 ? 'selected': '' %>>女</option>
-        </select>
-	    </div>
-	    <div class="field">
-		<label for="email">Email</label>
-        <input class="font-content" type="email" id="email" name="email" value="<%= edited_user.email %>" required<% if (edited_user.id !== user.id && !user.allowedManage) { %> readonly<% } %>>
-	    </div>
-	    <div class="field">
-		<label for="student_id">学号</label>
-		<input type="text" id="student_id" name="student_id" inputmode="numeric" pattern="\d{10}" minlength="10" maxlength="10" value="<%= savedStudentId %>" required<% if (savedStudentId && !canManageIdentity) { %> readonly<% } %>>
-	    </div>
-	    <div class="field">
-		<label for="real_name">姓名</label>
-		<input type="text" id="real_name" name="real_name" maxlength="64" value="<%= savedRealName %>" required<% if (savedRealName && !canManageIdentity) { %> readonly<% } %>>
-	    </div>
-	    <div class="field">
-		<label for="college">学院</label>
-		<% if (savedCollege && !canManageIdentity) { %>
-		  <input type="text" id="college" value="<%= savedCollege %>" readonly>
-		<% } else { %>
-		  <select class="ui search dropdown" id="college" name="college" required>
-		    <option value="">请选择学院</option>
-		    <% identityColleges.forEach(function (college) { %>
-		      <option value="<%= college %>"<% if (college === savedCollege) { %> selected<% } %>><%= college %></option>
-		    <% }); %>
-		  </select>
-		<% } %>
-		<% if (canManageIdentity) { %><div class="nwpuoj-meta" style="margin-top:6px;">拥有用户管理权限，可修正该用户的实名资料。</div><% } %>
-	    </div>
-	    <% if (typeof edited_user !== 'undefined' && edited_user.id === user.id) { %>
-            <div class="field">
-            <label>邮箱验证状态</label>
-            <% if (user.is_email_verified || (syzoj.verifiedUserIds && syzoj.verifiedUserIds.has(user.id))) { %>
-                <div class="ui green message" style="margin-top: 5px;">
-                    <i class="check circle icon"></i>
-                    <b>已验证</b> · 你已完成邮箱验证。
-                </div>
-            <% } else { %>
-                <div class="ui yellow message" style="margin-top: 5px;">
-                    <i class="warning circle icon"></i>
-                    <b>邮箱尚未验证。</b>未验证的账号无法使用部分功能（如投稿题解、发送站内信）。
-                    <div style="margin-top: 10px;">
-                    <a class="ui small primary button" href-post="/email/send-verification">
-                        <i class="envelope icon"></i> 发送验证邮件
-                    </a>
-                </div>
-            </div>
-            <% } %>
-        </div>
-        <% } %>
-        
-      <div class="inline field">
-        <label class="ui header">公开 Email</label>
-        <div class="ui toggle checkbox">
-          <input id="public_email" name="public_email" type="checkbox" <% if (edited_user.public_email) { %> checked<% } %>>
-          <label>　</label>
-        </div>
-	    </div>
-      <div class="inline field">
-        <label class="ui header">默认显示格式化后的代码（如果可用）</label>
-        <div class="ui toggle checkbox">
-          <input id="prefer_formatted_code" name="prefer_formatted_code" type="checkbox" <% if (edited_user.prefer_formatted_code) { %> checked<% } %>>
-          <label>　</label>
-        </div>
-      </div>
-      <div class="field">
-      <label for="information">个性签名</label>
-        <textarea class="markdown-edit" rows="5" id="information" name="information"><%= edited_user.information %></textarea>
-      </div>
-      <div class="field">
-      <label class="ui header">密码</label>
-        <input type="password" placeholder="原密码（留空则不修改）" name="old_password" id="old_password" maxlength="128" autocomplete="current-password">
-      </div>
-      <div class="two fields" id="new_password_field">
-        <div class="field">
-          <input type="password" placeholder="新密码（至少 10 个字符）" name="new_password" id="password1" minlength="10" maxlength="128" autocomplete="new-password">
-        </div>
-        <div class="field">
-          <input type="password" placeholder="确认密码" id="password2" minlength="10" maxlength="128" autocomplete="new-password">
-        </div>
-      </div>
-      <div class="inline field">
-        <label class="ui header">权限</label>
-        <div class="ui toggle <% if (!canManageSiteAdmin) { %>disabled <% } %>checkbox" id="site-admin-checkbox" style="margin-right: 20px; ">
-          <input <% if (!canManageSiteAdmin) { %>disabled="disabled" <% } %>type="checkbox"<% if (canManageSiteAdmin) { %> name="is_admin"<% } %><% if (edited_user.is_admin) { %> checked<% } %>>
-          <label><%= editedUserIsSiteOwner ? '站长' : '全站管理员' %></label>
-        </div>
-        <div class="ui toggle <% if (!allowedManagePrivilege) { %>disabled <% } %>checkbox checkbox_privilege" data-name="manage_problem" style="margin-right: 20px; ">
-          <input <% if (!allowedManagePrivilege) { %>disabled="disabled" <% } %>type="checkbox"<% if (edited_user.privileges.includes('manage_problem')) { %> checked<% } %>>
-          <label>管理题目</label>
-        </div>
-        <div class="ui toggle <% if (!allowedManagePrivilege) { %>disabled <% } %>checkbox checkbox_privilege" data-name="manage_problem_tag" style="margin-right: 20px; ">
-          <input <% if (!allowedManagePrivilege) { %>disabled="disabled" <% } %>type="checkbox"<% if (edited_user.privileges.includes('manage_problem_tag')) { %> checked<% } %>>
-          <label>管理题目标签</label>
-        </div>
-        <div class="ui toggle <% if (!allowedManagePrivilege) { %>disabled <% } %>checkbox checkbox_privilege" data-name="manage_contest" style="margin-right: 20px; ">
-          <input <% if (!allowedManagePrivilege) { %>disabled="disabled" <% } %>type="checkbox"<% if (edited_user.privileges.includes('manage_contest')) { %> checked<% } %>>
-          <label>管理比赛</label>
-        </div>
-        <div class="ui toggle <% if (!allowedManagePrivilege) { %>disabled <% } %>checkbox checkbox_privilege" data-name="manage_user">
-          <input <% if (!allowedManagePrivilege) { %>disabled="disabled" <% } %>type="checkbox"<% if (edited_user.privileges.includes('manage_user')) { %> checked<% } %>>
-          <label>管理用户</label>
-        </div>
-      </div>
-      <div style="text-align: center; margin-top: 30px; ">
-        <button id="submit_button" type="submit" class="ui blue labeled icon button"><i class="ui icon edit"></i>修改</button>
-        <a href="<%= syzoj.utils.makeUrl(['user', edited_user.id]) %>" class="ui labeled icon button"><i class="ui icon angle left"></i>返回</a>
-      </div>
-      </div>
-		</form>
-<%
-    let _tagState = (typeof myTagState !== 'undefined') ? myTagState : null;
-    let _tagIsCheater = (typeof myTagIsCheater !== 'undefined') ? myTagIsCheater : false;
-    %>
-    <% if (_tagState && _tagState.hasPermission) { %>
-      <div class="ui segment" style="margin-top: 15px;">
-        <h4 style="margin-top: 0;"><i class="id badge icon"></i> 用户名牌子</h4>
-        <p style="color: #666; font-size: 0.92em;">
-          牌子会显示在你用户名的右侧。颜色与用户名颜色一致。最多 12 字符。
-          <% if (_tagState.isAutoFromAdmin) { %>
-            <br><i class="info circle icon"></i>
-            <span style="color: #2185d0;">您因拥有管理权限自动获得 tag 权限。</span>
-          <% } %>
-        </p>
+<% include app_header %>
 
-        <% if (_tagIsCheater) { %>
-          <div class="ui yellow message" style="margin-bottom: 12px;">
-            <i class="warning sign icon"></i>
-            <b>当前您的荣誉牌子被作弊者身份覆盖，在站内将显示为「作弊者」棕色标签。</b>
-            您依然可以编辑下方设置，作弊者标记被撤销后将立即恢复显示。
-          </div>
-        <% } %>
+<div class="app-page app-settings-page">
+  <header class="app-page-header"><div class="app-page-heading"><span class="app-kicker">ACCOUNT SETTINGS</span><h1 class="app-page-title"><%= edited_user.id === user.id ? '账号设置' : '管理用户资料' %></h1><p class="app-page-description"><%= edited_user.username %> · 用户 #<%= edited_user.id %></p></div><div class="app-page-actions"><a class="app-button app-button-quiet" href="<%= syzoj.utils.makeUrl(['user', edited_user.id]) %>"><i data-lucide="arrow-left"></i>返回主页</a></div></header>
 
-        <form id="my-tag-form" style="margin: 0;">
-          <div class="ui form">
-            <div class="field">
-              <label>牌子文字</label>
-              <input type="text" id="my-tag-text-input" maxlength="12"
-                     value="<%= _tagState.record ? (_tagState.record.tag_text || '') : (editedUserIsSiteOwner ? '站长' : '管理员') %>"
-                     placeholder="<%= _tagState.isAutoFromAdmin ? '管理员' : '请填写要显示的文字...' %>"
-                     style="max-width: 220px;">
-              <span style="margin-left: 10px; color: #999; font-size: 0.85em;">
-                <span id="my-tag-char-count">0</span> / 12
-              </span>
-            </div>
-            <div class="field">
-              <div class="ui toggle checkbox">
-                <input type="checkbox" id="my-tag-visible-input"
-                       <% if (!_tagState.record || _tagState.record.is_visible !== false) { %>checked<% } %>>
-                <label>在站内展示此牌子</label>
-              </div>
-            </div>
-            <button type="button" class="ui primary button" id="my-tag-save-btn">
-              <i class="save icon"></i> 保存牌子设置
-            </button>
-            <span id="my-tag-status" style="margin-left: 12px;"></span>
-          </div>
-        </form>
+  <% if (appRequiresIdentity) { %><div class="app-notice app-notice-warning" role="alert"><i data-lucide="triangle-alert"></i><span><strong>请先补全实名资料</strong><small>填写学号、姓名和学院并保存后，方可继续使用其他功能。</small></span></div><% } %>
+  <% if (appEditMessage !== null) { %><div class="app-notice <%= error_info === '' ? 'app-notice-success' : 'app-notice-danger' %>" id="account-form-message"><i data-lucide="<%= error_info === '' ? 'circle-check' : 'circle-alert' %>"></i><span id="account-form-message-text"><%= appEditMessage %></span></div><% } %>
+  <% if (req.query && req.query.saved === '1') { %><div class="app-notice app-notice-success" id="account-form-message"><i data-lucide="circle-check"></i><span id="account-form-message-text">资料已保存。</span></div><% } %>
+  <% if (req.query && req.query.hit === 'saved') { %><div class="app-notice app-notice-success"><i data-lucide="circle-check"></i><span>Hit 值显示设置已保存。</span></div><% } %>
+  <% if (req.query && (req.query.avatar === 'uploaded' || req.query.avatar === 'removed')) { %><div class="app-notice app-notice-success"><i data-lucide="circle-check"></i><span><%= req.query.avatar === 'uploaded' ? '头像上传成功。' : '已恢复默认头像。' %></span></div><% } %>
 
-        <script>
-        (function() {
-          var input = document.getElementById('my-tag-text-input');
-          var visible = document.getElementById('my-tag-visible-input');
-          var btn = document.getElementById('my-tag-save-btn');
-          var status = document.getElementById('my-tag-status');
-          var counter = document.getElementById('my-tag-char-count');
+  <section class="app-settings-section" id="avatar"><div class="app-settings-copy"><span class="app-kicker">AVATAR</span><h2>头像</h2><p>支持 JPG、PNG、WebP，文件大小不超过 2 MB。</p></div><div class="app-avatar-setting"><img src="<%= syzoj.utils.avatar(edited_user, 160) %>" alt="当前头像"><div><form class="app-form" method="post" enctype="multipart/form-data" data-avatar-v2 data-avatar-user-id="<%= edited_user.id %>"><input type="hidden" name="avatar_csrf_token" value="<%= avatarCsrfToken %>"><label class="app-file-field"><input type="file" name="avatar" accept="image/jpeg,image/png,image/webp" required><span><i data-lucide="image-plus"></i><strong>选择图片</strong><small>点击浏览本地文件</small></span></label><button class="app-button app-button-primary" type="submit"><i data-lucide="upload"></i>上传头像</button></form><% if (syzoj.utils.hasCustomAvatar(edited_user)) { %><form class="app-inline-form" method="post" data-avatar-delete-v2 data-avatar-user-id="<%= edited_user.id %>" data-confirm="确定恢复默认头像吗？"><input type="hidden" name="avatar_csrf_token" value="<%= avatarCsrfToken %>"><button class="app-button app-button-quiet" type="submit"><i data-lucide="undo"></i>恢复默认头像</button></form><% } %></div></div></section>
 
-          function updateCount() { counter.textContent = input.value.length; }
-          input.addEventListener('input', updateCount);
-          updateCount();
+  <form id="account-form" class="app-form" method="post" data-account-workflow-v2<% if (edited_user.id === user.id && !user.allowedManage && !appCanManagePrivileges && !appCanManageSiteAdmin) { %> data-account-v2<% } else if (user.allowedManage) { %> data-account-admin-v2 data-user-id="<%= edited_user.id %>" data-can-grant="<%= appCanManagePrivileges ? '1' : '0' %>"<% } %>>
+    <% if (appCanManageSiteAdmin) { %><input type="hidden" name="site_admin_control" value="1"><input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>"><% } %>
+    <section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">IDENTITY</span><h2>基本资料</h2><p>实名资料用于校内比赛、报名和账号核验。</p></div><div class="app-settings-fields app-identity-fields"><label class="app-field"><span class="app-label">用户名</span><input class="app-input" type="text" name="username" value="<%= edited_user.username %>"<%= !user.allowedManage || appEditedUserIsSiteOwner ? ' readonly' : '' %>></label><div class="app-form-grid"><label class="app-field app-field-half"><span class="app-label">性别</span><select class="app-select" name="sex"><option value="0"<%= edited_user.sex == 0 ? ' selected' : '' %>>其它</option><option value="1"<%= edited_user.sex == 1 ? ' selected' : '' %>>男</option><option value="-1"<%= edited_user.sex == -1 ? ' selected' : '' %>>女</option></select></label><label class="app-field app-field-half"><span class="app-label">Email</span><input class="app-input" type="email" name="email" value="<%= edited_user.email %>" required<%= edited_user.id !== user.id && !user.allowedManage ? ' readonly' : '' %>></label></div><div class="app-form-grid"><label class="app-field app-field-third"><span class="app-label">学号</span><input class="app-input" type="text" name="student_id" inputmode="numeric" pattern="\d{10}" minlength="10" maxlength="10" value="<%= appStudentId %>" required<%= appStudentId && !appCanManageIdentity ? ' readonly' : '' %>></label><label class="app-field app-field-third"><span class="app-label">姓名</span><input class="app-input" type="text" name="real_name" maxlength="64" value="<%= appRealName %>" required<%= appRealName && !appCanManageIdentity ? ' readonly' : '' %>></label><label class="app-field app-field-third"><span class="app-label">学院</span><% if (appCollege && !appCanManageIdentity) { %><input class="app-input" type="text" value="<%= appCollege %>" readonly><% } else { %><select class="app-select" name="college" required><option value="">请选择学院</option><% for (const college of appColleges) { %><option value="<%= college %>"<%= college === appCollege ? ' selected' : '' %>><%= college %></option><% } %></select><% } %></label></div><label class="app-field"><span class="app-label">个性签名</span><textarea class="app-textarea" name="information" rows="5"><%= edited_user.information %></textarea></label></div></section>
 
-          btn.addEventListener('click', function() {
-            btn.disabled = true;
-            status.textContent = '保存中...';
-            status.style.color = '#888';
+    <% if (edited_user.id === user.id) { %><section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">PREFERENCES</span><h2>偏好设置</h2><p>这些选项只影响当前账号的显示与公开范围。</p></div><div class="app-settings-fields"><div class="app-setting-row"><span><strong>Email 验证</strong><small><%= user.is_email_verified || (syzoj.verifiedUserIds && syzoj.verifiedUserIds.has(user.id)) ? '邮箱已经完成验证。' : '未验证账号无法使用部分社区功能。' %></small></span><% if (user.is_email_verified || (syzoj.verifiedUserIds && syzoj.verifiedUserIds.has(user.id))) { %><span class="app-status app-status-accepted">已验证</span><% } else { %><button class="app-button app-button-secondary" type="button" data-email-verification-v2><i data-lucide="mail"></i>发送验证邮件</button><% } %></div><label class="app-setting-row"><span><strong>公开 Email</strong><small>允许其他用户在你的主页查看邮箱。</small></span><input class="app-switch" type="checkbox" name="public_email"<%= edited_user.public_email ? ' checked' : '' %>></label><label class="app-setting-row"><span><strong>优先显示格式化代码</strong><small>提交详情存在格式化版本时默认展示。</small></span><input class="app-switch" type="checkbox" name="prefer_formatted_code"<%= edited_user.prefer_formatted_code ? ' checked' : '' %>></label></div></section><% } %>
 
-            var params = new URLSearchParams();
-            params.append('tag_text', input.value);
-            params.append('is_visible', visible.checked ? 'true' : 'false');
+    <section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">SECURITY</span><h2>修改密码</h2><p>不修改密码时，将以下输入框全部留空。</p></div><div class="app-settings-fields"><label class="app-field"><span class="app-label">当前密码</span><span class="app-input-with-action"><input class="app-input" type="password" name="old_password" id="account-old-password" maxlength="128" autocomplete="current-password"><button class="app-icon-button" type="button" data-password-toggle="account-old-password" aria-label="显示密码"><i data-lucide="eye"></i></button></span></label><div class="app-form-grid"><label class="app-field app-field-half"><span class="app-label">新密码</span><input class="app-input" type="password" name="new_password" id="account-new-password" minlength="10" maxlength="128" autocomplete="new-password"></label><label class="app-field app-field-half"><span class="app-label">确认新密码</span><input class="app-input" type="password" id="account-confirm-password" minlength="10" maxlength="128" autocomplete="new-password"></label></div></div></section>
 
-            fetch('/api/my-tag', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-              body: params.toString()
-            })
-              .then(function(r) { return r.json(); })
-              .then(function(d) {
-                if (d.ok) {
-                  status.textContent = '保存成功! 刷新页面后生效';
-                  status.style.color = '#21ba45';
-                } else {
-                  status.textContent = '失败: ' + (d.message || '未知错误');
-                  status.style.color = '#db2828';
-                }
-                btn.disabled = false;
-              })
-              .catch(function(e) {
-                status.textContent = '网络错误: ' + e.message;
-                status.style.color = '#db2828';
-                btn.disabled = false;
-              });
-          });
-        })();
-        </script>
-      </div>
-    <% } else if (typeof edited_user !== 'undefined' && edited_user.id === user.id && _tagState && _tagState.isDisabled) { %>
-      <div class="ui segment" style="margin-top: 15px;">
-        <h4 style="margin-top: 0;"><i class="id badge icon"></i> 用户名牌子</h4>
-        <div class="ui red message">
-          <i class="ban icon"></i>
-          您的牌子使用权限已被超级管理员撤销
-          <% if (_tagState.record && _tagState.record.disabled_reason) { %>
-            <br><span style="color: #888;">原因： <%= _tagState.record.disabled_reason %></span>
-          <% } %>
-        </div>
-      </div>
-    <% } %>
-    <% if (typeof edited_user !== 'undefined' && edited_user.id === user.id) { %>
-      <%
-      let hideHitCurrent = (typeof syzoj.userHitHidden !== 'undefined' && syzoj.userHitHidden.has(edited_user.id));
-      %>
-      <div class="ui divider" style="margin-top: 40px;"></div>
-      <h3 style="margin-top: 30px;"><i class="bullseye icon"></i> Hit 值显示设置</h3>
-      <form method="post" action="<%= syzoj.utils.makeUrl(['user', edited_user.id, 'hit-setting']) %>" class="ui form" style="margin-top: 15px;">
-        <div class="inline field">
-          <div class="ui toggle checkbox">
-            <input type="checkbox" name="hide_hit" id="hide_hit_toggle" <% if (hideHitCurrent) { %>checked<% } %>>
-            <label for="hide_hit_toggle">在我的主页隐藏 Hit 值卡片</label>
-          </div>
-        </div>
-        <div style="color: #888; font-size: 0.9em; margin-top: 6px; padding-left: 30px;">
-          隐藏后，他人访问你的主页将看不到 Hit 卡片。Hit 值本身仍会被系统计算、并影响用户名颜色档。
-          <a href="/help/hit-value">了解 Hit 值</a>
-        </div>
-        <button type="submit" class="ui small primary button" style="margin-top: 15px;">保存 Hit 设置</button>
-      </form>
-    <% } %>
-	</div>
+    <% if (appCanManagePrivileges || appCanManageSiteAdmin) { %><section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">ACCESS</span><h2>权限</h2><p>权限变更保存后立即生效。</p></div><div class="app-settings-fields"><label class="app-setting-row"><span><strong><%= appEditedUserIsSiteOwner ? '站长' : '全站管理员' %></strong><small>拥有所有管理能力。</small></span><input class="app-switch" type="checkbox"<%= appCanManageSiteAdmin ? ' name="is_admin"' : ' disabled' %><%= edited_user.is_admin ? ' checked' : '' %>></label><% for (const privilege of [['manage_problem', '管理题目'], ['manage_problem_tag', '管理题目标签'], ['manage_contest', '管理比赛'], ['manage_user', '管理用户']]) { %><label class="app-setting-row"><span><strong><%= privilege[1] %></strong></span><input class="app-switch" type="checkbox" name="privileges" value="<%= privilege[0] %>"<%= edited_user.privileges.includes(privilege[0]) ? ' checked' : '' %><%= !appCanManagePrivileges ? ' disabled' : '' %>></label><% } %></div></section><% } %>
+
+    <div class="app-settings-submit"><a class="app-button app-button-quiet" href="<%= syzoj.utils.makeUrl(['user', edited_user.id]) %>">取消</a><button id="submit_button" class="app-button app-button-primary" type="submit"><i data-lucide="save"></i>保存资料</button></div>
+  </form>
+
+  <% if (appTagState && appTagState.hasPermission) { %><section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">NAME TAG</span><h2>用户名牌子</h2><p>牌子显示在用户名右侧，最多 12 个字符。<% if (appTagState.isAutoFromAdmin) { %>你的管理权限已自动授予此功能。<% } %></p></div><form class="app-form app-settings-fields" id="my-tag-form"><% if (appTagCheater) { %><div class="app-notice app-notice-warning"><i data-lucide="triangle-alert"></i><span>当前牌子被“作弊者”身份覆盖，标记撤销后会恢复显示。</span></div><% } %><label class="app-field"><span class="app-label">牌子文字 <small><span id="my-tag-char-count">0</span> / 12</small></span><input class="app-input" type="text" id="my-tag-text-input" maxlength="12" value="<%= appTagState.record ? appTagState.record.tag_text || '' : (appEditedUserIsSiteOwner ? '站长' : '管理员') %>" placeholder="请输入牌子文字"></label><label class="app-setting-row"><span><strong>展示牌子</strong><small>关闭后站内不再显示。</small></span><input class="app-switch" type="checkbox" id="my-tag-visible-input"<%= !appTagState.record || appTagState.record.is_visible !== false ? ' checked' : '' %>></label><div class="app-form-actions"><button class="app-button app-button-primary" type="button" id="my-tag-save-btn"><i data-lucide="save"></i>保存牌子</button><span class="app-form-status" id="my-tag-status" aria-live="polite"></span></div></form></section><% } else if (edited_user.id === user.id && appTagState && appTagState.isDisabled) { %><section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">NAME TAG</span><h2>用户名牌子</h2></div><div class="app-notice app-notice-danger"><i data-lucide="ban"></i><span>牌子使用权限已被撤销<% if (appTagState.record && appTagState.record.disabled_reason) { %><small>原因：<%= appTagState.record.disabled_reason %></small><% } %></span></div></section><% } %>
+
+  <% if (edited_user.id === user.id) { %><section class="app-settings-section" id="hit"><div class="app-settings-copy"><span class="app-kicker">HIT VALUE</span><h2>Hit 值显示</h2><p>隐藏仅影响主页展示，不影响系统计算和用户名颜色。</p></div><form class="app-form app-settings-fields" method="post" data-hit-setting-v2><label class="app-setting-row"><span><strong>在主页隐藏 Hit 值</strong><small>其他用户将无法看到你的 Hit 详情。</small></span><input class="app-switch" type="checkbox" name="hide_hit"<%= appHideHit ? ' checked' : '' %>></label><div class="app-form-actions"><button class="app-button app-button-primary" type="submit">保存 Hit 设置</button></div></form></section><% } %>
 </div>
-<script type="text/javascript">
-function check() {
-	old_password = $("#old_password");
-	password1 = $("#password1");
-	password2 = $("#password2");
-	if ($("#old_password").val() && password1.val() != password2.val()) {
-		$("#error").removeClass("success");
-		$("#error").removeClass("error");
-		$("#error").addClass("error");
-		$("#error_info").html("两次输入的密码不一致。");
-		$("#error").show();
-		return false;
-	}
-<% if (allowedManagePrivilege) { %>
-  $('.checkbox_privilege').each(function () {
-    if ($(this).checkbox('is checked')) {
-      var name = $(this).data('name');
 
-      var elem = document.createElement('input');
-      elem.type = 'hidden';
-      elem.value = name;
-      elem.name = 'privileges';
-      document.getElementById('form').appendChild(elem);
+<script>
+(function () {
+  var form = document.getElementById('account-form');
+  function operationKey() { return window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random(); }
+  function showMessage(text, kind) {
+    var message = document.getElementById('account-form-message');
+    if (!message) {
+      message = document.createElement('div');
+      message.id = 'account-form-message';
+      message.innerHTML = '<i data-lucide="circle-alert"></i><span id="account-form-message-text"></span>';
+      form.parentNode.insertBefore(message, form);
+    }
+    message.className = 'app-notice app-notice-' + (kind || 'danger');
+    message.querySelector('#account-form-message-text').textContent = text;
+    if (window.NWPUOJApp) window.NWPUOJApp.refreshIcons(message);
+    message.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  async function jsonResponse(response) {
+    var body = null;
+    try { body = await response.json(); } catch (error) {}
+    return { response: response, body: body };
+  }
+form.addEventListener('submit', async function (event) {
+    var current = document.getElementById('account-old-password').value;
+    var next = document.getElementById('account-new-password').value;
+    var confirmValue = document.getElementById('account-confirm-password').value;
+    if ((current || next || confirmValue) && next !== confirmValue) {
+      event.preventDefault();
+      showMessage('两次输入的新密码不一致。');
+      return;
+    }
+    var adminFlow = form.hasAttribute('data-account-admin-v2');
+    var selfFlow = form.hasAttribute('data-account-v2');
+    if (!adminFlow && !selfFlow) return;
+    event.preventDefault();
+    var button = document.getElementById('submit_button');
+    button.disabled = true;
+    try {
+      var endpoint = adminFlow ? '/api/v2/admin/users/' + encodeURIComponent(form.dataset.userId) : '/api/v2/me';
+      var currentResult = await jsonResponse(await fetch(endpoint, { credentials: 'same-origin' }));
+      if (!currentResult.response.ok || !currentResult.body || !currentResult.body.data) throw new Error(currentResult.body && currentResult.body.error ? currentResult.body.error.message : '无法读取最新资料。');
+      var payload = {
+        email: form.elements.email.value,
+        information: form.elements.information.value,
+        sex: form.elements.sex.value,
+        current_password: current,
+        new_password: next
+      };
+      if (form.elements.public_email) payload.public_email = !!form.elements.public_email.checked;
+      if (form.elements.prefer_formatted_code) payload.prefer_formatted_code = !!form.elements.prefer_formatted_code.checked;
+      if (adminFlow) payload.username = form.elements.username.value;
+      ['student_id', 'real_name', 'college'].forEach(function (name) {
+        var field = form.elements.namedItem(name);
+        if (field && !field.disabled && (adminFlow || !field.readOnly)) payload[name] = field.value;
+      });
+      if (adminFlow && form.dataset.canGrant === '1') {
+        var selectedPrivileges = Array.prototype.map.call(form.querySelectorAll('input[name="privileges"]:checked'), function (field) { return field.value; }).sort();
+        var currentPrivileges = (currentResult.body.data.privileges || []).slice().sort();
+        if (JSON.stringify(selectedPrivileges) !== JSON.stringify(currentPrivileges)) payload.privileges = selectedPrivileges;
+      }
+      if (adminFlow && form.elements.is_admin && !!form.elements.is_admin.checked !== !!currentResult.body.data.is_admin) payload.is_admin = !!form.elements.is_admin.checked;
+      var result = await jsonResponse(await fetch(endpoint, {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': operationKey(),
+          'If-Match': currentResult.response.headers.get('ETag') || ''
+        },
+        body: JSON.stringify(payload)
+      }));
+      if (!result.response.ok) throw new Error(result.body && result.body.error ? result.body.error.message : '资料保存失败。');
+      window.location.assign(window.location.pathname + '?saved=1');
+    } catch (error) {
+      showMessage(error.message || '资料保存失败。');
+      button.disabled = false;
     }
   });
-<% } %>
-
-	return true;
-}
+  var tagInput = document.getElementById('my-tag-text-input'); var tagButton = document.getElementById('my-tag-save-btn');
+  if (tagInput && tagButton) { var tagVisible = document.getElementById('my-tag-visible-input'); var tagStatus = document.getElementById('my-tag-status'); var tagCount = document.getElementById('my-tag-char-count'); function updateCount() { tagCount.textContent = tagInput.value.length; } tagInput.addEventListener('input', updateCount); updateCount(); tagButton.addEventListener('click', async function () { tagButton.disabled = true; tagStatus.textContent = '正在保存...'; try { var response = await fetch('/api/v2/me/user-tag', { method: 'PATCH', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tag_text: tagInput.value, is_visible: tagVisible.checked }) }); var result = await response.json(); if (!response.ok || !result.data) throw new Error(result && result.error ? result.error.message : '保存失败'); tagStatus.textContent = '已保存，刷新页面后生效'; } catch (error) { tagStatus.textContent = error.message; } finally { tagButton.disabled = false; } }); }
+})();
 </script>
 <script>
-$(function () {
-	$('.ui.dropdown:not(.simple)').dropdown();
-	$('.ui.toggle.checkbox').checkbox();
-});
+(function () {
+  function operationKey() { return window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random(); }
+  async function responseBody(response) { var body = null; try { body = await response.json(); } catch (error) {} return { response: response, body: body }; }
+function showError(error) { if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '头像操作失败。', 'danger'); else window.alert(error.message || '头像操作失败。'); }
+  document.querySelectorAll('form[data-avatar-v2]').forEach(function (form) {
+    form.addEventListener('submit', async function (event) {
+      if (event.defaultPrevented) return;
+      event.preventDefault();
+      var button = form.querySelector('[type="submit"]');
+      if (button) button.disabled = true;
+      try {
+        var result = await responseBody(await fetch('/api/v2/users/' + encodeURIComponent(form.dataset.avatarUserId) + '/avatar', { method: 'POST', credentials: 'same-origin', headers: { 'Idempotency-Key': operationKey() }, body: new FormData(form) }));
+        if (!result.response.ok) throw new Error(result.body && result.body.error && result.body.error.message || '头像上传失败。');
+        window.location.assign(window.location.pathname + '?avatar=uploaded#avatar');
+      } catch (error) { showError(error); if (button) button.disabled = false; }
+    });
+  });
+  document.querySelectorAll('form[data-avatar-delete-v2]').forEach(function (form) {
+    form.addEventListener('submit', async function (event) {
+      if (event.defaultPrevented) return;
+      event.preventDefault();
+      var button = form.querySelector('[type="submit"]');
+      if (button) button.disabled = true;
+      try {
+        var result = await responseBody(await fetch('/api/v2/users/' + encodeURIComponent(form.dataset.avatarUserId) + '/avatar', { method: 'DELETE', credentials: 'same-origin', headers: { 'Idempotency-Key': operationKey() } }));
+        if (!result.response.ok) throw new Error(result.body && result.body.error && result.body.error.message || '恢复默认头像失败。');
+        window.location.assign(window.location.pathname + '?avatar=removed#avatar');
+      } catch (error) { showError(error); if (button) button.disabled = false; }
+    });
+  });
+  document.querySelectorAll('form[data-hit-setting-v2]').forEach(function (form) {
+    form.addEventListener('submit', async function (event) {
+      if (event.defaultPrevented) return;
+      event.preventDefault();
+      var button = form.querySelector('[type="submit"]');
+      if (button) button.disabled = true;
+      try {
+        var current = await responseBody(await fetch('/api/v2/me/hit-settings', { credentials: 'same-origin' }));
+        if (!current.response.ok || !current.body || !current.body.data) throw new Error(current.body && current.body.error ? current.body.error.message : '无法读取最新 Hit 设置。');
+        var result = await responseBody(await fetch('/api/v2/me/hit-settings', {
+          method: 'PATCH',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+            'Idempotency-Key': operationKey(),
+            'If-Match': current.response.headers.get('ETag') || ''
+          },
+          body: JSON.stringify({ hide_hit: !!form.elements.hide_hit.checked })
+        }));
+        if (!result.response.ok) throw new Error(result.body && result.body.error ? result.body.error.message : 'Hit 设置保存失败。');
+        window.location.assign(window.location.pathname + '?hit=saved#hit');
+      } catch (error) { showError(error); if (button) button.disabled = false; }
+    });
+  });
+})();
 </script>
-<% include footer %>
+<% include app_footer %>

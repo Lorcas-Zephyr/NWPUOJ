@@ -1,93 +1,39 @@
-<% this.adminPage = 'users'; %>
+<% this.adminPage = 'users' %>
 <% include admin_header %>
-<% if (req.query && req.query.deleted) { %>
-  <div class="ui positive message"><i class="check circle icon"></i>用户“<%= req.query.deleted %>”已删除。</div>
-<% } %>
-<div class="nwpuoj-page-header">
-  <div>
-    <h2 class="nwpuoj-page-title"><i class="users icon"></i>用户管理</h2>
-    <div class="nwpuoj-meta" style="margin-top:4px;">搜索用户、查看账户状态，并进入资料页进行权限管理。</div>
-  </div>
-  <form class="ui small form nwpuoj-ranklist-search" method="get" action="<%= syzoj.utils.makeUrl(['admin', 'users']) %>" role="search" style="max-width:420px;">
-    <div class="ui action left icon input" style="width:100%;">
-      <i class="search icon"></i>
-      <input type="search" name="q" value="<%= keyword %>" placeholder="用户名、邮箱或 UID">
-      <button type="submit" class="ui primary button">搜索</button>
-    </div>
-  </form>
-</div>
 
-<div class="nwpuoj-meta" style="margin-bottom:12px;">共 <%= total %> 名用户<% if (keyword) { %>，当前筛选“<%= keyword %>”<% } %></div>
-<div class="nwpuoj-table-region" role="region" aria-label="用户列表" tabindex="0">
-  <table class="ui very basic center aligned table">
-    <thead>
-      <tr>
-        <th class="nwpuoj-col-number">UID</th>
-        <th style="min-width:180px;">用户</th>
-        <th class="nwpuoj-priority-3" style="min-width:220px;">Email</th>
-        <th>账户状态</th>
-        <th class="nwpuoj-priority-2">Rating</th>
-        <th class="nwpuoj-priority-3">权限</th>
-        <th class="nwpuoj-priority-3">注册时间</th>
-        <th>操作</th>
-      </tr>
-    </thead>
-    <tbody>
-      <% if (!users.length) { %>
-        <tr><td colspan="8"><div class="nwpuoj-empty-state"><i class="users slash icon"></i><h3>没有找到用户</h3></div></td></tr>
-      <% } %>
-      <% users.forEach(function (item) { %>
-        <tr>
-          <td class="nwpuoj-col-number"><%= item.id %></td>
-          <td>
-            <span class="nwpuoj-user-cell">
-              <img class="nwpuoj-user-avatar" src="<%= syzoj.utils.avatar(item, 28) %>" alt="">
-              <a href="<%= syzoj.utils.makeUrl(['user', item.id]) %>"><%= item.username %></a>
-            </span>
-          </td>
-          <td class="nwpuoj-priority-3" style="word-break:break-word;"><%= item.email || '-' %></td>
-          <td>
-            <% if (item.is_admin) { %><span class="nwpuoj-status nwpuoj-status-success">管理员</span><% } else { %><span class="nwpuoj-status nwpuoj-status-muted">普通用户</span><% } %>
-            <% if (item.id === deletedAccountUserId) { %><span class="nwpuoj-status nwpuoj-status-muted">系统账户</span><% } %>
-            <% if (!item.is_show) { %><span class="nwpuoj-status nwpuoj-status-warning">隐藏</span><% } %>
-            <% if (item.is_cheater) { %><span class="nwpuoj-status nwpuoj-status-danger">作弊者</span><% } %>
-            <% if (item.temporaryAccount) { %>
-              <span class="nwpuoj-status <%= Number(item.temporaryAccount.expires_at) <= Math.floor(Date.now() / 1000) ? 'nwpuoj-status-danger' : 'nwpuoj-status-warning' %>">
-                <%= Number(item.temporaryAccount.expires_at) <= Math.floor(Date.now() / 1000) ? '临时账户：已禁止登录' : '临时比赛账户' %>
-              </span>
-            <% } %>
-            <div class="nwpuoj-meta" style="margin-top:4px;"><%= item.is_email_verified ? '邮箱已验证' : '邮箱未验证' %></div>
-          </td>
-          <td class="nwpuoj-priority-2 nwpuoj-col-number"><%= item.rating == null ? '-' : item.rating %></td>
-          <td class="nwpuoj-priority-3">
-            <% if (item.privilegeList.length) { %>
-              <%= item.privilegeList.join('、') %>
-            <% } else { %>-<% } %>
-          </td>
-          <td class="nwpuoj-priority-3"><%= syzoj.utils.formatDate(item.register_time) %></td>
-          <td>
-            <div class="nwpuoj-toolbar-actions" style="justify-content:center;">
-              <a class="ui mini basic labeled icon button" href="<%= syzoj.utils.makeUrl(['user', item.id]) %>"><i class="user icon"></i>主页</a>
-              <% if (item.id !== deletedAccountUserId) { %><a class="ui mini basic labeled icon button" href="<%= syzoj.utils.makeUrl(['user', item.id, 'edit']) %>"><i class="edit icon"></i>资料</a><% } %>
-              <% if (item.id !== user.id && item.id !== syzoj.siteOwnerUserId && item.id !== deletedAccountUserId && (!item.is_admin || (typeof isSiteOwner !== 'undefined' && isSiteOwner))) { %>
-                <form method="post" action="<%= syzoj.utils.makeUrl(['admin', 'users', item.id, 'delete']) %>" style="margin:0;" onsubmit="return confirm('确定删除用户「<%= item.username %>」吗？\n\n提交、题目、比赛、文章、题解和其他公开内容将归属“账户已删除”；实名、头像、消息、权限及个人设置会被清理。该操作不可撤销。');">
-                  <input type="hidden" name="user_management_csrf_token" value="<%= userManagementCsrfToken %>">
-                  <button type="submit" class="ui mini basic red icon button" title="删除用户" aria-label="删除用户"><i class="trash icon"></i></button>
-                </form>
-              <% } %>
-            </div>
-          </td>
-        </tr>
-      <% }); %>
-    </tbody>
-  </table>
-</div>
+<% if (req.query && req.query.deleted) { %><div class="app-notice app-notice-success"><i data-lucide="circle-check"></i><span>用户“<%= req.query.deleted %>”已删除。</span></div><% } %>
+<div class="app-admin-toolbar"><div><h3>用户目录</h3><p>共 <%= total %> 名用户<%= keyword ? '，筛选“' + keyword + '”' : '' %>。</p></div><form class="app-admin-search" method="get" action="<%= syzoj.utils.makeUrl(['admin', 'users']) %>" role="search"><span class="app-input-wrap"><i data-lucide="search"></i><input class="app-input" type="search" name="q" value="<%= keyword %>" placeholder="用户名、邮箱或 UID"></span><button class="app-button app-button-primary" type="submit">搜索</button></form></div>
+<% if (users.length) { %><div class="app-table-region"><table class="app-table app-admin-users-table"><thead><tr><th>UID</th><th>用户</th><th>Email</th><th>账户状态</th><th>Rating</th><th>权限</th><th>注册时间</th><th aria-label="操作"></th></tr></thead><tbody><% users.forEach(function (item) { const expired = item.temporaryAccount && Number(item.temporaryAccount.expires_at) <= Math.floor(Date.now() / 1000); %><tr><td class="app-cell-number">#<%= item.id %></td><td><span class="app-user-cell"><img src="<%= syzoj.utils.avatar(item, 56) %>" alt=""><a href="<%= syzoj.utils.makeUrl(['user', item.id]) %>"><%= item.username %></a></span></td><td><%= item.email || '-' %><small class="app-row-description"><%= item.is_email_verified ? '已验证' : '未验证' %></small></td><td><div class="app-status-list"><% if (item.is_admin) { %><span class="app-status app-status-info">管理员</span><% } else { %><span class="app-status app-status-muted">普通用户</span><% } %><% if (item.id === deletedAccountUserId) { %><span class="app-status app-status-muted">系统账户</span><% } %><% if (!item.is_show) { %><span class="app-status app-status-pending">隐藏</span><% } %><% if (item.is_cheater) { %><span class="app-status app-status-rejected">作弊者</span><% } %><% if (item.temporaryAccount) { %><span class="app-status <%= expired ? 'app-status-rejected' : 'app-status-pending' %>"><%= expired ? '已禁止登录' : '临时账户' %></span><% } %></div></td><td class="app-cell-number"><%= item.rating == null ? '-' : item.rating %></td><td><%= item.privilegeList.length ? item.privilegeList.join('、') : '-' %></td><td class="app-cell-number"><%= syzoj.utils.formatDate(item.register_time) %></td><td class="app-cell-actions"><div class="app-inline-actions"><a class="app-icon-button" href="<%= syzoj.utils.makeUrl(['user', item.id]) %>" title="查看主页" aria-label="查看主页"><i data-lucide="user-round"></i></a><% if (item.id !== deletedAccountUserId) { %><a class="app-icon-button" href="<%= syzoj.utils.makeUrl(['user', item.id, 'edit']) %>" title="编辑资料" aria-label="编辑资料"><i data-lucide="square-pen"></i></a><% } %><% if (item.id !== user.id && item.id !== syzoj.siteOwnerUserId && item.id !== deletedAccountUserId && (!item.is_admin || (typeof isSiteOwner !== 'undefined' && isSiteOwner))) { %><form method="post" data-admin-user-delete-v2 data-user-id="<%= item.id %>" data-confirm="确定删除用户“<%= item.username %>”吗？公开内容将转移到系统删除账户，实名、头像、消息、权限和个人设置会被清理。此操作不可撤销。"><input type="hidden" name="user_management_csrf_token" value="<%= userManagementCsrfToken %>"><button class="app-icon-button app-icon-danger" type="submit" title="删除用户" aria-label="删除用户"><i data-lucide="trash"></i></button></form><% } %></div></td></tr><% }); %></tbody></table></div><% } else { %><div class="app-empty"><div class="app-empty-inner"><i data-lucide="user-round-x"></i><strong>没有找到用户</strong><p>尝试更换关键词。</p></div></div><% } %>
+<% if (totalPages > 1) { %><nav class="app-pagination" aria-label="用户分页"><span>第 <%= currentPage %> / <%= totalPages %> 页</span><span class="app-pagination-pages"><% if (currentPage > 1) { %><a href="<%= usersPageUrl(currentPage - 1) %>" aria-label="上一页"><i data-lucide="chevron-left"></i></a><% } else { %><span aria-disabled="true"><i data-lucide="chevron-left"></i></span><% } %><span class="is-current"><%= currentPage %></span><% if (currentPage < totalPages) { %><a href="<%= usersPageUrl(currentPage + 1) %>" aria-label="下一页"><i data-lucide="chevron-right"></i></a><% } else { %><span aria-disabled="true"><i data-lucide="chevron-right"></i></span><% } %></span></nav><% } %>
 
-<% if (totalPages > 1) { %>
-  <div class="ui pagination menu" style="margin-top:16px;">
-    <a class="item<% if (currentPage <= 1) { %> disabled<% } %>" href="<%= currentPage > 1 ? usersPageUrl(currentPage - 1) : '#' %>" aria-label="上一页"><i class="angle left icon"></i></a>
-    <div class="item"><%= currentPage %> / <%= totalPages %></div>
-    <a class="item<% if (currentPage >= totalPages) { %> disabled<% } %>" href="<%= currentPage < totalPages ? usersPageUrl(currentPage + 1) : '#' %>" aria-label="下一页"><i class="angle right icon"></i></a>
-  </div>
-<% } %>
+<script>
+(function () {
+  document.addEventListener('submit', async function (event) {
+    var form = event.target.closest && event.target.closest('[data-admin-user-delete-v2]');
+    if (!form) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (!window.confirm(form.dataset.confirm || '确定删除此用户吗？')) return;
+    var button = form.querySelector('button[type="submit"]');
+    if (button) button.disabled = true;
+    try {
+      var response = await fetch('/api/v2/admin/users/' + encodeURIComponent(form.dataset.userId), {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) },
+        body: '{}'
+      });
+      var body = await response.json();
+      if (!response.ok) {
+        throw new Error(body && body.error && body.error.message || '用户删除失败');
+      }
+      window.location.assign('<%= syzoj.utils.makeUrl(['admin', 'users']) %>?deleted=' + encodeURIComponent(body.data.username));
+    } catch (error) {
+      if (button) button.disabled = false;
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '用户删除失败', 'error');
+    }
+  }, true);
+})();
+</script>
+
 <% include admin_footer %>

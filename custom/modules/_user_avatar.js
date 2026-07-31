@@ -4,6 +4,7 @@ const os = require('os');
 const path = require('path');
 const multer = require('multer');
 const TypeORM = require('typeorm');
+const contentDomain = require('../libs/content-domain');
 
 const User = syzoj.model('user');
 const AVATAR_DIR = '/app/static/self/avatar';
@@ -111,6 +112,15 @@ function receiveAvatar(req, res, next) {
   });
 }
 
+function receiveAvatarApi(req, res, next) {
+  avatarUpload(req, res, error => {
+    if (!error) return next();
+    const message = error.code === 'LIMIT_FILE_SIZE' ? '头像不能超过 2 MiB。' : (error.message || '头像上传失败。');
+    const status = error.code === 'LIMIT_FILE_SIZE' ? 413 : 422;
+    return syzoj.utils.apiV2.fail(res, status, error.code === 'LIMIT_FILE_SIZE' ? 'AVATAR_TOO_LARGE' : 'AVATAR_UPLOAD_INVALID', message);
+  });
+}
+
 function ensureAvatarCsrfToken(req) {
   if (!req.session.avatarCsrfToken) req.session.avatarCsrfToken = crypto.randomBytes(32).toString('hex');
   return req.session.avatarCsrfToken;
@@ -128,7 +138,31 @@ async function canManageAvatar(actor, targetId) {
   if (Number(syzoj.deletedAccountUserId || 0) === Number(targetId)) return false;
   if (Number(actor.id) === Number(targetId)) return true;
   if (Number(syzoj.siteOwnerUserId || 0) === Number(targetId)) return false;
-  return !!(actor.is_admin || await actor.hasPrivilege('manage_user'));
+  return syzoj.utils.authorizationV2.authorize(actor, 'admin:user.manage', {
+    id: Number(targetId),
+    scope: `user:${targetId}`
+  }, { scope: 'global' });
+}
+
+async function recordAvatarChange(manager, req, targetId, kind) {
+  const actor = req.res.locals.user;
+  const administrative = Number(actor.id) !== Number(targetId);
+  const reason = administrative ? syzoj.utils.operationReason(req, kind === 'updated' ? '代用户上传头像' : '代用户恢复默认头像') : '';
+  const auditEventId = administrative ? await syzoj.utils.authorizationV2.recordAudit(req, {
+    action: kind === 'updated' ? 'admin:user.avatar.update' : 'admin:user.avatar.delete',
+    resourceType: 'user',
+    resourceId: targetId,
+    scope: `user:${targetId}`,
+    reason
+  }, manager) : null;
+  const eventId = await contentDomain.appendEvent(manager, {
+    stream: `user:${targetId}`,
+    type: `user.avatar.${kind}`,
+    aggregateId: targetId,
+    actorId: actor.id,
+    payload: { user_id: targetId, administrative, audit_event_id: auditEventId }
+  });
+  return { auditEventId, eventId };
 }
 
 function cleanupFile(filePath) {
@@ -144,7 +178,7 @@ function storedFilePath(imagePath) {
   return path.join(AVATAR_DIR, filename);
 }
 
-async function updateAvatar(userId, file) {
+async function updateAvatar(userId, file, req) {
   const detectedMime = syzoj.utils.detectSafeRasterImage(file.path);
   if (!detectedMime || !ALLOWED_MIME.has(detectedMime)) {
     throw Object.assign(new ErrorMessage('图片内容不是有效的 JPG、PNG 或 WebP。'), { statusCode: 400 });
@@ -154,8 +188,9 @@ async function updateAvatar(userId, file) {
   const targetPath = path.join(AVATAR_DIR, filename);
   const imagePath = AVATAR_URL_PREFIX + filename;
   let previousPath = null;
+  let event = null;
   try {
-    fs.copyFileSync(file.path, targetPath);
+    fs.copyFileSync(file.path, targetPath, fs.constants.COPYFILE_EXCL);
     await TypeORM.getConnection().transaction(async manager => {
       const previous = await manager.query('SELECT image_path FROM user_avatar WHERE user_id=? FOR UPDATE', [userId]);
       previousPath = previous.length ? storedFilePath(previous[0].image_path) : null;
@@ -164,6 +199,7 @@ async function updateAvatar(userId, file) {
          ON DUPLICATE KEY UPDATE image_path=VALUES(image_path),updated_at=VALUES(updated_at)`,
         [userId, imagePath, Math.floor(Date.now() / 1000)]
       );
+      event = await recordAvatarChange(manager, req, userId, 'updated');
     });
     cleanupFile(previousPath);
     await refreshAvatarCache();
@@ -173,7 +209,30 @@ async function updateAvatar(userId, file) {
   } finally {
     cleanupFile(file.path);
   }
+  return { imagePath, auditEventId: event && event.auditEventId, eventId: event && event.eventId };
 }
+
+async function removeAvatar(userId, req) {
+  let previousPath = null;
+  let event = null;
+  await TypeORM.getConnection().transaction(async manager => {
+    const rows = await manager.query('SELECT image_path FROM user_avatar WHERE user_id=? LIMIT 1 FOR UPDATE', [userId]);
+    previousPath = rows.length ? storedFilePath(rows[0].image_path) : null;
+    await manager.query('DELETE FROM user_avatar WHERE user_id=?', [userId]);
+    event = await recordAvatarChange(manager, req, userId, 'removed');
+  });
+  cleanupFile(previousPath);
+  await refreshAvatarCache();
+  return { auditEventId: event && event.auditEventId, eventId: event && event.eventId };
+}
+
+syzoj.utils.userAvatarV2 = {
+  canManageAvatar,
+  cleanupFile,
+  receiveAvatarApi,
+  removeAvatar,
+  updateAvatar
+};
 
 app.use(async (req, res, next) => {
   try {
@@ -187,47 +246,7 @@ app.use(async (req, res, next) => {
   }
 });
 
-app.post('/user/:id/avatar', receiveAvatar, async (req, res) => {
-  try {
-    const targetId = Number(req.params.id);
-    const actor = res.locals.user;
-    if (!Number.isSafeInteger(targetId) || targetId <= 0 || !await canManageAvatar(actor, targetId)) {
-      throw Object.assign(new ErrorMessage('您没有权限修改该用户的头像。'), { statusCode: 403 });
-    }
-    if (!validAvatarCsrfToken(req)) {
-      throw Object.assign(new ErrorMessage('页面已失效，请刷新资料编辑页后重试。'), { statusCode: 403 });
-    }
-    if (!req.file) throw Object.assign(new ErrorMessage('请选择要上传的头像。'), { statusCode: 400 });
-    if (!await User.findById(targetId)) throw Object.assign(new ErrorMessage('用户不存在。'), { statusCode: 404 });
-    await updateAvatar(targetId, req.file);
-    res.redirect(303, syzoj.utils.makeUrl(['user', targetId, 'edit'], { avatar: 'uploaded' }));
-  } catch (error) {
-    cleanupFile(req.file && req.file.path);
-    syzoj.log('[user-avatar] ' + errorText(error));
-    res.status(error.statusCode || 400).render('error', { err: error });
-  }
-});
 
-app.post('/user/:id/avatar/delete', async (req, res) => {
-  try {
-    const targetId = Number(req.params.id);
-    const actor = res.locals.user;
-    if (!Number.isSafeInteger(targetId) || targetId <= 0 || !await canManageAvatar(actor, targetId)) {
-      throw Object.assign(new ErrorMessage('您没有权限修改该用户的头像。'), { statusCode: 403 });
-    }
-    if (!validAvatarCsrfToken(req)) {
-      throw Object.assign(new ErrorMessage('页面已失效，请刷新资料编辑页后重试。'), { statusCode: 403 });
-    }
-    const rows = await TypeORM.getConnection().query('SELECT image_path FROM user_avatar WHERE user_id=? LIMIT 1', [targetId]);
-    await TypeORM.getConnection().query('DELETE FROM user_avatar WHERE user_id=?', [targetId]);
-    cleanupFile(rows.length ? storedFilePath(rows[0].image_path) : null);
-    await refreshAvatarCache();
-    res.redirect(303, syzoj.utils.makeUrl(['user', targetId, 'edit'], { avatar: 'removed' }));
-  } catch (error) {
-    syzoj.log('[user-avatar] ' + errorText(error));
-    res.status(error.statusCode || 400).render('error', { err: error });
-  }
-});
 
 ensureAvatarSchema().catch(error => {
   syzoj.log('[user-avatar] schema initialization failed: ' + errorText(error));

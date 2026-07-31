@@ -3,23 +3,39 @@ const cheerio = require('cheerio');
 const request = require('request');
 const requestPromise = require('request-promise');
 const TypeORM = require('typeorm');
+const credentialContext = require('../../libs/vjudge-credential-context');
 const TurndownService = require('/app/custom-node-modules/turndown');
 const turndownPluginGfm = require('/app/custom-node-modules/turndown-plugin-gfm');
 
 const endpoint = (process.env.SYZOJ_WEB_UOJ_ENDPOINT || 'https://uoj.ac').replace(/\/+$/, '');
-const jar = request.jar();
-const client = requestPromise.defaults({
-  baseUrl: endpoint,
-  jar: jar,
-  gzip: true,
-  timeout: 20000,
-  simple: false,
-  resolveWithFullResponse: true,
-  followRedirect: false,
-  headers: {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36'
+const credentialSessions = new Map();
+
+function currentCredentials() {
+  return credentialContext.current('uoj');
+}
+
+function currentSession() {
+  const credentials = currentCredentials();
+  let session = credentialSessions.get(credentials.fingerprint);
+  if (!session) {
+    const jar = request.jar();
+    session = {
+      authenticated: false,
+      loginPromise: null,
+      client: requestPromise.defaults({
+        baseUrl: endpoint, jar: jar, gzip: true, timeout: 20000, simple: false,
+        resolveWithFullResponse: true, followRedirect: false,
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36' }
+      })
+    };
+    credentialSessions.set(credentials.fingerprint, session);
   }
-});
+  return session;
+}
+
+function providerClient(options) {
+  return currentSession().client(options);
+}
 
 const languageNames = {
   'uoj.C++03': 'C++',
@@ -51,8 +67,6 @@ const languageLabels = {
   'uoj.Pascal': ['Pascal', 'pascal']
 };
 
-let authenticated = false;
-let loginPromise = null;
 let submissionQueue = Promise.resolve();
 let queuedSubmissions = 0;
 const recentUserSubmissions = new Map();
@@ -86,7 +100,7 @@ function errorWithCode(message, code) {
 }
 
 function configured() {
-  return !!(process.env.SYZOJ_WEB_UOJ_USERNAME && process.env.SYZOJ_WEB_UOJ_PASSWORD);
+  try { currentCredentials(); return true; } catch (error) { return false; }
 }
 
 async function requestWithRetry(method, uri, options) {
@@ -95,7 +109,7 @@ async function requestWithRetry(method, uri, options) {
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const response = await client(Object.assign({ method: method, uri: uri }, options || {}));
+      const response = await providerClient(Object.assign({ method: method, uri: uri }, options || {}));
       if (response.statusCode < 400) return response;
 
       if ([401, 403].includes(response.statusCode)) {
@@ -152,9 +166,11 @@ async function performLogin() {
     throw new Error('未配置 UOJ VJudge 账号。请设置 SYZOJ_WEB_UOJ_USERNAME 和 SYZOJ_WEB_UOJ_PASSWORD。');
   }
 
+  const credentials = currentCredentials();
+  const session = currentSession();
   const page = await requestWithRetry('GET', '/login');
   if ([301, 302, 303, 307, 308].includes(page.statusCode)) {
-    authenticated = true;
+    session.authenticated = true;
     return;
   }
 
@@ -166,8 +182,8 @@ async function performLogin() {
     form: {
       _token: token,
       login: '',
-      username: process.env.SYZOJ_WEB_UOJ_USERNAME,
-      password: hashPassword(process.env.SYZOJ_WEB_UOJ_PASSWORD, salt)
+      username: credentials.username,
+      password: hashPassword(credentials.password, salt)
     }
   });
   const result = String(response.body || '').trim();
@@ -180,18 +196,22 @@ async function performLogin() {
     };
     throw new Error('UOJ 登录失败：' + (reasons[result] || result || '未知错误'));
   }
-  authenticated = true;
+  session.authenticated = true;
 }
 
 async function ensureLogin(force) {
-  if (authenticated && !force) return;
-  if (!loginPromise) {
-    if (force) authenticated = false;
-    loginPromise = performLogin().finally(() => {
-      loginPromise = null;
+  if (!configured()) {
+    throw new Error('未配置 UOJ VJudge 账号。请设置 SYZOJ_WEB_UOJ_USERNAME 和 SYZOJ_WEB_UOJ_PASSWORD。');
+  }
+  const session = currentSession();
+  if (session.authenticated && !force) return;
+  if (!session.loginPromise) {
+    if (force) session.authenticated = false;
+    session.loginPromise = performLogin().finally(() => {
+      session.loginPromise = null;
     });
   }
-  await loginPromise;
+  await session.loginPromise;
 }
 
 function supportedLanguagesFromPage(html) {
@@ -217,7 +237,7 @@ async function latestSubmissionId(problemId) {
   const response = await requestWithRetry('GET', '/submissions', {
     qs: {
       problem_id: problemId,
-      submitter: process.env.SYZOJ_WEB_UOJ_USERNAME
+      submitter: currentCredentials().username
     }
   });
   if (isAuthResponse(response)) throw errorWithCode('UOJ 登录会话已失效。', 'UOJ_AUTH');
@@ -898,22 +918,24 @@ async function runVjudge(judgeState, problem, onProgress) {
       throw new Error('UOJ VJudge 默认禁止用于比赛，以免参赛代码在上游公开。');
     }
 
-    const submissionId = await submitRemote(
+    const submissionId = await vjudge.submit(
       problemId,
       judgeState.language,
       judgeState.code,
-      judgeState.user_id,
-      metadata => persistVjudgeMarker(judgeState, {
-        provider: 'uoj',
-        phase: 'submitting',
-        problemId,
-        beforeId: metadata.beforeId,
-        expectedLanguage: metadata.expectedLanguage,
-        codeLength: metadata.codeLength
-      })
+      {
+        localSubmission: judgeState,
+        onBeforeSubmit: metadata => persistVjudgeMarker(judgeState, {
+          provider: 'uoj',
+          phase: 'submitting',
+          problemId,
+          beforeId: metadata.beforeId,
+          expectedLanguage: metadata.expectedLanguage,
+          codeLength: metadata.codeLength
+        })
+      }
     );
     await persistRemoteSubmission(judgeState, submissionId, problemId);
-    const progress = await pollResult(submissionId, judgeState, onProgress);
+    const progress = await vjudge.pollSubmission(submissionId, { localSubmission: judgeState, onProgress });
     await onProgress({ taskId: judgeState.task_id, type: 4, progress: progress });
     finished = true;
   } catch (e) {
@@ -1005,6 +1027,41 @@ vjudge.fetchProblemIds = fetchProblemIds;
 vjudge.verifyAccount = async function verifyAccount() {
   await ensureLogin(true);
   return true;
+};
+vjudge.checkAccount = vjudge.verifyAccount;
+vjudge.withCredential = function withCredential(reference, operation, options) {
+  return credentialContext.run('uoj', reference, operation, options);
+};
+vjudge.fetchProblemList = async function fetchProblemList(cursor) {
+  const after = Number.parseInt(cursor, 10) || 0;
+  const ids = await fetchProblemIds();
+  const items = ids.filter(id => Number(id) > after).slice(0, 100).map(id => ({ remote_id: String(id) }));
+  return { items: items, next_cursor: items.length === 100 ? items[items.length - 1].remote_id : null };
+};
+vjudge.searchProblems = async function searchProblems(query, cursor) {
+  const page = await vjudge.fetchProblemList(cursor);
+  const needle = String(query || '').trim().toLowerCase();
+  return needle ? { ...page, items: page.items.filter(item => item.remote_id.toLowerCase().includes(needle)) } : page;
+};
+vjudge.submit = async function submit(remoteProblem, language, source, options) {
+  const judgeState = options && options.localSubmission;
+  const problemId = Number.parseInt(remoteProblem && (remoteProblem.remote_id || remoteProblem.id) || remoteProblem, 10);
+  if (!judgeState || typeof judgeState !== 'object') {
+    throw errorWithCode('远程提交必须关联本地评测任务。', 'UOJ_LOCAL_SUBMISSION_REQUIRED');
+  }
+  if (!Number.isSafeInteger(problemId) || problemId < 1) throw errorWithCode('UOJ 远程题号不正确。', 'UOJ_PROBLEM');
+  return submitRemote(problemId, language, String(source || ''), judgeState.user_id, options.onBeforeSubmit);
+};
+vjudge.pollSubmission = async function pollSubmission(remoteSubmissionId, options) {
+  const judgeState = options && options.localSubmission;
+  if (!judgeState || typeof judgeState !== 'object') {
+    throw errorWithCode('远程同步必须关联本地评测任务。', 'UOJ_LOCAL_SUBMISSION_REQUIRED');
+  }
+  return pollResult(Number(remoteSubmissionId), judgeState, options.onProgress);
+};
+vjudge.normalizeResult = function normalizeResult(rawResult) {
+  const raw = rawResult && typeof rawResult === 'object' ? rawResult : {};
+  return { status: String(raw.statusString || raw.status || 'Pending'), verdict: Number(raw.type || 0), score: Number(raw.score || 0), time_ms: Number(raw.time || 0), memory_kib: Number(raw.memory || 0), terminal: !!raw.finished };
 };
 vjudge.configured = configured;
 vjudge._test = {

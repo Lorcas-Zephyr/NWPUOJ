@@ -1,12 +1,15 @@
 {
   "name": "nwpuoj-custom",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "scripts": {
     "postinstall": "npm install --prefix node_modules/markdown-it --omit=dev --no-package-lock --no-save",
-    "test": "npm run test:syntax && npm run test:unit && npm run test:vjudge",
-    "test:syntax": "find libs libs-built modules tests -type f -name '*.js' -exec node --check {} \\;",
-    "test:unit": "node --test tests/rating.test.js tests/problem_bulk_import.test.js tests/version_consistency.test.js tests/contest_temp_accounts.test.js",
+    "test": "npm run verify:design && npm run test:syntax && npm run test:unit && npm run test:profile && npm run test:vjudge",
+    "verify:design": "node tests/verify-design-checklist.js",
+    "test:web:smoke": "bash tests/web_render_smoke.sh",
+    "test:syntax": "find libs libs-built modules scripts tests -type f -name '*.js' -exec node --check {} \\;",
+    "test:profile": "node --test tests/user_profile_v2.test.js tests/user_management_v2.test.js",
+    "test:unit": "node --test tests/design_api_inventory.test.js tests/compatibility_inventory.test.js tests/user_follow_v2.test.js tests/user_avatar_v2.test.js tests/admin_audit_coverage.test.js tests/v2_route_retirement.test.js tests/announcement_order.test.js tests/rating.test.js tests/rating_projection.test.js tests/rating_recalculation.test.js tests/rating_reversal.test.js tests/rating_notification.test.js tests/rating_admin_flow.test.js tests/rating_job_lifecycle.test.js tests/problem_bulk_action.test.js tests/problem_domain.test.js tests/testdata_snapshot.test.js tests/testdata_upload.test.js tests/content_domain.test.js tests/submission_domain.test.js tests/submission_scheduler.test.js tests/submission_storage.test.js tests/migration_submission_consistency.test.js tests/migration_domain.test.js tests/admin_operations_assurance.test.js tests/version_consistency.test.js tests/admin_reason_policy.test.js tests/admin_list_ui.test.js tests/problem_context_ui.test.js tests/app_shell_ui.test.js tests/frontend_foundation_ui.test.js tests/contest_editor_ui.test.js tests/contest_workspace_ui.test.js tests/problem_library_ui.test.js tests/submit_workspace_ui.test.js tests/markdown_editor_draft.test.js tests/accessibility_responsive.test.js tests/judge_monitor.test.js tests/contest_temp_accounts.test.js tests/contest_lifecycle.test.js tests/contest_standings.test.js tests/api_v2_foundation.test.js tests/authorization_v2.test.js tests/authorization_domain.test.js tests/credential_vault.test.js tests/vjudge_credential_context.test.js tests/vjudge_workspace_ui.test.js tests/compile_cache_key.test.js tests/judge_task_signature.test.js tests/vjudge_job_recovery.test.js tests/vjudge_import_policy.test.js tests/vjudge_provider_scheduler.test.js tests/vjudge_remote_submission.test.js",
     "test:vjudge": "bash tests/run-vjudge-tests.sh"
   },
   "dependencies": {

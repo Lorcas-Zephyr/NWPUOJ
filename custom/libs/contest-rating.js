@@ -1,6 +1,8 @@
 const TypeORM = require('typeorm');
 const { calculateRatingChanges } = require('./rating');
 const contestMutation = require('./contest-mutation');
+const migrationCycleEvidence = require('./migration-cycle-evidence');
+const ratingNotification = require('./rating-notification');
 
 const ALGORITHM_VERSION = 1;
 
@@ -94,7 +96,7 @@ async function canonicalStandings(manager, contest) {
   return { deferred: false, contestants: standings };
 }
 
-async function finalizeContestInTransaction(manager, contestId) {
+async function finalizeContestInTransaction(manager, contestId, options = {}) {
     const contests = await manager.query('SELECT * FROM contest WHERE id=? FOR UPDATE', [contestId]);
     if (!contests.length) return { status: 'missing', userIds: [] };
     const contest = contests[0];
@@ -130,20 +132,24 @@ async function finalizeContestInTransaction(manager, contestId) {
         [calculationId,contestant.userId,contestant.ratingAfter,contestant.rank]
       );
       await manager.query('UPDATE user SET rating=? WHERE id=?', [contestant.ratingAfter,contestant.userId]);
-      const signedDelta = contestant.delta >= 0 ? `+${contestant.delta}` : String(contestant.delta);
-      await manager.query(
-        `INSERT INTO notification
-          (recipient_id,type,title,content,source_url,source_id,actor_id,is_read,created_at,read_at)
-         VALUES (?,'contest_rating',?,?,?, ?,NULL,0,?,NULL)`,
-        [
-          contestant.userId,
-          `${contest.title} Rating 已更新`,
-          `第 ${contestant.rank} / ${rated.length} 名，Rating ${contestant.currentRating} → ${contestant.ratingAfter}（${signedDelta}）`,
-          `/contest/${contestId}/ranklist`,
+      if (!options.suppressNotifications && Number(contestant.currentRating) !== Number(contestant.ratingAfter)) {
+        await ratingNotification.upsertRatingChangeNotification(manager, {
+          profileId: 'icpc',
           contestId,
+          userId: contestant.userId,
+          contestTitle: contest.title,
+          rank: contestant.rank,
+          participantCount: rated.length,
+          ratingBefore: contestant.currentRating,
+          ratingAfter: contestant.ratingAfter,
+          sourceKey: `legacy:${calculationId}:user:${contestant.userId}`,
+          kind: options.notificationKind || 'published',
+          causeType: options.causeType,
+          causeContestId: options.causeContestId,
+          causeContestTitle: options.causeContestTitle,
           now
-        ]
-      );
+        });
+      }
     }
     await manager.query(
       `INSERT INTO contest_rating_finalization
@@ -167,6 +173,83 @@ async function finalizeContest(contestId) {
   ));
   invalidateUserCache(result.userIds || []);
   return result;
+}
+
+function ratingStatus(row, now) {
+  const startTime = Number(row.start_time || 0);
+  const endTime = Number(row.end_time || 0);
+  const finalization = row.finalization_status || null;
+  if (startTime > now) return 'scheduled';
+  if (endTime > now) return 'running';
+  if (finalization === 'completed') return 'completed';
+  if (finalization === 'skipped') return 'skipped';
+  return 'pending';
+}
+
+async function listContestRatingStatuses() {
+  const rows = await TypeORM.getConnection().query(
+    `SELECT contest.id,contest.title,contest.start_time,contest.end_time,
+            finalization.status AS finalization_status,
+            finalization.participant_count,finalization.completed_at,finalization.skip_reason
+       FROM contest
+       INNER JOIN contest_rating_config config ON config.contest_id=contest.id AND config.is_rated=1
+       LEFT JOIN contest_rating_finalization finalization ON finalization.contest_id=contest.id
+       ORDER BY contest.end_time DESC,contest.id DESC`
+  );
+  const nowRows = await TypeORM.getConnection().query('SELECT UNIX_TIMESTAMP() AS now');
+  const now = Number(nowRows[0].now);
+  return rows.map(row => ({
+    id: Number(row.id),
+    title: row.title,
+    startTime: Number(row.start_time),
+    endTime: Number(row.end_time),
+    state: ratingStatus(row, now),
+    participantCount: Number(row.participant_count || 0),
+    completedAt: row.completed_at == null ? null : Number(row.completed_at),
+    skipReason: row.skip_reason || null
+  }));
+}
+
+async function finalizePendingContests() {
+  const releaseFinalizer = await contestMutation.acquireContestLock('rating-finalizer');
+  try {
+    const rows = await TypeORM.getConnection().query(
+      `SELECT contest.id
+         FROM contest
+         INNER JOIN contest_rating_config config ON config.contest_id=contest.id AND config.is_rated=1
+         LEFT JOIN contest_rating_finalization finalization ON finalization.contest_id=contest.id
+        WHERE contest.end_time<=UNIX_TIMESTAMP()
+          AND (finalization.contest_id IS NULL OR finalization.status='legacy_unrated')
+        ORDER BY contest.end_time ASC,contest.id ASC`
+    );
+    const summaries = [];
+    const affectedUsers = new Set();
+    for (const row of rows) {
+      const contestId = Number(row.id);
+      const result = await contestMutation.withContestLock(contestId, () => contestMutation.withTransactionRetry(async manager => {
+        await manager.query(
+          "DELETE FROM contest_rating_finalization WHERE contest_id=? AND status='legacy_unrated'",
+          [contestId]
+        );
+        return finalizeContestInTransaction(manager, contestId);
+      }));
+      (result.userIds || []).forEach(userId => affectedUsers.add(Number(userId)));
+      summaries.push({ contestId, status: result.status });
+      // Later contests depend on this contest's resulting ratings, so never
+      // calculate past an unfinished contest.
+      if (result.status === 'deferred') break;
+    }
+    invalidateUserCache(Array.from(affectedUsers));
+    return {
+      contestCount: summaries.length,
+      completedCount: summaries.filter(item => item.status === 'completed').length,
+      skippedCount: summaries.filter(item => item.status === 'skipped').length,
+      deferredCount: summaries.filter(item => item.status === 'deferred').length,
+      summaries
+    };
+  } finally {
+    await releaseFinalizer();
+  }
 }
 
 async function recalculateRatingsFrom(contestId) {
@@ -264,6 +347,10 @@ async function recalculateRatingsFrom(contestId) {
         "DELETE FROM notification WHERE type='contest_rating' AND source_id IN (?)",
         [affectedContestIds]
       );
+      await manager.query(
+        "DELETE FROM rating_notification_delivery WHERE profile_id='icpc' AND contest_id IN (?)",
+        [affectedContestIds]
+      );
       await manager.query('DELETE FROM contest_rating_finalization WHERE contest_id IN (?)', [affectedContestIds]);
       if (calculationBoundary !== null) {
         await manager.query('DELETE FROM rating_history WHERE rating_calculation_id>=?', [calculationBoundary]);
@@ -276,7 +363,9 @@ async function recalculateRatingsFrom(contestId) {
 
       const summaries = [];
       for (const affectedContestId of affectedContestIds) {
-        const summary = await finalizeContestInTransaction(manager, affectedContestId);
+        const summary = await finalizeContestInTransaction(manager, affectedContestId, {
+          notificationKind: 'recalculated'
+        });
         if (summary.status === 'deferred') {
           throw contestMutation.mutationError(
             `比赛 #${affectedContestId} 仍有等待评测的提交，Rating 未重新计算。`,
@@ -304,12 +393,13 @@ async function recalculateRatingsFrom(contestId) {
   }
 }
 
-async function deleteContestAndRecalculate(contestId) {
+async function deleteContestAndRecalculate(contestId, options = {}) {
+  await migrationCycleEvidence.ensureSchema();
   const releaseFinalizer = await contestMutation.acquireContestLock('rating-finalizer');
   const contestReleases = [];
   try {
     const targetRows = await TypeORM.getConnection().query(
-      `SELECT contest.id,contest.end_time,COALESCE(config.is_rated,0) AS is_rated
+      `SELECT contest.id,contest.title,contest.end_time,COALESCE(config.is_rated,0) AS is_rated
        FROM contest
        LEFT JOIN contest_rating_config config ON config.contest_id=contest.id
        WHERE contest.id=? LIMIT 1`,
@@ -358,6 +448,7 @@ async function deleteContestAndRecalculate(contestId) {
       const affectedCalculationIds = new Set(calculationRows.map(row => Number(row.id)));
       const affectedUserIds = new Set();
       const baselines = new Map();
+      const originalRatings = new Map();
       let calculationBoundary = null;
       if (calculationRows.length) {
         calculationBoundary = Number(calculationRows[0].id);
@@ -377,6 +468,11 @@ async function deleteContestAndRecalculate(contestId) {
         );
         userRows.forEach(row => affectedUserIds.add(Number(row.user_id)));
         if (affectedUserIds.size) {
+          const originalRatingRows = await manager.query(
+            'SELECT id,rating FROM user WHERE id IN (?) FOR UPDATE',
+            [Array.from(affectedUserIds)]
+          );
+          originalRatingRows.forEach(row => originalRatings.set(Number(row.id), Number(row.rating)));
           const baselineRows = await manager.query(
             `SELECT history.user_id,history.rating_after
              FROM rating_history history
@@ -395,6 +491,7 @@ async function deleteContestAndRecalculate(contestId) {
 
       if (affectedContestIds.length) {
         await manager.query("DELETE FROM notification WHERE type='contest_rating' AND source_id IN (?)", [affectedContestIds]);
+        await manager.query("DELETE FROM rating_notification_delivery WHERE profile_id='icpc' AND contest_id IN (?)", [affectedContestIds]);
         await manager.query('DELETE FROM contest_rating_finalization WHERE contest_id IN (?)', [affectedContestIds]);
       }
       if (calculationBoundary !== null) {
@@ -406,16 +503,21 @@ async function deleteContestAndRecalculate(contestId) {
         }
       }
 
-      await contestMutation.deleteContestInTransaction(manager, contestId, {
+      const deletionOptions = {
         allowStarted: true,
         allowFinalized: true,
-        deleteSubmissions: true
-      });
+        allowPending: true,
+        deleteSubmissions: true,
+        actorId: options.actorId
+      };
+      await contestMutation.deleteContestInTransaction(manager, contestId, deletionOptions);
 
       const summaries = [];
       for (const affectedContestId of affectedContestIds) {
         if (affectedContestId === Number(contestId)) continue;
-        const summary = await finalizeContestInTransaction(manager, affectedContestId);
+        const summary = await finalizeContestInTransaction(manager, affectedContestId, {
+          suppressNotifications: true
+        });
         if (summary.status === 'deferred') {
           throw contestMutation.mutationError(
             `后续比赛 #${affectedContestId} 仍有等待评测的提交，不能安全删除并重算 Rating。`,
@@ -428,9 +530,37 @@ async function deleteContestAndRecalculate(contestId) {
         summary.userIds.forEach(userId => affectedUserIds.add(Number(userId)));
         summaries.push({ contestId: affectedContestId, status: summary.status });
       }
+      if (originalRatings.size) {
+        const finalRatingRows = await manager.query(
+          'SELECT id,rating FROM user WHERE id IN (?) FOR UPDATE',
+          [Array.from(originalRatings.keys())]
+        );
+        for (const row of finalRatingRows) {
+          const userId = Number(row.id);
+          const before = originalRatings.get(userId);
+          const after = Number(row.rating);
+          if (before === after) continue;
+          await ratingNotification.upsertRatingChangeNotification(manager, {
+            profileId: 'icpc',
+            contestId: Number(contestId),
+            userId,
+            contestTitle: target.title || `比赛 #${contestId}`,
+            ratingBefore: before,
+            ratingAfter: after,
+            sourceKey: `contest-delete:${contestId}:user:${userId}`,
+            sourceUrl: `/user/${userId}`,
+            kind: 'recalculated',
+            causeType: 'contest_deleted',
+            causeContestId: Number(contestId),
+            causeContestTitle: target.title || `#${contestId}`,
+            now
+          });
+        }
+      }
       return {
         contestCount: summaries.length,
-        userIds: Array.from(affectedUserIds)
+        userIds: Array.from(affectedUserIds),
+        cycleEvidence: deletionOptions.cycleEvidence || null
       };
     });
     invalidateUserCache(result.userIds);
@@ -447,5 +577,8 @@ module.exports = {
   deleteContestAndRecalculate,
   finalizeContest,
   finalizeContestInTransaction,
+  finalizePendingContests,
+  listContestRatingStatuses,
+  ratingStatus,
   recalculateRatingsFrom
 };

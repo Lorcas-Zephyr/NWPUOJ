@@ -125,29 +125,51 @@ syzoj.TICKET_STATUS = TICKET_STATUS;
 
 // ============ 工具函数 ============
 
-function isTicketAdmin(user) {
+async function isTicketAdmin(user, ticket) {
   if (!user) return false;
-  if (user.is_admin) return true;
-  if (user.privileges && user.privileges.includes('manage_problem')) return true;
+  const resource = ticket ? { id: ticket.id, ownerId: ticket.creator_id, scope: `ticket:${ticket.id}` } : null;
+  return syzoj.utils.authorizationV2.authorize(user, 'ticket:manage', resource, {
+    scope: resource ? resource.scope : 'global'
+  });
+}
+
+async function canViewTicket(user, ticket) {
+  if (!user) return false;
+  if (user.id === ticket.creator_id) return true;
+  if (await isTicketAdmin(user, ticket)) return true;
   return false;
 }
 
-function canViewTicket(user, ticket) {
-  if (!user) return false;
-  if (user.id === ticket.creator_id) return true;
-  if (isTicketAdmin(user)) return true;
-  return false;
+async function auditTicketAction(req, ticket, action, reason, details) {
+  const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, {
+    action,
+    resourceType: 'ticket',
+    resourceId: ticket.id,
+    scope: `ticket:${ticket.id}`,
+    reason,
+    details: details || {}
+  });
+  await syzoj.utils.apiV2.appendEvent({
+    stream: `ticket:${ticket.id}`,
+    type: action.replace(':', '.'),
+    aggregateId: ticket.id,
+    actor: req.res.locals.user,
+    payload: Object.assign({ ticket_id: Number(ticket.id), reason, audit_event_id: auditEventId }, details || {})
+  });
+  req.res.setHeader('X-Audit-Event-ID', auditEventId);
+  return auditEventId;
 }
 
 async function authorizeTicketUpload(req, res, next) {
   try {
-    if (!res.locals.user) return res.status(401).json({ ok: false, message: '请先登录。' });
+    const api = syzoj.utils.apiV2;
+    if (!res.locals.user) return api.fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.');
     const ticketId = Number(req.params.id);
     const ticket = Number.isSafeInteger(ticketId) && ticketId > 0 ? await Ticket.findById(ticketId) : null;
-    if (!ticket) return res.status(404).json({ ok: false, message: '工单不存在。' });
-    if (!canViewTicket(res.locals.user, ticket)) return res.status(403).json({ ok: false, message: '无权限。' });
-    if (['resolved', 'rejected', 'closed'].includes(ticket.status) && !isTicketAdmin(res.locals.user)) {
-      return res.status(409).json({ ok: false, message: '该工单当前状态不允许继续上传附件。' });
+    if (!ticket) return api.fail(res, 404, 'TICKET_NOT_FOUND', 'Ticket was not found.');
+    if (!await canViewTicket(res.locals.user, ticket)) return api.fail(res, 403, 'TICKET_FORBIDDEN', 'You cannot access this ticket.');
+    if (['resolved', 'rejected', 'closed'].includes(ticket.status) && !await isTicketAdmin(res.locals.user, ticket)) {
+      return api.fail(res, 409, 'TICKET_CLOSED', 'Attachments cannot be added to a closed ticket.');
     }
     req.ticketUploadTarget = ticket;
     next();
@@ -163,7 +185,7 @@ function receiveTicketAttachments(req, res, next) {
     let message = error.message || '附件上传失败。';
     if (error.code === 'LIMIT_FILE_SIZE') message = '单个附件不能超过 20MB。';
     if (error.code === 'LIMIT_FILE_COUNT' || error.code === 'LIMIT_UNEXPECTED_FILE') message = '单次最多上传 10 个附件。';
-    res.status(400).json({ ok: false, message: message });
+    syzoj.utils.apiV2.fail(res, 400, error.code || 'ATTACHMENT_UPLOAD_INVALID', message);
   });
 }
 
@@ -207,7 +229,7 @@ app.get('/tickets', async (req, res) => {
         { '登录': syzoj.utils.makeUrl(['login'], { url: req.originalUrl }) });
     }
 
-    let isAdmin = isTicketAdmin(res.locals.user);
+    let isAdmin = await isTicketAdmin(res.locals.user);
     let filter = req.query.filter || (isAdmin ? 'all' : 'mine');
     let categoryFilter = req.query.category || '';
     let statusFilter = req.query.status || '';
@@ -291,7 +313,7 @@ app.get('/ticket/new', async (req, res) => {
     }
 
     let recent = await getRecentCreatedCount(res.locals.user.id);
-    if (recent >= 5 && !isTicketAdmin(res.locals.user)) {
+    if (recent >= 5 && !await isTicketAdmin(res.locals.user)) {
       throw new ErrorMessage('您 24 小时内已创建 ' + recent + ' 个工单,达到上限(5 个)。请稍后再试。');
     }
 
@@ -322,70 +344,6 @@ app.get('/ticket/new', async (req, res) => {
   }
 });
 
-app.post('/ticket/new', async (req, res) => {
-  try {
-    if (!res.locals.user) throw new ErrorMessage('请先登录。');
-
-    let recent = await getRecentCreatedCount(res.locals.user.id);
-    if (recent >= 5 && !isTicketAdmin(res.locals.user)) {
-      throw new ErrorMessage('您 24 小时内已创建 ' + recent + ' 个工单,达到上限(5 个)。');
-    }
-
-    let category = (req.body.category || '').trim();
-    let subtype = (req.body.subtype || '').trim();
-    let title = (req.body.title || '').trim();
-    let description = (req.body.description || '').trim();
-    let relationId = (req.body.relation_id || '').trim();
-
-    let cfg = TICKET_CATEGORIES[category];
-    if (!cfg) throw new ErrorMessage('未知工单类别。');
-    if (!cfg.subtypes.find(s => s.value === subtype)) {
-      throw new ErrorMessage('未知工单子类型。');
-    }
-    if (title.length < 5) throw new ErrorMessage('标题不能少于 5 个字符。');
-    if (title.length > 200) throw new ErrorMessage('标题不能超过 200 字符。');
-
-    let actualRelationId = relationId;
-    if (cfg.relation === 'user' && category === 'user' && !relationId) {
-      actualRelationId = res.locals.user.id.toString();
-    }
-    if (cfg.relation_required) {
-      let err = await validateRelation(category, actualRelationId);
-      if (err) throw new ErrorMessage(err);
-    }
-
-    let extra = {};
-    if (cfg.extra_required) {
-      for (let field of cfg.extra_required) {
-        let v = (req.body[field] || '').trim();
-        if (!v) throw new ErrorMessage('请填写「' + field + '」字段。');
-        extra[field] = v;
-      }
-    }
-
-    let now = parseInt((new Date()).getTime() / 1000);
-    let ticket = await Ticket.create();
-    ticket.category = category;
-    ticket.subtype = subtype;
-    ticket.title = title;
-    ticket.description = description;
-    ticket.creator_id = res.locals.user.id;
-    ticket.assignee_id = null;
-    ticket.status = 'pending';
-    ticket.relation_type = cfg.relation;
-    ticket.relation_id = actualRelationId ? parseInt(actualRelationId) : null;
-    ticket.extra_data = Object.keys(extra).length > 0 ? JSON.stringify(extra) : null;
-    ticket.is_public = false;
-    ticket.created_at = now;
-    ticket.updated_at = now;
-    await ticket.save();
-
-    res.redirect(syzoj.utils.makeUrl(['ticket', ticket.id]));
-  } catch (e) {
-    syzoj.log(e);
-    res.render('error', { err: e });
-  }
-});
 
 // ============ 3. 工单详情 ============
 app.get('/ticket/:id', async (req, res) => {
@@ -399,11 +357,11 @@ app.get('/ticket/:id', async (req, res) => {
     let ticket = await Ticket.findById(id);
     if (!ticket) throw new ErrorMessage('无此工单。');
 
-    if (!canViewTicket(res.locals.user, ticket)) {
+    if (!await canViewTicket(res.locals.user, ticket)) {
       throw new ErrorMessage('您没有权限查看此工单。');
     }
 
-    let isAdmin = isTicketAdmin(res.locals.user);
+    let isAdmin = await isTicketAdmin(res.locals.user, ticket);
     let isCreator = res.locals.user.id === ticket.creator_id;
 
     let creator = await User.findById(ticket.creator_id);
@@ -493,323 +451,18 @@ app.get('/ticket/:id', async (req, res) => {
 });
 
 // ============ 4. 添加回复 ============
-app.post('/ticket/:id/reply', async (req, res) => {
-  try {
-    if (!res.locals.user) throw new ErrorMessage('请先登录。');
-
-    let id = parseInt(req.params.id);
-    let ticket = await Ticket.findById(id);
-    if (!ticket) throw new ErrorMessage('无此工单。');
-    if (!canViewTicket(res.locals.user, ticket)) {
-      throw new ErrorMessage('您没有权限回复此工单。');
-    }
-
-    let isAdmin = isTicketAdmin(res.locals.user);
-    let isCreator = res.locals.user.id === ticket.creator_id;
-
-    if (['closed', 'rejected', 'resolved'].includes(ticket.status)) {
-      throw new ErrorMessage('此工单已结案,不能再回复。');
-    }
-
-    if (isAdmin && !isCreator && ticket.assignee_id !== res.locals.user.id) {
-      throw new ErrorMessage('请先认领此工单后再回复。');
-    }
-
-    let content = (req.body.content || '').trim();
-    let isInternal = (req.body.is_internal === 'on' || req.body.is_internal === 'true');
-    if (!isAdmin) isInternal = false;
-
-    if (!content) throw new ErrorMessage('回复内容不能为空。');
-    if (content.length > 50000) throw new ErrorMessage('回复内容过长。');
-
-    let now = parseInt((new Date()).getTime() / 1000);
-    let reply = await TicketReply.create();
-    reply.ticket_id = ticket.id;
-    reply.user_id = res.locals.user.id;
-    reply.content = content;
-    reply.is_internal = isInternal;
-    reply.is_status_change = false;
-    reply.created_at = now;
-    await reply.save();
-
-    ticket.updated_at = now;
-    if (isAdmin && !isCreator && ticket.status === 'pending') {
-      ticket.status = 'in_progress';
-    }
-    await ticket.save();
-
-    // 通知工单创建者(仅公开回复)
-    if (!isInternal && ticket.creator_id !== res.locals.user.id) {
-      try {
-        await syzoj.utils.createNotification({
-          recipientId: ticket.creator_id,
-          type: 'ticket_replied',
-          title: '您的工单《' + ticket.title + '》收到新回复',
-          content: res.locals.user.username + '：' + (content.length > 100 ? content.substring(0, 100) + '...' : content),
-          sourceUrl: syzoj.utils.makeUrl(['ticket', ticket.id]),
-          sourceId: ticket.id,
-          actorId: res.locals.user.id
-        });
-      } catch (e) { syzoj.log('[notification] ticket_replied failed: ' + e.message); }
-    }
-
-    res.redirect(syzoj.utils.makeUrl(['ticket', ticket.id]));
-  } catch (e) {
-    syzoj.log(e);
-    res.render('error', { err: e });
-  }
-});
 
 // ============ 5. admin 改状态 ============
-app.post('/ticket/:id/status', async (req, res) => {
-  try {
-    if (!res.locals.user) throw new ErrorMessage('请先登录。');
-    if (!isTicketAdmin(res.locals.user)) throw new ErrorMessage('您没有此操作权限。');
-
-    let id = parseInt(req.params.id);
-    let ticket = await Ticket.findById(id);
-    if (!ticket) throw new ErrorMessage('无此工单。');
-
-    let newStatus = (req.body.status || '').trim();
-    if (!TICKET_STATUS[newStatus]) throw new ErrorMessage('未知状态值。');
-
-    if (ticket.assignee_id !== res.locals.user.id) {
-      throw new ErrorMessage('请先认领此工单后再改状态。');
-    }
-
-    let oldStatus = ticket.status;
-    if (oldStatus === newStatus) {
-      return res.redirect(syzoj.utils.makeUrl(['ticket', ticket.id]));
-    }
-
-    let now = parseInt((new Date()).getTime() / 1000);
-    ticket.status = newStatus;
-    ticket.updated_at = now;
-    await ticket.save();
-
-    let sysReply = await TicketReply.create();
-    sysReply.ticket_id = ticket.id;
-    sysReply.user_id = res.locals.user.id;
-    sysReply.content = '工单状态由「' + (TICKET_STATUS[oldStatus] ? TICKET_STATUS[oldStatus].label : oldStatus) +
-                       '」变更为「' + TICKET_STATUS[newStatus].label + '」。';
-    sysReply.is_internal = false;
-    sysReply.is_status_change = true;
-    sysReply.created_at = now;
-    await sysReply.save();
-
-    // 通知工单创建者
-    if (ticket.creator_id !== res.locals.user.id) {
-      try {
-        await syzoj.utils.createNotification({
-          recipientId: ticket.creator_id,
-          type: 'ticket_status_changed',
-          title: '您的工单《' + ticket.title + '》状态已变为：' + TICKET_STATUS[newStatus].label,
-          content: '操作员：' + res.locals.user.username,
-          sourceUrl: syzoj.utils.makeUrl(['ticket', ticket.id]),
-          sourceId: ticket.id,
-          actorId: res.locals.user.id
-        });
-      } catch (e) { syzoj.log('[notification] ticket_status_changed failed: ' + e.message); }
-    }
-
-    res.redirect(syzoj.utils.makeUrl(['ticket', ticket.id]));
-  } catch (e) {
-    syzoj.log(e);
-    res.render('error', { err: e });
-  }
-});
 
 // ============ 6. admin 认领 ============
-app.post('/ticket/:id/assign', async (req, res) => {
-  try {
-    if (!res.locals.user) throw new ErrorMessage('请先登录。');
-    if (!isTicketAdmin(res.locals.user)) throw new ErrorMessage('您没有此操作权限。');
-
-    let id = parseInt(req.params.id);
-    let ticket = await Ticket.findById(id);
-    if (!ticket) throw new ErrorMessage('无此工单。');
-
-    let now = parseInt((new Date()).getTime() / 1000);
-    let oldAssigneeId = ticket.assignee_id;
-    ticket.assignee_id = res.locals.user.id;
-    ticket.updated_at = now;
-    if (ticket.status === 'pending') ticket.status = 'in_progress';
-    await ticket.save();
-
-    let sysReply = await TicketReply.create();
-    sysReply.ticket_id = ticket.id;
-    sysReply.user_id = res.locals.user.id;
-    if (oldAssigneeId && oldAssigneeId !== res.locals.user.id) {
-      let prev = await User.findById(oldAssigneeId);
-      sysReply.content = '工单已由 ' + (prev ? prev.username : '上一个处理人') + ' 转交给 ' + res.locals.user.username + ' 处理。';
-    } else {
-      sysReply.content = res.locals.user.username + ' 已认领此工单。';
-    }
-    sysReply.is_internal = false;
-    sysReply.is_status_change = true;
-    sysReply.created_at = now;
-    await sysReply.save();
-
-    res.redirect(syzoj.utils.makeUrl(['ticket', ticket.id]));
-  } catch (e) {
-    syzoj.log(e);
-    res.render('error', { err: e });
-  }
-});
 
 // ============ 7. 用户撤回工单 ============
-app.post('/ticket/:id/withdraw', async (req, res) => {
-  try {
-    if (!res.locals.user) throw new ErrorMessage('请先登录。');
 
-    let id = parseInt(req.params.id);
-    let ticket = await Ticket.findById(id);
-    if (!ticket) throw new ErrorMessage('无此工单。');
+// ============ 8. admin 关闭工单(保留历史) ============
 
-    if (ticket.creator_id !== res.locals.user.id) {
-      throw new ErrorMessage('您不是此工单的创建者。');
-    }
-
-    if (['closed', 'rejected', 'resolved'].includes(ticket.status)) {
-      throw new ErrorMessage('此工单已结案,无需撤回。');
-    }
-
-    let now = parseInt((new Date()).getTime() / 1000);
-    ticket.status = 'closed';
-    ticket.updated_at = now;
-    await ticket.save();
-
-    let sysReply = await TicketReply.create();
-    sysReply.ticket_id = ticket.id;
-    sysReply.user_id = res.locals.user.id;
-    sysReply.content = '工单创建者已撤回此工单。';
-    sysReply.is_internal = false;
-    sysReply.is_status_change = true;
-    sysReply.created_at = now;
-    await sysReply.save();
-
-    res.redirect(syzoj.utils.makeUrl(['ticket', ticket.id]));
-  } catch (e) {
-    syzoj.log(e);
-    res.render('error', { err: e });
-  }
-});
-
-// ============ 8. admin 删除工单 ============
-app.post('/ticket/:id/delete', async (req, res) => {
-  try {
-    if (!res.locals.user) throw new ErrorMessage('请先登录。');
-    if (!res.locals.user.is_admin) throw new ErrorMessage('仅超级管理员可删除工单。');
-
-    let id = parseInt(req.params.id);
-    let ticket = await Ticket.findById(id);
-    if (!ticket) throw new ErrorMessage('无此工单。');
-
-    // 删附件文件
-    let atts = await TicketAttachment.createQueryBuilder()
-      .where('ticket_id = :id', { id: ticket.id })
-      .getMany();
-    for (let a of atts) {
-      try { fs.unlinkSync(path.join(TICKET_UPLOAD_DIR, a.filename)); } catch(e) {}
-    }
-    // 删附件记录
-    await TicketAttachment.createQueryBuilder()
-      .delete()
-      .where('ticket_id = :id', { id: ticket.id })
-      .execute();
-
-    // 删回复
-    await TicketReply.createQueryBuilder()
-      .delete()
-      .where('ticket_id = :id', { id: ticket.id })
-      .execute();
-
-    await ticket.destroy();
-
-    res.redirect(syzoj.utils.makeUrl(['tickets']));
-  } catch (e) {
-    syzoj.log(e);
-    res.render('error', { err: e });
-  }
-});
-
-// ============ 9. 关联对象搜索 API ============
-app.get('/api/ticket-relation-search', async (req, res) => {
-  try {
-    if (!res.locals.user) {
-      return res.json({ results: [] });
-    }
-
-    let type = req.query.type || '';
-    let q = (req.query.q || '').trim();
-    if (!q || q.length < 1) return res.json({ results: [] });
-
-    let results = [];
-    if (type === 'problem') {
-      let qid = parseInt(q);
-      if (qid && qid > 0) {
-        let p = await Problem.findById(qid);
-        if (p && p.is_public) results.push({ id: p.id, name: '#' + p.id + '. ' + p.title });
-      }
-      if (results.length === 0 && q.length >= 2) {
-        let list = await Problem.createQueryBuilder()
-          .where('is_public = :pub', { pub: true })
-          .andWhere('title LIKE :q', { q: '%' + q + '%' })
-          .limit(10)
-          .getMany();
-        for (let p of list) results.push({ id: p.id, name: '#' + p.id + '. ' + p.title });
-      }
-    } else if (type === 'contest') {
-      let qid = parseInt(q);
-      if (qid && qid > 0) {
-        let c = await Contest.findById(qid);
-        if (c) results.push({ id: c.id, name: c.title });
-      }
-      if (results.length === 0 && q.length >= 2) {
-        let list = await Contest.createQueryBuilder()
-          .where('title LIKE :q', { q: '%' + q + '%' })
-          .limit(10)
-          .getMany();
-        for (let c of list) results.push({ id: c.id, name: c.title });
-      }
-    } else if (type === 'article') {
-      let qid = parseInt(q);
-      if (qid && qid > 0) {
-        let a = await Article.findById(qid);
-        if (a) results.push({ id: a.id, name: a.title });
-      }
-      if (results.length === 0 && q.length >= 2) {
-        let list = await Article.createQueryBuilder()
-          .where('title LIKE :q', { q: '%' + q + '%' })
-          .limit(10)
-          .getMany();
-        for (let a of list) results.push({ id: a.id, name: a.title });
-      }
-    } else if (type === 'user') {
-      let qid = parseInt(q);
-      if (qid && qid > 0) {
-        let u = await User.findById(qid);
-        if (u) results.push({ id: u.id, name: u.username + ' (UID ' + u.id + ')' });
-      }
-      if (results.length === 0 && q.length >= 1) {
-        let list = await User.createQueryBuilder()
-          .where('username LIKE :q', { q: '%' + q + '%' })
-          .limit(10)
-          .getMany();
-        for (let u of list) results.push({ id: u.id, name: u.username + ' (UID ' + u.id + ')' });
-      }
-    }
-
-    res.set('Cache-Control', 'no-store');
-    res.json({ results: results });
-  } catch (e) {
-    syzoj.log(e);
-    res.json({ results: [] });
-  }
-});
-
-// ============ 10. 上传附件(用 SYZOJ 自带的 app.multer) ============
-app.post('/ticket/:id/upload', authorizeTicketUpload, receiveTicketAttachments, async (req, res) => {
+// ============ 10. 上传附件 ============
+app.post('/api/v2/tickets/:id/attachments', authorizeTicketUpload, receiveTicketAttachments, async (req, res) => {
+  const api = syzoj.utils.apiV2;
   let savedFiles = [];
   let savedAttachments = [];
   try {
@@ -817,13 +470,13 @@ app.post('/ticket/:id/upload', authorizeTicketUpload, receiveTicketAttachments, 
     let ticket = req.ticketUploadTarget;
 
     if (!req.files || req.files.length === 0) {
-      return res.json({ ok: false, message: '未上传文件。' });
+      return api.fail(res, 422, 'ATTACHMENT_REQUIRED', 'Select at least one attachment.');
     }
 
     let existing = await TicketAttachment.count({ where: 'ticket_id = ' + ticketId });
     if (existing + req.files.length > MAX_FILES_PER_TICKET) {
       for (let f of req.files) { try { fs.unlinkSync(f.path); } catch(e){} }
-      return res.json({ ok: false, message: '此工单附件总数将超过 ' + MAX_FILES_PER_TICKET + ' 个。' });
+      return api.fail(res, 422, 'ATTACHMENT_LIMIT_EXCEEDED', 'This ticket cannot contain more than ' + MAX_FILES_PER_TICKET + ' attachments.');
     }
 
     let now = parseInt((new Date()).getTime() / 1000);
@@ -867,13 +520,14 @@ app.post('/ticket/:id/upload', authorizeTicketUpload, receiveTicketAttachments, 
     await ticket.save();
 
     cleanupTicketUploads(req.files);
-    res.json({ ok: true, attachment_ids: savedIds });
+    const auditEventId = await auditTicketAction(req, ticket, 'ticket:attachments.upload', null, { attachment_ids: savedIds });
+    return api.send(res, { attachment_ids: savedIds, audit_event_id: String(auditEventId) }, 201);
   } catch (e) {
     syzoj.log(e);
     for (let p of savedFiles) { try { fs.unlinkSync(p); } catch(err){} }
     for (let attachment of savedAttachments) { try { await attachment.destroy(); } catch (cleanupError) {} }
     cleanupTicketUploads(req.files);
-    res.status(e.statusCode || 500).json({ ok: false, message: e.message || '上传失败' });
+    return api.fail(res, e.statusCode || 500, e.code || 'ATTACHMENT_UPLOAD_FAILED', e.message || 'Attachment upload failed.');
   }
 });
 
@@ -888,7 +542,7 @@ app.get('/ticket-attachment/:id', async (req, res) => {
 
     let ticket = await Ticket.findById(att.ticket_id);
     if (!ticket) throw new ErrorMessage('关联工单不存在。');
-    if (!canViewTicket(res.locals.user, ticket)) {
+    if (!await canViewTicket(res.locals.user, ticket)) {
       throw new ErrorMessage('您没有权限下载此附件。');
     }
 
@@ -918,27 +572,28 @@ app.get('/ticket-attachment/:id', async (req, res) => {
 });
 
 // ============ 12. 删除附件 ============
-app.post('/ticket-attachment/:id/delete', async (req, res) => {
+app.delete('/api/v2/ticket-attachments/:id', async (req, res) => {
+  const api = syzoj.utils.apiV2;
   try {
-    if (!res.locals.user) throw new ErrorMessage('请先登录。');
+    if (!res.locals.user) return api.fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.');
 
     let id = parseInt(req.params.id);
     let att = await TicketAttachment.findById(id);
-    if (!att) throw new ErrorMessage('附件不存在。');
+    if (!att) return api.fail(res, 404, 'ATTACHMENT_NOT_FOUND', 'Attachment was not found.');
 
     let ticket = await Ticket.findById(att.ticket_id);
-    if (!ticket) throw new ErrorMessage('关联工单不存在。');
+    if (!ticket) return api.fail(res, 404, 'TICKET_NOT_FOUND', 'The related ticket was not found.');
 
-    let canDelete = (att.uploader_id === res.locals.user.id) || isTicketAdmin(res.locals.user);
-    if (!canDelete) throw new ErrorMessage('您没有权限删除此附件。');
+    let canDelete = (att.uploader_id === res.locals.user.id) || await isTicketAdmin(res.locals.user, ticket);
+    if (!canDelete) return api.fail(res, 403, 'ATTACHMENT_FORBIDDEN', 'You cannot delete this attachment.');
 
     let filePath = path.join(TICKET_UPLOAD_DIR, att.filename);
     try { fs.unlinkSync(filePath); } catch(e) {}
     await att.destroy();
-
-    res.redirect(syzoj.utils.makeUrl(['ticket', att.ticket_id]));
+    const auditEventId = await auditTicketAction(req, ticket, 'ticket:attachment.delete', null, { attachment_id: id });
+    return api.send(res, { id, deleted: true, audit_event_id: String(auditEventId) });
   } catch (e) {
     syzoj.log(e);
-    res.render('error', { err: e });
+    return api.fail(res, e.statusCode || 500, e.code || 'ATTACHMENT_DELETE_FAILED', e.message || 'Attachment deletion failed.');
   }
 });

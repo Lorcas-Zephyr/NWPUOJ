@@ -1,152 +1,196 @@
-<% this.title = '用户名牌子管理' %>
-<% include header %>
+<% this.adminPage = 'user-tags'; %>
+<% include admin_header %>
 
-<div class="padding">
-  <h2 style="margin-bottom: 18px;"><i class="id badge icon"></i> 用户名牌子管理</h2>
+<div class="app-admin-toolbar">
+  <div>
+    <h3>用户名牌</h3>
+    <p>统一管理全局展示、用户授权和名牌状态。</p>
+  </div>
+</div>
 
-  <!-- 授权区 -->
-  <div class="ui top attached block header">
-    <i class="plus icon"></i> 授予用户 tag 权限
+<section class="app-settings-section">
+  <div class="app-settings-copy">
+    <span class="app-kicker">GLOBAL DISPLAY</span>
+    <h2>全局名牌展示</h2>
+    <p>关闭后全站隐藏用户名牌，但保留已有授权和名牌内容，重新开启即可恢复。</p>
   </div>
-  <div class="ui bottom attached segment">
-    <p style="color: #666;">
-      管理员（全站管理员或拥有 manage_problem/manage_problem_tag/manage_contest/manage_user 权限的用户）
-      <b>自动获得</b> tag 权限，无需手动授予。这里仅用于授权普通用户。
-    </p>
-    <form method="post" action="<%= syzoj.utils.makeUrl(['admin', 'user-tags', 'grant']) %>" class="ui form">
-      <div class="inline fields">
-        <div class="field">
-          <label>用户名</label>
-          <input type="text" name="username" placeholder="输入要授权的用户名">
-        </div>
-        <div class="field">
-          <label style="margin-left: 12px;">或 用户 ID</label>
-          <input type="text" name="user_id" placeholder="UID" style="width: 100px;">
-        </div>
-        <button type="submit" class="ui primary button">
-          <i class="check icon"></i> 授予 tag 权限
-        </button>
-      </div>
-    </form>
+  <div class="app-settings-fields">
+    <label class="app-switch-control">
+      <input type="checkbox" role="switch" data-user-tags-global-toggle<%= userTagsEnabled ? ' checked' : '' %><%= canConfigureUserTags ? '' : ' disabled' %>>
+      <span class="app-switch-track" aria-hidden="true"><span></span></span>
+      <span data-user-tags-global-status><%= userTagsEnabled ? '已开启' : '已关闭' %></span>
+    </label>
+    <% if (!canConfigureUserTags) { %><small class="app-text-muted">仅全站配置管理员可以修改</small><% } %>
   </div>
+</section>
 
-  <!-- 列表区 -->
-  <div class="ui top attached block header" style="margin-top: 25px;">
-    <i class="list icon"></i> 已有记录 (共 <%= records.length %> 条)
+<section class="app-settings-section">
+  <div class="app-settings-copy">
+    <span class="app-kicker">GRANT ACCESS</span>
+    <h2>授予名牌权限</h2>
+    <p>管理员和拥有管理权限的用户会自动获得名牌权限；这里只需授权普通用户。</p>
   </div>
-  <div class="ui bottom attached segment" style="padding: 0;">
-    <% if (records.length === 0) { %>
-      <div style="text-align: center; padding: 30px; color: #999;">暂无记录</div>
-    <% } else { %>
-      <table class="ui very basic table" style="margin: 0;">
-        <thead>
-          <tr>
-            <th style="padding-left: 18px;">用户</th>
-            <th>当前 Tag</th>
-            <th>是否展示</th>
-            <th>授权来源</th>
-            <th>状态</th>
-            <th style="text-align: right; padding-right: 18px;">操作</th>
-          </tr>
-        </thead>
+  <form class="app-form app-settings-fields" method="post" data-user-tag-v2="grant">
+    <div class="app-form-grid">
+      <label class="app-field">
+        <span class="app-label">用户名</span>
+        <input class="app-input" type="text" name="username" placeholder="输入用户名">
+      </label>
+      <label class="app-field">
+        <span class="app-label">或用户 ID</span>
+        <input class="app-input" type="number" name="user_id" min="1" placeholder="UID">
+      </label>
+    </div>
+    <div>
+      <button class="app-button app-button-primary" type="submit"><i data-lucide="badge-plus"></i>授予权限</button>
+    </div>
+  </form>
+</section>
+
+<section class="app-admin-section">
+  <div class="app-section-header">
+    <div>
+      <h3 class="app-section-title">名牌记录</h3>
+      <p class="app-section-description">共 <%= records.length %> 条</p>
+    </div>
+  </div>
+  <% if (records.length) { %>
+    <div class="app-table-region">
+      <table class="app-table app-admin-user-tags-table">
+        <thead><tr><th>用户</th><th>当前名牌</th><th>展示</th><th>授权来源</th><th>状态</th><th aria-label="操作"></th></tr></thead>
         <tbody>
-          <% for (let r of records) {
-            let u = userMap[r.user_id];
-            let granter = r.granted_by ? userMap[r.granted_by] : null;
-            let disabler = r.disabled_by ? userMap[r.disabled_by] : null;
-          %>
+          <% for (const record of records) { const recordUser = userMap[record.user_id]; const granter = record.granted_by ? userMap[record.granted_by] : null; const disabler = record.disabled_by ? userMap[record.disabled_by] : null; %>
             <tr>
-              <td style="padding-left: 18px;">
-                <% if (u) { %>
-                  <%- syzoj.utils.renderUsername(u) %>
-                  <span style="color: #999; font-size: 0.85em;"> (UID <%= u.id %>)</span>
-                <% } else { %>
-                  <span style="color: #aaa;">(用户已删除 UID <%= r.user_id %>)</span>
-                <% } %>
+              <td class="app-cell-primary">
+                <% if (recordUser) { %><%- syzoj.utils.renderUsername(recordUser) %><small class="app-row-description">UID #<%= recordUser.id %></small><% } else { %>用户已删除<small class="app-row-description">UID #<%= record.user_id %></small><% } %>
+              </td>
+              <td><%= record.tag_text || '-' %></td>
+              <td><span class="app-status <%= record.is_visible ? 'app-status-accepted' : 'app-status-muted' %>"><%= record.is_visible ? '展示' : '隐藏' %></span></td>
+              <td>
+                <% if (record.granted_by === null) { %>自动授权<% } else if (granter) { %><%= granter.username %><% if (record.granted_at) { %><small class="app-row-description"><%= syzoj.utils.formatDate(record.granted_at) %></small><% } %><% } else { %>管理员 UID #<%= record.granted_by %><% } %>
               </td>
               <td>
-                <% if (r.tag_text) { %>
-                  <code style="padding: 2px 6px; background: #f5f5f5; border-radius: 3px;"><%= r.tag_text %></code>
-                <% } else { %>
-                  <span style="color: #aaa; font-style: italic;">(空)</span>
-                <% } %>
+                <span class="app-status <%= record.is_disabled ? 'app-status-rejected' : 'app-status-accepted' %>"><%= record.is_disabled ? '已禁用' : '正常' %></span>
+                <% if (record.disabled_reason) { %><small class="app-row-description"><%= record.disabled_reason %></small><% } %>
+                <% if (disabler && record.disabled_at) { %><small class="app-row-description"><%= disabler.username %> · <%= syzoj.utils.formatDate(record.disabled_at) %></small><% } %>
               </td>
-              <td>
-                <% if (r.is_visible) { %>
-                  <span style="color: #21ba45;">✓ 展示</span>
-                <% } else { %>
-                  <span style="color: #999;">— 隐藏</span>
-                <% } %>
-              </td>
-              <td>
-                <% if (r.granted_by === null) { %>
-                  <span style="color: #2185d0;">自动(管理权限)</span>
-                <% } else if (granter) { %>
-                  超管 <%- syzoj.utils.renderUsername(granter, { noTag: true }) %>
-                  <% if (r.granted_at) { %>
-                    <br><span style="color: #999; font-size: 0.85em;">
-                      <%= syzoj.utils.formatDate(r.granted_at) %>
-                    </span>
-                  <% } %>
-                <% } else { %>
-                  超管 (UID <%= r.granted_by %>)
-                <% } %>
-              </td>
-              <td>
-                <% if (r.is_disabled) { %>
-                  <span class="ui mini red label">已禁用</span>
-                  <% if (r.disabled_reason) { %>
-                    <br><span style="color: #999; font-size: 0.85em;">原因： <%= r.disabled_reason %></span>
-                  <% } %>
-                  <% if (disabler && r.disabled_at) { %>
-                    <br><span style="color: #999; font-size: 0.8em;">
-                      由 <%= disabler.username %> 于 <%= syzoj.utils.formatDate(r.disabled_at) %>
-                    </span>
-                  <% } %>
-                <% } else { %>
-                  <span class="ui mini green label">正常</span>
-                <% } %>
-              </td>
-              <td style="text-align: right; padding-right: 18px;">
-                <% if (r.is_disabled) { %>
-                  <form method="post" action="<%= syzoj.utils.makeUrl(['admin', 'user-tags', r.user_id, 'enable']) %>"
-                        style="display: inline; margin: 0;"
-                        onsubmit="return confirm('确定恢复此用户的 tag 权限吗？');">
-                    <button type="submit" class="ui mini green button">
-                      <i class="undo icon"></i> 恢复
-                    </button>
+              <td class="app-cell-actions">
+                <% if (record.is_disabled) { %>
+                  <form method="post" data-user-tag-v2="restore" data-user-id="<%= record.user_id %>" data-confirm="确定恢复此用户的名牌权限吗？">
+                    <button class="app-button app-button-secondary app-button-small" type="submit"><i data-lucide="undo"></i>恢复</button>
                   </form>
-                <% } else if (u && !u.is_admin && u.id !== res.locals.user.id) { %>
-                  <button class="ui mini red button"
-                          onclick="document.getElementById('disable-form-<%= r.user_id %>').style.display = 'block';">
-                    <i class="ban icon"></i> 禁用
-                  </button>
-                  <div id="disable-form-<%= r.user_id %>" style="display: none; margin-top: 8px; text-align: left;">
-                    <form method="post" action="<%= syzoj.utils.makeUrl(['admin', 'user-tags', r.user_id, 'disable']) %>"
-                          onsubmit="return confirm('确定禁用此用户的 tag 权限吗？');">
-                      <input type="text" name="reason" placeholder="原因(可选)"
-                             style="width: 100%; padding: 4px; margin-bottom: 4px;">
-                      <button type="submit" class="ui mini red button">
-                        <i class="check icon"></i> 确认禁用
-                      </button>
-                      <button type="button" class="ui mini basic button"
-                              onclick="document.getElementById('disable-form-<%= r.user_id %>').style.display = 'none';">
-                        取消
-                      </button>
+                <% } else if (recordUser && !recordUser.is_admin && recordUser.id !== user.id) { %>
+                  <details class="app-admin-inline-details">
+                    <summary class="app-button app-button-danger-outline app-button-small"><i data-lucide="ban"></i>禁用</summary>
+                    <form method="post" data-user-tag-v2="disable" data-user-id="<%= record.user_id %>" data-confirm="确定禁用此用户的名牌权限吗？">
+                      <button class="app-button app-button-danger app-button-small" type="submit">确认禁用</button>
                     </form>
-                  </div>
+                  </details>
                 <% } else { %>
-                  <span style="color: #aaa; font-size: 0.85em;">
-                    <% if (u && u.is_admin) { %>(超管)<% } else if (u && u.id === res.locals.user.id) { %>(自己)<% } %>
-                  </span>
+                  <span class="app-text-muted"><%= recordUser && recordUser.is_admin ? '管理员' : recordUser && recordUser.id === user.id ? '当前账户' : '-' %></span>
                 <% } %>
               </td>
             </tr>
           <% } %>
         </tbody>
       </table>
-    <% } %>
-  </div>
-</div>
+    </div>
+  <% } else { %>
+    <div class="app-empty app-empty-compact"><div class="app-empty-inner"><i data-lucide="badge"></i><strong>暂无名牌记录</strong></div></div>
+  <% } %>
+</section>
 
-<% include footer %>
+<script>
+(function () {
+  var globalToggle = document.querySelector('[data-user-tags-global-toggle]');
+  var globalStatus = document.querySelector('[data-user-tags-global-status]');
+  var settingsEtag = null;
+  function requestKey() {
+    return window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random();
+  }
+  function notify(message, type) {
+    if (window.NWPUOJApp && window.NWPUOJApp.showToast) window.NWPUOJApp.showToast(message, type);
+  }
+  function showGlobalState(enabled) {
+    if (globalToggle) globalToggle.checked = !!enabled;
+    if (globalStatus) globalStatus.textContent = enabled ? '已开启' : '已关闭';
+  }
+  async function loadGlobalSetting() {
+    if (!globalToggle) return;
+    try {
+      var response = await fetch('/api/v2/admin/user-tags/settings', { credentials: 'same-origin' });
+      var body = await response.json();
+      if (!response.ok) throw new Error(body.error && body.error.message || '读取全局设置失败');
+      settingsEtag = response.headers.get('ETag');
+      showGlobalState(body.data.enabled);
+    } catch (error) {
+      if (!globalToggle.disabled) notify(error.message || '读取全局设置失败', 'error');
+    }
+  }
+  if (globalToggle && !globalToggle.disabled) {
+    globalToggle.addEventListener('change', async function () {
+      var desired = globalToggle.checked;
+      globalToggle.disabled = true;
+      try {
+        if (!settingsEtag) await loadGlobalSetting();
+        var response = await fetch('/api/v2/admin/user-tags/settings', {
+          method: 'PATCH',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestKey(), 'If-Match': settingsEtag || '' },
+          body: JSON.stringify({ enabled: desired })
+        });
+        var body = await response.json();
+        if (!response.ok) throw new Error(body.error && body.error.message || '更新全局设置失败');
+        settingsEtag = response.headers.get('ETag');
+        showGlobalState(body.data.enabled);
+        notify(body.data.enabled ? '已开启全局名牌展示' : '已关闭全局名牌展示', 'success');
+      } catch (error) {
+        await loadGlobalSetting();
+        notify(error.message || '更新全局设置失败', 'error');
+      } finally {
+        globalToggle.disabled = false;
+      }
+    });
+  }
+  loadGlobalSetting();
+  document.querySelectorAll('form[data-user-tag-v2]').forEach(function (form) {
+    form.addEventListener('submit', async function (event) {
+      event.preventDefault();
+      var action = form.dataset.userTagV2;
+      var button = form.querySelector('button[type="submit"]');
+      var payload = {};
+      var url = '/api/v2/admin/user-tags/grants';
+      if (action === 'grant') {
+        var data = new FormData(form);
+        var userId = Number(data.get('user_id'));
+        if (Number.isSafeInteger(userId) && userId > 0) payload.user_id = userId;
+        else payload.username = String(data.get('username') || '').trim();
+      } else if (action === 'restore') {
+        payload.user_id = Number(form.dataset.userId);
+      } else {
+        url = '/api/v2/admin/user-tags/' + encodeURIComponent(form.dataset.userId) + '/disable';
+      }
+      button.disabled = true;
+      try {
+        var response = await fetch(url, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestKey() },
+          body: JSON.stringify(payload)
+        });
+        var body = await response.json();
+        if (!response.ok) {
+          throw new Error(body.error && body.error.message || '操作失败');
+        }
+        notify(action === 'disable' ? '名牌权限已禁用' : action === 'restore' ? '名牌权限已恢复' : '名牌权限已授予', 'success');
+        window.location.reload();
+      } catch (error) {
+        button.disabled = false;
+        notify(error.message || '操作失败', 'error');
+      }
+    });
+  });
+})();
+</script>
+
+<% include admin_footer %>

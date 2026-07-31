@@ -114,10 +114,6 @@ async function guardArticleParent(req, res, next, requireEdit) {
 
 app.get('/article/:id', (req, res, next) => guardArticleParent(req, res, next, false));
 app.get('/article/:id/edit', (req, res, next) => guardArticleParent(req, res, next, true));
-app.post('/article/:id/edit', (req, res, next) => guardArticleParent(req, res, next, true));
-app.post('/article/:id/comment', (req, res, next) => guardArticleParent(req, res, next, false));
-app.post('/article/:id/delete', (req, res, next) => guardArticleParent(req, res, next, true));
-app.post('/article/:id/comment/:commentId/delete', (req, res, next) => guardArticleParent(req, res, next, false));
 
 async function guardSolutionParent(req, res, next) {
   try {
@@ -135,12 +131,6 @@ async function guardSolutionParent(req, res, next) {
 
 app.get('/solution/:id', guardSolutionParent);
 app.get('/solution/:id/edit', guardSolutionParent);
-app.post('/solution/:id/edit', guardSolutionParent);
-app.post('/solution/:id/approve', guardSolutionParent);
-app.post('/solution/:id/reject', guardSolutionParent);
-app.post('/solution/:id/withdraw', guardSolutionParent);
-app.post('/solution/:id/delete', guardSolutionParent);
-app.post('/solution/:sid/comment/:cid/delete', guardSolutionParent);
 app.get('/discussion/problem/:pid', async (req, res, next) => {
   try {
     if (!await canSeeProblemContent(Number(req.params.pid), res.locals.user)) {
@@ -152,17 +142,6 @@ app.get('/discussion/problem/:pid', async (req, res, next) => {
   }
 });
 
-app.post('/solution/:id/comment', async (req, res, next) => {
-  try {
-    const solution = await ProblemSolution.findById(Number(req.params.id));
-    if (solution && !await canSeeProblemContent(solution.problem_id, res.locals.user)) {
-      return res.status(403).render('error', { err: new ErrorMessage('您没有权限访问该题解。') });
-    }
-    next();
-  } catch (error) {
-    next(error);
-  }
-});
 
 app.get('/article/:id/edit', issueFormTokens([
   { name: 'articleEdit', scope: req => 'article-edit:' + req.params.id }
@@ -205,96 +184,9 @@ function validateBody(req, res, next) {
   }
 }
 
-app.post(['/article/:id/edit', '/article/:id/comment', '/solution/:id/edit', '/solution/:id/comment', '/solution/:id/reject'], validateBody);
-app.post('/article/:id/edit', consumeFormToken(req => 'article-edit:' + req.params.id));
-app.post('/article/:id/comment', consumeFormToken(req => 'article-comment:' + req.params.id));
-app.post('/solution/:id/edit', consumeFormToken(req => 'solution-edit:' + req.params.id));
-app.post('/solution/:id/comment', consumeFormToken(req => 'solution-comment:' + req.params.id));
-app.post(['/solution/:id/approve', '/solution/:id/reject'], consumeFormToken(req => 'solution-review:' + req.params.id));
 
-app.post('/article/:id/comment', async (req, res) => {
-  try {
-    const articleId = Number(req.params.id);
-    const article = await Article.findById(articleId);
-    if (!article) throw new ErrorMessage('无此帖子。');
-    if (!await article.isAllowedCommentBy(res.locals.user)) throw new ErrorMessage('您没有权限进行此操作。');
-    const now = syzoj.utils.getCurrentDate();
-    await TypeORM.getConnection().transaction(async manager => {
-      const rows = await manager.query('SELECT id FROM article WHERE id=? FOR UPDATE', [articleId]);
-      if (!rows.length) throw new ErrorMessage('无此帖子。');
-      await manager.query(
-        'INSERT INTO article_comment (content,article_id,user_id,public_time) VALUES (?,?,?,?)',
-        [String(req.body.comment).trim(), articleId, res.locals.user.id, now]
-      );
-      await manager.query(`
-        UPDATE article SET
-          comments_num=(SELECT COUNT(*) FROM article_comment WHERE article_id=?),
-          sort_time=COALESCE((SELECT MAX(public_time) FROM article_comment WHERE article_id=?),public_time)
-        WHERE id=?
-      `, [articleId, articleId, articleId]);
-    });
-    res.redirect(syzoj.utils.makeUrl(['article', articleId]));
-  } catch (error) {
-    syzoj.log(error);
-    res.render('error', { err: error });
-  }
-});
 
-app.post('/article/:id/comment/:commentId/delete', async (req, res) => {
-  try {
-    if (!res.locals.user) throw new ErrorMessage('请登录后继续。');
-    const articleId = Number(req.params.id);
-    const commentId = Number(req.params.commentId);
-    await TypeORM.getConnection().transaction(async manager => {
-      const rows = await manager.query(`
-        SELECT ac.user_id,a.user_id AS article_user_id
-        FROM article_comment ac
-        INNER JOIN article a ON a.id=ac.article_id
-        WHERE ac.id=? AND ac.article_id=? FOR UPDATE
-      `, [commentId, articleId]);
-      if (!rows.length) throw new ErrorMessage('无此评论。');
-      const allowed = res.locals.user.is_admin || rows[0].user_id === res.locals.user.id || rows[0].article_user_id === res.locals.user.id;
-      if (!allowed) throw new ErrorMessage('您没有权限进行此操作。');
-      await manager.query('DELETE FROM article_comment WHERE id=? AND article_id=?', [commentId, articleId]);
-      await manager.query(`
-        UPDATE article SET
-          comments_num=(SELECT COUNT(*) FROM article_comment WHERE article_id=?),
-          sort_time=COALESCE((SELECT MAX(public_time) FROM article_comment WHERE article_id=?),public_time)
-        WHERE id=?
-      `, [articleId, articleId, articleId]);
-    });
-    res.redirect(syzoj.utils.makeUrl(['article', articleId]));
-  } catch (error) {
-    syzoj.log(error);
-    res.render('error', { err: error });
-  }
-});
 
-app.post('/api/markdown', async (req, res) => {
-  if (!res.locals.user) return res.status(401).send('请登录后使用预览。');
-  const source = String(req.body && req.body.s || '');
-  if (byteLength(source) > 64 * 1024) return res.status(413).send('预览内容不能超过 64 KiB。');
-  const key = String(res.locals.user.id);
-  const now = Date.now();
-  const recent = (previewWindows.get(key) || []).filter(time => now - time < 10000);
-  if (recent.length >= 10) return res.status(429).send('预览请求过于频繁。');
-  if (activePreviews >= 4) return res.status(503).send('预览服务繁忙，请稍后重试。');
-  recent.push(now);
-  previewWindows.set(key, recent);
-  activePreviews++;
-  try {
-    const rendered = await Promise.race([
-      syzoj.utils.markdown(source),
-      new Promise((resolve, reject) => setTimeout(() => reject(new Error('Markdown preview timeout')), 3000))
-    ]);
-    res.send(rendered);
-  } catch (error) {
-    syzoj.log('[markdown-preview] ' + (error.stack || error));
-    res.status(503).send('预览暂时不可用。');
-  } finally {
-    activePreviews--;
-  }
-});
 
 app.get('/discussion/problems', async (req, res, next) => {
   try {

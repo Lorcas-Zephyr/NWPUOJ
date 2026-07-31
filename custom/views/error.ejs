@@ -1,0 +1,31 @@
+<%
+this.title = '错误';
+if (!(err instanceof ErrorMessage)) err = new ErrorMessage(err.toString());
+const appErrorMessage = String(err.message || '请求失败');
+const appOriginalStatus = typeof res !== 'undefined' && res ? Number(res.statusCode) : 500;
+let appErrorStatus = appOriginalStatus;
+if (!Number.isFinite(appErrorStatus) || appErrorStatus < 400) appErrorStatus = 500;
+if (appErrorStatus >= 500) {
+  if (/^(无此|找不到)|不存在|not found/i.test(appErrorMessage)) appErrorStatus = 404;
+  else if (/请先登录|登录后|authentication required/i.test(appErrorMessage)) appErrorStatus = 401;
+  else if (/没有权限|无权|权限不足|access denied|forbidden/i.test(appErrorMessage)) appErrorStatus = 403;
+  else if (/不正确|不能为空|无效|格式|必须|不能超过|请选择/i.test(appErrorMessage)) appErrorStatus = 400;
+}
+if (typeof res !== 'undefined' && res) res.statusCode = appErrorStatus;
+const appErrorActions = Object.keys(err.nextUrls || {}).map((label, index) => ({ label, href: err.nextUrls[label], primary: index === 0 }));
+if (!appErrorActions.length && appErrorStatus === 401) appErrorActions.push({ label: '前往登录', href: syzoj.utils.makeUrl(['login'], { url: req.originalUrl }), primary: true });
+if (!appErrorActions.length && (appErrorStatus === 403 || appErrorStatus === 404 || appErrorStatus >= 500)) appErrorActions.push({ label: '返回首页', href: '/', primary: true });
+const appErrorType = appErrorStatus === 401 || appErrorStatus === 403
+  ? 'unauthorized'
+  : appErrorStatus === 404
+    ? 'missing'
+    : appErrorStatus >= 500
+      ? 'unrecoverable-error'
+      : 'recoverable-error';
+const appPageState = { type: appErrorType, title: err.message, details: err.details, actions: appErrorActions, retry: appErrorType === 'recoverable-error', historyBack: true };
+%>
+<% include app_header %>
+
+<div class="app-result-page"><% include app_page_state %></div>
+
+<% include app_footer %>

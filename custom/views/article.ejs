@@ -1,102 +1,94 @@
-<% this.title = article.title + ' - 帖子'; %>
-<% include header %>
-<div class="padding">
-  <div class="ui breadcrumb nwpuoj-meta">
-    <div class="section">讨论</div>
-    <i class="right angle icon divider"></i>
-    <% if (problem) { %>
-      <div class="section"><a href="<%= syzoj.utils.makeUrl(['discussion', 'problems']) %>">题目</a></div>
-      <i class="right angle icon divider"></i>
-      <a href="<%= syzoj.utils.makeUrl(['discussion', 'problem', problem.id]) %>" class="active section"><%= problem.title %></a>
-    <% } else { %>
-      <a href="<%= syzoj.utils.makeUrl(['discussion', 'global']) %>" class="section">全局板块</a>
-    <% } %>
-  </div>
-  <header class="nwpuoj-content-header">
-    <div>
-      <h1 class="nwpuoj-content-title"><%= article.title %></h1>
-      <div class="nwpuoj-content-meta">
-        <span class="nwpuoj-user-cell"><img class="nwpuoj-user-avatar" src="<%= syzoj.utils.avatar(article.user, 40) %>"><%- syzoj.utils.renderUsername(article.user) %></span>
-        <span><i class="calendar outline icon"></i><%= syzoj.utils.formatDate(article.public_time) %></span>
-        <% if (article.public_time !== article.update_time) { %><span><i class="edit outline icon"></i><%= syzoj.utils.formatDate(article.update_time) %></span><% } %>
-      </div>
-    </div>
-    <% if (article.allowedEdit) { %>
-    <div class="nwpuoj-page-actions">
-      <a class="ui small basic labeled icon button" href="<%= syzoj.utils.makeUrl(['article', article.id, 'edit']) %>"><i class="edit icon"></i>编辑</a>
-      <button type="button" class="ui small basic red labeled icon button" onclick="$('#modal-delete').modal('show')"><i class="trash icon"></i>删除</button>
-    </div>
-    <% } %>
+<% this.title = article.title + ' - 帖子' %>
+<% include app_header %>
+
+<div class="app-page app-article-page">
+  <nav class="app-breadcrumb" aria-label="面包屑"><a href="<%= syzoj.utils.makeUrl(['discussion', 'global']) %>">讨论</a><i data-lucide="chevron-right"></i><% if (problem) { %><a href="<%= syzoj.utils.makeUrl(['discussion', 'problem', problem.id]) %>"><%= syzoj.utils.removeTitleTag(problem.title) %></a><i data-lucide="chevron-right"></i><% } %><span><%= article.title %></span></nav>
+  <header class="app-page-header app-article-header">
+    <div class="app-page-heading"><% if (problem) { %><a class="app-back-link" href="<%= syzoj.utils.makeUrl(['problem', problem.id]) %>"><i data-lucide="arrow-left"></i>返回题目</a><% } %><span class="app-kicker">DISCUSSION <%= article.id %></span><h1 class="app-page-title"><%= article.title %></h1><p class="app-page-description app-article-author"><img src="<%= syzoj.utils.avatar(article.user, 40) %>" alt=""><a href="<%= syzoj.utils.makeUrl(['user', article.user.id]) %>"><%= article.user.username %></a><span><%= syzoj.utils.formatDate(article.public_time) %></span><% if (article.public_time !== article.update_time) { %><span>编辑于 <%= syzoj.utils.formatDate(article.update_time) %></span><% } %></p></div>
+    <% if (article.allowedEdit) { %><div class="app-page-actions"><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['article', article.id, 'edit']) %>"><i data-lucide="square-pen"></i>编辑</a><button class="app-button app-button-danger-outline" type="button" data-discussion-v2-delete="<%= article.id %>" data-confirm="确认删除这篇文章吗？"><i data-lucide="trash"></i>删除</button></div><% } %>
   </header>
-  <% if (article.allowedEdit) { %>
-  <div class="ui basic modal" id="modal-delete">
-    <div class="ui icon header"><i class="trash icon"></i><p>删除文章</p></div>
-    <div class="content" style="text-align:center;"><p>确认删除这篇文章吗？</p></div>
-    <div class="actions">
-      <button type="button" class="ui red basic cancel inverted button"><i class="remove icon"></i>否</button>
-      <a class="ui green ok inverted button" href-post="<%= syzoj.utils.makeUrl(['article', article.id, 'delete']) %>"><i class="checkmark icon"></i>是</a>
-    </div>
-  </div>
-  <% } %>
-  <div class="nwpuoj-content-surface">
-	  <div id="content" class="font-content"><%- article.content %></div>
-  </div>
-  <% if (comments.length) { %>
-  <div class="ui comments" style="max-width: none;">
-    <h3 class="ui dividing header">共 <%= commentsCount %> 条回复</h3>
-    <% for (let comment of comments) { %>
-      <div class="comment">
-        <a class="avatar">
-          <img src="<%= syzoj.utils.avatar(comment.user, 120) %>">
-        </a>
-        <div class="content">
-          <%- syzoj.utils.renderUsername(comment.user) %>
-          <div class="metadata">
-            <span class="date"><%= syzoj.utils.formatDate(comment.public_time) %></span>
-          </div>
-          <div class="text font-content" style="min-height: 19.5px; "><%- comment.content %></div>
-          <% if (comment.allowedEdit) { %>
-            <div class="actions"><a onclick="$('#modal-delete-<%= comment.id %>').modal('show')">删除</a></div>
-            <div class="ui basic modal" id="modal-delete-<%= comment.id %>">
-              <div class="ui icon header">
-                <i class="trash icon"></i>
-                <p style="margin-top: 15px; ">删除评论</p>
-              </div>
-              <div class="content" style="text-align: center; ">
-                <p>确认删除这条评论吗？</p>
-              </div>
-              <div class="actions">
-                <div class="ui red basic cancel inverted button">
-                  <i class="remove icon"></i>
-                  否
-                </div>
-                <a class="ui green ok inverted button" href-post="<%= syzoj.utils.makeUrl(['article', article.id, 'comment', comment.id, 'delete']) %>">
-                  <i class="checkmark icon"></i>
-                  是
-                </a>
-              </div>
-            </div>
-          <% } %>
-        </div>
-      </div>
-    <% } %>
-  </div>
-  <div style="margin-bottom: 50px; ">
-    <% include page %>
-  </div>
-  <% } %>
-    <% if (article.allowedComment) { %>
-    <form class="ui reply form" method="post" action="<%= syzoj.utils.makeUrl(['article', article.id, 'comment']) %>">
-      <input type="hidden" name="_content_token" value="<%= contentFormTokens.articleComment %>">
-      <div class="field">
-        <textarea name="comment" class="markdown-edit"></textarea>
-      </div>
-      <div style="text-align: center; ">
-      <button id="submit_button" type="submit" class="ui primary labeled submit icon button">
-        <i class="icon edit"></i> 回复
-      </button>
-      </div>
-    </form>
-  <% } %>
+
+  <article class="app-article-content app-markdown"><%- article.content %></article>
+
+  <section class="app-comments">
+    <div class="app-section-heading"><div><span class="app-kicker">REPLIES</span><h2>回复</h2></div><span class="app-section-count"><%= commentsCount %> 条</span></div>
+    <% if (comments.length) { %><div class="app-comment-list"><% let appCommentFloor = (typeof paginate !== 'undefined' && paginate ? (paginate.currPage - 1) * paginate.perPage : 0); for (const comment of comments) { appCommentFloor += 1; %><article class="app-comment"><img src="<%= syzoj.utils.avatar(comment.user, 80) %>" alt=""><div class="app-comment-main"><header><span><a href="<%= syzoj.utils.makeUrl(['user', comment.user.id]) %>"><%= comment.user.username %></a><time><%= syzoj.utils.formatDate(comment.public_time) %></time></span><span class="app-comment-actions"><small>#<%= appCommentFloor %></small><% if (comment.allowedEdit) { %><button type="button" data-discussion-v2-delete-reply="<%= comment.id %>" data-confirm="确认删除这条回复吗？" aria-label="删除回复" title="删除回复"><i data-lucide="trash"></i></button><% } %></span></header><div class="app-markdown"><%- comment.content %></div></div></article><% } %></div><% include app_pagination %><% } else { %><div class="app-empty app-empty-compact"><div class="app-empty-inner"><i data-lucide="message-circle"></i><strong>还没有回复</strong><p>成为第一个参与讨论的人。</p></div></div><% } %>
+  </section>
+
+  <% if (article.allowedComment) { %><section class="app-reply-section"><h2 class="app-section-title">写下回复</h2><form class="app-form" method="post" data-discussion-v2-reply><label class="app-field"><span class="app-label">回复内容</span><textarea class="app-textarea app-content-textarea" name="comment" required></textarea></label><div class="app-form-actions app-form-actions-end"><button id="submit_button" class="app-button app-button-primary" type="submit"><i data-lucide="send"></i>回复</button></div></form></section><% } %>
 </div>
-<% include footer %>
+
+<script>
+(function () {
+  var discussionId = '<%= article.id %>';
+  var problemId = <%- article.problem_id == null ? 'null' : JSON.stringify(String(article.problem_id)) %>;
+
+  function operationKey() {
+    return window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random();
+  }
+
+  function failureMessage(body, fallback) {
+    if (!body || !body.error) return fallback;
+    var messages = {
+      DISCUSSION_NOT_FOUND: '讨论或回复已被删除。',
+      DISCUSSION_FORBIDDEN: '你没有权限执行此操作。',
+      AUTHENTICATION_REQUIRED: '登录状态已失效，请重新登录。'
+    };
+    return messages[body.error.code] || body.error.message || fallback;
+  }
+
+  document.addEventListener('click', async function (event) {
+    var control = event.target.closest('[data-discussion-v2-delete], [data-discussion-v2-delete-reply]');
+    if (!control || control.getAttribute('aria-disabled') === 'true') return;
+    var confirmation = control.dataset.confirm;
+    if (confirmation && !window.confirm(confirmation)) return;
+    var replyId = control.dataset.discussionV2DeleteReply;
+    var endpoint = '/api/v2/discussions/' + encodeURIComponent(discussionId);
+    if (replyId) endpoint += '/replies/' + encodeURIComponent(replyId);
+    control.setAttribute('aria-disabled', 'true');
+    control.disabled = true;
+    try {
+      var response = await fetch(endpoint, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: { 'Idempotency-Key': operationKey() }
+      });
+      var body = null;
+      try { body = await response.json(); } catch (error) {}
+      if (!response.ok) throw new Error(failureMessage(body, replyId ? '删除回复失败。' : '删除讨论失败。'));
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(replyId ? '回复已删除' : '讨论已删除', 'success');
+      window.setTimeout(function () {
+        if (replyId) return window.location.reload();
+        window.location.assign(problemId ? '/discussion/problem/' + encodeURIComponent(problemId) : '/discussion/global');
+      }, 250);
+    } catch (error) {
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '删除失败，请稍后重试。', 'danger');
+      else window.alert(error.message || '删除失败，请稍后重试。');
+      control.removeAttribute('aria-disabled');
+      control.disabled = false;
+    }
+  });
+  document.addEventListener('submit', async function (event) {
+    var form = event.target.closest('[data-discussion-v2-reply]');
+    if (!form || event.defaultPrevented) return;
+    event.preventDefault();
+    var button = form.querySelector('button[type="submit"]');
+    if (button) button.disabled = true;
+    try {
+      var response = await fetch('/api/v2/discussions/' + encodeURIComponent(discussionId) + '/replies', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operationKey() },
+        body: JSON.stringify({ content: form.elements.comment.value })
+      });
+      var body = await response.json();
+      if (!response.ok) throw new Error(failureMessage(body, '回复提交失败。'));
+      window.location.reload();
+    } catch (error) {
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '回复提交失败。', 'danger');
+      if (button) button.disabled = false;
+    }
+  });
+})();
+</script>
+
+<% include app_footer %>

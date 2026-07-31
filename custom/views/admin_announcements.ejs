@@ -1,74 +1,51 @@
-<% this.title = '公告管理' %>
-<% include header %>
+<% this.adminPage = 'announcements'; %>
+<% include admin_header %>
 
-<div class="padding">
-  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-    <h2 style="margin: 0;">公告管理</h2>
-    <a class="ui primary button" href="<%= syzoj.utils.makeUrl(['admin', 'announcement', 0, 'edit']) %>">
-      <i class="plus icon"></i> 新建公告
-    </a>
-  </div>
-
-  <% if (announcements.length === 0) { %>
-    <div class="ui placeholder segment">
-      <div class="ui icon header">
-        <i class="info circle icon"></i>
-        暂无公告。点击右上角「新建公告」开始。
-      </div>
-    </div>
-  <% } else { %>
-    <table class="ui celled table">
-      <thead>
-        <tr>
-          <th>标题</th>
-          <th>级别</th>
-          <th>生效时段</th>
-          <th>状态</th>
-          <th>操作</th>
-        </tr>
-      </thead>
-      <tbody>
-        <% for (let a of announcements) { %>
-          <tr>
-            <td><b><%= a.title %></b></td>
-            <td>
-              <% if (a.level === 'info') { %>
-                <span class="ui blue tiny label">信息</span>
-              <% } else if (a.level === 'warning') { %>
-                <span class="ui yellow tiny label">警告</span>
-              <% } else if (a.level === 'important') { %>
-                <span class="ui red tiny label">重要</span>
-              <% } %>
-            </td>
-            <td>
-              <%= syzoj.utils.formatDate(a.start_time) %><br>
-              <span style="color: #999;">至 <%= syzoj.utils.formatDate(a.end_time) %></span>
-            </td>
-            <td>
-              <% if (!a.is_active) { %>
-                <span class="ui grey tiny label">已停用</span>
-              <% } else if (a.isLive) { %>
-                <span class="ui green tiny label">生效中</span>
-              <% } else if (now < a.start_time) { %>
-                <span class="ui blue tiny label">未开始</span>
-              <% } else { %>
-                <span class="ui grey tiny label">已过期</span>
-              <% } %>
-            </td>
-            <td>
-              <a class="ui mini button" href="<%= syzoj.utils.makeUrl(['admin', 'announcement', a.id, 'edit']) %>">编辑</a>
-              <a class="ui mini button" href-post="<%= syzoj.utils.makeUrl(['admin', 'announcement', a.id, 'toggle']) %>">
-                <%= a.is_active ? '停用' : '启用' %>
-              </a>
-              <a class="ui mini red button" href-post="<%= syzoj.utils.makeUrl(['admin', 'announcement', a.id, 'delete']) %>"
-                 onclick="return confirm('确定删除此公告吗？此操作不可恢复！');">删除</a>
-            </td>
-          </tr>
-        <% } %>
-      </tbody>
-    </table>
-    <% include page %>
-  <% } %>
-</div>
-
-<% include footer %>
+<div class="app-admin-toolbar"><div><h3>公告列表</h3><p>管理首页弹窗公告的时间、级别和启用状态。</p></div><a class="app-button app-button-primary" href="<%= syzoj.utils.makeUrl(['admin', 'announcement', 0, 'edit']) %>"><i data-lucide="plus"></i>新建公告</a></div>
+<% if (announcements.length) { %>
+<div class="app-table-region"><table class="app-table app-admin-announcements-table"><thead><tr><th>标题</th><th>级别</th><th>生效时段</th><th>状态</th><th aria-label="操作"></th></tr></thead><tbody>
+<% for (const announcement of announcements) { const appLevel = announcement.level === 'important' ? ['重要', 'app-status-rejected'] : announcement.level === 'warning' ? ['警告', 'app-status-pending'] : ['信息', 'app-status-info']; const appState = !announcement.is_active ? ['已停用', 'app-status-muted'] : announcement.isLive ? ['生效中', 'app-status-accepted'] : now < announcement.start_time ? ['未开始', 'app-status-info'] : ['已过期', 'app-status-muted']; %>
+<tr><td class="app-cell-primary"><strong><%= announcement.title %></strong></td><td><span class="app-status <%= appLevel[1] %>"><%= appLevel[0] %></span></td><td><%= syzoj.utils.formatDate(announcement.start_time) %><small class="app-row-description">至 <%= syzoj.utils.formatDate(announcement.end_time) %></small></td><td><span class="app-status <%= appState[1] %>"><%= appState[0] %></span></td><td class="app-cell-actions"><div class="app-inline-actions"><a class="app-icon-button" href="<%= syzoj.utils.makeUrl(['admin', 'announcement', announcement.id, 'edit']) %>" title="编辑公告" aria-label="编辑公告"><i data-lucide="square-pen"></i></a><form method="post" data-announcement-v2="toggle" data-announcement-id="<%= announcement.id %>" data-announcement-active="<%= announcement.is_active ? 'true' : 'false' %>"><input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>"><button class="app-icon-button" type="submit" title="<%= announcement.is_active ? '停用公告' : '启用公告' %>" aria-label="<%= announcement.is_active ? '停用公告' : '启用公告' %>"><i data-lucide="<%= announcement.is_active ? 'pause' : 'play' %>"></i></button></form><form method="post" data-announcement-v2="delete" data-announcement-id="<%= announcement.id %>" data-confirm="确定删除公告“<%= announcement.title %>”吗？此操作不可恢复。"><input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>"><button class="app-icon-button app-icon-danger" type="submit" title="删除公告" aria-label="删除公告"><i data-lucide="trash"></i></button></form></div></td></tr>
+<% } %>
+</tbody></table></div>
+<% include app_pagination %>
+<% } else { %><div class="app-empty"><div class="app-empty-inner"><i data-lucide="megaphone-off"></i><strong>暂无公告</strong><p>创建公告后会显示在这里。</p></div></div><% } %>
+<script>
+(function () {
+  function requestKey() { return window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random(); }
+  function message(body, fallback) { return body && body.error && body.error.message || fallback; }
+async function detail(id) {
+    var response = await fetch('/api/v2/admin/announcements/' + encodeURIComponent(id), { credentials: 'same-origin', cache: 'no-store' });
+    var body = await response.json();
+    if (!response.ok) throw Object.assign(new Error(message(body, '公告读取失败。')), { code: body && body.error && body.error.code });
+    return { etag: response.headers.get('ETag'), data: body.data };
+  }
+  document.querySelectorAll('form[data-announcement-v2]').forEach(function (form) {
+    form.addEventListener('submit', async function (event) {
+      if (event.defaultPrevented) return;
+      event.preventDefault();
+      var button = form.querySelector('button[type="submit"]');
+      if (button) button.disabled = true;
+      try {
+        var id = form.dataset.announcementId;
+        var current = await detail(id);
+        var action = form.dataset.announcementV2;
+        var options = {
+          method: action === 'delete' ? 'DELETE' : 'PATCH',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestKey(), 'If-Match': current.etag || '' }
+        };
+        if (action === 'toggle') options.body = JSON.stringify({ active: form.dataset.announcementActive !== 'true' });
+        var response = await fetch('/api/v2/admin/announcements/' + encodeURIComponent(id), options);
+        var body = await response.json();
+        if (!response.ok) throw new Error(message(body, '公告操作失败。'));
+        window.location.reload();
+      } catch (error) {
+        if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '公告操作失败。', 'danger');
+        if (button) button.disabled = false;
+      }
+    });
+  });
+})();
+</script>
+<% include admin_footer %>

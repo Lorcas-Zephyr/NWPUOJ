@@ -1,453 +1,198 @@
-<% this.title = show_user.username + ' - 用户'; %>
-<% include header %>
-<style>
-#avatar_container:before {
-    content: "";
-    display: block;
-    padding-top: 100%;
-}
-</style>
-<div class="padding">
-<div class="ui grid">
-    <div class="row">
-        <div class="five wide column">
-            <div class="ui card" style="width: 100%; " id="user_card">
-                <div class="image" id="avatar_container">
-                    <img style="margin-top: -100%; " src="<%= syzoj.utils.avatar(show_user, 1000) %>">
-                </div>
-                <div class="content">
-                    <div class="header"><%- syzoj.utils.renderUsername(show_user, { noLink: true }) %> <% if (show_user.sex == 1) { %><i class="man icon"></i><% } else if (show_user.sex == -1) { %><i class="woman icon"></i><% } %></div>
-                    <div class="meta">
-                        <a class="group"><%= syzoj.siteOwnerUserId === show_user.id ? '站长' : show_user.is_admin ? '管理员' : '普通用户' %></a>
-                    </div>
-                </div>
-                <div class="extra content">
-                    <a><i class="check icon"></i>通过 <%= show_user.ac_problems.length %> 题</a>
-                    <a style="float: right; "><i class="star icon"></i>Rating <%= show_user.rating %></a>
-                </div>
-                <% if (typeof followStats !== 'undefined' && followStats) { %>
-                <div class="extra content" style="display: flex; gap: 0; padding: 8px 0;">
-                  <a href="<%= syzoj.utils.makeUrl(['user', show_user.id, 'following']) %>" style="flex: 1; text-align: center; color: inherit;">
-                    <b style="font-size: 1.05em;"><%= followStats.following %></b>
-                    <span style="color: #888; font-size: 0.9em; margin-left: 3px;">关注</span>
-                  </a>
-                  <span style="color: #ddd;">|</span>
-                  <a href="<%= syzoj.utils.makeUrl(['user', show_user.id, 'followers']) %>" style="flex: 1; text-align: center; color: inherit;">
-                    <b style="font-size: 1.05em;"><%= followStats.followers %></b>
-                    <span style="color: #888; font-size: 0.9em; margin-left: 3px;">粉丝</span>
-                  </a>
-                </div>
-                <% } %>
-                <% if (res.locals.user && res.locals.user.id !== show_user.id) { %>
-                <div class="extra content" style="padding: 8px 12px;">
-                  <% if (typeof followRelation !== 'undefined' && followRelation && followRelation.mutual) { %>
-                    <form method="post" action="<%= syzoj.utils.makeUrl(['user', show_user.id, 'unfollow']) %>" style="margin: 0;"
-                          onsubmit="return confirm('确认取消关注？');">
-                      <button type="submit" class="ui small green basic fluid button">
-                        <i class="exchange icon"></i>互相关注
-                      </button>
-                    </form>
-                  <% } else if (typeof followRelation !== 'undefined' && followRelation && followRelation.iFollow) { %>
-                    <form method="post" action="<%= syzoj.utils.makeUrl(['user', show_user.id, 'unfollow']) %>" style="margin: 0;"
-                          onsubmit="return confirm('确认取消关注？');">
-                      <button type="submit" class="ui small basic fluid button">
-                        <i class="check icon"></i>已关注
-                      </button>
-                    </form>
-                  <% } else { %>
-                    <form method="post" action="<%= syzoj.utils.makeUrl(['user', show_user.id, 'follow']) %>" style="margin: 0;">
-                      <button type="submit" class="ui small primary fluid button">
-                        <i class="plus icon"></i>关注
-                      </button>
-                    </form>
-                  <% } %>
-                  <% if (res.locals.user.is_admin && show_user.id !== syzoj.siteOwnerUserId) { %>
-                    <a href="<%= syzoj.utils.makeUrl(['user', show_user.id, 'edit']) %>"
-                       class="ui small basic fluid labeled icon button" style="margin-top: 8px;">
-                      <i class="edit icon"></i>修改信息
-                    </a>
-                  <% } %>
-                </div>
-                <% } %>
-            </div>
+<% this.title = show_user.username + ' - 用户' %>
+<%
+const appHitScores = syzoj.userHitScores && syzoj.userHitScores.get(show_user.id);
+const appHitHidden = !!(syzoj.userHitHidden && syzoj.userHitHidden.has(show_user.id));
+const appCanViewHit = !appHitHidden || !!(user && user.id === show_user.id);
+const appIsManager = show_user.is_admin || !!(syzoj.adminUserIds && syzoj.adminUserIds.has(show_user.id));
+const appHitTotal = appHitScores ? appHitScores.total : 0;
+const appHitTier = appIsManager ? 'admin' : (appHitTotal >= 350 ? 'red' : (appHitTotal >= 280 ? 'orange' : (appHitTotal >= 200 ? 'green' : (appHitTotal >= 100 ? 'blue' : 'default'))));
+const appHitTierLabel = appIsManager ? '管理员' : (appHitTotal >= 350 ? '大神' : (appHitTotal >= 280 ? '高手' : (appHitTotal >= 200 ? '进阶' : (appHitTotal >= 100 ? '入门' : '萌新'))));
+const appSubmissionStats = [
+  ['Accepted', statistics['Accepted'] || 0, 'app-verdict-accepted'], ['Wrong Answer', statistics['Wrong Answer'] || 0, 'app-verdict-wrong'],
+  ['Runtime Error', statistics['Runtime Error'] || 0, 'app-verdict-runtime'], ['Time Limit', statistics['Time Limit Exceeded'] || 0, 'app-verdict-time'],
+  ['Memory Limit', statistics['Memory Limit Exceeded'] || 0, 'app-verdict-memory'], ['Compile Error', statistics['Compile Error'] || 0, 'app-verdict-compile']
+];
+const appSubmissionTotal = appSubmissionStats.reduce((sum, item) => sum + item[1], 0);
+const appRatingSeries = (typeof ratingHistories !== 'undefined' && Array.isArray(ratingHistories)) ? ratingHistories : [];
+const appParticipatedContests = (typeof participatedContests !== 'undefined' && Array.isArray(participatedContests)) ? participatedContests : [];
+const appRatingSeriesJson = JSON.stringify(appRatingSeries.map(item => ({ name: item.contestName, value: item.value }))).replace(/</g, '\\u003c');
+%>
+<% include app_header %>
 
-        </div>
-        <div class="eleven wide column">
-            <div class="ui grid">
-                <div class="row">
-                    <div class="sixteen wide column">
-                        <div class="ui grid">
-                            <div class="eight wide column">
-                                <div class="ui grid">
-                                    <div class="row">
-                                        <div class="column">
-                                           <h4 class="ui top attached block header">用户名</h4>
-                                           <div class="ui bottom attached segment"><%- syzoj.utils.renderUsername(show_user, { noLink: true }) %></div>
-                                        </div>
-                                    </div>
-                                    <% if (show_user.emailVisible) { %>
-                                      <div class="row">
-                                          <div class="column">
-                                              <h4 class="ui top attached block header">Email</h4>
-                                              <div class="ui bottom attached segment" class="font-content"><%= show_user.email %></div>
-                                          </div>
-                                      </div>
-                                    <% } %>
-                                    <div class="row">
-                                        <div class="column">
-                                            <h4 class="ui top attached block header">个性签名</h4>
-                                            <div class="ui bottom attached segment" class="font-content"><%- show_user.information %></div>
-                                        </div>
-                                    </div>
-                                    <div class="row">
-                                        <div class="column">
-                                            <h4 class="ui top attached block header">注册于</h4>
-                                            <div class="ui bottom attached segment" class="font-content">
-                                                <%= syzoj.utils.formatDate(show_user.register_time) %>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="row">
-                                        <div class="column">
-                                            <h4 class="ui top attached block header">通过的题目</h4>
-                                            <div class="ui bottom attached segment">
-                                                 <% for (let problem of show_user.ac_problems) { %>
-                                                     <a href="<%= syzoj.utils.makeUrl(['problem', problem.id]) %>"><%= problem.displayId %></a>
-                                                 <% } %>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="eight wide column">
-                                <div class="ui grid">
-                                  <div class="row">
-                                      <div class="column">
-                                          <h4 class="ui top attached block header">统计</h4>
-                                          <div class="ui bottom attached segment">
-                                            <div id="pie_chart_legend"></div>
-                                            <div style="width: 260px; height: 260px; margin-left: 33.5px; "><canvas style="width: 260px; height: 260px; " id="pie_chart"></canvas></div>
-                                          </div>
-                                      </div>
-                                  </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+<div class="app-page app-user-page">
+  <header class="app-profile-header">
+    <img class="app-profile-avatar" src="<%= syzoj.utils.avatar(show_user, 240) %>" alt="<%= show_user.username %> 的头像">
+    <div class="app-profile-identity"><span class="app-kicker">USER <%= show_user.id %></span><h1 class="username-tier-<%= appHitTier %>"><%= show_user.username %></h1><p><%= syzoj.siteOwnerUserId === show_user.id ? '站长' : (show_user.is_admin ? '管理员' : '普通用户') %><% if (show_user.information) { %><span>·</span><span class="app-profile-signature"><%- show_user.information %></span><% } %></p></div>
+    <div class="app-profile-actions"><% if (res.locals.user && res.locals.user.id === show_user.id) { %><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['user', show_user.id, 'edit']) %>"><i data-lucide="square-pen"></i>编辑资料</a><% } else if (res.locals.user) { %><% if (typeof followRelation !== 'undefined' && followRelation && followRelation.iFollow) { %><form method="post" data-user-follow-v2="unfollow" data-user-id="<%= show_user.id %>" data-confirm="确认取消关注？"><button class="app-button app-button-secondary" type="submit"><i data-lucide="<%= followRelation.mutual ? 'arrow-left-right' : 'check' %>"></i><%= followRelation.mutual ? '互相关注' : '已关注' %></button></form><% } else { %><form method="post" data-user-follow-v2="follow" data-user-id="<%= show_user.id %>"><button class="app-button app-button-primary" type="submit"><i data-lucide="user-plus"></i>关注</button></form><% } %><% if (res.locals.user.is_admin && show_user.id !== syzoj.siteOwnerUserId) { %><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['user', show_user.id, 'edit']) %>"><i data-lucide="settings"></i>管理资料</a><% } %><% } %></div>
+  </header>
 
-                </div>
+  <section class="app-profile-stats" aria-label="用户统计"><div><span>通过题目</span><strong><%= show_user.ac_problems.length %></strong></div><div><span>Rating</span><strong><%= show_user.rating %></strong></div><% if (typeof followStats !== 'undefined' && followStats) { %><a href="<%= syzoj.utils.makeUrl(['user', show_user.id, 'following']) %>"><span>关注</span><strong><%= followStats.following %></strong></a><a href="<%= syzoj.utils.makeUrl(['user', show_user.id, 'followers']) %>"><span>粉丝</span><strong><%= followStats.followers %></strong></a><% } %><div><span>注册时间</span><strong><%= syzoj.utils.formatDate(show_user.register_time).split(' ')[0] %></strong></div></section>
 
-                <%
-                // ============ Hit 值卡片数据准备 ============
-                let hitScores = (syzoj.userHitScores && syzoj.userHitScores.get(show_user.id)) || null;
-                let hitHidden = (syzoj.userHitHidden && syzoj.userHitHidden.has(show_user.id));
-                let hitTier = 'gray';
-                let hitTierLabel = '萌新';
-                let hitTotal = 0;
-                let isManager = show_user.is_admin || (syzoj.adminUserIds && syzoj.adminUserIds.has(show_user.id));
-                if (isManager) {
-                  hitTier = 'admin'; hitTierLabel = '管理员';
-                  hitTotal = hitScores ? hitScores.total : 0;
-                } else if (hitScores) {
-                  hitTotal = hitScores.total;
-                  if (hitTotal >= 350) { hitTier = 'red'; hitTierLabel = '大神'; }
-                  else if (hitTotal >= 280) { hitTier = 'orange'; hitTierLabel = '高手'; }
-                  else if (hitTotal >= 200) { hitTier = 'green'; hitTierLabel = '进阶'; }
-                  else if (hitTotal >= 100) { hitTier = 'blue'; hitTierLabel = '入门'; }
-                  else { hitTier = 'gray'; hitTierLabel = '萌新'; }
-                }
-                let tierBarColor = { gray:'grey', blue:'blue', green:'green', orange:'orange', red:'red', admin:'purple' }[hitTier] || 'grey';
-                let tierBarHex = { grey:'#999', blue:'#2185d0', green:'#21ba45', orange:'#f2711c', red:'#db2828', purple:'#a333c8' }[tierBarColor] || '#999';
-                let canViewHit = !hitHidden || (user && user.id === show_user.id);
-                %>
-                <% if (canViewHit) { %>
-                <div class="row">
-                    <div class="column">
-                        <h4 class="ui top attached block header">
-                            <i class="bullseye icon"></i> Hit 值
-                            <% if (hitHidden && user && user.id === show_user.id) { %>
-                              <span style="float: right; color: #888; font-weight: normal; font-size: 0.85em;">
-                                <i class="eye slash icon"></i> 仅自己可见
-                              </span>
-                            <% } %>
-                        </h4>
-                        <div class="ui bottom attached segment">
-                          <% if (hitScores) { %>
-                            <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 16px;">
-                              <div>
-                                <span class="username-tier-<%= hitTier %>" style="font-size: 2em; font-weight: bold;"><%= hitTotal %></span>
-                                <span style="color: #999; font-size: 1em;">/ 400</span>
-                              </div>
-                              <span class="ui <%= tierBarColor %> label"><%= hitTierLabel %></span>
-                            </div>
-                            <% function renderHitBar(label, value, max) { %>
-                              <% let pct = max > 0 ? Math.round(value / max * 100) : 0; %>
-                              <div style="margin-bottom: 10px;">
-                                <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-                                  <span style="color: #666; font-size: 0.9em;"><%= label %></span>
-                                  <span style="color: #999; font-size: 0.85em;"><%= value %> / <%= max %></span>
-                                </div>
-                                <div style="background: #eee; border-radius: 4px; overflow: hidden; height: 10px;">
-                                  <div style="background: <%= tierBarHex %>; width: <%= pct %>%; height: 100%; transition: width 0.3s;"></div>
-                                </div>
-                              </div>
-                            <% } %>
-                            <%- renderHitBar('基础信用分', hitScores.basic_score, 100) %>
-                            <%- renderHitBar('社区贡献分', hitScores.contribution_score, 100) %>
-                            <%- renderHitBar('比赛参与分', hitScores.contest_score, 100) %>
-                            <%- renderHitBar('题目练习分', hitScores.practice_score, 100) %>
-                            <div style="text-align: right; color: #aaa; font-size: 0.8em; margin-top: 12px;">
-                              系统每日凌晨自动计算 · <a href="/help/hit-value" style="color: #aaa;">了解 Hit 值</a>
-                            </div>
-                          <% } else { %>
-                            <div style="color: #999; text-align: center; padding: 20px 0;">
-                              <i class="hourglass half icon"></i>
-                              该用户的 Hit 值尚未计算，请稍后再来。
-                            </div>
-                          <% } %>
-                        </div>
-                        <% if (canViewHit && hitScores) { %>
-                <div class="row">
-                    <div class="column">
-                        <h4 class="ui top attached block header">
-                            <i class="chart line icon"></i> Hit 值趋势（近 30 天）
-                        </h4>
-                        <div class="ui bottom attached segment">
-                          <div id="hit-trend-empty" style="color: #999; text-align: center; padding: 20px 0; display: none;">
-                            <i class="hourglass half icon"></i>
-                            历史数据还在积累中，请几天后再来查看趋势。
-                          </div>
-                          <div id="hit-trend-loading" style="color: #999; text-align: center; padding: 20px 0;">
-                            <i class="spinner loading icon"></i> 加载中...
-                          </div>
-                          <canvas id="hit-trend-canvas" style="max-height: 300px; display: none;"></canvas>
-                        </div>
-                    </div>
-                </div>
+  <div class="app-profile-grid">
+    <section class="app-profile-section"><div class="app-section-heading"><div><span class="app-kicker">OVERVIEW</span><h2>提交构成</h2></div><span class="app-section-count"><%= appSubmissionTotal %> 次</span></div><div class="app-distribution"><% for (const item of appSubmissionStats) { const appPercent = appSubmissionTotal ? Math.round(item[1] / appSubmissionTotal * 100) : 0; %><div><span><i class="<%= item[2] %>"></i><%= item[0] %></span><strong><%= item[1] %></strong><div><span class="<%= item[2] %>" style="width:<%= appPercent %>%"></span></div></div><% } %></div></section>
 
-                <script>
-                (function() {
-                  var uid = <%= show_user.id %>;
-                  fetch('/api/hit-history/' + uid + '?days=30')
-                    .then(function(r) { return r.json(); })
-                    .then(function(data) {
-                      var loading = document.getElementById('hit-trend-loading');
-                      var empty = document.getElementById('hit-trend-empty');
-                      var canvas = document.getElementById('hit-trend-canvas');
-                      loading.style.display = 'none';
+    <section class="app-profile-section"><div class="app-section-heading"><div><span class="app-kicker">PROFILE</span><h2>公开资料</h2></div></div><dl class="app-profile-data"><div><dt>用户名</dt><dd><%= show_user.username %></dd></div><% if (show_user.emailVisible) { %><div><dt>Email</dt><dd><a href="mailto:<%= show_user.email %>"><%= show_user.email %></a></dd></div><% } %><div><dt>身份</dt><dd><%= syzoj.siteOwnerUserId === show_user.id ? '站长' : (show_user.is_admin ? '管理员' : '普通用户') %></dd></div><div><dt>注册时间</dt><dd><%= syzoj.utils.formatDate(show_user.register_time) %></dd></div></dl></section>
+  </div>
 
-                      if (!data.ok || !data.points || data.points.length < 2) {
-                        empty.style.display = 'block';
-                        return;
-                      }
-                      canvas.style.display = 'block';
+  <section class="app-profile-section app-rating-history-section">
+    <div class="app-section-heading"><div><span class="app-kicker">RATING</span><h2>Rating 变化</h2></div><% if (appRatingSeries.length > 1) { %><span class="app-section-count"><%= appRatingSeries[appRatingSeries.length - 1].value %></span><% } %></div>
+    <% if (appRatingSeries.length > 1) { %>
+      <div class="app-rating-chart">
+        <canvas id="user-rating-chart" tabindex="0" aria-label="Rating 变化折线图，可使用左右方向键查看节点"></canvas>
+        <div class="app-rating-chart-summary" aria-hidden="true"><span>起始 <strong><%= appRatingSeries[0].value %></strong></span><span>当前 <strong><%= appRatingSeries[appRatingSeries.length - 1].value %></strong></span></div>
+      </div>
+      <script id="user-rating-series" type="application/json"><%- appRatingSeriesJson %></script>
+    <% } else { %>
+      <p class="app-profile-placeholder">暂无 Rating 变化记录。</p>
+    <% } %>
+  </section>
 
-                      var labels = data.points.map(function(p) {
-                        var d = new Date(p.t * 1000);
-                        return (d.getMonth() + 1) + '/' + d.getDate();
-                      });
-                      var basicData = data.points.map(function(p) { return p.basic; });
-                      var contribData = data.points.map(function(p) { return p.contribution; });
-                      var contestData = data.points.map(function(p) { return p.contest; });
-                      var practiceData = data.points.map(function(p) { return p.practice; });
+  <% if (appCanViewHit) { %><section class="app-hit-section"><div class="app-hit-overview"><span class="app-kicker">HIT VALUE<% if (appHitHidden && user && user.id === show_user.id) { %> · 仅自己可见<% } %></span><div><strong class="username-tier-<%= appHitTier %>"><%= appHitTotal %></strong><span>/ 400</span><span class="app-status"><%= appHitTierLabel %></span></div><p>综合信用、社区贡献、比赛参与和题目练习的长期指标。</p><a href="/help/hit-value">了解 Hit 值</a></div><div class="app-hit-breakdown"><% if (appHitScores) { for (const item of [['基础信用', appHitScores.basic_score], ['社区贡献', appHitScores.contribution_score], ['比赛参与', appHitScores.contest_score], ['题目练习', appHitScores.practice_score]]) { %><div><span><%= item[0] %><strong><%= item[1] %> / 100</strong></span><div><span style="width:<%= item[1] %>%"></span></div></div><% } } else { %><div class="app-profile-placeholder"><i data-lucide="hourglass"></i><span>Hit 值尚未计算</span></div><% } %></div><% if (appHitScores) { %><div class="app-hit-trend"><span class="app-label">近 30 天趋势</span><div data-hit-loading>正在加载历史数据...</div><canvas id="hit-trend-canvas" aria-label="Hit 值近 30 天趋势"></canvas></div><% } %></section><% } %>
 
-                      new Chart(canvas.getContext('2d'), {
-                        type: 'line',
-                        data: {
-                          labels: labels,
-                          datasets: [
-                            {
-                              label: '基础信用分',
-                              data: basicData,
-                              borderColor: '#2185d0',
-                              backgroundColor: 'rgba(33,133,208,0.08)',
-                              fill: false,
-                              tension: 0.2
-                            },
-                            {
-                              label: '社区贡献分',
-                              data: contribData,
-                              borderColor: '#21ba45',
-                              backgroundColor: 'rgba(33,186,69,0.08)',
-                              fill: false,
-                              tension: 0.2
-                            },
-                            {
-                              label: '比赛参与分',
-                              data: contestData,
-                              borderColor: '#f2711c',
-                              backgroundColor: 'rgba(242,113,28,0.08)',
-                              fill: false,
-                              tension: 0.2
-                            },
-                            {
-                              label: '题目练习分',
-                              data: practiceData,
-                              borderColor: '#db2828',
-                              backgroundColor: 'rgba(219,40,40,0.08)',
-                              fill: false,
-                              tension: 0.2
-                            }
-                          ]
-                        },
-                        options: {
-                          responsive: true,
-                          maintainAspectRatio: false,
-                          legend: { position: 'bottom' },
-                          scales: {
-                            yAxes: [{
-                              ticks: { beginAtZero: true, max: 100, stepSize: 20 }
-                            }]
-                          },
-                          tooltips: { mode: 'index', intersect: false }
-                        }
-                      });
-                    })
-                    .catch(function(e) {
-                      var loading = document.getElementById('hit-trend-loading');
-                      var empty = document.getElementById('hit-trend-empty');
-                      loading.style.display = 'none';
-                      empty.style.display = 'block';
-                      console.error('hit-trend fetch failed', e);
-                    });
-                })();
-                </script>
-                <% } %>
-                    </div>
-                </div>
-                <% } %>
+  <section class="app-profile-section"><div class="app-section-heading"><div><span class="app-kicker">SOLVED</span><h2>通过的题目</h2></div><span class="app-section-count"><%= show_user.ac_problems.length %> 题</span></div><% if (show_user.ac_problems.length) { %><div class="app-solved-list"><% for (const problem of show_user.ac_problems) { %><a href="<%= syzoj.utils.makeUrl(['problem', problem.id]) %>"><%= problem.displayId %></a><% } %></div><% } else { %><p class="app-profile-placeholder">尚未通过公开题目。</p><% } %></section>
 
-                <div class="row">
-                    <div class="column">
-                        <h4 class="ui top attached block header">帖子</h4>
-                        <div class="ui bottom attached <% if (!show_user.articles.length) { %>center aligned <% } %>segment">
-													  <% if (!show_user.articles.length) { %>该用户从未发表帖子<% } else { %>
-                            <table class="ui very basic table">
-                                <thead>
-                                    <tr>
-                                        <th>标题</th>
-                                        <th>时间</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <% for (let article of show_user.articles) { %>
-                                    <tr>
-																			  <td><a href="<%= syzoj.utils.makeUrl(['article', article.id]) %>"><%= article.title %></a></td>
-                                        <td><%= syzoj.utils.formatDate(article.public_time) %></td>
-                                    </tr>
-                                    <% } %>
-                                </tbody>
-                            </table>
-													  <% } %>
-                        </div>
-                    </div>
-                </div>
-                <div class="row">
-                    <div class="column">
-                        <h4 class="ui top attached block header">比赛</h4>
-                        <div class="ui bottom attached segment">
-                            <table class="ui very basic table">
-                                <thead>
-                                    <tr>
-                                        <th>比赛</th>
-                                        <th>名次</th>
-                                        <th>Rating</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <% for (const history of ratingHistories) { %>
-                                    <tr>
-                                        <td>
-                                          <% if (history.contestId) { %>
-                                            <a href="<%= syzoj.utils.makeUrl(['contest', history.contestId, 'ranklist']) %>"><%= history.contestName %></a>
-                                          <% } else { %>
-                                            <%= history.contestName %>
-                                          <% } %>
-                                        </td>
-                                        <td><%= history.rank != null ? history.rank + " / " + history.participants : '' %></td>
-                                        <td><%= history.value %>
-                                            <% if(history.delta != null) { %>
-                                                <span class="<%= history.delta >= 0 ? 'rating_up' : 'rating_down' %>">
-                                                (<%= (history.delta < 0 ? '' : '+') + history.delta %>)
-                                            <% } %>
-                                        </td>
-                                    </tr>
-                                    <% } %>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+  <div class="app-profile-grid app-profile-activity">
+    <section class="app-profile-section"><div class="app-section-heading"><div><span class="app-kicker">DISCUSSIONS</span><h2>最近帖子</h2></div></div><% if (show_user.articles.length) { %><div class="app-compact-list"><% for (const article of show_user.articles) { %><a href="<%= syzoj.utils.makeUrl(['article', article.id]) %>"><strong><%= article.title %></strong><span><%= syzoj.utils.formatDate(article.public_time) %></span></a><% } %></div><% } else { %><p class="app-profile-placeholder">该用户尚未发表帖子。</p><% } %></section>
+    <section class="app-profile-section"><div class="app-section-heading"><div><span class="app-kicker">CONTESTS</span><h2>比赛记录</h2></div></div><% if (appParticipatedContests.length) { %><div class="app-contest-link-list"><% for (const contest of appParticipatedContests) { %><a href="<%= syzoj.utils.makeUrl(['contest', contest.id]) %>"><%= contest.title %></a><% } %></div><% } else { %><p class="app-profile-placeholder">暂无参赛记录。</p><% } %></section>
+  </div>
 </div>
-</div>
+
 <script>
-$(function () {
-  var pie = new Chart(document.getElementById('pie_chart').getContext('2d'), {
-    aspectRatio: 1,
-    type: 'pie',
-    data: {
-      datasets: [
-        {
-          data: [
-            <%= statistics["Accepted"] %>,
-            <%= statistics["Wrong Answer"] %>,
-            <%= statistics["Runtime Error"] %>,
-            <%= statistics["Time Limit Exceeded"] %>,
-            <%= statistics["Memory Limit Exceeded"] %>,
-            <%= statistics["Compile Error"] %>,
-          ],
-          backgroundColor: [
-            "#66dd66",
-            "#ff6384",
-            "darkorchid",
-            "#ffce56",
-            "#00b5ad",
-            "#35a0e8"
-          ]
-        }
-      ],
-      labels: [
-        "Accepted",
-        "Wrong Answer",
-        "Runtime Error",
-        "Time Limit Exceeded",
-        "Memory Limit Exceeded",
-        "Compile Error"
-      ]
-    },
-    options: {
-      responsive: true,
-      legend: {
-        display: false
-      },
-      legendCallback: function (chart) {
-  			var text = [];
-  			text.push('<ul style="list-style: none; padding-left: 20px; margin-top: 0; " class="' + chart.id + '-legend">');
-
-  			var data = chart.data;
-  			var datasets = data.datasets;
-  			var labels = data.labels;
-
-  			if (datasets.length) {
-  				for (var i = 0; i < datasets[0].data.length; ++i) {
-  					text.push('<li style="font-size: 12px; width: 50%; display: inline-block; color: #666; "><span style="width: 10px; height: 10px; display: inline-block; border-radius: 50%; margin-right: 5px; background-color: ' + datasets[0].backgroundColor[i] + '; "></span>');
-  					if (labels[i]) {
-  						text.push(labels[i]);
-  					}
-  					text.push('</li>');
-  				}
-  			}
-
-  			text.push('</ul>');
-  			return text.join('');
-  		}
-    },
+(function () {
+  function operationKey() { return window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random(); }
+document.querySelectorAll('form[data-user-follow-v2]').forEach(function (form) {
+    form.addEventListener('submit', async function (event) {
+      if (event.defaultPrevented) return;
+      event.preventDefault();
+      var action = form.dataset.userFollowV2;
+      var button = form.querySelector('[type="submit"]');
+      if (button) button.disabled = true;
+      try {
+        var response = await fetch('/api/v2/users/' + encodeURIComponent(form.dataset.userId) + '/follow', {
+          method: action === 'unfollow' ? 'DELETE' : 'POST',
+          credentials: 'same-origin',
+          headers: { 'Idempotency-Key': operationKey() }
+        });
+        var body = null;
+        try { body = await response.json(); } catch (error) {}
+        if (!response.ok) throw new Error(body && body.error && body.error.message || (action === 'unfollow' ? '取消关注失败。' : '关注失败。'));
+        window.location.reload();
+      } catch (error) {
+        if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '操作失败。', 'danger');
+        else window.alert(error.message || '操作失败。');
+        if (button) button.disabled = false;
+      }
+    });
   });
-
-  document.getElementById('pie_chart_legend').innerHTML = pie.generateLegend();
-});
+})();
 </script>
-<% include footer %>
+
+<% if (appRatingSeries.length > 1) { %><script>
+(function () {
+  var canvas = document.getElementById('user-rating-chart');
+  var source = document.getElementById('user-rating-series');
+  if (!canvas || !source) return;
+  var points;
+  try { points = JSON.parse(source.textContent); } catch (error) { canvas.hidden = true; return; }
+  if (!Array.isArray(points) || points.length < 2) { canvas.hidden = true; return; }
+  var hoveredIndex = null;
+  var coordinates = [];
+  function color(name, fallback) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback; }
+  function shortLabel(value) { var text = String(value || ''); return text.length > 12 ? text.slice(0, 11) + '…' : text; }
+  function draw() {
+    var ratio = window.devicePixelRatio || 1;
+    var width = Math.max(320, canvas.clientWidth || 640);
+    var height = Math.max(210, canvas.clientHeight || 220);
+    canvas.width = Math.round(width * ratio);
+    canvas.height = Math.round(height * ratio);
+    var context = canvas.getContext('2d');
+    context.setTransform(ratio, 0, 0, ratio, 0, 0);
+    context.clearRect(0, 0, width, height);
+    var padding = { top: 18, right: 18, bottom: 34, left: 48 };
+    var chartWidth = width - padding.left - padding.right;
+    var chartHeight = height - padding.top - padding.bottom;
+    var values = points.map(function (point) { return Number(point.value); });
+    var low = Math.min.apply(Math, values);
+    var high = Math.max.apply(Math, values);
+    var spread = Math.max(100, high - low);
+    var minimum = Math.floor((low - Math.max(50, spread * 0.15)) / 50) * 50;
+    var maximum = Math.ceil((high + Math.max(50, spread * 0.15)) / 50) * 50;
+    if (minimum === maximum) maximum = minimum + 100;
+    context.font = '12px system-ui, sans-serif';
+    context.textBaseline = 'middle';
+    context.lineWidth = 1;
+    for (var line = 0; line <= 4; line += 1) {
+      var y = padding.top + chartHeight * line / 4;
+      var label = Math.round(maximum - (maximum - minimum) * line / 4);
+      context.strokeStyle = color('--app-line', '#e5e7eb');
+      context.beginPath(); context.moveTo(padding.left, y); context.lineTo(width - padding.right, y); context.stroke();
+      context.fillStyle = color('--app-text-muted', '#6b7280');
+      context.textAlign = 'right'; context.fillText(String(label), padding.left - 9, y);
+    }
+    coordinates = points.map(function (point, index) {
+      return {
+        x: padding.left + chartWidth * index / (points.length - 1),
+        y: padding.top + (maximum - Number(point.value)) / (maximum - minimum) * chartHeight
+      };
+    });
+    context.strokeStyle = color('--app-accent', '#2563eb');
+    context.lineWidth = 2.5;
+    context.lineJoin = 'round';
+    context.lineCap = 'round';
+    context.beginPath();
+    coordinates.forEach(function (point, index) { if (index) context.lineTo(point.x, point.y); else context.moveTo(point.x, point.y); });
+    context.stroke();
+    coordinates.forEach(function (point, index) {
+      context.beginPath(); context.arc(point.x, point.y, hoveredIndex === index ? 5 : 3, 0, Math.PI * 2);
+      context.fillStyle = color('--app-surface', '#ffffff'); context.fill();
+      context.strokeStyle = color('--app-accent', '#2563eb'); context.lineWidth = 2; context.stroke();
+    });
+    context.fillStyle = color('--app-text-muted', '#6b7280');
+    context.textBaseline = 'alphabetic';
+    context.textAlign = 'left'; context.fillText(shortLabel(points[0].name), padding.left, height - 8);
+    context.textAlign = 'right'; context.fillText(shortLabel(points[points.length - 1].name), width - padding.right, height - 8);
+    if (hoveredIndex !== null) {
+      var active = coordinates[hoveredIndex];
+      var tooltip = shortLabel(points[hoveredIndex].name) + '  ' + points[hoveredIndex].value;
+      context.font = '600 12px system-ui, sans-serif';
+      var tooltipWidth = context.measureText(tooltip).width + 20;
+      var tooltipX = Math.min(width - padding.right - tooltipWidth, Math.max(padding.left, active.x - tooltipWidth / 2));
+      var tooltipY = Math.max(4, active.y - 38);
+      context.fillStyle = color('--app-text', '#111827'); context.fillRect(tooltipX, tooltipY, tooltipWidth, 28);
+      context.fillStyle = color('--app-surface', '#ffffff'); context.textAlign = 'center'; context.textBaseline = 'middle';
+      context.fillText(tooltip, tooltipX + tooltipWidth / 2, tooltipY + 14);
+      canvas.setAttribute('aria-label', points[hoveredIndex].name + '，Rating ' + points[hoveredIndex].value + '。使用左右方向键查看其他节点');
+    }
+  }
+  function selectNearest(clientX) {
+    var rect = canvas.getBoundingClientRect();
+    var localX = clientX - rect.left;
+    var nearest = 0;
+    for (var index = 1; index < coordinates.length; index += 1) if (Math.abs(coordinates[index].x - localX) < Math.abs(coordinates[nearest].x - localX)) nearest = index;
+    hoveredIndex = nearest; draw();
+  }
+  canvas.addEventListener('pointermove', function (event) { selectNearest(event.clientX); });
+  canvas.addEventListener('pointerleave', function () { hoveredIndex = null; canvas.setAttribute('aria-label', 'Rating 变化折线图，可使用左右方向键查看节点'); draw(); });
+  canvas.addEventListener('focus', function () { if (hoveredIndex === null) { hoveredIndex = points.length - 1; draw(); } });
+  canvas.addEventListener('keydown', function (event) {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    var direction = event.key === 'ArrowLeft' ? -1 : 1;
+    hoveredIndex = Math.max(0, Math.min(points.length - 1, (hoveredIndex === null ? points.length - 1 : hoveredIndex) + direction));
+    draw();
+  });
+  var resizeFrame;
+  window.addEventListener('resize', function () { window.cancelAnimationFrame(resizeFrame); resizeFrame = window.requestAnimationFrame(draw); });
+  new MutationObserver(draw).observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme'] });
+  draw();
+})();
+</script><% } %>
+
+<% if (appCanViewHit && appHitScores) { %><script>
+(function () {
+  var canvas = document.getElementById('hit-trend-canvas'); var loading = document.querySelector('[data-hit-loading]'); if (!canvas) return;
+  function draw(points) { var ratio = window.devicePixelRatio || 1; var width = canvas.clientWidth || 500; var height = 150; canvas.width = width * ratio; canvas.height = height * ratio; var ctx = canvas.getContext('2d'); ctx.scale(ratio, ratio); ctx.clearRect(0, 0, width, height); if (points.length < 2) return; var values = points.map(function (point) { return Number(point.basic || 0) + Number(point.contribution || 0) + Number(point.contest || 0) + Number(point.practice || 0); }); ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--app-line-strong'); ctx.lineWidth = 1; for (var line = 0; line < 4; line += 1) { var y = 10 + line * 42; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke(); } ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--app-accent'); ctx.lineWidth = 2; ctx.beginPath(); values.forEach(function (value, index) { var x = index / (values.length - 1) * (width - 8) + 4; var y = height - 8 - Math.max(0, Math.min(400, value)) / 400 * (height - 18); if (index) ctx.lineTo(x, y); else ctx.moveTo(x, y); }); ctx.stroke(); }
+  fetch('/api/v2/users/<%= show_user.id %>/hit-history?days=30').then(function (response) { return response.json(); }).then(function (payload) { var data = payload && payload.data; if (loading) loading.hidden = true; if (!data || !data.points || data.points.length < 2) { canvas.hidden = true; if (loading) { loading.hidden = false; loading.textContent = '历史数据仍在积累'; } return; } draw(data.points); window.addEventListener('resize', function () { draw(data.points); }); }).catch(function () { if (loading) loading.textContent = '趋势暂时不可用'; canvas.hidden = true; });
+})();
+</script><% } %>
+<% include app_footer %>

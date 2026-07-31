@@ -1,0 +1,18 @@
+<% this.title = '详情 - ' + contest.title %>
+<% include app_header %>
+<% if (typeof contestHeader !== 'undefined' && contestHeader) { %><% include contest_context %><% } %>
+
+<div class="app-page app-contest-details-page">
+  <div class="app-contest-details">
+    <section class="app-contest-detail-section">
+      <header><i data-lucide="file-text"></i><div><span class="app-kicker">INFORMATION</span><h2>比赛信息</h2></div></header>
+      <% if (contestDetails.subtitle) { %><div class="app-markdown"><%- contestDetails.subtitle %></div><% } else { %><div class="app-contest-detail-empty">暂无比赛信息</div><% } %>
+    </section>
+    <section class="app-contest-detail-section">
+      <header><i data-lucide="megaphone"></i><div><span class="app-kicker">ANNOUNCEMENT</span><h2>比赛公告</h2></div></header>
+      <% if (contestDetails.information) { %><div class="app-markdown"><%- contestDetails.information %></div><% } else { %><div class="app-contest-detail-empty">暂无比赛公告</div><% } %>
+    </section>
+  </div>
+</div>
+
+<% include app_footer %>

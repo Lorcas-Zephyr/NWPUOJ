@@ -1,104 +1,56 @@
-<% this.title = '首页 Banner 管理' %>
-<% include header %>
+<% this.adminPage = 'banners'; %>
+<% include admin_header %>
 
-<div class="padding">
-  <div class="ui breadcrumb" style="margin-bottom: 14px;">
-    <a class="section" href="<%= syzoj.utils.makeUrl(['admin', 'info']) %>">后台管理</a>
-    <i class="right angle icon divider"></i>
-    <div class="active section">Banner 管理</div>
-  </div>
-
-  <h2><i class="image icon"></i>首页 Banner 管理</h2>
-  <p style="color: #666;">在此上传、管理首页轮播图。支持 JPG / PNG / WebP / GIF,最大 5MB。</p>
-
-  <!-- ============ 上传新 banner ============ -->
-  <div class="ui segment" style="background: #f9f9f9;">
-    <h4 style="margin-top: 0;"><i class="cloud upload icon"></i>上传新 Banner</h4>
-    <form class="ui form" method="post" action="<%= syzoj.utils.makeUrl(['admin', 'banner', 'new']) %>" enctype="multipart/form-data">
-      <div class="two fields">
-        <div class="field">
-          <label>标题(纯标识,不显示在首页)</label>
-          <input type="text" name="title" placeholder="例如:春季促销" maxlength="100" required>
-        </div>
-        <div class="field">
-          <label>排序(数字越大越靠前,默认 0)</label>
-          <input type="number" name="sort_order" value="0">
-        </div>
-      </div>
-      <div class="field">
-        <label>跳转链接(可选,留空则点击不跳转)</label>
-        <input type="text" name="link_url" placeholder="例如:/contest/5 或 https://...">
-      </div>
-      <div class="field">
-        <label>图片文件 *(必填)</label>
-        <input type="file" name="image" accept="image/jpeg,image/png,image/webp,image/gif" required>
-      </div>
-      <button type="submit" class="ui primary button"><i class="upload icon"></i>上传</button>
-    </form>
-  </div>
-
-  <!-- ============ 已有 banner 列表 ============ -->
-  <h3 style="margin-top: 30px;">现有 Banner</h3>
-  <% if (!banners || banners.length === 0) { %>
-    <div class="ui placeholder segment">
-      <div class="ui icon header">
-        <i class="image outline icon"></i>暂无 Banner
-      </div>
-    </div>
-  <% } else { %>
-    <table class="ui celled table">
-      <thead>
-        <tr>
-          <th style="width: 200px;">预览</th>
-          <th>标题</th>
-          <th>跳转链接</th>
-          <th style="width: 80px;">排序</th>
-          <th style="width: 80px;">启用</th>
-          <th style="width: 160px;">操作</th>
-        </tr>
-      </thead>
-      <tbody>
-        <% for (let b of banners) { %>
-          <tr>
-            <td>
-              <img src="<%= b.image_path %>" alt="" style="max-width: 180px; max-height: 80px; border-radius: 4px;">
-            </td>
-            <td>
-              <form class="ui mini form" method="post" action="<%= syzoj.utils.makeUrl(['admin', 'banner', b.id, 'edit']) %>">
-                <div class="field" style="margin-bottom: 6px;">
-                  <input type="text" name="title" value="<%= b.title %>" maxlength="100">
-                </div>
-            </td>
-            <td>
-                <div class="field" style="margin-bottom: 6px;">
-                  <input type="text" name="link_url" value="<%= b.link_url || '' %>" placeholder="留空则不跳转">
-                </div>
-            </td>
-            <td>
-                <div class="field" style="margin-bottom: 6px;">
-                  <input type="number" name="sort_order" value="<%= b.sort_order %>">
-                </div>
-            </td>
-            <td>
-                <div class="ui toggle checkbox">
-                  <input type="checkbox" name="is_active" <% if (b.is_active) { %>checked<% } %>>
-                  <label></label>
-                </div>
-            </td>
-            <td>
-                <button type="submit" class="ui mini primary button"><i class="save icon"></i>保存</button>
-              </form>
-              <form method="post" action="<%= syzoj.utils.makeUrl(['admin', 'banner', b.id, 'delete']) %>"
-                    onsubmit="return confirm('确认删除此 Banner？图片文件也会一并删除。');"
-                    style="display: inline; margin-top: 4px;">
-                <button type="submit" class="ui mini red basic button"><i class="trash icon"></i>删除</button>
-              </form>
-            </td>
-          </tr>
-        <% } %>
-      </tbody>
-    </table>
-  <% } %>
-</div>
-
-<% include footer %>
+<div class="app-admin-toolbar"><div><h3>首页轮播</h3><p>支持 JPG、PNG、WebP、GIF，单张不超过 5 MB。</p></div></div>
+<section class="app-settings-section app-admin-first-section"><div class="app-settings-copy"><span class="app-kicker">NEW BANNER</span><h2>上传轮播图</h2><p>标题仅作为后台标识。排序值越大，展示位置越靠前。</p></div><form class="app-form app-settings-fields" method="post" enctype="multipart/form-data" data-banner-v2="upload"><input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>"><div class="app-form-grid"><label class="app-field"><span class="app-label">标题</span><input class="app-input" type="text" name="title" maxlength="100" placeholder="例如：春季训练赛" required></label><label class="app-field"><span class="app-label">排序</span><input class="app-input" type="number" name="sort_order" value="0"></label><label class="app-field app-field-full"><span class="app-label">跳转链接</span><input class="app-input" type="text" name="link_url" placeholder="/contest/5 或 https://..."></label></div><label class="app-file-field"><input type="file" name="image" accept="image/jpeg,image/png,image/webp,image/gif" required><span><i data-lucide="image-plus"></i><strong>选择图片</strong><small>点击浏览本地文件</small></span></label><div><button class="app-button app-button-primary" type="submit"><i data-lucide="upload"></i>上传轮播图</button></div></form></section>
+<section class="app-admin-section"><div class="app-section-header"><div><h3 class="app-section-title">现有轮播图</h3><p class="app-section-description"><%= banners && banners.length ? banners.length + ' 张图片' : '尚未上传' %></p></div></div>
+<% if (banners && banners.length) { %><div class="app-admin-banner-list"><% for (const banner of banners) { %><article class="app-admin-banner-row"><img src="<%= banner.image_path %>" alt="<%= banner.title %>"><form id="banner-edit-<%= banner.id %>" class="app-form app-admin-banner-form" method="post" data-banner-v2="edit" data-banner-id="<%= banner.id %>"><input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>"><label><span>标题</span><input class="app-input" type="text" name="title" value="<%= banner.title %>" maxlength="100"></label><label><span>跳转链接</span><input class="app-input" type="text" name="link_url" value="<%= banner.link_url || '' %>" placeholder="留空则不跳转"></label><label class="app-admin-order-field"><span>排序</span><input class="app-input" type="number" name="sort_order" value="<%= banner.sort_order %>"></label><label class="app-admin-switch-field"><span>启用</span><input class="app-switch" type="checkbox" name="is_active"<%= banner.is_active ? ' checked' : '' %> aria-label="启用 <%= banner.title %>"></label><button class="app-button app-button-secondary" type="submit"><i data-lucide="save"></i>保存</button></form><form method="post" data-banner-v2="delete" data-banner-id="<%= banner.id %>" data-confirm="确认删除“<%= banner.title %>”吗？图片文件也会一并删除。"><input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>"><button class="app-icon-button app-icon-danger" type="submit" title="删除轮播图" aria-label="删除轮播图"><i data-lucide="trash"></i></button></form></article><% } %></div><% } else { %><div class="app-empty app-empty-compact"><div class="app-empty-inner"><i data-lucide="images"></i><strong>暂无轮播图</strong><p>从上方上传第一张图片。</p></div></div><% } %>
+</section>
+<script>
+(function () {
+  function requestKey() { return window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random(); }
+  function message(body, fallback) { return body && body.error && body.error.message || fallback; }
+async function detail(id) {
+    var response = await fetch('/api/v2/admin/banners/' + encodeURIComponent(id), { credentials: 'same-origin', cache: 'no-store' });
+    var body = await response.json();
+    if (!response.ok) throw Object.assign(new Error(message(body, '轮播图读取失败。')), { code: body && body.error && body.error.code });
+    return { etag: response.headers.get('ETag'), data: body.data };
+  }
+  document.querySelectorAll('form[data-banner-v2]').forEach(function (form) {
+    form.addEventListener('submit', async function (event) {
+      if (event.defaultPrevented) return;
+      event.preventDefault();
+      var button = form.querySelector('button[type="submit"]');
+      if (button) button.disabled = true;
+      try {
+        var action = form.dataset.bannerV2;
+        var response;
+        if (action === 'upload') {
+          response = await fetch('/api/v2/admin/banners/upload', {
+            method: 'POST', credentials: 'same-origin', headers: { 'Idempotency-Key': requestKey() }, body: new FormData(form)
+          });
+        } else {
+          var id = form.dataset.bannerId;
+          var current = await detail(id);
+          var headers = { 'Content-Type': 'application/json', 'Idempotency-Key': requestKey(), 'If-Match': current.etag || '' };
+          var options = { method: action === 'delete' ? 'DELETE' : 'PATCH', credentials: 'same-origin', headers: headers };
+          if (action === 'edit') options.body = JSON.stringify({
+            title: form.elements.title.value,
+            link_url: form.elements.link_url.value || null,
+            sort_order: Number(form.elements.sort_order.value || 0),
+            active: form.elements.is_active.checked
+          });
+          response = await fetch('/api/v2/admin/banners/' + encodeURIComponent(id), options);
+        }
+        var body = await response.json();
+        if (!response.ok) throw new Error(message(body, '轮播图操作失败。'));
+        window.location.reload();
+      } catch (error) {
+        if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '轮播图操作失败。', 'danger');
+        if (button) button.disabled = false;
+      }
+    });
+  });
+})();
+</script>
+<% include admin_footer %>

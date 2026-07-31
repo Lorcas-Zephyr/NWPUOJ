@@ -1,191 +1,145 @@
 <% this.title = (solution.title || '题解') + ' - ' + problem.title %>
-<% include header %>
+<%
+const appSolutionStatus = { accepted: ['已通过', 'app-status-accepted'], pending: ['待审核', 'app-status-waiting'], rejected: ['已拒绝', 'app-status-error'], withdrawn: ['已撤回', ''] }[solution.status] || [solution.status, ''];
+%>
+<% include app_header %>
 
-<div class="padding">
-  <div class="ui breadcrumb nwpuoj-meta" style="margin-bottom:15px;">
-    <a class="section" href="<%= syzoj.utils.makeUrl(['problems']) %>">题库</a>
-    <i class="right angle icon divider"></i>
-    <a class="section" href="<%= syzoj.utils.makeUrl(['problem', problem.id]) %>"><%= problem.getDisplayId() %>. <%= problem.title %></a>
-    <i class="right angle icon divider"></i>
-    <a class="section" href="<%= syzoj.utils.makeUrl(['problem', problem.id, 'solutions']) %>">题解</a>
-    <i class="right angle icon divider"></i>
-    <div class="active section"><%= solution.title %></div>
-  </div>
+<div class="app-page app-solution-page">
+  <nav class="app-breadcrumb" aria-label="面包屑"><a href="<%= syzoj.utils.makeUrl(['problems']) %>">题库</a><i data-lucide="chevron-right"></i><a href="<%= syzoj.utils.makeUrl(['problem', problem.id]) %>"><%= problem.getDisplayId() %>. <%= syzoj.utils.removeTitleTag(problem.title) %></a><i data-lucide="chevron-right"></i><a href="<%= syzoj.utils.makeUrl(['problem', problem.id, 'solutions']) %>">题解</a><i data-lucide="chevron-right"></i><span><%= solution.title %></span></nav>
+  <header class="app-page-header app-article-header"><div class="app-page-heading"><span class="app-kicker">SOLUTION <%= solution.id %></span><h1 class="app-page-title"><%= solution.title %></h1><p class="app-page-description app-article-author"><% if (solution.user) { %><img src="<%= syzoj.utils.avatar(solution.user, 40) %>" alt=""><a href="<%= syzoj.utils.makeUrl(['user', solution.user.id]) %>"><%= solution.user.username %></a><% } else { %><span>已删除用户</span><% } %><span><%= syzoj.utils.formatDate(solution.public_time) %></span><% if (solution.update_time && solution.update_time !== solution.public_time) { %><span>编辑于 <%= syzoj.utils.formatDate(solution.update_time) %></span><% } %></p></div><div class="app-page-actions"><span class="app-status <%= appSolutionStatus[1] %>"><%= appSolutionStatus[0] %></span><% if (solution.allowedEdit) { %><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['solution', solution.id, 'edit']) %>"><i data-lucide="square-pen"></i>编辑</a><% if (solution.status !== 'withdrawn' && res.locals.user && solution.user_id === res.locals.user.id) { %><button class="app-button app-button-secondary" type="button" data-solution-v2-action="withdraw" data-confirm="确定撤回此题解吗？"><i data-lucide="undo"></i>撤回</button><% } %><button class="app-button app-button-danger-outline" type="button" data-solution-v2-action="delete" data-confirm="确定永久删除此题解吗？"><i data-lucide="trash"></i>删除</button><% } %></div></header>
 
-  <div class="nwpuoj-content-surface">
-    <div class="nwpuoj-content-header" style="margin-top:0;">
-      <div>
-        <h1 class="nwpuoj-content-title"><%= solution.title %></h1>
-        <div class="nwpuoj-content-meta">
-          作者：
-          <% if (solution.user) { %>
-            <%- syzoj.utils.renderUsername(solution.user) %>
-          <% } else { %>
-            <i>已删除</i>
-          <% } %>
-          <span><i class="calendar outline icon"></i><%= syzoj.utils.formatDate(solution.public_time) %></span>
-          <% if (solution.update_time && solution.update_time !== solution.public_time) { %>
-            <span><i class="edit outline icon"></i><%= syzoj.utils.formatDate(solution.update_time) %></span>
-          <% } %>
-        </div>
-      </div>
-      <div>
-        <% if (solution.status === 'accepted') { %>
-          <span class="nwpuoj-status nwpuoj-status-success">已通过</span>
-        <% } else if (solution.status === 'pending') { %>
-          <span class="nwpuoj-status nwpuoj-status-warning">待审核</span>
-        <% } else if (solution.status === 'rejected') { %>
-          <span class="nwpuoj-status nwpuoj-status-danger">已拒绝</span>
-        <% } else if (solution.status === 'withdrawn') { %>
-          <span class="nwpuoj-status nwpuoj-status-muted">已撤回</span>
-        <% } %>
-        <% if ((solution.status === 'accepted' || solution.status === 'rejected') && solution.reviewer) { %>
-          <div class="nwpuoj-meta" style="margin-top:6px;">
-            审核员：<%- syzoj.utils.renderUsername(solution.reviewer) %>
-            <% if (solution.reviewed_at) { %>
-              · <%= syzoj.utils.formatDate(solution.reviewed_at) %>
-            <% } %>
-          </div>
-        <% } %>
-      </div>
-    </div>
+  <% if ((solution.status === 'accepted' || solution.status === 'rejected') && solution.reviewer) { %><p class="app-review-meta">审核员：<a href="<%= syzoj.utils.makeUrl(['user', solution.reviewer.id]) %>"><%= solution.reviewer.username %></a><% if (solution.reviewed_at) { %> · <%= syzoj.utils.formatDate(solution.reviewed_at) %><% } %></p><% } %>
+  <% if (solution.status === 'rejected' && solution.reject_reason) { %><div class="app-notice app-notice-danger"><i data-lucide="circle-x"></i><span><strong>审核未通过</strong><small><%= solution.reject_reason %></small></span></div><% } %>
+  <% if (solution.status === 'pending') { %><div class="app-notice app-notice-warning"><i data-lucide="clock"></i><span>此题解正在审核中，目前仅作者本人和管理员可见。</span></div><% } %>
 
-    <% if (solution.status === 'rejected' && solution.reject_reason) { %>
-      <div class="ui red message">
-        <div class="header">审核未通过</div>
-        <p><%= solution.reject_reason %></p>
-      </div>
-    <% } %>
+  <article class="app-article-content app-markdown"><%- solution.contentRendered %></article>
 
-    <% if (solution.status === 'pending') { %>
-      <div class="ui yellow message">
-        <i class="info circle icon"></i> 此题解正在审核中，目前仅作者本人和管理员可见。
-      </div>
-    <% } %>
+  <% if (canReview && (solution.status === 'pending' || solution.status === 'rejected')) { %><section class="app-review-panel"><div><span class="app-kicker">REVIEW</span><h2><%= solution.status === 'pending' ? '题解审核' : '重新审核' %></h2><p><%= solution.status === 'pending' ? '通过后题解将对所有用户可见。' : '可以将当前已拒绝的题解改判为通过。' %></p></div><div class="app-review-actions"><form method="post" data-solution-v2-form="review" data-solution-decision="approved" data-confirm="确定审核通过这篇题解吗？"><input type="hidden" name="_content_token" value="<%= contentFormTokens.solutionReview %>"><button class="app-button app-button-primary" type="submit"><i data-lucide="check"></i><%= solution.status === 'pending' ? '通过' : '改判通过' %></button></form><% if (solution.status === 'pending') { %><form class="app-form app-review-reject" method="post" data-solution-v2-form="review" data-solution-decision="rejected" data-confirm="确定拒绝这篇题解吗？"><input type="hidden" name="_content_token" value="<%= contentFormTokens.solutionReview %>"><input class="app-input" type="text" name="reason" placeholder="说明需要修改的内容" maxlength="255" required><button class="app-button app-button-danger" type="submit"><i data-lucide="x"></i>拒绝</button></form><% } %></div></section><% } %>
 
-    <div class="ui divider"></div>
-
-    <div class="article-content">
-      <%- solution.contentRendered %>
-    </div>
-  </div>
-
-  <% if (solution.allowedEdit) { %>
-    <div class="nwpuoj-page-actions" style="margin-top:15px;">
-      <a class="ui button" href="<%= syzoj.utils.makeUrl(['solution', solution.id, 'edit']) %>">
-        <i class="edit icon"></i> 编辑
-      </a>
-
-      <% if (solution.status !== 'withdrawn' && res.locals.user && solution.user_id === res.locals.user.id) { %>
-        <a class="ui yellow button" href-post="<%= syzoj.utils.makeUrl(['solution', solution.id, 'withdraw']) %>"
-           onclick="return confirm('确定撤回此题解吗？');">
-          <i class="undo icon"></i> 撤回
-        </a>
-      <% } %>
-
-      <a class="ui red button" href-post="<%= syzoj.utils.makeUrl(['solution', solution.id, 'delete']) %>"
-         onclick="return confirm('确定删除此题解吗？此操作不可恢复！');">
-        <i class="trash icon"></i> 删除
-      </a>
-    </div>
-  <% } %>
-  <% if (canReview && solution.status === 'pending') { %>
-    <div class="nwpuoj-review-panel">
-      <h4 style="margin-top: 0;">
-        <i class="gavel icon"></i> 题解审核
-      </h4>
-      <p class="nwpuoj-meta" style="margin-bottom:15px;">
-        此题解处于待审核状态。审核通过后所有用户可见。
-      </p>
-
-      <div class="nwpuoj-review-actions">
-        <form method="post" action="<%= syzoj.utils.makeUrl(['solution', solution.id, 'approve']) %>"
-              onsubmit="return confirm('确定审核通过这篇题解吗？');">
-          <input type="hidden" name="_content_token" value="<%= contentFormTokens.solutionReview %>">
-          <button type="submit" class="ui green button">
-            <i class="checkmark icon"></i> 通过
-          </button>
-        </form>
-
-        <form class="ui form nwpuoj-review-reject-form" action="<%= syzoj.utils.makeUrl(['solution', solution.id, 'reject']) %>" method="post"
-              onsubmit="return confirm('确定拒绝这篇题解吗？');">
-          <input type="hidden" name="_content_token" value="<%= contentFormTokens.solutionReview %>">
-          <input type="text" name="reason" placeholder="拒绝原因（必填，将展示给作者）" maxlength="255" required>
-          <button type="submit" class="ui red button">
-            <i class="times icon"></i> 拒绝
-          </button>
-        </form>
-      </div>
-    </div>
-  <% } %>
-
-  <% if (canReview && solution.status === 'rejected') { %>
-    <div style="margin-top: 15px;">
-      <form method="post" action="<%= syzoj.utils.makeUrl(['solution', solution.id, 'approve']) %>"
-            onsubmit="return confirm('改判此题解为已通过？');">
-        <input type="hidden" name="_content_token" value="<%= contentFormTokens.solutionReview %>">
-        <button type="submit" class="ui green button">
-          <i class="checkmark icon"></i> 改判通过
-        </button>
-      </form>
-    </div>
-  <% } %>
-<!-- ============ 评论区 ============ -->
-  <div style="margin-top:20px;" id="comments">
-    <% if (commentsCount > 0) { %>
-      <h3>共 <%= commentsCount %> 条评论</h3>
-      <div class="ui comments" style="max-width: none;">
-        <% for (let c of comments) { %>
-          <div class="comment">
-            <a class="avatar">
-              <img src="<%= syzoj.utils.avatar(c.user, 120) %>">
-            </a>
-            <div class="content">
-              <%- syzoj.utils.renderUsername(c.user) %>
-              <div class="metadata">
-                <span class="date"><%= syzoj.utils.formatDate(c.public_time) %></span>
-              </div>
-              <div class="text font-content"><%- c.contentRendered %></div>
-              <% if (c.allowedEdit) { %>
-                <div class="actions">
-                  <a href-post="<%= syzoj.utils.makeUrl(['solution', solution.id, 'comment', c.id, 'delete']) %>"
-                     onclick="return confirm('确定删除这条评论吗？');">删除</a>
-                </div>
-              <% } %>
-            </div>
-          </div>
-        <% } %>
-      </div>
-      <% include page %>
-    <% } else if (solution.status === 'accepted') { %>
-      <h3>暂无评论</h3>
-    <% } %>
-
-    <% if (solution.allowedComment) { %>
-      <form class="ui reply form" method="post" action="<%= syzoj.utils.makeUrl(['solution', solution.id, 'comment']) %>" style="margin-top: 15px;">
-        <input type="hidden" name="_content_token" value="<%= contentFormTokens.solutionComment %>">
-        <div class="field">
-          <textarea name="comment" placeholder="发表评论(支持 Markdown,最多 5000 字)..." rows="4"></textarea>
-        </div>
-        <div style="text-align: center;">
-          <button type="submit" class="ui labeled submit icon primary button">
-            <i class="icon edit"></i> 发表评论
-          </button>
-        </div>
-      </form>
-    <% } else if (solution.status !== 'accepted') { %>
-      <div class="ui info message" style="margin-top: 15px;">
-        <i class="info circle icon"></i> 题解通过审核后才能评论。
-      </div>
-    <% } else if (!res.locals.user) { %>
-      <div class="ui info message" style="margin-top: 15px;">
-        <a href="<%= syzoj.utils.makeUrl(['login'], { url: req.originalUrl }) %>">登录</a> 后即可评论。
-      </div>
-    <% } else if (!solution.allow_comment) { %>
-      <div class="ui warning message" style="margin-top: 15px;">
-        <i class="ban icon"></i> 作者已关闭此题解的评论。
-      </div>
-    <% } %>
-  </div>
+  <section class="app-comments" id="comments"><div class="app-section-heading"><div><span class="app-kicker">COMMENTS</span><h2>评论</h2></div><span class="app-section-count"><%= commentsCount %> 条</span></div>
+    <% if (commentsCount > 0) { %><div class="app-comment-list"><% let appFloor = (typeof paginate !== 'undefined' && paginate ? (paginate.currPage - 1) * paginate.perPage : 0); for (const comment of comments) { appFloor += 1; %><article class="app-comment"><img src="<%= syzoj.utils.avatar(comment.user, 80) %>" alt=""><div class="app-comment-main"><header><span><a href="<%= syzoj.utils.makeUrl(['user', comment.user.id]) %>"><%= comment.user.username %></a><time><%= syzoj.utils.formatDate(comment.public_time) %></time></span><span class="app-comment-actions"><small>#<%= appFloor %></small><% if (comment.allowedEdit) { %><button type="button" data-solution-v2-action="delete-comment" data-comment-id="<%= comment.id %>" data-confirm="确定删除这条评论吗？" aria-label="删除评论" title="删除评论"><i data-lucide="trash"></i></button><% } %></span></header><div class="app-markdown"><%- comment.contentRendered %></div></div></article><% } %></div><% include app_pagination %><% } else if (solution.status === 'accepted') { %><div class="app-empty app-empty-compact"><div class="app-empty-inner"><i data-lucide="message-circle"></i><strong>暂无评论</strong><p>还没有人参与讨论。</p></div></div><% } %>
+    <% if (solution.allowedComment) { %><section class="app-reply-section"><h2 class="app-section-title">发表评论</h2><form class="app-form" method="post" data-solution-v2-form="comment"><input type="hidden" name="_content_token" value="<%= contentFormTokens.solutionComment %>"><label class="app-field"><span class="app-label">评论内容</span><textarea class="app-textarea app-content-textarea" name="comment" maxlength="5000" required></textarea></label><div class="app-form-actions app-form-actions-end"><button class="app-button app-button-primary" type="submit"><i data-lucide="send"></i>发表评论</button></div></form></section><% } else if (solution.status !== 'accepted') { %><div class="app-notice"><i data-lucide="info"></i><span>题解通过审核后才能评论。</span></div><% } else if (!res.locals.user) { %><div class="app-notice"><i data-lucide="log-in"></i><span><a href="<%= syzoj.utils.makeUrl(['login'], { url: req.originalUrl }) %>">登录</a>后即可评论。</span></div><% } else if (!solution.allow_comment) { %><div class="app-notice app-notice-warning"><i data-lucide="message-circle-off"></i><span>作者已关闭此题解的评论。</span></div><% } %>
+  </section>
 </div>
-<% include footer %>
+
+<script>
+(function () {
+  var solutionId = '<%= solution.id %>';
+  var problemId = '<%= problem.id %>';
+
+  function operationKey() {
+    return window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random();
+  }
+
+  function failureMessage(body, fallback) {
+    if (!body || !body.error) return fallback;
+    var messages = {
+      SOLUTION_NOT_FOUND: '题解已被删除。',
+      SOLUTION_COMMENT_NOT_FOUND: '评论已被删除。',
+      SOLUTION_ALREADY_WITHDRAWN: '题解已经撤回，请刷新页面。',
+      SOLUTION_NOT_REVIEWABLE: '题解状态已经变化，请刷新页面。',
+      ETAG_MISMATCH: '题解已在其他页面修改，请刷新后重试。',
+      VALIDATION_FAILED: '请检查填写的内容。',
+      SOLUTION_FORBIDDEN: '你没有权限执行此操作。',
+      AUTHENTICATION_REQUIRED: '登录状态已失效，请重新登录。'
+    };
+    return messages[body.error.code] || body.error.message || fallback;
+  }
+
+  async function readResponse(response) {
+    var body = null;
+    try { body = await response.json(); } catch (error) {}
+    return { response: response, body: body };
+  }
+async function currentSolution() {
+    return readResponse(await fetch('/api/v2/solutions/' + encodeURIComponent(solutionId), {
+      credentials: 'same-origin',
+      cache: 'no-store'
+    }));
+  }
+
+  document.addEventListener('click', async function (event) {
+    var control = event.target.closest('[data-solution-v2-action]');
+    if (!control || control.getAttribute('aria-disabled') === 'true') return;
+    var confirmation = control.dataset.confirm;
+    if (confirmation && !window.confirm(confirmation)) return;
+    var action = control.dataset.solutionV2Action;
+    var endpoint = '/api/v2/solutions/' + encodeURIComponent(solutionId);
+    var method = 'DELETE';
+    if (action === 'withdraw') {
+      endpoint += '/withdraw';
+      method = 'POST';
+    } else if (action === 'delete-comment') {
+      endpoint += '/comments/' + encodeURIComponent(control.dataset.commentId);
+    }
+    control.setAttribute('aria-disabled', 'true');
+    control.disabled = true;
+    try {
+      var response = await fetch(endpoint, {
+        method: method,
+        credentials: 'same-origin',
+        headers: { 'Idempotency-Key': operationKey() }
+      });
+      var body = null;
+      try { body = await response.json(); } catch (error) {}
+      if (!response.ok) throw new Error(failureMessage(body, '操作失败，请稍后重试。'));
+      var toast = action === 'withdraw' ? '题解已撤回' : action === 'delete' ? '题解已删除' : '评论已删除';
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(toast, 'success');
+      window.setTimeout(function () {
+        if (action === 'delete-comment') return window.location.reload();
+        window.location.assign('/problem/' + encodeURIComponent(problemId) + '/solutions');
+      }, 250);
+    } catch (error) {
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '操作失败，请稍后重试。', 'danger');
+      else window.alert(error.message || '操作失败，请稍后重试。');
+      control.removeAttribute('aria-disabled');
+      control.disabled = false;
+    }
+  });
+
+  document.addEventListener('submit', async function (event) {
+    var form = event.target.closest('[data-solution-v2-form]');
+    if (!form || event.defaultPrevented) return;
+    event.preventDefault();
+    var confirmation = form.dataset.confirm;
+    if (confirmation && !window.confirm(confirmation)) return;
+    var submit = form.querySelector('[type="submit"]');
+    if (submit) submit.disabled = true;
+    form.setAttribute('aria-busy', 'true');
+    try {
+      var action = form.dataset.solutionV2Form;
+      var endpoint = '/api/v2/solutions/' + encodeURIComponent(solutionId) + '/comments';
+      var headers = { 'Content-Type': 'application/json', 'Idempotency-Key': operationKey() };
+      var payload = action === 'comment' ? { content: form.elements.comment.value } : {};
+      if (action === 'review') {
+        var current = await currentSolution();
+        if (!current.response.ok) throw new Error(failureMessage(current.body, '暂时无法读取题解状态。'));
+        var etag = current.response.headers.get('ETag');
+        if (!etag) throw new Error('题解版本信息缺失，请刷新后重试。');
+        endpoint = '/api/v2/solutions/' + encodeURIComponent(solutionId) + '/review';
+        headers['If-Match'] = etag;
+        payload = {
+          decision: form.dataset.solutionDecision,
+          reason: form.elements.reason ? form.elements.reason.value : undefined
+        };
+      }
+      var result = await readResponse(await fetch(endpoint, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: headers,
+        body: JSON.stringify(payload)
+      }));
+      if (!result.response.ok) throw new Error(failureMessage(result.body, action === 'review' ? '审核操作失败。' : '评论发表失败。'));
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(action === 'review' ? '审核结果已保存' : '评论已发表', 'success');
+      window.setTimeout(function () { window.location.reload(); }, 250);
+    } catch (error) {
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '操作失败，请稍后重试。', 'danger');
+      else window.alert(error.message || '操作失败，请稍后重试。');
+      if (submit) submit.disabled = false;
+      form.removeAttribute('aria-busy');
+    }
+  });
+})();
+</script>
+
+<% include app_footer %>

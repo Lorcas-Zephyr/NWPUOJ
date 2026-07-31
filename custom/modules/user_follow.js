@@ -1,5 +1,37 @@
 let UserFollow = syzoj.model('user-follow');
 let User = syzoj.model('user');
+const TypeORM = require('typeorm');
+const contentDomain = require('../libs/content-domain');
+
+async function setFollow(actorId, targetId, following) {
+  if (!Number.isSafeInteger(actorId) || actorId <= 0 || !Number.isSafeInteger(targetId) || targetId <= 0) {
+    throw Object.assign(new Error('用户参数不正确。'), { statusCode: 422, code: 'VALIDATION_FAILED' });
+  }
+  if (actorId === targetId) throw Object.assign(new Error('不能关注自己。'), { statusCode: 409, code: 'SELF_FOLLOW_FORBIDDEN' });
+  return TypeORM.getConnection().transaction('READ COMMITTED', async manager => {
+    const actors = await manager.query('SELECT id FROM user WHERE id=? FOR UPDATE', [actorId]);
+    const targets = await manager.query('SELECT id FROM user WHERE id=? LIMIT 1', [targetId]);
+    if (!actors.length) throw Object.assign(new Error('请先登录。'), { statusCode: 401, code: 'AUTHENTICATION_REQUIRED' });
+    if (!targets.length) throw Object.assign(new Error('用户不存在。'), { statusCode: 404, code: 'USER_NOT_FOUND' });
+    const existing = await manager.query('SELECT id FROM user_follow WHERE follower_id=? AND followee_id=? ORDER BY id ASC FOR UPDATE', [actorId, targetId]);
+    let changed = false;
+    if (following && !existing.length) {
+      await manager.query('INSERT INTO user_follow (follower_id,followee_id,created_at) VALUES (?,?,?)', [actorId, targetId, Math.floor(Date.now() / 1000)]);
+      changed = true;
+    } else if (!following && existing.length) {
+      await manager.query('DELETE FROM user_follow WHERE follower_id=? AND followee_id=?', [actorId, targetId]);
+      changed = true;
+    }
+    const eventId = await contentDomain.appendEvent(manager, {
+      stream: `user-follow:${actorId}`,
+      type: following ? 'user.followed' : 'user.unfollowed',
+      aggregateId: targetId,
+      actorId,
+      payload: { target_user_id: targetId, changed }
+    });
+    return { follower_id: actorId, followee_id: targetId, following, changed, event_id: eventId };
+  });
+}
 
 // ============ 通用工具:获取关系状态 ============
 async function getFollowRelation(viewerId, targetId) {
@@ -34,55 +66,26 @@ syzoj.utils.countFollowing = countFollowing;
 syzoj.utils.countFollowers = countFollowers;
 
 // ============ POST /user/:id/follow:关注 ============
-app.post('/user/:id/follow', async (req, res) => {
+
+// ============ POST /user/:id/unfollow:取关 ============
+
+app.post('/api/v2/users/:id/follow', async (req, res) => {
+  const user = res.locals.user;
+  if (!user) return syzoj.utils.apiV2.fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.');
   try {
-    if (!res.locals.user) throw new ErrorMessage('请先登录。');
-    let targetId = parseInt(req.params.id);
-    if (!targetId) throw new ErrorMessage('参数错误。');
-    if (targetId === res.locals.user.id) throw new ErrorMessage('不能关注自己。');
-
-    let target = await User.findById(targetId);
-    if (!target) throw new ErrorMessage('用户不存在。');
-
-    let existing = await UserFollow.findOne({
-      where: { follower_id: res.locals.user.id, followee_id: targetId }
-    });
-    if (existing) {
-      // 已关注 → 不重复创建,直接跳转
-      return res.redirect(syzoj.utils.safeLocalUrl(req.body.return_url, syzoj.utils.makeUrl(['user', targetId])));
-    }
-
-    let f = await UserFollow.create();
-    f.follower_id = res.locals.user.id;
-    f.followee_id = targetId;
-    f.created_at = parseInt((new Date()).getTime() / 1000);
-    await f.save();
-
-    res.redirect(syzoj.utils.safeLocalUrl(req.body.return_url, syzoj.utils.makeUrl(['user', targetId])));
-  } catch (e) {
-    syzoj.log(e);
-    res.render('error', { err: e });
+    return syzoj.utils.apiV2.send(res, await setFollow(Number(user.id), Number(req.params.id), true), 201);
+  } catch (error) {
+    return syzoj.utils.apiV2.fail(res, error.statusCode || 409, error.code || 'FOLLOW_FAILED', error.message);
   }
 });
 
-// ============ POST /user/:id/unfollow:取关 ============
-app.post('/user/:id/unfollow', async (req, res) => {
+app.delete('/api/v2/users/:id/follow', async (req, res) => {
+  const user = res.locals.user;
+  if (!user) return syzoj.utils.apiV2.fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.');
   try {
-    if (!res.locals.user) throw new ErrorMessage('请先登录。');
-    let targetId = parseInt(req.params.id);
-    if (!targetId) throw new ErrorMessage('参数错误。');
-
-    let existing = await UserFollow.findOne({
-      where: { follower_id: res.locals.user.id, followee_id: targetId }
-    });
-    if (existing) {
-      await existing.destroy();
-    }
-
-    res.redirect(syzoj.utils.safeLocalUrl(req.body.return_url, syzoj.utils.makeUrl(['user', targetId])));
-  } catch (e) {
-    syzoj.log(e);
-    res.render('error', { err: e });
+    return syzoj.utils.apiV2.send(res, await setFollow(Number(user.id), Number(req.params.id), false));
+  } catch (error) {
+    return syzoj.utils.apiV2.fail(res, error.statusCode || 409, error.code || 'UNFOLLOW_FAILED', error.message);
   }
 });
 

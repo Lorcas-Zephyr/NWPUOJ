@@ -11,12 +11,18 @@ const DELETED_ACCOUNT_EMAIL = 'deleted-account@nwpuoj.invalid';
 let deletedAccountPromise = null;
 
 async function canManageUsers(user) {
-  return !!(user && (user.is_admin || await user.hasPrivilege('manage_user')));
+  return !!(user && await syzoj.utils.authorizationV2.authorize(
+    user,
+    'admin:user.manage',
+    null,
+    { scope: 'global' }
+  ));
 }
 
-function userManagementError(message, statusCode) {
+function userManagementError(message, statusCode, code) {
   const error = new Error(message);
   error.statusCode = statusCode || 400;
+  if (code) error.code = code;
   return error;
 }
 
@@ -127,14 +133,20 @@ async function deleteUserAccount(req, actor, targetId) {
   const deletedAccountId = await ensureDeletedAccount();
   let avatarPath = null;
   let deletedUsername = null;
+  let auditEventId = null;
+  let domainEvent = null;
+  await Promise.all([
+    syzoj.utils.authorizationV2.ensureSchema(),
+    syzoj.utils.apiV2.ensureFoundationSchema()
+  ]);
   await TypeORM.getConnection().transaction(async manager => {
     const users = await manager.query('SELECT id,username,is_admin FROM user WHERE id=? FOR UPDATE', [targetId]);
-    if (!users.length) throw userManagementError('用户不存在。', 404);
+    if (!users.length) throw userManagementError('用户不存在。', 404, 'USER_NOT_FOUND');
     const target = users[0];
-    if (Number(target.id) === Number(actor.id)) throw userManagementError('不能删除当前登录账号。', 409);
-    if (Number(target.id) === Number(syzoj.siteOwnerUserId || 0)) throw userManagementError('站长账号不能删除。', 409);
-    if (Number(target.id) === deletedAccountId) throw userManagementError('系统保留账号不能删除。', 409);
-    if (target.is_admin && !actorIsOwner) throw userManagementError('只有站长可以删除其他全站管理员。', 403);
+    if (Number(target.id) === Number(actor.id)) throw userManagementError('不能删除当前登录账号。', 409, 'USER_DELETE_CONFLICT');
+    if (Number(target.id) === Number(syzoj.siteOwnerUserId || 0)) throw userManagementError('站长账号不能删除。', 403, 'OWNER_ACCOUNT_PROTECTED');
+    if (Number(target.id) === deletedAccountId) throw userManagementError('系统保留账号不能删除。', 409, 'USER_DELETE_CONFLICT');
+    if (target.is_admin && !actorIsOwner) throw userManagementError('只有站长可以删除其他全站管理员。', 403, 'OWNER_CAPABILITY_REQUIRED');
 
     const avatarRows = await manager.query('SELECT image_path FROM user_avatar WHERE user_id=? FOR UPDATE', [targetId]);
     avatarPath = avatarRows.length ? avatarRows[0].image_path : null;
@@ -148,6 +160,8 @@ async function deleteUserAccount(req, actor, targetId) {
     );
     await manager.query('SELECT id FROM judge_state WHERE user_id=? FOR UPDATE', [targetId]);
     await manager.query('UPDATE judge_state SET user_id=? WHERE user_id=?', [deletedAccountId,targetId]);
+    await manager.query('UPDATE submission_v2_projection SET user_id=? WHERE user_id=?', [deletedAccountId,targetId]);
+    await manager.query('UPDATE submission_v2_code_version SET user_id=? WHERE user_id=?', [deletedAccountId,targetId]);
     await manager.query('UPDATE judge_state_admin_action SET affected_user_id=? WHERE affected_user_id=?', [deletedAccountId,targetId]);
     await manager.query('UPDATE judge_state_admin_action SET operator_id=? WHERE operator_id=?', [deletedAccountId,targetId]);
     await manager.query('DELETE FROM contest_player WHERE user_id=?', [targetId]);
@@ -167,6 +181,9 @@ async function deleteUserAccount(req, actor, targetId) {
 
     await manager.query('DELETE FROM submission_statistics WHERE user_id=?', [targetId]);
     await manager.query('DELETE FROM rating_history WHERE user_id=?', [targetId]);
+    await manager.query('DELETE FROM rating_v2_contest_override WHERE user_id=?', [targetId]);
+    await manager.query('DELETE FROM rating_v2_current WHERE user_id=?', [targetId]);
+    await manager.query('DELETE FROM rating_v2_event WHERE user_id=?', [targetId]);
     await manager.query('DELETE FROM contest_registration_removal WHERE user_id=?', [targetId]);
     await manager.query('UPDATE contest_registration_removal SET removed_by=? WHERE removed_by=?', [deletedAccountId,targetId]);
     await manager.query('UPDATE contest_rating_config SET updated_by=? WHERE updated_by=?', [deletedAccountId,targetId]);
@@ -191,6 +208,12 @@ async function deleteUserAccount(req, actor, targetId) {
     await manager.query('DELETE FROM private_message WHERE sender_id=? OR receiver_id=?', [targetId,targetId]);
     await manager.query('DELETE FROM user_follow WHERE follower_id=? OR followee_id=?', [targetId,targetId]);
     await manager.query('DELETE FROM account_password_reset WHERE user_id=?', [targetId]);
+    await manager.query('DELETE FROM auth_mfa_challenge WHERE user_id=?', [targetId]);
+    await manager.query("DELETE FROM auth_grant WHERE subject_type='user' AND subject_id=?", [targetId]);
+    await manager.query('UPDATE auth_grant SET granted_by=? WHERE granted_by=?', [deletedAccountId,targetId]);
+    await manager.query('DELETE FROM auth_team_member WHERE user_id=?', [targetId]);
+    await manager.query('DELETE FROM auth_organization_member WHERE user_id=?', [targetId]);
+    await manager.query('DELETE FROM auth_user_state WHERE user_id=?', [targetId]);
     await manager.query('DELETE FROM email_verification_token WHERE user_id=?', [targetId]);
     await manager.query('DELETE FROM content_form_token WHERE user_id=?', [targetId]);
     await manager.query('DELETE FROM clipboard_item WHERE user_id=?', [targetId]);
@@ -208,7 +231,25 @@ async function deleteUserAccount(req, actor, targetId) {
     await manager.query('DELETE FROM user_avatar WHERE user_id=?', [targetId]);
     await manager.query('DELETE FROM user WHERE id=?', [targetId]);
     deletedUsername = String(target.username);
+    auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, {
+      action: 'admin:user.delete',
+      resourceType: 'user',
+      resourceId: targetId,
+      reason: syzoj.utils.operationReason(req, '删除用户'),
+      details: { username: deletedUsername, reassigned_to_user_id: deletedAccountId }
+    }, manager);
+    const eventPayload = { audit_event_id: auditEventId, reassigned_to_user_id: deletedAccountId };
+    const eventResult = await manager.query(
+      'INSERT INTO api_v2_event (stream,type,aggregate_id,actor_id,payload_json,created_at) VALUES (?,?,?,?,?,UTC_TIMESTAMP(3))',
+      [`identity:user:${targetId}`, 'user.deleted', String(targetId), Number(actor.id), JSON.stringify(eventPayload)]
+    );
+    domainEvent = {
+      id: String(eventResult.insertId), stream: `identity:user:${targetId}`, type: 'user.deleted',
+      aggregate_id: String(targetId), actor_id: Number(actor.id), payload: eventPayload,
+      created_at: new Date().toISOString()
+    };
   });
+  syzoj.utils.apiV2.publishEvent(domainEvent);
 
   deleteAvatarFile(avatarPath);
   User.deleteFromCache(targetId);
@@ -221,8 +262,10 @@ async function deleteUserAccount(req, actor, targetId) {
   if (syzoj.utils.refreshAvatarCache) await syzoj.utils.refreshAvatarCache();
   if (syzoj.utils.refreshUserTagsCache) await syzoj.utils.refreshUserTagsCache();
   if (syzoj.utils.refreshContestCheaterCache) await syzoj.utils.refreshContestCheaterCache();
-  return deletedUsername;
+  return { username: deletedUsername, auditEventId };
 }
+
+syzoj.utils.adminUserManagementV2 = Object.freeze({ deleteUserAccount });
 
 function userSearchCondition(keyword) {
   if (!keyword) return { sql: '', params: [] };
@@ -311,19 +354,4 @@ app.get('/admin/users', async (req, res) => {
 ensureDeletedAccount().catch(error => {
   syzoj.log('[admin-users] deleted account initialization failed: ' + (error.message || error));
   process.exit(1);
-});
-
-app.post('/admin/users/:id/delete', async (req, res) => {
-  try {
-    const actor = res.locals.user;
-    const targetId = Number(req.params.id);
-    if (!await canManageUsers(actor)) throw userManagementError('您没有权限删除用户。', 403);
-    if (!Number.isSafeInteger(targetId) || targetId <= 0) throw userManagementError('用户 ID 不正确。');
-    if (!validUserManagementCsrfToken(req)) throw userManagementError('页面已失效，请刷新用户管理页后重试。', 403);
-    const username = await deleteUserAccount(req, actor, targetId);
-    res.redirect(303, syzoj.utils.makeUrl(['admin', 'users'], { deleted: username }));
-  } catch (error) {
-    syzoj.log('[admin-users] delete failed: ' + (error.message || error));
-    res.status(error.statusCode || 400).render('error', { err: error });
-  }
 });

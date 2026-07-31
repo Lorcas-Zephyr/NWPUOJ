@@ -1,202 +1,195 @@
-<% this.title = '提交记录' %>
-<% include header %>
+<% this.title = (typeof displayConfig !== 'undefined' && displayConfig.inContest && typeof contest !== 'undefined' && contest) ? '提交记录 - ' + contest.title : '提交记录' %>
 <% include util %>
-<script src="<%- lib('textfit/2.3.1/textFit.min.js') %>"></script>
-<div class="padding">
-  <% if (displayConfig.inContest) { %>
-    <div class="ui info message">
-      <div class="header"><%= contest.title %></div>
-      <p><%= displayConfig.showOthers ? '当前可查看参赛者提交。' : '当前仅可查看自己的提交。' %></p>
-    </div>
-  <% } %>
+<%
+function submissionStatus(item) {
+  if (item.info.adminActionType === 'cheated') return '作弊';
+  if (item.info.adminActionType === 'cancelled') return '已取消';
+  if (item.result) return item.result.result;
+  if (item.running) return 'Judging';
+  return 'Waiting';
+}
+function submissionStatusClass(status) {
+  const value = String(status || '').toLowerCase();
+  if (value === 'accepted') return 'app-verdict app-verdict-accepted';
+  if (value === 'waiting') return 'app-status-waiting';
+  if (value === 'judging' || value === 'running' || value === 'compiling') return 'app-status-judging';
+  if (value === 'partially correct') return 'app-status-partial';
+  if (value === '作弊' || value === 'cheated' || value === 'wrong answer') return 'app-verdict app-verdict-wrong';
+  if (value === 'runtime error' || value === 'invalid interaction') return 'app-verdict app-verdict-runtime';
+  if (value === 'time limit exceeded') return 'app-verdict app-verdict-time';
+  if (value === 'memory limit exceeded' || value === 'output limit exceeded') return 'app-verdict app-verdict-memory';
+  if (value.includes('error') || value === 'judgement failed') return 'app-verdict app-verdict-compile';
+  return '';
+}
+function submissionFormatSize(bytes) {
+  let value = Number(bytes || 0);
+  const units = ['B', 'K', 'M', 'G'];
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }
+  return (value === Math.round(value) ? value : value.toFixed(1)) + ' ' + units[unit];
+}
+function submissionUserTier(userId) {
+  if (syzoj.adminUserIds && syzoj.adminUserIds.has(userId)) return 'admin';
+  if (syzoj.cheaterUserIds && syzoj.cheaterUserIds.has(userId)) return 'cheater';
+  if (syzoj.userHitScores && syzoj.userHitScores.has(userId)) {
+    const hit = syzoj.userHitScores.get(userId).total || 0;
+    if (hit >= 350) return 'red';
+    if (hit >= 280) return 'orange';
+    if (hit >= 200) return 'green';
+    if (hit >= 100) return 'blue';
+  }
+  return 'default';
+}
+function submissionUserTag(userId) {
+  if (syzoj.cheaterUserIds && syzoj.cheaterUserIds.has(userId) && !(syzoj.adminUserIds && syzoj.adminUserIds.has(userId))) return { text: '作弊者', tier: 'cheater' };
+  if (syzoj.userTagsEnabled !== false && syzoj.userTags && syzoj.userTags.has(userId)) return syzoj.userTags.get(userId);
+  return null;
+}
+function submissionLink(item) {
+  return displayConfig.inContest ? syzoj.utils.makeUrl(['contest', 'submission', item.info.submissionId]) : syzoj.utils.makeUrl(['submission', item.info.submissionId]);
+}
+function submissionProblemLink(item) {
+  return displayConfig.inContest ? syzoj.utils.makeUrl(['contest', contest.id, 'problem', item.info.problemId]) : syzoj.utils.makeUrl(['problem', item.info.sourceProblemId || item.info.problemId]);
+}
+%>
+<% include app_header %>
+<% if (typeof problemContext !== 'undefined' && problemContext) { %><% include problem_context %><% } else if (typeof contestHeader !== 'undefined' && contestHeader) { %><% include contest_context %><% } %>
 
-  <form action="<%= syzoj.utils.makeUrl(displayConfig.inContest ? ['contest', contest.id, 'submissions'] : ['submissions']) %>"
-        class="ui small form" method="get" id="submission-filter-form">
-    <% if (!displayConfig.inContest && form.contest) { %><input type="hidden" name="contest" value="<%= form.contest %>"><% } %>
-    <div class="nwpuoj-filter-grid nwpuoj-submission-filter-grid">
-      <div class="field">
-        <label>题目编号</label>
-        <input name="problem_id" inputmode="numeric" value="<%= form.problem_id || '' %>">
-      </div>
-      <% if (displayConfig.showOthers) { %>
-      <div class="field">
-        <label>提交者</label>
-        <input name="submitter" value="<%= form.submitter || '' %>">
-      </div>
-      <% } %>
-      <% if (displayConfig.showScore) { %>
-      <div class="field">
-        <label>最低分</label>
-        <input name="min_score" type="number" min="0" max="100" placeholder="0" value="<%= form.min_score || '' %>">
-      </div>
-      <div class="field">
-        <label>最高分</label>
-        <input name="max_score" type="number" min="0" max="100" placeholder="100" value="<%= form.max_score || '' %>">
-      </div>
-      <% } %>
-      <div class="field">
-        <label>语言</label>
-        <div class="ui selection dropdown" id="select_language">
-          <input type="hidden" name="language" value="<%= form.language || '' %>">
-          <i class="dropdown icon"></i><div class="default text">不限</div>
-          <div class="menu">
-            <div class="item" data-value="">不限</div>
-            <div class="item" data-value="submit-answer">提交答案</div>
-            <div class="item" data-value="non-submit-answer">非提交答案</div>
-            <% for (const lang of syzoj.config.filter_enabled_languages) { %>
-              <div class="item" data-value="<%= lang %>"><%= syzoj.languages[lang].show %></div>
-            <% } %>
-            <% for (const provider of Object.keys(vjudge.languages)) { %>
-              <div class="header"><%= provider %></div>
-              <% for (const lang of Object.keys(vjudge.languages[provider]).sort((a, b) => vjudge.languages[provider][a].index - vjudge.languages[provider][b].index)) { %>
-                <div class="item" data-value="<%= lang %>"><%= vjudge.languages[provider][lang].show %></div>
-              <% } %>
-            <% } %>
-          </div>
-        </div>
-      </div>
-      <% if (displayConfig.showResult) { %>
-      <div class="field">
-        <label>状态</label>
-        <div class="ui selection dropdown" id="select_status">
-          <input type="hidden" name="status" value="<%= form.status || '' %>">
-          <i class="dropdown icon"></i><div class="default text">不限</div>
-          <div class="menu">
-            <div class="item" data-value="">不限</div>
-            <% for (const status of ['Accepted', 'Wrong Answer', 'Partially Correct', 'Compile Error', 'Runtime Error', 'Time Limit Exceeded', 'Memory Limit Exceeded', 'Output Limit Exceeded', 'System Error', 'Cancelled', 'Cheated']) { %>
-              <div class="item" data-value="<%= status %>"><%= status %></div>
-            <% } %>
-          </div>
-        </div>
-      </div>
-      <% } %>
+<div class="app-page app-submissions-page">
+  <% if ((typeof problemContext === 'undefined' || !problemContext) && !displayConfig.inContest) { %><header class="app-page-header">
+    <div class="app-page-heading">
+      <span class="app-kicker">JUDGE ACTIVITY</span>
+      <h1 class="app-page-title">评测记录</h1>
+      <p class="app-page-description">跟踪评测状态，并按题目、用户、语言或结果定位提交。</p>
     </div>
-    <div class="nwpuoj-toolbar nwpuoj-submission-filter-toolbar">
-      <% if (user && displayConfig.showOthers) { %>
-      <% const showingMine = form.submitter === user.username; %>
-      <div class="nwpuoj-segmented" aria-label="提交范围">
-        <button class="ui button<%= !form.submitter ? ' active' : '' %>" type="button" id="submission_scope_all" aria-pressed="<%= !form.submitter ? 'true' : 'false' %>">
-          全部
-        </button>
-        <button class="ui button<%= showingMine ? ' active' : '' %>" type="button" id="submission_scope_mine" aria-pressed="<%= showingMine ? 'true' : 'false' %>">
-          <i class="user icon"></i>我的
-        </button>
-      </div>
-      <% } else { %><span></span><% } %>
-      <div class="nwpuoj-toolbar-actions">
-        <button class="ui small primary labeled icon button" type="submit">
-          <i class="search icon"></i>筛选
-        </button>
-        <% if (isFiltered) { %>
-        <a class="ui small basic button" href="<%= syzoj.utils.makeUrl(displayConfig.inContest ? ['contest', contest.id, 'submissions'] : ['submissions'], displayConfig.inContest ? {} : (form.contest ? { contest: form.contest } : {})) %>">清除</a>
-        <% } %>
-      </div>
-    </div>
-  </form>
+  </header><% } else if (typeof problemContext !== 'undefined' && problemContext) { %><div class="app-section-header app-context-section-header"><div><h2 class="app-section-title">提交记录</h2><p class="app-section-description">跟踪当前题目的评测状态。</p></div></div><% } %>
 
-  <div class="nwpuoj-table-region" role="region" aria-label="评测记录" tabindex="0">
-  <table id="submission-list" class="ui very basic center aligned table nwpuoj-submissions-table" style="white-space: nowrap;">
-    <thead><tr>
-      <th class="nwpuoj-col-number" scope="col">编号</th><th scope="col">题目</th><th scope="col">状态</th>
-      <th class="nwpuoj-col-number" scope="col" v-if="displayConfig.showScore">分数</th>
-      <th class="nwpuoj-priority-3 nwpuoj-col-number" scope="col" v-if="displayConfig.showUsage">总时间</th>
-      <th class="nwpuoj-priority-3 nwpuoj-col-number" scope="col" v-if="displayConfig.showUsage">内存</th>
-      <th class="nwpuoj-priority-3" scope="col" v-if="displayConfig.showCode">代码 / 答案文件</th>
-      <th class="nwpuoj-priority-2" scope="col">提交者</th><th class="nwpuoj-priority-3" scope="col">提交时间</th>
-    </tr></thead>
-    <tbody>
-      <tr v-for="item in items" :config="displayConfig" :show-rejudge="false" :data="item" is="submission-item" :rough="true"></tr>
-    </tbody>
-  </table>
-  </div>
-  <% if (!items.length) { %>
-    <div class="ui placeholder segment">
-      <div class="ui icon header"><i class="<%= isFiltered ? 'search' : 'file' %> icon"></i><%= isFiltered ? '找不到符合条件的提交' : '暂无提交' %></div>
+  <details class="app-filter-section"<%= isFiltered ? ' open' : '' %>>
+    <summary><span><i data-lucide="list-filter"></i>筛选评测</span><span><%= isFiltered ? '已启用筛选' : '展开筛选条件' %><i data-lucide="chevron-down"></i></span></summary>
+    <form action="<%= syzoj.utils.makeUrl(displayConfig.inContest ? ['contest', contest.id, 'submissions'] : ['submissions']) %>" class="app-form app-submission-filter" method="get" id="submission-filter-form">
+      <% if (!displayConfig.inContest && form.contest) { %><input type="hidden" name="contest" value="<%= form.contest %>"><% } %>
+      <div class="app-form-grid">
+        <label class="app-field app-field-third"><span class="app-label">题目编号</span><input class="app-input" name="problem_id" inputmode="numeric" value="<%= form.problem_id || '' %>"></label>
+        <% if (displayConfig.showOthers) { %><label class="app-field app-field-third"><span class="app-label">提交者</span><input class="app-input" name="submitter" value="<%= form.submitter || '' %>"></label><% } %>
+        <label class="app-field app-field-third"><span class="app-label">语言</span><select class="app-select" name="language"><option value="">不限</option><option value="submit-answer"<%= form.language === 'submit-answer' ? ' selected' : '' %>>提交答案</option><option value="non-submit-answer"<%= form.language === 'non-submit-answer' ? ' selected' : '' %>>非提交答案</option><optgroup label="本地语言"><% for (const lang of syzoj.config.filter_enabled_languages) { %><option value="<%= lang %>"<%= form.language === lang ? ' selected' : '' %>><%= syzoj.languages[lang].show %></option><% } %></optgroup><% for (const provider of Object.keys(vjudge.languages)) { %><optgroup label="<%= provider %>"><% for (const lang of Object.keys(vjudge.languages[provider]).sort((a, b) => vjudge.languages[provider][a].index - vjudge.languages[provider][b].index)) { %><option value="<%= lang %>"<%= form.language === lang ? ' selected' : '' %>><%= vjudge.languages[provider][lang].show %></option><% } %></optgroup><% } %></select></label>
+        <% if (displayConfig.showScore) { %><label class="app-field app-field-quarter"><span class="app-label">最低分</span><input class="app-input" name="min_score" type="number" min="0" max="100" placeholder="0" value="<%= form.min_score || '' %>"></label><label class="app-field app-field-quarter"><span class="app-label">最高分</span><input class="app-input" name="max_score" type="number" min="0" max="100" placeholder="100" value="<%= form.max_score || '' %>"></label><% } %>
+        <% if (displayConfig.showResult) { %><label class="app-field app-field-quarter"><span class="app-label">状态</span><select class="app-select" name="status"><option value="">不限</option><% for (const status of ['Accepted', 'Wrong Answer', 'Partially Correct', 'Compile Error', 'Runtime Error', 'Time Limit Exceeded', 'Memory Limit Exceeded', 'Output Limit Exceeded', 'System Error', 'Cancelled', 'Cheated']) { %><option value="<%= status %>"<%= form.status === status ? ' selected' : '' %>><%= status %></option><% } %></select></label><% } %>
+      </div>
+      <div class="app-form-actions">
+        <% if (user && displayConfig.showOthers) { %><div class="app-segmented" aria-label="提交范围"><button type="button" aria-pressed="<%= !form.submitter ? 'true' : 'false' %>" data-submission-scope="all">全部</button><button type="button" aria-pressed="<%= form.submitter === user.username ? 'true' : 'false' %>" data-submission-scope="mine">我的</button></div><% } %>
+        <span class="app-inline-actions"><% if (isFiltered) { %><a class="app-button app-button-quiet" href="<%= syzoj.utils.makeUrl(displayConfig.inContest ? ['contest', contest.id, 'submissions'] : ['submissions'], displayConfig.inContest ? {} : (form.contest ? { contest: form.contest } : {})) %>">清除</a><% } %><button class="app-button app-button-primary" type="submit"><i data-lucide="search"></i>应用筛选</button></span>
+      </div>
+    </form>
+  </details>
+
+  <% if (items.length) { %>
+    <div class="app-table-region" role="region" aria-label="评测记录" tabindex="0">
+      <table class="app-table app-submissions-table">
+        <thead><tr><th>编号</th><th class="app-cell-primary">题目</th><th>状态</th><% if (displayConfig.showScore) { %><th>分数</th><% } %><% if (displayConfig.showUsage) { %><th>时间</th><th>内存</th><% } %><% if (displayConfig.showCode) { %><th>代码</th><% } %><th>提交者</th><th>提交时间</th></tr></thead>
+        <tbody>
+          <% for (const item of items) { const status = submissionStatus(item); const tag = submissionUserTag(item.info.userId); const canView = item.info.canViewDetail !== false; %>
+            <tr data-submission-id="<%= item.info.submissionId %>">
+              <td class="app-cell-number"><% if (canView) { %><a href="<%= submissionLink(item) %>">#<%= item.info.submissionId %></a><% } else { %><strong>#<%= item.info.submissionId %></strong><% } %></td>
+              <td class="app-cell-primary"><a href="<%= submissionProblemLink(item) %>"><strong><%= displayConfig.inContest ? this.alpha(item.info.problemId) : item.info.problemDisplayId %>.</strong> <%= item.info.problemName %></a></td>
+              <td><% if (canView) { %><a href="<%= submissionLink(item) %>" class="app-status <%= submissionStatusClass(status) %>" data-submission-status><%= status %></a><% } else { %><span class="app-status <%= submissionStatusClass(status) %>" data-submission-status><%= status %></span><% } %></td>
+              <% if (displayConfig.showScore) { const score = item.info.adminActionType ? 0 : (item.result ? Math.floor(item.result.score || 0) : 0); %><td class="app-cell-number"><span class="app-score <%= score === 100 ? 'app-score-perfect' : score === 0 ? 'app-score-zero' : '' %>" data-submission-score><%= score %></span></td><% } %>
+              <% if (displayConfig.showUsage) { %><td class="app-cell-number" data-submission-time><%= item.result ? (item.result.time || 0) + ' ms' : '0 ms' %></td><td class="app-cell-number" data-submission-memory><%= item.result ? submissionFormatSize((item.result.memory || 0) * 1024) : '0 B' %></td><% } %>
+              <% if (displayConfig.showCode) { %><td><% if (item.info.language) { %><strong><%= item.info.language %></strong> · <% } %><%= submissionFormatSize(item.info.codeSize) %></td><% } %>
+              <td><a href="<%= syzoj.utils.makeUrl(['user', item.info.userId]) %>" class="username-tier-<%= submissionUserTier(item.info.userId) %>"><%= item.info.user %></a><% if (tag && tag.text) { %><span class="user-name-tag tag-tier-<%= tag.tier || 'default' %>"><%= tag.text %></span><% } %></td>
+              <td class="app-cell-number"><%= item.info.submitTime %></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
     </div>
+    <% include app_pagination %>
   <% } else { %>
-    <br><% include page %>
+    <div class="app-empty"><div class="app-empty-inner"><i data-lucide="<%= isFiltered ? 'search-x' : 'file-clock' %>"></i><strong><%= isFiltered ? '没有匹配的提交' : '暂无提交' %></strong><p><%= isFiltered ? '调整筛选条件后再试。' : '新的提交会显示在这里。' %></p></div></div>
   <% } %>
 </div>
 
-<script src="<%- lib('vue/2.5.21/vue.min.js') %>"></script>
-<% include submissions_item %>
 <script>
-$(function () {
-  $('#select_language, #select_status').dropdown();
-  $('#submission_scope_all').on('click', function () {
-    $('[name=submitter]').val('');
-    $('#submission-filter-form').submit();
+(function () {
+  var form = document.getElementById('submission-filter-form');
+  document.querySelectorAll('[data-submission-scope]').forEach(function (button) {
+    button.addEventListener('click', function () {
+      var field = form.querySelector('[name="submitter"]');
+      if (field) field.value = button.getAttribute('data-submission-scope') === 'mine' ? <%- serializejs(user ? user.username : '') %> : '';
+      form.submit();
+    });
   });
-  $('#submission_scope_mine').on('click', function () {
-    $('[name=submitter]').val(<%- serializejs(user ? user.username : '') %>);
-    $('#submission-filter-form').submit();
-  });
-});
+})();
+</script>
 
-const itemList = <%- serializejs(items) %>;
-const displayConfig = <%- serializejs(displayConfig) %>;
-const vueApp = new Vue({ el: '#submission-list', data: { items: itemList, displayConfig: displayConfig } });
-const pendingTasks = new Set(itemList.filter(item => item.token).map(item => item.info.taskId));
+<script>
+(function () {
+  var itemList = <%- serializejs(items) %>;
+  var pendingTasks = new Set(itemList.filter(function (item) { return item.token; }).map(function (item) { return item.info.taskId; }));
+  if (!pendingTasks.size) return;
+  var retryDelay = 1000;
 
-if (pendingTasks.size) {
-  let retryDelay = 1000;
-  const applyStatus = function (status) {
-    const item = itemList.find(entry => entry.info.submissionId === status.submissionId);
-    if (!item) return;
-    if (JSON.stringify(item.result) !== JSON.stringify(status.result)) item.result = status.result;
-    const running = !!status.pending;
-    if (item.running !== running) item.running = running;
-    if (!running) pendingTasks.delete(item.info.taskId);
-  };
-  const connectStatusStream = async function () {
-    const pendingItems = itemList.filter(item => pendingTasks.has(item.info.taskId) && item.token);
+  function statusClass(status) {
+    var value = String(status || '').toLowerCase();
+    if (value === 'accepted') return 'app-verdict app-verdict-accepted';
+    if (value === 'waiting') return 'app-status-waiting';
+    if (value === 'judging' || value === 'running' || value === 'compiling') return 'app-status-judging';
+    if (value === 'partially correct') return 'app-status-partial';
+    if (value === '作弊' || value === 'cheated' || value === 'wrong answer') return 'app-verdict app-verdict-wrong';
+    if (value === 'runtime error' || value === 'invalid interaction') return 'app-verdict app-verdict-runtime';
+    if (value === 'time limit exceeded') return 'app-verdict app-verdict-time';
+    if (value === 'memory limit exceeded' || value === 'output limit exceeded') return 'app-verdict app-verdict-memory';
+    if (value.includes('error') || value === 'judgement failed') return 'app-verdict app-verdict-compile';
+    return '';
+  }
+  function size(bytes) {
+    var value = Number(bytes || 0); var units = ['B', 'K', 'M', 'G']; var unit = 0;
+    while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }
+    return (value === Math.round(value) ? value : value.toFixed(1)) + ' ' + units[unit];
+  }
+  function applyStatus(update) {
+    var item = itemList.find(function (entry) { return entry.info.submissionId === update.submissionId; });
+    var row = document.querySelector('[data-submission-id="' + update.submissionId + '"]');
+    if (!item || !row) return;
+    item.result = update.result;
+    item.running = !!update.pending;
+    var label = update.result ? update.result.result : (update.pending ? 'Judging' : 'Waiting');
+    var status = row.querySelector('[data-submission-status]');
+    status.textContent = label;
+    status.className = 'app-status ' + statusClass(label);
+    var score = row.querySelector('[data-submission-score]');
+    if (score) { var value = update.result ? Math.floor(update.result.score || 0) : 0; score.textContent = value; score.className = 'app-score ' + (value === 100 ? 'app-score-perfect' : value === 0 ? 'app-score-zero' : ''); }
+    var time = row.querySelector('[data-submission-time]');
+    if (time) time.textContent = (update.result ? update.result.time || 0 : 0) + ' ms';
+    var memory = row.querySelector('[data-submission-memory]');
+    if (memory) memory.textContent = size((update.result ? update.result.memory || 0 : 0) * 1024);
+    if (!update.pending) pendingTasks.delete(item.info.taskId);
+  }
+  async function connect() {
+    var pendingItems = itemList.filter(function (item) { return pendingTasks.has(item.info.taskId) && item.token; });
     if (!pendingItems.length) return;
-    const body = new URLSearchParams({ tokens: JSON.stringify(pendingItems.map(item => item.token)) });
-    const connectedAt = Date.now();
-    let receivedStatus = false;
+    var body = new URLSearchParams({ tokens: JSON.stringify(pendingItems.map(function (item) { return item.token; })) });
+    var received = false;
     try {
-      const response = await fetch('/api/submissions/events', {
-        method: 'POST',
-        credentials: 'same-origin',
-        cache: 'no-store',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': <%- serializejs(csrfToken) %> },
-        body: body
-      });
-      if (response.status === 403) return location.reload();
-      if (!response.ok || !response.body) throw new Error('status stream unavailable');
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
+      var response = await fetch('/api/v2/submissions/events', { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body });
+      if (response.status === 403) return window.location.reload();
+      if (!response.ok || !response.body) throw new Error('stream unavailable');
+      var reader = response.body.getReader(); var decoder = new TextDecoder(); var buffer = '';
       while (true) {
-        const chunk = await reader.read();
-        if (chunk.done) break;
+        var chunk = await reader.read(); if (chunk.done) break;
         buffer += decoder.decode(chunk.value, { stream: true }).replace(/\r\n/g, '\n');
-        let boundary;
+        var boundary;
         while ((boundary = buffer.indexOf('\n\n')) !== -1) {
-          const message = buffer.slice(0, boundary);
-          buffer = buffer.slice(boundary + 2);
-          let event = 'message';
-          let data = '';
-          message.split('\n').forEach(line => {
-            if (line.startsWith('event:')) event = line.slice(6).trim();
-            if (line.startsWith('data:')) data += line.slice(5).trim();
-          });
-          if (event === 'refresh-required') return location.reload();
-          if (event === 'status' && data) {
-            receivedStatus = true;
-            applyStatus(JSON.parse(data));
-          }
+          var message = buffer.slice(0, boundary); buffer = buffer.slice(boundary + 2); var event = 'message'; var data = '';
+          message.split('\n').forEach(function (line) { if (line.startsWith('event:')) event = line.slice(6).trim(); if (line.startsWith('data:')) data += line.slice(5).trim(); });
+          if (event === 'refresh-required') return window.location.reload();
+          if (event === 'status' && data) { received = true; applyStatus(JSON.parse(data)); }
         }
       }
     } catch (error) {}
-    if (pendingTasks.size) {
-      if (receivedStatus && Date.now() - connectedAt > 30000) retryDelay = 1000;
-      const delay = retryDelay;
-      retryDelay = Math.min(retryDelay * 2, 30000);
-      setTimeout(connectStatusStream, delay);
-    }
-  };
-  connectStatusStream();
-}
+    if (pendingTasks.size) { var delay = retryDelay; retryDelay = received ? 1000 : Math.min(retryDelay * 2, 30000); window.setTimeout(connect, delay); }
+  }
+  connect();
+})();
 </script>
-<% include footer %>
+
+<% include app_footer %>

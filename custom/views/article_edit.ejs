@@ -1,47 +1,92 @@
-<% this.title = article.id ? '编辑帖子' : '发表帖子'; %>
-<% include header %>
-<div class="padding">
-  <div class="nwpuoj-page-header">
-    <h2 class="nwpuoj-page-title"><%= article.id ? '编辑帖子' : '发表帖子' %></h2>
-    <span class="nwpuoj-meta">Markdown 编辑器</span>
-  </div>
-  <form class="ui form" method="post" data-markdown-editor
-        data-draft-key="content-draft:article:<%= user.id %>:<%= article.id %>:<%= article.problem_id || req.query.problem_id || 'global' %>">
+<% this.title = article.id ? '编辑帖子' : '发表帖子' %>
+<% include app_header %>
+
+<div class="app-page app-editor-page">
+  <header class="app-page-header"><div class="app-page-heading"><span class="app-kicker">DISCUSSION EDITOR</span><h1 class="app-page-title"><%= article.id ? '编辑帖子' : '发起讨论' %></h1><p class="app-page-description">使用 Markdown 编写内容，草稿会自动保存在当前浏览器。</p></div></header>
+  <form class="app-form app-editor" method="post" data-markdown-editor data-discussion-editor-v2 data-discussion-id="<%= article.id %>" data-problem-id="<%= article.problem_id || req.query.problem_id || '' %>" data-draft-key="content-draft:article:<%= user.id %>:<%= article.id %>:<%= article.problem_id || req.query.problem_id || 'global' %>">
     <input type="hidden" name="_content_token" value="<%= contentFormTokens.articleEdit %>">
-    <div class="ui top attached tabular menu nwpuoj-editor-mode" role="tablist">
-      <a class="active item" role="tab" aria-selected="true" data-tab="edit"><i class="edit icon"></i>编辑</a>
-      <a class="item" role="tab" aria-selected="false" data-tab="preview" data-preview-tab><i class="eye icon"></i>预览</a>
+    <div class="app-editor-toolbar"><div class="app-segmented" role="tablist" aria-label="编辑模式"><button type="button" role="tab" aria-selected="true" data-tab="edit"><i data-lucide="square-pen"></i>编辑</button><button type="button" role="tab" aria-selected="false" data-tab="preview" data-preview-tab><i data-lucide="eye"></i>预览</button></div><span data-draft-status aria-live="polite">草稿自动保存</span></div>
+    <div class="app-editor-workspace">
+      <div class="app-editor-panel" data-editor-panel="edit"><label class="app-field"><span class="app-label">标题</span><input class="app-input app-editor-title" type="text" name="title" value="<%= article.title || '' %>" maxlength="80" required></label><label class="app-field app-editor-content-field"><span class="app-label">内容</span><textarea class="app-textarea app-editor-textarea" name="content" required><%= article.content || '' %></textarea></label><% if (user && user.is_admin) { %><label class="app-check"><input type="checkbox" name="is_notice"<%= article.is_notice ? ' checked' : '' %>><span>设为公告</span></label><% } %></div>
+      <div class="app-editor-panel app-editor-preview" data-editor-panel="preview" hidden aria-live="polite"><h2 data-preview-title></h2><div class="app-markdown" data-preview-content></div></div>
     </div>
-    <div class="ui bottom attached active tab segment" data-tab="edit">
-      <div class="field">
-        <label for="title">标题</label>
-        <input type="text" id="title" name="title" value="<%= article.title || '' %>" maxlength="80" required>
-      </div>
-      <div class="field">
-        <label for="content">内容</label>
-        <textarea rows="18" id="content" name="content" class="markdown-edit" required><%= article.content || '' %></textarea>
-      </div>
-      <% if (user && user.is_admin) { %>
-      <div class="ui checkbox">
-        <input <% if (article.is_notice) { %>checked<% } %> name="is_notice" type="checkbox">
-        <label>公告</label>
-      </div>
-      <% } %>
-    </div>
-    <div class="ui bottom attached tab segment" data-tab="preview">
-      <h3 class="ui header" data-preview-title></h3>
-      <div class="font-content" data-preview-content></div>
-    </div>
-    <div class="nwpuoj-editor-actions">
-      <button type="button" class="ui basic labeled icon button" data-save-draft>
-        <i class="save icon"></i>保存草稿
-      </button>
-      <button type="submit" class="ui primary labeled icon button">
-        <i class="check icon"></i>提交
-      </button>
-      <span class="nwpuoj-draft-status" data-draft-status aria-live="polite"></span>
-    </div>
+    <div class="app-editor-actions"><span class="app-inline-actions"><button class="app-button app-button-secondary" type="button" data-save-draft><i data-lucide="save"></i>保存草稿</button><a class="app-button app-button-quiet" href="<%= article.id ? syzoj.utils.makeUrl(['article', article.id]) : syzoj.utils.makeUrl(['discussion', 'global']) %>">取消</a></span><button class="app-button app-button-primary" type="submit"><i data-lucide="send"></i><%= article.id ? '保存修改' : '发布讨论' %></button></div>
   </form>
 </div>
+
 <% include markdown_editor_script %>
-<% include footer %>
+<script>
+(function () {
+  var form = document.querySelector('[data-discussion-editor-v2]');
+  if (!form) return;
+  var discussionId = Number(form.dataset.discussionId || 0);
+  var problemId = Number(form.dataset.problemId || 0) || null;
+
+  function operationKey() {
+    return window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random();
+  }
+  async function responseBody(response) {
+    var body = null;
+    try { body = await response.json(); } catch (error) {}
+    return { response: response, body: body };
+  }
+  function message(result, fallback) {
+    return result && result.body && result.body.error && result.body.error.message || fallback;
+  }
+  function preserveDraft() {
+    try {
+      localStorage.setItem(form.dataset.draftKey, JSON.stringify({
+        title: form.elements.title.value,
+        content: form.elements.content.value,
+        isNotice: form.elements.is_notice ? !!form.elements.is_notice.checked : false,
+        savedAt: Date.now()
+      }));
+    } catch (error) {}
+  }
+
+  form.addEventListener('submit', async function (event) {
+    if (event.defaultPrevented) return;
+    event.preventDefault();
+    var submit = form.querySelector('[type="submit"]');
+    form.setAttribute('aria-busy', 'true');
+    try {
+      var endpoint = '/api/v2/discussions';
+      var method = 'POST';
+      var headers = { 'Content-Type': 'application/json', 'Idempotency-Key': operationKey() };
+      if (discussionId > 0) {
+        var revision = await responseBody(await fetch('/api/v2/discussions/' + encodeURIComponent(discussionId) + '/revision', {
+          credentials: 'same-origin',
+          cache: 'no-store'
+        }));
+        if (!revision.response.ok) throw new Error(message(revision, '讨论状态读取失败。'));
+        var etag = revision.response.headers.get('ETag');
+        if (!etag) throw new Error('讨论版本信息缺失，请刷新后重试。');
+        endpoint = '/api/v2/discussions/' + encodeURIComponent(discussionId);
+        method = 'PATCH';
+        headers['If-Match'] = etag;
+      }
+      var result = await responseBody(await fetch(endpoint, {
+        method: method,
+        credentials: 'same-origin',
+        headers: headers,
+        body: JSON.stringify({
+          title: form.elements.title.value,
+          content: form.elements.content.value,
+          problem_id: problemId,
+          is_notice: form.elements.is_notice ? !!form.elements.is_notice.checked : false
+        })
+      }));
+      if (!result.response.ok) throw new Error(message(result, discussionId ? '讨论保存失败。' : '讨论发布失败。'));
+      try { localStorage.removeItem(form.dataset.draftKey); } catch (error) {}
+      window.location.assign('/article/' + encodeURIComponent(result.body.data.id));
+    } catch (error) {
+      preserveDraft();
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '保存失败，请稍后重试。', 'danger');
+      else window.alert(error.message || '保存失败，请稍后重试。');
+      if (submit) { submit.disabled = false; submit.classList.remove('is-loading'); }
+      form.removeAttribute('aria-busy');
+    }
+  });
+})();
+</script>
+<% include app_footer %>

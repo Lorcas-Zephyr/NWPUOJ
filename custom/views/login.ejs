@@ -1,35 +1,25 @@
 <% this.title = '登录'; %>
-<% include header %>
-<div class="nwpuoj-auth-page nwpuoj-auth-page--compact">
-  <div class="ui message" id="login-message" hidden>
-    <p id="login-message-content"></p>
-  </div>
-  <div class="ui middle aligned center aligned grid">
-    <div class="row">
-      <div class="column">
-        <h2 class="ui image header"><div class="content">登录</div></h2>
-        <form class="ui large form" id="login-form">
-          <div class="ui existing segment">
-            <div class="field">
-              <div class="ui left icon input">
-                <i class="user icon"></i>
-                <input name="username" placeholder="用户名" type="text" id="username" autocomplete="username" required autofocus>
-              </div>
-            </div>
-            <div class="field">
-              <div class="ui left icon input">
-                <i class="lock icon"></i>
-                <input name="password" placeholder="密码" type="password" id="password" maxlength="128" autocomplete="current-password" required>
-              </div>
-            </div>
-            <button type="submit" class="ui fluid large submit button" id="login-button">登录</button>
-            <div style="margin-top: 1rem"><a href="<%= syzoj.utils.makeUrl(['forget']) %>">忘记密码</a></div>
-          </div>
-        </form>
-      </div>
-    </div>
-  </div>
+<% include app_header %>
+
+<div class="app-auth">
+  <section class="app-auth-intro">
+    <img src="/self/logo.png?v=<%= encodeURIComponent(syzoj.config.nwpuoj_version || '2.0.0') %>" alt="" width="52" height="52">
+    <h1>回到你的训练进度</h1>
+    <p>登录后继续做题、查看提交、报名比赛，并同步个人训练记录。</p>
+  </section>
+  <section class="app-auth-panel">
+    <h2>登录</h2>
+    <p>使用 NWPUOJ 账户进入工作区。</p>
+    <div class="app-notice app-notice-danger" id="login-message" role="alert" hidden><i data-lucide="circle-alert"></i><span id="login-message-content"></span></div>
+    <form class="app-form" id="login-form">
+      <label class="app-field app-field-full"><span class="app-label">用户名</span><span class="app-input-wrap"><i data-lucide="user-round"></i><input class="app-input" name="username" type="text" id="username" autocomplete="username" required autofocus></span></label>
+      <label class="app-field app-field-full"><span class="app-label">密码</span><span class="app-input-wrap app-password-wrap"><i data-lucide="lock-keyhole"></i><input class="app-input" name="password" type="password" id="password" maxlength="128" autocomplete="current-password" required><button class="app-password-toggle" type="button" data-password-toggle="password" aria-label="显示密码"><i data-lucide="eye"></i></button></span></label>
+      <button type="submit" class="app-button app-button-primary app-auth-submit" id="login-button">登录</button>
+    </form>
+    <div class="app-auth-links"><a href="<%= syzoj.utils.makeUrl(['forget']) %>">忘记密码</a><span>没有账户？ <a href="<%= syzoj.utils.makeUrl(['sign_up'], { url: req.query.url || req.originalUrl }) %>">创建账户</a></span></div>
+  </section>
 </div>
+
 <script>
 (function () {
   var form = document.getElementById('login-form');
@@ -37,35 +27,27 @@
   var message = document.getElementById('login-message');
   var content = document.getElementById('login-message-content');
   var redirectUrl = <%- serializejs(syzoj.utils.safeLocalUrl(req.query.url, '/')) %>;
-
-  function showError(text) {
-    message.className = 'ui error message';
-    content.textContent = text;
-    message.hidden = false;
-  }
-
+  function showError(text) { content.textContent = text; message.hidden = false; }
   form.addEventListener('submit', function (event) {
     event.preventDefault();
-    button.classList.add('loading');
-    var params = new URLSearchParams();
-    params.append('username', document.getElementById('username').value);
-    params.append('password', document.getElementById('password').value);
-    fetch('/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params.toString()
-    }).then(function (response) {
-      return response.json().then(function (data) { return { status: response.status, data: data }; });
-    }).then(function (result) {
-      if (result.data.error_code === 1) return window.location.assign(redirectUrl);
-      if (result.status === 429) showError('登录尝试过于频繁，请稍后再试。');
-      else showError('用户名或密码错误。');
-      button.classList.remove('loading');
-    }).catch(function () {
-      showError('登录服务暂时不可用。');
-      button.classList.remove('loading');
-    });
+    button.disabled = true;
+    button.textContent = '正在登录…';
+    message.hidden = true;
+    fetch('/api/v2/auth/login', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: form.elements.username.value, password: form.elements.password.value }) })
+      .then(function (response) { return response.json().then(function (data) { return { status: response.status, data: data }; }); })
+      .then(function (result) {
+        if (result.data && result.data.data && result.data.data.authenticated) return window.location.assign(redirectUrl);
+        var code = result.data && result.data.error && result.data.error.code;
+        if (code === 'LOGIN_RATE_LIMITED' || result.status === 429) showError('登录尝试过于频繁，请稍后再试。');
+        else if (code === 'ACCOUNT_DISABLED') showError('账户已停用，请联系管理员。');
+        else if (code === 'AUTHENTICATION_UNAVAILABLE' || result.status >= 500) showError('登录服务暂时不可用。');
+        else showError('用户名或密码错误。');
+        button.disabled = false;
+        button.textContent = '登录';
+      })
+      .catch(function () { showError('登录服务暂时不可用。'); button.disabled = false; button.textContent = '登录'; });
   });
 })();
 </script>
-<% include footer %>
+
+<% include app_footer %>

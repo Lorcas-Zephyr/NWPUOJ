@@ -1,89 +1,59 @@
 <%
-this.title = contest.title + ' - 比赛';
-let registrationState = (typeof contestRegistration !== 'undefined' && contestRegistration) ? contestRegistration : null;
-let unveiled = registrationState ? registrationState.canViewProblems : (isSupervisior || contest.ended);
+this.title = '题目 - ' + contest.title;
+const appRegistration = typeof contestRegistration !== 'undefined' && contestRegistration ? contestRegistration : null;
+const appContestUnveiled = appRegistration ? appRegistration.canViewProblems : (isSupervisior || contest.ended);
+function appProblemStatus(problem) {
+  if (typeof problem.status === 'string') return { text: problem.feedback || problem.status, className: problem.status === 'Accepted' ? 'app-status-accepted' : 'app-status-error' };
+  if (problem.status && problem.status.accepted) return { text: problem.status.unacceptedCount ? '+' + problem.status.unacceptedCount : '通过', className: 'app-status-accepted' };
+  if (problem.status && problem.status.unacceptedCount) return { text: '-' + problem.status.unacceptedCount, className: 'app-status-error' };
+  return null;
+}
+const appProblemProgress = problems.reduce(function (progress, problem) {
+  const state = appProblemStatus(problem);
+  if (state) progress.attempted += 1;
+  if (state && state.className === 'app-status-accepted') progress.solved += 1;
+  return progress;
+}, { solved: 0, attempted: 0 });
+const appContestCompletion = problems.length ? Math.round(appProblemProgress.solved / problems.length * 100) : 0;
+let appNextProblemIndex = 0;
+for (let index = 0; index < problems.length; index += 1) {
+  const state = appProblemStatus(problems[index]);
+  if (!state || state.className !== 'app-status-accepted') { appNextProblemIndex = index + 1; break; }
+}
+if (!appNextProblemIndex && problems.length) appNextProblemIndex = 1;
 %>
-<% include header %>
+<% include app_header %>
+<% if (typeof contestHeader !== 'undefined' && contestHeader) { %><% include contest_context %><% } %>
 
-<div class="padding">
-  <div class="ui grid">
-    <% if (contest.information) { %>
-      <div class="row">
-        <div class="column">
-          <h4 class="ui top attached block header">信息与公告</h4>
-          <div class="ui bottom attached segment font-content"><%- contest.information %></div>
+<div class="app-page app-contest-page">
+  <% if (appContestUnveiled) { %>
+    <% if (problems.length) { %>
+      <div class="app-contest-workspace">
+        <div class="app-contest-problem-list" role="list" aria-label="比赛题目">
+          <% let appIndex = 0; for (const problem of problems) { appIndex += 1; const appState = appProblemStatus(problem); const appProblemClass = appState && appState.className === 'app-status-accepted' ? 'is-solved' : (appState ? 'is-attempted' : 'is-unattempted'); %>
+            <article class="app-contest-problem-row <%= appProblemClass %>" role="listitem" data-reveal>
+              <a class="app-contest-problem-letter" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'problem', appIndex]) %>" aria-label="打开题目 <%= this.alpha(appIndex) %>"><%= this.alpha(appIndex) %></a>
+              <div class="app-contest-problem-copy">
+                <a href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'problem', appIndex]) %>"><%= syzoj.utils.removeTitleTag(problem.problem.title) %></a>
+                <span><% if (appState) { %><% if (problem.judge_id) { %><a class="app-status <%= appState.className %>" href="<%= syzoj.utils.makeUrl(['contest', 'submission', problem.judge_id]) %>"><%= appState.text %></a><% } else { %><span class="app-status <%= appState.className %>"><%= appState.text %></span><% } %><% } else { %><span class="app-status">未作答</span><% } %></span>
+              </div>
+              <% if (hasStatistics) { %><div class="app-contest-problem-stats"><span>通过</span><strong><%= problem.statistics.accepted %></strong><span>尝试</span><strong><%= problem.statistics.attempt %></strong></div><% } %>
+              <a class="app-icon-button app-contest-problem-open" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'problem', appIndex]) %>" aria-label="打开题目 <%= this.alpha(appIndex) %>" title="打开题目"><i data-lucide="arrow-right"></i></a>
+            </article>
+          <% } %>
         </div>
+        <aside class="app-contest-progress-panel" aria-label="比赛做题进度">
+          <span class="app-kicker"><%= user ? 'YOUR PROGRESS' : 'CONTEST OVERVIEW' %></span>
+          <div class="app-contest-progress-value"><strong><%= appProblemProgress.solved %></strong><span>/ <%= problems.length %></span></div>
+          <div class="app-progress" role="progressbar" aria-label="已通过题目比例" aria-valuemin="0" aria-valuemax="100" aria-valuenow="<%= appContestCompletion %>"><span style="width:<%= appContestCompletion %>%"></span></div>
+          <dl><div><dt>已通过</dt><dd><%= appProblemProgress.solved %></dd></div><div><dt>已尝试</dt><dd><%= appProblemProgress.attempted %></dd></div><div><dt>未作答</dt><dd><%= Math.max(0, problems.length - appProblemProgress.attempted) %></dd></div></dl>
+          <% if (appNextProblemIndex) { %><a class="app-button app-button-primary" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'problem', appNextProblemIndex]) %>"><i data-lucide="play"></i><%= appProblemProgress.attempted ? '继续比赛' : '开始答题' %></a><% } %>
+        </aside>
       </div>
-    <% } %>
-
-    <% if (unveiled) { %>
-      <div class="row">
-        <div class="column">
-          <div style="overflow-x: auto; width: 100%;">
-          <table class="ui selectable celled table">
-            <thead>
-              <tr>
-                <th class="one wide" style="text-align: center;">状态</th>
-                <th>题目</th>
-                <% if (hasStatistics) { %>
-                  <th class="one wide center aligned">统计</th>
-                <% } %>
-              </tr>
-            </thead>
-            <tbody>
-              <%
-              let i = 0;
-              for (let problem of problems) {
-                i++;
-              %>
-                <tr>
-                  <td class="center aligned" style="white-space: nowrap;">
-                    <% if (problem.judge_id) { %>
-                      <a href="<%= syzoj.utils.makeUrl(['contest', 'submission', problem.judge_id]) %>">
-                        <% if (typeof problem.status === 'string') { %>
-                          <span class="status <%= problem.status.toLowerCase().split(' ').join('_') %>">
-                            <b><i class="<%= icon[getStatusMeta(problem.status)] || 'remove' %> icon"></i><%= problem.feedback || problem.status %></b>
-                          </span>
-                        <% } else if (typeof problem.status === 'object') { %>
-                          <% if (problem.status.accepted) { %>
-                            <span class="score score_10">+<%= problem.status.unacceptedCount || '' %></span>
-                          <% } else if (problem.status.unacceptedCount) { %>
-                            <span class="score score_0">-<%= problem.status.unacceptedCount %></span>
-                          <% } %>
-                        <% } %>
-                      </a>
-                    <% } %>
-                  </td>
-                  <td><a href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'problem', i]) %>"><%= syzoj.utils.removeTitleTag(problem.problem.title) %></a></td>
-                  <% if (hasStatistics) { %>
-                    <td class="center aligned" style="white-space: nowrap;">
-                      <% if (contest.type === 'acm') { %>
-                        <span title="通过人数"><%= problem.statistics.accepted %></span> /
-                        <span title="尝试人数"><%= problem.statistics.attempt %></span>
-                      <% } else { %>
-                        <span title="满分人数"><%= problem.statistics.accepted %></span> /
-                        <span title="部分得分人数"><%= problem.statistics.partially || 0 %></span> /
-                        <span title="尝试人数"><%= problem.statistics.attempt %></span>
-                      <% } %>
-                    </td>
-                  <% } %>
-                </tr>
-              <% } %>
-            </tbody>
-          </table>
-          </div>
-        </div>
-      </div>
-    <% } else { %>
-      <div class="row">
-        <div class="column">
-          <div class="ui info message">
-            <%= contest.running ? '仅已报名选手可以查看比赛题目。' : '比赛开始后开放题目。' %>
-          </div>
-        </div>
-      </div>
-    <% } %>
-  </div>
+    <% } else { %><div class="app-empty"><div class="app-empty-inner"><i data-lucide="list-x"></i><strong>暂无题目</strong><p>比赛题目尚未发布。</p></div></div><% } %>
+  <% } else { %>
+    <div class="app-empty app-empty-compact"><div class="app-empty-inner"><i data-lucide="lock-keyhole"></i><strong>题目暂未开放</strong><p><%= contest.running ? '完成报名后可以查看比赛题目。' : '比赛开始后将开放题目。' %></p></div></div>
+  <% } %>
 </div>
 
-<% include footer %>
+<% include app_footer %>

@@ -1,93 +1,28 @@
 <% this.title = '公告' %>
-<% include header %>
+<% include app_header %>
 
-<style>
-.nwpuoj-announcement-details { border-bottom: 1px solid #eee; }
-.nwpuoj-announcement-details:last-child { border-bottom: none; }
-.nwpuoj-announcement-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 18px 0;
-  cursor: pointer;
-  list-style: none;
-}
-.nwpuoj-announcement-summary::-webkit-details-marker { display: none; }
-.nwpuoj-announcement-summary-main {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-.nwpuoj-announcement-summary-meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-  color: #888;
-  font-size: 0.9em;
-}
-.nwpuoj-announcement-disclosure { transition: transform .15s; }
-.nwpuoj-announcement-details[open] .nwpuoj-announcement-disclosure { transform: rotate(90deg); }
-.nwpuoj-announcement-content { padding: 0 28px 20px; }
-</style>
+<div class="app-page app-announcements-page">
+  <header class="app-page-header">
+    <div class="app-page-heading"><span class="app-kicker">ANNOUNCEMENTS</span><h1 class="app-page-title">公告</h1><p class="app-page-description">查看平台通知、比赛安排和系统维护信息。</p></div>
+    <span class="app-page-count"><strong><%= announcements.length %></strong> 条公告</span>
+  </header>
 
-<div class="padding">
-  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
-    <h2 style="margin: 0;"><i class="bullhorn icon"></i>全部公告</h2>
-    <span style="color: #888;">共 <%= announcements.length %> 条</span>
-  </div>
-
-  <% if (announcements.length === 0) { %>
-    <div class="ui placeholder segment">
-      <div class="ui icon header">
-        <i class="bullhorn icon"></i>
-        暂无公告
-      </div>
-    </div>
-  <% } else { %>
-    <div class="ui segment" style="padding: 0 20px;">
-      <% for (let announcement of announcements) {
-        let levelColor = announcement.level === 'important' ? 'red' : (announcement.level === 'warning' ? 'yellow' : 'blue');
-        let levelText = announcement.level === 'important' ? '重要' : (announcement.level === 'warning' ? '警告' : '信息');
-        let statusColor, statusText;
-        if (announcement.start_time && now < announcement.start_time) {
-          statusColor = 'blue';
-          statusText = '未开始';
-        } else if (announcement.end_time && now > announcement.end_time) {
-          statusColor = 'grey';
-          statusText = '已结束';
-        } else {
-          statusColor = 'green';
-          statusText = '生效中';
-        }
+  <% if (announcements.length) { %>
+    <div class="app-announcement-list">
+      <% for (const announcement of announcements) {
+        const appLevelText = announcement.level === 'important' ? '重要' : (announcement.level === 'warning' ? '提醒' : '信息');
+        const appLevelClass = announcement.level === 'important' ? 'app-status-error' : (announcement.level === 'warning' ? 'app-status-waiting' : '');
+        const appAnnouncementState = announcement.start_time && now < announcement.start_time ? '未开始' : (announcement.end_time && now > announcement.end_time ? '已结束' : '生效中');
+        const appAnnouncementStateClass = appAnnouncementState === '生效中' ? 'app-status-accepted' : (appAnnouncementState === '未开始' ? 'app-status-waiting' : '');
       %>
-        <details id="announcement-<%= announcement.id %>" class="nwpuoj-announcement-details">
-          <summary class="nwpuoj-announcement-summary">
-            <span class="nwpuoj-announcement-summary-main">
-              <i class="angle right icon nwpuoj-announcement-disclosure"></i>
-              <span class="ui tiny <%= levelColor %> label"><%= levelText %></span>
-              <span style="font-size: 1.1em; font-weight: 600; word-break: break-word;"><%= announcement.title %></span>
-            </span>
-            <span class="nwpuoj-announcement-summary-meta">
-              <span><%= syzoj.utils.formatDate(announcement.public_time || announcement.start_time) %></span>
-              <span class="ui tiny <%= statusColor %> label"><%= statusText %></span>
-            </span>
-          </summary>
-          <div class="nwpuoj-announcement-content">
-            <% if (announcement.start_time || announcement.end_time) { %>
-              <div style="color: #888; font-size: 0.9em; margin-bottom: 12px;">
-                有效期：<%= announcement.start_time ? syzoj.utils.formatDate(announcement.start_time) : '不限' %>
-                至 <%= announcement.end_time ? syzoj.utils.formatDate(announcement.end_time) : '不限' %>
-              </div>
-            <% } %>
-            <div class="font-content"><%- announcement.contentRendered %></div>
-          </div>
+        <details class="app-announcement-row" id="announcement-<%= announcement.id %>">
+          <summary><span class="app-announcement-row-main"><i data-lucide="chevron-right"></i><span class="app-status <%= appLevelClass %>"><%= appLevelText %></span><strong><%= announcement.title %></strong></span><span class="app-announcement-row-meta"><time><%= syzoj.utils.formatDate(announcement.public_time || announcement.start_time) %></time><span class="app-status <%= appAnnouncementStateClass %>"><%= appAnnouncementState %></span></span></summary>
+          <div class="app-announcement-body"><% if (announcement.start_time || announcement.end_time) { %><p class="app-announcement-validity">有效期：<%= announcement.start_time ? syzoj.utils.formatDate(announcement.start_time) : '不限' %> 至 <%= announcement.end_time ? syzoj.utils.formatDate(announcement.end_time) : '不限' %></p><% } %><div class="app-markdown"><%- announcement.contentRendered %></div></div>
         </details>
       <% } %>
     </div>
-  <% } %>
+  <% } else { %><div class="app-empty"><div class="app-empty-inner"><i data-lucide="megaphone-off"></i><strong>暂无公告</strong><p>新的平台通知会显示在这里。</p></div></div><% } %>
 </div>
 
-<% include footer %>
+<script>if (location.hash) { var announcement = document.querySelector(location.hash); if (announcement && announcement.tagName === 'DETAILS') { announcement.open = true; announcement.scrollIntoView({ block: 'center' }); } }</script>
+<% include app_footer %>

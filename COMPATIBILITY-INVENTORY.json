@@ -1,0 +1,598 @@
+{
+  "generated_at": "2026-07-31T17:44:28.449Z",
+  "frontend_page_routes": [
+    {
+      "method": "GET",
+      "route": "/help/hit-value",
+      "source": "custom/modules/__hit_score_engine.js",
+      "line": 473
+    },
+    {
+      "method": "GET",
+      "route": "/admin/info",
+      "source": "custom/modules/_admin_overview.js",
+      "line": 25
+    },
+    {
+      "method": "GET",
+      "route": "/admin/other",
+      "source": "custom/modules/_admin_overview.js",
+      "line": 100
+    },
+    {
+      "method": "GET",
+      "route": "/admin/rating",
+      "source": "custom/modules/_admin_overview.js",
+      "line": 107
+    },
+    {
+      "method": "GET",
+      "route": "/admin/users",
+      "source": "custom/modules/_admin_users.js",
+      "line": 278
+    },
+    {
+      "method": "GET",
+      "route": "/admin/links",
+      "source": "custom/modules/_api_v2_admin_domain.js",
+      "line": 1084
+    },
+    {
+      "method": "GET",
+      "route": "/admin/config",
+      "source": "custom/modules/_api_v2_admin_domain.js",
+      "line": 1199
+    },
+    {
+      "method": "GET",
+      "route": "/admin/privilege",
+      "source": "custom/modules/_api_v2_admin_domain.js",
+      "line": 1246
+    },
+    {
+      "method": "GET",
+      "route": "/admin/rejudge",
+      "source": "custom/modules/_api_v2_admin_domain.js",
+      "line": 1576
+    },
+    {
+      "method": "GET",
+      "route": "/admin/raw",
+      "source": "custom/modules/_api_v2_admin_domain.js",
+      "line": 1584
+    },
+    {
+      "method": "GET",
+      "route": "/password/reset/:token",
+      "source": "custom/modules/_auth_security.js",
+      "line": 318
+    },
+    {
+      "method": "GET",
+      "route": "/article/:id",
+      "source": "custom/modules/_content_security.js",
+      "line": 115
+    },
+    {
+      "method": "GET",
+      "route": "/article/:id/edit",
+      "source": "custom/modules/_content_security.js",
+      "line": 116
+    },
+    {
+      "method": "GET",
+      "route": "/solution/:id",
+      "source": "custom/modules/_content_security.js",
+      "line": 132
+    },
+    {
+      "method": "GET",
+      "route": "/solution/:id/edit",
+      "source": "custom/modules/_content_security.js",
+      "line": 133
+    },
+    {
+      "method": "GET",
+      "route": "/discussion/problem/:pid",
+      "source": "custom/modules/_content_security.js",
+      "line": 134
+    },
+    {
+      "method": "GET",
+      "route": "/article/:id/edit",
+      "source": "custom/modules/_content_security.js",
+      "line": 146
+    },
+    {
+      "method": "GET",
+      "route": "/article/:id",
+      "source": "custom/modules/_content_security.js",
+      "line": 149
+    },
+    {
+      "method": "GET",
+      "route": "/solution/:id/edit",
+      "source": "custom/modules/_content_security.js",
+      "line": 152
+    },
+    {
+      "method": "GET",
+      "route": "/solution/:id",
+      "source": "custom/modules/_content_security.js",
+      "line": 155
+    },
+    {
+      "method": "GET",
+      "route": "/discussion/problems",
+      "source": "custom/modules/_content_security.js",
+      "line": 191
+    },
+    {
+      "method": "GET",
+      "route": "/user/:id",
+      "source": "custom/modules/_content_security.js",
+      "line": 226
+    },
+    {
+      "method": "GET",
+      "route": "/contest/:id",
+      "source": "custom/modules/_contest_interactions.js",
+      "line": 186
+    },
+    {
+      "method": "GET",
+      "route": "/contest/:id/details",
+      "source": "custom/modules/_contest_interactions.js",
+      "line": 191
+    },
+    {
+      "method": "GET",
+      "route": "/contest/:id",
+      "source": "custom/modules/_contest_interactions.js",
+      "line": 213
+    },
+    {
+      "method": "GET",
+      "route": "/contest/:id/ranklist",
+      "source": "custom/modules/_contest_interactions.js",
+      "line": 237
+    },
+    {
+      "method": "GET",
+      "route": "/contest/:id/problem/:pid",
+      "source": "custom/modules/_contest_interactions.js",
+      "line": 270
+    },
+    {
+      "method": "GET",
+      "route": "/user/:id",
+      "source": "custom/modules/_contest_rating.js",
+      "line": 255
+    },
+    {
+      "method": "GET",
+      "route": "/contest/:id/ranklist",
+      "source": "custom/modules/_contest_rating.js",
+      "line": 313
+    },
+    {
+      "method": "GET",
+      "route": "/contests",
+      "source": "custom/modules/_contest_registration.js",
+      "line": 312
+    },
+    {
+      "method": "GET",
+      "route": "/contest/:id/edit",
+      "source": "custom/modules/_contest_registration.js",
+      "line": 388
+    },
+    {
+      "method": "GET",
+      "route": "/contest/:id/participants",
+      "source": "custom/modules/_contest_registration.js",
+      "line": 468
+    },
+    {
+      "method": "GET",
+      "route": "/contest/:id/registrations",
+      "source": "custom/modules/_contest_registration.js",
+      "line": 490
+    },
+    {
+      "method": "GET",
+      "route": "/contest/:id/registrations/export",
+      "source": "custom/modules/_contest_registration.js",
+      "line": 522
+    },
+    {
+      "method": "GET",
+      "route": "/contest/:id/problem/:pid",
+      "source": "custom/modules/_contest_registration.js",
+      "line": 574
+    },
+    {
+      "method": "GET",
+      "route": "/contest/:id/:pid/download/additional_file",
+      "source": "custom/modules/_contest_registration.js",
+      "line": 575
+    },
+    {
+      "method": "GET",
+      "route": "/contest/:id/ranklist",
+      "source": "custom/modules/_contest_registration.js",
+      "line": 576
+    },
+    {
+      "method": "GET",
+      "route": "/contest/:id/submissions",
+      "source": "custom/modules/_contest_registration.js",
+      "line": 577
+    },
+    {
+      "method": "GET",
+      "route": "/contest/:id/temporary-accounts/template",
+      "source": "custom/modules/_contest_temp_accounts.js",
+      "line": 250
+    },
+    {
+      "method": "GET",
+      "route": "/help",
+      "source": "custom/modules/_help_page.js",
+      "line": 76
+    },
+    {
+      "method": "GET",
+      "route": "/admin/help",
+      "source": "custom/modules/_help_page.js",
+      "line": 89
+    },
+    {
+      "method": "GET",
+      "route": "/admin/judge-workers",
+      "source": "custom/modules/_judge_workers_admin.js",
+      "line": 143
+    },
+    {
+      "method": "GET",
+      "route": "/ranklist",
+      "source": "custom/modules/_ranklist.js",
+      "line": 6
+    },
+    {
+      "method": "GET",
+      "route": "/sign_up",
+      "source": "custom/modules/_registration_identity.js",
+      "line": 326
+    },
+    {
+      "method": "GET",
+      "route": "/user/:id/edit",
+      "source": "custom/modules/_registration_identity.js",
+      "line": 390
+    },
+    {
+      "method": "GET",
+      "route": "/login",
+      "source": "custom/modules/_request_security.js",
+      "line": 141
+    },
+    {
+      "method": "GET",
+      "route": "/sign_up",
+      "source": "custom/modules/_request_security.js",
+      "line": 141
+    },
+    {
+      "method": "GET",
+      "route": "/submissions",
+      "source": "custom/modules/_submission_routes.js",
+      "line": 293
+    },
+    {
+      "method": "GET",
+      "route": "/contest/:id/submissions",
+      "source": "custom/modules/_submission_routes.js",
+      "line": 308
+    },
+    {
+      "method": "GET",
+      "route": "/contest/submission/:id",
+      "source": "custom/modules/_submission_routes.js",
+      "line": 320
+    },
+    {
+      "method": "GET",
+      "route": "/submission/:id",
+      "source": "custom/modules/_submission_routes.js",
+      "line": 334
+    },
+    {
+      "method": "GET",
+      "route": "/contest/submission/:id",
+      "source": "custom/modules/_submission_routes.js",
+      "line": 334
+    },
+    {
+      "method": "GET",
+      "route": "/submission/:id",
+      "source": "custom/modules/_submission_visibility.js",
+      "line": 54
+    },
+    {
+      "method": "GET",
+      "route": "/contest/submission/:id",
+      "source": "custom/modules/_submission_visibility.js",
+      "line": 55
+    },
+    {
+      "method": "GET",
+      "route": "/problem/:id",
+      "source": "custom/modules/_user_privilege_loader.js",
+      "line": 189
+    },
+    {
+      "method": "GET",
+      "route": "/problems/search",
+      "source": "custom/modules/_user_privilege_loader.js",
+      "line": 203
+    },
+    {
+      "method": "GET",
+      "route": "/problem/:id/submissions",
+      "source": "custom/modules/_user_privilege_loader.js",
+      "line": 220
+    },
+    {
+      "method": "GET",
+      "route": "/contest/:id/problem/:pid/submissions",
+      "source": "custom/modules/_user_privilege_loader.js",
+      "line": 233
+    },
+    {
+      "method": "GET",
+      "route": "/contest/:id/submissions",
+      "source": "custom/modules/_user_privilege_loader.js",
+      "line": 273
+    },
+    {
+      "method": "GET",
+      "route": "/user/:id",
+      "source": "custom/modules/_user_privilege_loader.js",
+      "line": 513
+    },
+    {
+      "method": "GET",
+      "route": "/user/:id/edit",
+      "source": "custom/modules/_user_privilege_loader.js",
+      "line": 537
+    },
+    {
+      "method": "GET",
+      "route": "/problem/:id/submit",
+      "source": "custom/modules/_user_privilege_loader.js",
+      "line": 581
+    },
+    {
+      "method": "GET",
+      "route": "/contest/:id/problem/:pid/submit",
+      "source": "custom/modules/_user_privilege_loader.js",
+      "line": 615
+    },
+    {
+      "method": "GET",
+      "route": "/admin/user-tags",
+      "source": "custom/modules/_user_tag.js",
+      "line": 140
+    },
+    {
+      "method": "GET",
+      "route": "/announcements",
+      "source": "custom/modules/announcement.js",
+      "line": 44
+    },
+    {
+      "method": "GET",
+      "route": "/admin/announcements",
+      "source": "custom/modules/announcement.js",
+      "line": 67
+    },
+    {
+      "method": "GET",
+      "route": "/admin/announcement/:id/edit",
+      "source": "custom/modules/announcement.js",
+      "line": 97
+    },
+    {
+      "method": "GET",
+      "route": "/admin/banners",
+      "source": "custom/modules/banner.js",
+      "line": 95
+    },
+    {
+      "method": "GET",
+      "route": "/clipboard",
+      "source": "custom/modules/clipboard.js",
+      "line": 13
+    },
+    {
+      "method": "GET",
+      "route": "/clipboard/user/:uid",
+      "source": "custom/modules/clipboard.js",
+      "line": 42
+    },
+    {
+      "method": "GET",
+      "route": "/clipboard/:id",
+      "source": "custom/modules/clipboard.js",
+      "line": 78
+    },
+    {
+      "method": "GET",
+      "route": "/clipboard/share/:token",
+      "source": "custom/modules/clipboard.js",
+      "line": 114
+    },
+    {
+      "method": "GET",
+      "route": "/clipboard/:id/edit",
+      "source": "custom/modules/clipboard.js",
+      "line": 143
+    },
+    {
+      "method": "GET",
+      "route": "/email/verification-pending",
+      "source": "custom/modules/email_verification.js",
+      "line": 193
+    },
+    {
+      "method": "GET",
+      "route": "/email/verify/:token",
+      "source": "custom/modules/email_verification.js",
+      "line": 204
+    },
+    {
+      "method": "GET",
+      "route": "/admin/hdu/import-all/status",
+      "source": "custom/modules/hdu_vjudge.js",
+      "line": 199
+    },
+    {
+      "method": "GET",
+      "route": "/messages",
+      "source": "custom/modules/message.js",
+      "line": 59
+    },
+    {
+      "method": "GET",
+      "route": "/messages/with/:uid",
+      "source": "custom/modules/message.js",
+      "line": 114
+    },
+    {
+      "method": "GET",
+      "route": "/messages/new",
+      "source": "custom/modules/message.js",
+      "line": 172
+    },
+    {
+      "method": "GET",
+      "route": "/messages/settings",
+      "source": "custom/modules/message.js",
+      "line": 199
+    },
+    {
+      "method": "GET",
+      "route": "/notifications",
+      "source": "custom/modules/notification.js",
+      "line": 57
+    },
+    {
+      "method": "GET",
+      "route": "/admin/poj/import-all/status",
+      "source": "custom/modules/poj_vjudge.js",
+      "line": 189
+    },
+    {
+      "method": "GET",
+      "route": "/problems/tag/:id/edit",
+      "source": "custom/modules/problem_tag.js",
+      "line": 3
+    },
+    {
+      "method": "GET",
+      "route": "/problem/:pid/solutions",
+      "source": "custom/modules/solution.js",
+      "line": 19
+    },
+    {
+      "method": "GET",
+      "route": "/problem/:pid/solution/new",
+      "source": "custom/modules/solution.js",
+      "line": 82
+    },
+    {
+      "method": "GET",
+      "route": "/solution/:id",
+      "source": "custom/modules/solution.js",
+      "line": 119
+    },
+    {
+      "method": "GET",
+      "route": "/solution/:id/edit",
+      "source": "custom/modules/solution.js",
+      "line": 175
+    },
+    {
+      "method": "GET",
+      "route": "/admin/solutions",
+      "source": "custom/modules/solution.js",
+      "line": 239
+    },
+    {
+      "method": "GET",
+      "route": "/tags",
+      "source": "custom/modules/tags.js",
+      "line": 6
+    },
+    {
+      "method": "GET",
+      "route": "/tickets",
+      "source": "custom/modules/ticket.js",
+      "line": 225
+    },
+    {
+      "method": "GET",
+      "route": "/ticket/new",
+      "source": "custom/modules/ticket.js",
+      "line": 308
+    },
+    {
+      "method": "GET",
+      "route": "/ticket/:id",
+      "source": "custom/modules/ticket.js",
+      "line": 349
+    },
+    {
+      "method": "GET",
+      "route": "/ticket-attachment/:id",
+      "source": "custom/modules/ticket.js",
+      "line": 535
+    },
+    {
+      "method": "GET",
+      "route": "/admin/uoj/import-all/status",
+      "source": "custom/modules/uoj_vjudge.js",
+      "line": 199
+    },
+    {
+      "method": "GET",
+      "route": "/user/:id/following",
+      "source": "custom/modules/user_follow.js",
+      "line": 93
+    },
+    {
+      "method": "GET",
+      "route": "/user/:id/followers",
+      "source": "custom/modules/user_follow.js",
+      "line": 125
+    }
+  ],
+  "v1_api_reads": [],
+  "v1_write_routes": [],
+  "v1_write_forms": [],
+  "v1_client_calls": [],
+  "approved_runtime_callbacks": [],
+  "compatibility_adapters": [],
+  "summary": {
+    "frontend_page_route_registrations": 96,
+    "frontend_page_route_shapes": 77,
+    "v1_api_reads": 0,
+    "v1_write_routes": 0,
+    "v1_write_route_shapes": 0,
+    "v1_write_forms": 0,
+    "v1_client_calls": 0,
+    "approved_runtime_callbacks": 0,
+    "compatibility_adapters": 0
+  }
+}

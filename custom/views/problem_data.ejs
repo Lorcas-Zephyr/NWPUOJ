@@ -1,0 +1,85 @@
+<%
+this.title = '测试数据'; this.active = 'problems';
+function appFileIcon(filename) {
+  if (/\.(zip|7z)$/i.test(filename)) return 'file-archive';
+  if (/\.(cpp|c|cs|pas|py|js|java|hs|vala|lua|rb|vb|ml)$/i.test(filename)) return 'file-code-2';
+  return 'file-text';
+}
+%>
+<% include app_header %>
+<% include problem_context %>
+<main class="app-page app-problem-data-page">
+  <div class="app-problem-manage-layout"><aside class="app-problem-testcase-panel"><div class="app-section-header"><div><h2 class="app-section-title">测试点概况</h2><p class="app-section-description">当前数据包解析结果</p></div></div><% include problem_testcases %></aside>
+  <section class="app-problem-file-panel"><div class="app-section-header"><div><h2 class="app-section-title">文件列表</h2><p class="app-section-description"><%= testdata && testdata.files ? testdata.files.length + ' 个文件' : '无数据' %></p></div></div>
+  <% if (testdata) { %><div class="app-admin-file-list"><% if (testdata.zip) { %><div><i data-lucide="file-archive"></i><span><strong>完整数据包</strong><small><%= testdata.zip.size ? syzoj.utils.formatSize(testdata.zip.size) : '大小未知' %></small></span><a class="app-icon-button" href="<%= syzoj.utils.makeUrl(['problem', problem.id, 'testdata', 'download']) %>" title="下载完整数据包" aria-label="下载完整数据包"><i data-lucide="download"></i></a></div><% } %><% if (testdata.files) for (const file of testdata.files) { %><div><i data-lucide="<%= appFileIcon(file.filename) %>"></i><span><strong><%= file.filename %></strong><small><%= syzoj.utils.formatSize(file.size) %></small></span><a class="app-icon-button" href="<%= syzoj.utils.makeUrl(['problem', problem.id, 'testdata', 'download', file.filename]) %>" title="下载 <%= file.filename %>" aria-label="下载 <%= file.filename %>"><i data-lucide="download"></i></a><% if (problem.allowedEdit) { %><button class="app-icon-button app-icon-danger" type="button" data-testdata-v2-delete="<%= file.filename %>" data-confirm="确认删除文件“<%= file.filename %>”吗？" title="删除 <%= file.filename %>" aria-label="删除 <%= file.filename %>"><i data-lucide="trash"></i></button><% } %></div><% } %></div><% } else { %><div class="app-empty app-empty-compact"><div class="app-empty-inner"><i data-lucide="database"></i><strong>无测试数据</strong></div></div><% } %>
+  <% if (problem.allowedEdit) { %><form class="app-form app-problem-data-upload" id="form_upload" method="post" data-testdata-files-v2 enctype="multipart/form-data" data-existing-files="<%= JSON.stringify(testdata && testdata.files ? testdata.files.map(function (file) { return file.filename; }) : []) %>"><label class="app-file-field"><input type="file" name="file" multiple required><span><i data-lucide="files"></i><strong>选择文件</strong><small>可一次上传多个文件</small></span></label><button class="app-button app-button-primary" type="submit"><i data-lucide="upload"></i>上传文件</button></form><% } %>
+  </section></div>
+</main>
+<script>
+(function () {
+  var form = document.getElementById('form_upload');
+  document.addEventListener('click', async function (event) {
+    var button = event.target.closest('[data-testdata-v2-delete]');
+    if (!button || button.disabled) return;
+    if (button.dataset.confirm && !window.confirm(button.dataset.confirm)) return;
+    button.disabled = true;
+    try {
+      var response = await fetch(
+        '/api/v2/problems/<%= problem.id %>/testdata/files/' + encodeURIComponent(button.dataset.testdataV2Delete),
+        {
+          method: 'DELETE',
+          credentials: 'same-origin',
+          headers: {
+            'Idempotency-Key': window.crypto && window.crypto.randomUUID
+              ? window.crypto.randomUUID()
+              : String(Date.now()) + Math.random()
+          }
+        }
+      );
+      var body = null;
+      try { body = await response.json(); } catch (error) {}
+      if (!response.ok) throw new Error(body && body.error && body.error.message || '删除测试数据文件失败。');
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast('测试数据文件已删除', 'success');
+      window.setTimeout(function () { window.location.reload(); }, 250);
+    } catch (error) {
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '删除测试数据文件失败。', 'danger');
+      else window.alert(error.message || '删除测试数据文件失败。');
+      button.disabled = false;
+    }
+  });
+  if (!form) return;
+  form.addEventListener('submit', async function (event) {
+    event.preventDefault();
+    var existing = JSON.parse(form.getAttribute('data-existing-files') || '[]');
+    var files = Array.prototype.slice.call(form.querySelector('[type="file"]').files);
+    var replacements = files.map(function (file) { return file.name; }).filter(function (name) { return existing.includes(name); });
+    if (replacements.length && !window.confirm('以下文件将被替换：\n' + replacements.join('\n') + '\n\n确定继续吗？')) return;
+    var button = form.querySelector('[type="submit"]');
+    button.disabled = true;
+    try {
+      var payload = new FormData();
+      files.forEach(function (file) { payload.append('files', file, file.name); });
+      var response = await fetch('/api/v2/problems/<%= problem.id %>/testdata/files', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Idempotency-Key': window.crypto && window.crypto.randomUUID
+            ? window.crypto.randomUUID()
+            : String(Date.now()) + Math.random()
+        },
+        body: payload
+      });
+      var body = null;
+      try { body = await response.json(); } catch (error) {}
+      if (!response.ok) throw new Error(body && body.error && body.error.message || '上传测试数据文件失败。');
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast('测试数据文件已上传', 'success');
+      window.location.reload();
+    } catch (error) {
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '上传测试数据文件失败。', 'danger');
+      else window.alert(error.message || '上传测试数据文件失败。');
+      button.disabled = false;
+    }
+  });
+})();
+</script>
+<% include app_footer %>

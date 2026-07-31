@@ -1,27 +1,6 @@
 <% this.title = success ? '邮箱验证成功' : '邮箱验证失败' %>
-<% include header %>
+<% include app_header %>
 
-<div class="padding">
-  <div class="ui placeholder segment">
-    <div class="ui icon header">
-      <% if (success) { %>
-        <i class="check circle outline icon" style="color: #21ba45;"></i>
-        邮箱验证成功
-      <% } else { %>
-        <i class="times circle outline icon" style="color: #db2828;"></i>
-        邮箱验证失败
-      <% } %>
-    </div>
-    <p style="text-align: center; max-width: 480px; margin: 0 auto;"><%= message %></p>
-    <div style="text-align: center; margin-top: 20px;">
-      <a class="ui primary button" href="/">返回首页</a>
-      <% if (!success && user) { %>
-        <a class="ui button" href="<%= syzoj.utils.makeUrl(['user', user.id, 'edit']) %>">前往个人资料重新发送</a>
-      <% } else if (!success) { %>
-        <a class="ui button" href="<%= syzoj.utils.makeUrl(['login']) %>">登录后重新发送</a>
-      <% } %>
-    </div>
-  </div>
-</div>
+<div class="app-result-page"><section class="app-result-state <%= success ? 'is-success' : 'is-danger' %>"><span class="app-result-icon"><i data-lucide="<%= success ? 'badge-check' : 'circle-x' %>"></i></span><span class="app-kicker">EMAIL VERIFICATION</span><h1><%= success ? '邮箱验证成功' : '邮箱验证失败' %></h1><p><%= message %></p><div class="app-result-actions"><a class="app-button app-button-primary" href="/">返回首页</a><% if (!success && user) { %><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['user', user.id, 'edit']) %>">重新发送验证邮件</a><% } else if (!success) { %><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['login']) %>">登录后重新发送</a><% } %></div></section></div>
 
-<% include footer %>
+<% include app_footer %>

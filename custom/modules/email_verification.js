@@ -157,16 +157,38 @@ syzoj.utils.sendEmailVerification = sendEmailVerification;
 syzoj.utils.isEmailVerified = isEmailVerified;
 syzoj.utils.normalizeEmail = normalizeEmail;
 
-app.post('/email/send-verification', async (req, res) => {
+app.post('/api/v2/me/email-verification', async (req, res) => {
+  const api = syzoj.utils.apiV2;
+  if (!res.locals.user) return api.fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.');
   try {
-    if (!res.locals.user) throw new ErrorMessage('请登录后继续。');
     const email = await sendEmailVerification(req, res.locals.user);
-    res.render('email_verify_pending', { email });
+    const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, {
+      action: 'profile:email-verification.send',
+      resourceType: 'user',
+      resourceId: res.locals.user.id,
+      details: { email }
+    });
+    await api.appendEvent({
+      stream: `user:${res.locals.user.id}`,
+      type: 'profile.email-verification.sent',
+      aggregateId: res.locals.user.id,
+      actor: res.locals.user,
+      payload: { audit_event_id: auditEventId }
+    });
+    return api.send(res, {
+      email,
+      verification_sent: true,
+      redirect_url: '/email/verification-pending?sent=1',
+      audit_event_id: String(auditEventId)
+    }, 202);
   } catch (error) {
-    syzoj.log(error);
-    res.status(error && error.code ? 500 : 400).render('error', { err: error });
+    syzoj.log('[email-verification-v2] ' + (error.stack || error));
+    const message = error && error.message || 'Verification email could not be sent.';
+    const rateLimited = /秒后重试/.test(message);
+    return api.fail(res, rateLimited ? 429 : 400, rateLimited ? 'EMAIL_VERIFICATION_RATE_LIMITED' : 'EMAIL_VERIFICATION_FAILED', message);
   }
 });
+
 
 app.get('/email/verification-pending', async (req, res) => {
   if (!res.locals.user) {

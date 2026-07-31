@@ -1,5 +1,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
+const apiV2Helpers = require('../libs/api-v2');
+const v2RouteEnforcement = require('../libs/v2-route-enforcement');
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const SESSION_MAX_AGE = 12 * 60 * 60 * 1000;
@@ -49,8 +51,14 @@ function isSameOrigin(req) {
 }
 
 syzoj.utils.safeLocalUrl = safeLocalUrl;
+syzoj.utils.v2RouteEnforcement = v2RouteEnforcement;
 syzoj.utils.ensureGlobalCsrfToken = ensureCsrfToken;
 syzoj.utils.secureCookieOptions = secureCookieOptions;
+syzoj.utils.operationReason = function operationReason(req, fallback) {
+  const provided = String(req && req.body && req.body.reason || '').trim();
+  if (provided) return provided.slice(0, 1000);
+  return String(fallback || `校内管理员操作：${req && req.method || 'WRITE'} ${req && req.path || ''}`).slice(0, 1000);
+};
 syzoj.utils.getPublicBaseUrl = function getPublicBaseUrl(req) {
   const configured = String(process.env.SYZOJ_PUBLIC_URL || '').trim().replace(/\/+$/, '');
   if (/^https?:\/\/[^/]+$/i.test(configured)) return configured;
@@ -86,14 +94,44 @@ app.use((req, res, next) => {
 });
 
 app.use((req, res, next) => {
+  if (!v2RouteEnforcement.shouldBlock(req)) return next();
+  if (!req.id) req.id = apiV2Helpers.requestId(req);
+  const payload = v2RouteEnforcement.response(req);
+  res.set('X-Request-ID', payload.meta.request_id);
+  if (/^\/api(?:\/|$)/.test(req.path) || req.accepts(['html', 'json']) === 'json') {
+    return res.status(410).send(payload);
+  }
+  return res.status(410).render('error', { err: new ErrorMessage('当前写入路径不受支持，请使用 v2 页面。') });
+});
+
+app.use((req, res, next) => {
   const expectedToken = ensureCsrfToken(req);
   res.locals.csrfToken = expectedToken;
   if (SAFE_METHODS.has(req.method)) return next();
+
+  if (/^\/api\/v2(?:\/|$)/.test(req.path) && !res.locals.user && !apiV2Helpers.isPublicV2WritePath(req.path)) {
+    const requestId = apiV2Helpers.requestId(req);
+    res.set('X-Request-ID', requestId);
+    return res.status(401).send({
+      data: null,
+      meta: { request_id: requestId, api_version: '2', timestamp: new Date().toISOString() },
+      error: { code: 'AUTHENTICATION_REQUIRED', message: 'Authentication is required.', fields: {} }
+    });
+  }
 
   const actualToken = req.get('x-csrf-token') || (req.body && req.body._csrf);
   if (tokenMatches(expectedToken, actualToken) || isSameOrigin(req)) return next();
 
   const error = new ErrorMessage('请求来源验证失败，请刷新页面后重试。');
+  if (/^\/api\/v2(?:\/|$)/.test(req.path)) {
+    const requestId = apiV2Helpers.requestId(req);
+    res.set('X-Request-ID', requestId);
+    return res.status(403).send({
+      data: null,
+      meta: { request_id: requestId, api_version: '2', timestamp: new Date().toISOString() },
+      error: { code: 'CSRF_VALIDATION_FAILED', message: error.message, fields: {} }
+    });
+  }
   if (/^\/api(?:\/|$)/.test(req.path) || req.accepts(['html', 'json']) === 'json') {
     return res.status(403).send({ error_code: 403, message: error.message });
   }
@@ -101,11 +139,6 @@ app.use((req, res, next) => {
 });
 
 app.get(['/login', '/sign_up'], (req, res, next) => {
-  req.query.url = safeLocalUrl(req.query.url, '/');
-  next();
-});
-
-app.post('/logout', (req, res, next) => {
   req.query.url = safeLocalUrl(req.query.url, '/');
   next();
 });

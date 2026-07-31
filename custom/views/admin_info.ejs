@@ -1,127 +1,14 @@
-<% this.adminPage = 'info'; %>
+<% this.adminPage = 'info' %>
 <% include admin_header %>
-<%
-const importStateNames = { idle: '未运行', running: '进行中', completed: '已完成', failed: '失败' };
-const actionNames = { cheated: '标记作弊', cancelled: '取消评测' };
-const ticketStatusNames = { pending: '待处理', in_progress: '处理中' };
-%>
-<style>
-.nwpuoj-admin-overview-header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:18px; }
-.nwpuoj-admin-metrics { display:grid; grid-template-columns:repeat(6,minmax(90px,1fr)); border:1px solid var(--nwpuoj-border); background:var(--nwpuoj-surface); }
-.nwpuoj-admin-metric { min-width:0; padding:14px 12px; border-right:1px solid var(--nwpuoj-border); color:inherit !important; text-align:center; }
-.nwpuoj-admin-metric:last-child { border-right:0; }
-.nwpuoj-admin-metric strong { display:block; font-size:1.55rem; line-height:1.2; color:var(--nwpuoj-text); }
-.nwpuoj-admin-metric span { display:block; margin-top:5px; color:var(--nwpuoj-text-muted); font-size:.88rem; }
-.nwpuoj-admin-attention { display:grid; grid-template-columns:repeat(4,minmax(140px,1fr)); gap:10px; margin-top:14px; }
-.nwpuoj-admin-attention a { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:11px 13px; border:1px solid var(--nwpuoj-border); color:var(--nwpuoj-text) !important; background:var(--nwpuoj-surface); }
-.nwpuoj-admin-section { margin-top:26px; }
-.nwpuoj-admin-section > .ui.header { margin-bottom:10px; }
-@media (max-width:991px) {
-  .nwpuoj-admin-metrics { grid-template-columns:repeat(3,minmax(90px,1fr)); }
-  .nwpuoj-admin-metric:nth-child(3) { border-right:0; }
-  .nwpuoj-admin-metric:nth-child(-n+3) { border-bottom:1px solid var(--nwpuoj-border); }
-  .nwpuoj-admin-attention { grid-template-columns:repeat(2,minmax(140px,1fr)); }
-}
-@media (max-width:600px) {
-  .nwpuoj-admin-metrics { grid-template-columns:repeat(2,minmax(90px,1fr)); }
-  .nwpuoj-admin-metric:nth-child(3) { border-right:1px solid var(--nwpuoj-border); }
-  .nwpuoj-admin-metric:nth-child(2n) { border-right:0; }
-  .nwpuoj-admin-metric:nth-child(-n+4) { border-bottom:1px solid var(--nwpuoj-border); }
-  .nwpuoj-admin-attention { grid-template-columns:1fr; }
-}
-</style>
+<% const appImportStates = { idle: '未运行', running: '进行中', completed: '已完成', failed: '失败' }; const appActionNames = { cheated: '标记作弊', cancelled: '取消评测' }; const appTicketStates = { pending: '待处理', in_progress: '处理中' }; %>
 
-<div class="nwpuoj-admin-overview-header">
-  <h2 class="ui header" style="margin:0;"><i class="dashboard icon"></i>管理概览</h2>
-  <a class="ui basic icon button" href="<%= syzoj.utils.makeUrl(['admin', 'info']) %>" title="刷新概览" aria-label="刷新概览"><i class="refresh icon"></i></a>
-</div>
+<div class="app-admin-toolbar"><div><h3>运行概览</h3><p>站点规模、待办和外部服务状态。</p></div><a class="app-icon-button" href="<%= syzoj.utils.makeUrl(['admin', 'info']) %>" title="刷新概览" aria-label="刷新概览"><i data-lucide="refresh-cw"></i></a></div>
+<section class="app-admin-metrics" aria-label="站点规模"><% for (const metric of [['all_submissions','总评测量'],['today_submissions','今日评测'],['problems','题目'],['articles','讨论'],['contests','比赛'],['users','用户']]) { %><div><strong><%= summary[metric[0]] %></strong><span><%= metric[1] %></span></div><% } %></section>
+<section class="app-admin-queue" aria-label="待处理事项"><a href="<%= syzoj.utils.makeUrl(['admin', 'solutions'], { status: 'pending' }) %>"><i data-lucide="file-clock"></i><span><strong>待审核题解</strong><small>内容审核队列</small></span><em><%= summary.pending_solutions %></em></a><a href="<%= syzoj.utils.makeUrl(['tickets'], { filter: 'all' }) %>"><i data-lucide="ticket"></i><span><strong>未结工单</strong><small>全部处理中请求</small></span><em><%= summary.open_tickets %></em></a><a href="<%= syzoj.utils.makeUrl(['tickets'], { filter: 'unassigned' }) %>"><i data-lucide="inbox"></i><span><strong>待认领工单</strong><small>尚无处理人</small></span><em><%= summary.unassigned_tickets %></em></a><a href="<%= syzoj.utils.makeUrl(['submissions']) %>"><i data-lucide="clock"></i><span><strong>等待评测</strong><small>当前评测队列</small></span><em><%= summary.pending_judgements %></em></a></section>
+<% if (summary.stale_judgements || summary.recent_judge_failures) { %><div class="app-notice app-notice-warning"><i data-lucide="triangle-alert"></i><span>超过 15 分钟未完成：<strong><%= summary.stale_judgements %></strong>；近 24 小时异常：<strong><%= summary.recent_judge_failures %></strong>。</span></div><% } %>
 
-<div class="nwpuoj-admin-metrics" aria-label="站点规模">
-  <% for (const metric of [
-    ['all_submissions','总评测量'],['today_submissions','今日评测'],['problems','题目'],
-    ['articles','讨论'],['contests','比赛'],['users','用户']
-  ]) { %>
-  <div class="nwpuoj-admin-metric"><strong><%= summary[metric[0]] %></strong><span><%= metric[1] %></span></div>
-  <% } %>
-</div>
+<section class="app-admin-section"><div class="app-section-header"><div><h3 class="app-section-title">VJudge 状态</h3><p class="app-section-description">题源、账号和批量导入状态</p></div><a class="app-button app-button-quiet" href="<%= syzoj.utils.makeUrl(['admin', 'other']) %>">管理题源<i data-lucide="arrow-right"></i></a></div><div class="app-table-region"><table class="app-table"><thead><tr><th>Provider</th><th>题目</th><th>账号</th><th>比赛提交</th><th>最近导入</th></tr></thead><tbody><% providers.forEach(function (provider) { %><tr><td><strong><%= provider.name %></strong></td><td class="app-cell-number"><%= provider.problemCount %></td><td><span class="app-status <%= provider.configured ? 'app-status-accepted' : 'app-status-rejected' %>"><%= provider.configured ? '已配置' : '未配置' %></span></td><td><span class="app-status <%= provider.contestEnabled ? 'app-status-accepted' : 'app-status-muted' %>"><%= provider.contestEnabled ? '已启用' : '未启用' %></span></td><td><% if (provider.importTask) { %><%= appImportStates[provider.importTask.status.state] || provider.importTask.status.state || '未知' %><small class="app-row-description"><%= syzoj.utils.formatDate(provider.importTask.updatedAt) %></small><% } else { %>-<% } %></td></tr><% }); %></tbody></table></div></section>
+<section class="app-admin-section"><div class="app-section-header"><div><h3 class="app-section-title">最近未结工单</h3><p class="app-section-description">按更新时间排序</p></div></div><% if (recentTickets.length) { %><div class="app-table-region"><table class="app-table"><thead><tr><th>工单</th><th>状态</th><th>创建者</th><th>处理人</th><th>更新时间</th></tr></thead><tbody><% recentTickets.forEach(function (ticket) { %><tr><td class="app-cell-primary"><a href="<%= syzoj.utils.makeUrl(['ticket', ticket.id]) %>">#<%= ticket.id %> <%= ticket.title %></a></td><td><span class="app-status <%= ticket.status === 'pending' ? 'app-status-pending' : 'app-status-running' %>"><%= appTicketStates[ticket.status] || ticket.status %></span></td><td><%= ticket.creator_name || '账户已删除' %></td><td><%= ticket.assignee_name || '未认领' %></td><td class="app-cell-number"><%= syzoj.utils.formatDate(ticket.updated_at) %></td></tr><% }); %></tbody></table></div><% } else { %><div class="app-empty app-empty-compact"><div class="app-empty-inner"><i data-lucide="circle-check"></i><strong>没有未结工单</strong></div></div><% } %></section>
+<section class="app-admin-section"><div class="app-section-header"><div><h3 class="app-section-title">近期评测管理操作</h3><p class="app-section-description">作弊标记与评测取消记录</p></div></div><% if (recentActions.length) { %><div class="app-table-region"><table class="app-table"><thead><tr><th>提交</th><th>操作</th><th>操作者</th><th>影响用户</th><th>题目</th><th>时间</th></tr></thead><tbody><% recentActions.forEach(function (action) { %><tr><td><a href="<%= syzoj.utils.makeUrl(['submission', action.judge_id]) %>">#<%= action.judge_id %></a></td><td><%= appActionNames[action.action_type] || action.action_type %><% if (action.reason) { %><small class="app-row-description"><%= action.reason %></small><% } %></td><td><%= action.operator_name || '账户已删除' %></td><td><%= action.affected_username || '-' %></td><td><% if (action.affected_problem_id) { %><a href="<%= syzoj.utils.makeUrl(['problem', action.affected_problem_id]) %>">#<%= action.affected_problem_id %> <%= action.problem_title || '' %></a><% } else { %>-<% } %></td><td class="app-cell-number"><%= syzoj.utils.formatDate(action.operator_time) %></td></tr><% }); %></tbody></table></div><% } else { %><div class="app-empty app-empty-compact"><div class="app-empty-inner"><i data-lucide="history"></i><strong>暂无管理操作</strong></div></div><% } %></section>
 
-<div class="nwpuoj-admin-attention" aria-label="待处理事项">
-  <a href="<%= syzoj.utils.makeUrl(['admin', 'solutions'], { status: 'pending' }) %>"><span><i class="file alternate outline icon"></i>待审核题解</span><b><%= summary.pending_solutions %></b></a>
-  <a href="<%= syzoj.utils.makeUrl(['tickets'], { filter: 'all' }) %>"><span><i class="ticket icon"></i>未结工单</span><b><%= summary.open_tickets %></b></a>
-  <a href="<%= syzoj.utils.makeUrl(['tickets'], { filter: 'unassigned' }) %>"><span><i class="inbox icon"></i>待认领工单</span><b><%= summary.unassigned_tickets %></b></a>
-  <a href="<%= syzoj.utils.makeUrl(['submissions']) %>"><span><i class="clock outline icon"></i>等待评测</span><b><%= summary.pending_judgements %></b></a>
-</div>
-
-<% if (summary.stale_judgements || summary.recent_judge_failures) { %>
-<div class="ui warning message" style="margin-top:14px;">
-  超过 15 分钟仍未完成：<b><%= summary.stale_judgements %></b>；近 24 小时评测异常：<b><%= summary.recent_judge_failures %></b>。
-</div>
-<% } %>
-
-<section class="nwpuoj-admin-section" aria-labelledby="vjudge-overview-title">
-  <h3 class="ui dividing header" id="vjudge-overview-title"><i class="cloud icon"></i>VJudge 状态</h3>
-  <div class="nwpuoj-table-region" role="region" aria-label="VJudge 状态" tabindex="0">
-    <table class="ui very basic table">
-      <thead><tr><th>Provider</th><th>题目</th><th>账号</th><th>比赛提交</th><th>最近批量导入</th><th>操作</th></tr></thead>
-      <tbody>
-      <% providers.forEach(function (provider) { %>
-        <tr>
-          <td><strong><%= provider.name %></strong></td>
-          <td><%= provider.problemCount %></td>
-          <td><span class="nwpuoj-status <%= provider.configured ? 'nwpuoj-status-success' : 'nwpuoj-status-danger' %>"><%= provider.configured ? '已配置' : '未配置' %></span></td>
-          <td><span class="nwpuoj-status <%= provider.contestEnabled ? 'nwpuoj-status-success' : 'nwpuoj-status-muted' %>"><%= provider.contestEnabled ? '已启用' : '未启用' %></span></td>
-          <td>
-            <% if (provider.importTask) { %>
-              <%= importStateNames[provider.importTask.status.state] || provider.importTask.status.state || '未知' %>
-              <div class="nwpuoj-meta"><%= syzoj.utils.formatDate(provider.importTask.updatedAt) %></div>
-            <% } else { %>-<% } %>
-          </td>
-          <td><a class="ui mini basic icon button" href="<%= syzoj.utils.makeUrl(['admin', 'other']) %>" title="VJudge 管理" aria-label="管理 <%= provider.name %>"><i class="settings icon"></i></a></td>
-        </tr>
-      <% }); %>
-      </tbody>
-    </table>
-  </div>
-</section>
-
-<section class="nwpuoj-admin-section" aria-labelledby="ticket-overview-title">
-  <h3 class="ui dividing header" id="ticket-overview-title"><i class="ticket icon"></i>最近未结工单</h3>
-  <% if (recentTickets.length) { %>
-  <div class="nwpuoj-table-region" role="region" aria-label="最近未结工单" tabindex="0">
-    <table class="ui very basic table">
-      <thead><tr><th>工单</th><th>状态</th><th>创建者</th><th>处理人</th><th>更新时间</th></tr></thead>
-      <tbody><% recentTickets.forEach(function (ticket) { %>
-        <tr>
-          <td><a href="<%= syzoj.utils.makeUrl(['ticket', ticket.id]) %>">#<%= ticket.id %> <%= ticket.title %></a></td>
-          <td><%= ticketStatusNames[ticket.status] || ticket.status %></td>
-          <td><%= ticket.creator_name || '账户已删除' %></td>
-          <td><%= ticket.assignee_name || '未认领' %></td>
-          <td><%= syzoj.utils.formatDate(ticket.updated_at) %></td>
-        </tr>
-      <% }); %></tbody>
-    </table>
-  </div>
-  <% } else { %><div class="nwpuoj-empty-state"><i class="check circle outline icon"></i>没有未结工单</div><% } %>
-</section>
-
-<section class="nwpuoj-admin-section" aria-labelledby="action-overview-title">
-  <h3 class="ui dividing header" id="action-overview-title"><i class="history icon"></i>近期评测管理操作</h3>
-  <% if (recentActions.length) { %>
-  <div class="nwpuoj-table-region" role="region" aria-label="近期评测管理操作" tabindex="0">
-    <table class="ui very basic table">
-      <thead><tr><th>提交</th><th>操作</th><th>操作者</th><th>影响用户</th><th>题目</th><th>时间</th></tr></thead>
-      <tbody><% recentActions.forEach(function (action) { %>
-        <tr>
-          <td><a href="<%= syzoj.utils.makeUrl(['submission', action.judge_id]) %>">#<%= action.judge_id %></a></td>
-          <td><%= actionNames[action.action_type] || action.action_type %><% if (action.reason) { %><div class="nwpuoj-meta"><%= action.reason %></div><% } %></td>
-          <td><%= action.operator_name || '账户已删除' %></td>
-          <td><%= action.affected_username || '-' %></td>
-          <td><% if (action.affected_problem_id) { %><a href="<%= syzoj.utils.makeUrl(['problem', action.affected_problem_id]) %>">#<%= action.affected_problem_id %> <%= action.problem_title || '' %></a><% } else { %>-<% } %></td>
-          <td><%= syzoj.utils.formatDate(action.operator_time) %></td>
-        </tr>
-      <% }); %></tbody>
-    </table>
-  </div>
-  <% } else { %><div class="nwpuoj-empty-state"><i class="history icon"></i>暂无评测管理操作</div><% } %>
-</section>
 <% include admin_footer %>

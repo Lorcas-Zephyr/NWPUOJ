@@ -1,4 +1,5 @@
 const TypeORM = require('typeorm');
+const migrationCycleEvidence = require('./migration-cycle-evidence');
 
 const RETRYABLE_ERRORS = new Set(['ER_LOCK_DEADLOCK', 'ER_LOCK_WAIT_TIMEOUT', '1213', '1205']);
 const ranklistRefreshTimers = new Map();
@@ -20,6 +21,51 @@ function parseJson(value, fallback) {
 
 function sameJson(left, right) {
   return JSON.stringify(parseJson(left, {})) === JSON.stringify(parseJson(right, {}));
+}
+
+function contestProblemIds(value) {
+  return String(value || '').split('|').map(Number).filter(id => Number.isSafeInteger(id) && id > 0);
+}
+
+async function syncContestV2Projection(manager, contestId, input, isNew, now) {
+  const problemIds = contestProblemIds(input.problems);
+  const stateRows = await manager.query('SELECT status FROM contest_v2_state WHERE contest_id=? FOR UPDATE', [contestId]);
+  if (!stateRows.length) {
+    const status = !problemIds.length ? 'draft' : input.endTime <= now ? 'ended' : input.startTime <= now ? 'running' : 'scheduled';
+    await manager.query('INSERT INTO contest_v2_state (contest_id,status,revision,updated_at,updated_by) VALUES (?,?,1,UTC_TIMESTAMP(3),?)', [contestId, status, input.actorId]);
+  } else {
+    await manager.query('UPDATE contest_v2_state SET revision=revision+1,updated_at=UTC_TIMESTAMP(3),updated_by=? WHERE contest_id=?', [input.actorId, contestId]);
+  }
+
+  const configRows = await manager.query('SELECT * FROM contest_v2_config WHERE contest_id=? FOR UPDATE', [contestId]);
+  const current = configRows[0] || {};
+  const rules = Object.assign({}, parseJson(current.rules_json, {}), { mode: input.type, tie_break: input.type === 'acm' ? 'penalty' : 'score' });
+  const currentScoring = parseJson(current.scoring_json, {});
+  const scoring = Object.assign({}, currentScoring, {
+    penalty_minutes: Number(currentScoring.penalty_minutes == null ? 20 : currentScoring.penalty_minutes),
+    problems: problemIds.map((problemId, index) => ({
+      problem_id: problemId,
+      alias: String.fromCharCode(65 + index),
+      score: Number(input.rankingParams[problemId] == null ? 1 : input.rankingParams[problemId]),
+      penalty: Number(currentScoring.penalty_minutes == null ? 20 : currentScoring.penalty_minutes)
+    }))
+  });
+  const security = parseJson(current.security_json, { result_visibility: 'public_after_end', submission_visibility: 'own_during_contest', allow_vjudge: false });
+  const registration = Object.assign({}, parseJson(current.registration_json, { enabled: true, approval_required: false }), { enabled: true, allow_late_registration: !!input.allowLateRegistration });
+  const teams = parseJson(current.teams_json, { enabled: false, minimum_size: 1, maximum_size: 1 });
+  const ratedProfile = input.isRated ? (input.type === 'acm' ? 'icpc' : 'ioi') : null;
+  await manager.query(`INSERT INTO contest_v2_config
+    (contest_id,timezone,rules_json,scoring_json,visibility,security_json,registration_json,teams_json,rated_profile,revision,updated_by,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,1,?,UTC_TIMESTAMP(3)) ON DUPLICATE KEY UPDATE
+    rules_json=VALUES(rules_json),scoring_json=VALUES(scoring_json),visibility=VALUES(visibility),
+    registration_json=VALUES(registration_json),rated_profile=VALUES(rated_profile),revision=revision+1,
+    updated_by=VALUES(updated_by),updated_at=VALUES(updated_at)`,
+  [contestId, current.timezone || 'Asia/Shanghai', JSON.stringify(rules), JSON.stringify(scoring), input.isPublic ? 'public' : 'private', JSON.stringify(security), JSON.stringify(registration), JSON.stringify(teams), ratedProfile, input.actorId]);
+  await manager.query(`INSERT IGNORE INTO contest_v2_standings_current
+    (contest_id,live_version_id,public_version_id,frozen_version_id,final_version_id,updated_at)
+    VALUES (?,NULL,NULL,NULL,NULL,UTC_TIMESTAMP(3))`, [contestId]);
+  await manager.query(`INSERT INTO api_v2_event (stream,type,aggregate_id,actor_id,payload_json,created_at)
+    VALUES (?,?,?,?,?,UTC_TIMESTAMP(3))`, [`contest:${contestId}`, isNew ? 'contest.created' : 'contest.updated', String(contestId), input.actorId, JSON.stringify({ contest_id: contestId, projection: 'dual_write' })]);
 }
 
 async function withTransactionRetry(work) {
@@ -270,6 +316,9 @@ function scheduleRanklistRefresh(contestId) {
         await rebuildScoredRanklist(manager, contests[0], ranklist);
       }));
       if (syzoj.utils.invalidateContestReadCache) syzoj.utils.invalidateContestReadCache(id);
+      if (syzoj.utils.contestStandingsV2) {
+        syzoj.utils.contestStandingsV2.schedule(id, { kind: 'realtime', reason: 'Submission event projection' });
+      }
     } catch (error) {
       syzoj.log('[contest-ranklist-refresh] ' + (error.stack || error));
     }
@@ -314,11 +363,15 @@ async function rebuildContestPlayer(contestId, userId, options) {
     await rebuildScoredRanklist(manager, contest, ranklist);
     return true;
   });
-  if (options && options.skipLock) return rebuild();
-  return withContestLock(contestId, rebuild);
+  const updated = options && options.skipLock ? await rebuild() : await withContestLock(contestId, rebuild);
+  if (updated && !(options && options.suppressProjection) && syzoj.utils.contestStandingsV2) {
+    syzoj.utils.contestStandingsV2.schedule(contestId, { kind: 'realtime', reason: 'Contest result correction projection' });
+  }
+  return updated;
 }
 
-async function rebuildContestStandings(contestId) {
+async function rebuildContestStandings(contestId, options) {
+  options = options || {};
   return withContestLock(contestId, async () => {
     const userIds = await withTransactionRetry(async manager => {
       const contests = await manager.query('SELECT * FROM contest WHERE id=? FOR UPDATE', [contestId]);
@@ -353,7 +406,12 @@ async function rebuildContestStandings(contestId) {
       await rebuildRanklistMembership(manager, contest, ranklist);
       return players.map(player => Number(player.user_id));
     });
-    for (const userId of userIds) await rebuildContestPlayer(contestId, userId, { skipLock: true });
+    for (let index = 0; index < userIds.length; index++) {
+      if (options.shouldCancel && await options.shouldCancel()) throw Object.assign(mutationError('排行榜重建已取消。', 409), { code: 'JOB_CANCELLED' });
+      const userId = userIds[index];
+      await rebuildContestPlayer(contestId, userId, { skipLock: true, suppressProjection: true });
+      if (options.onProgress) await options.onProgress({ processed: index + 1, total: userIds.length, userId });
+    }
     return userIds.length;
   });
 }
@@ -486,6 +544,7 @@ async function saveContest(input) {
           (contest_id,allow_late_registration,revision,updated_at) VALUES (?,?,1,?)`,
         [contestId,input.allowLateRegistration ? 1 : 0,now]
       );
+      await syncContestV2Projection(manager, contestId, input, true, now);
       return contestId;
     }
 
@@ -529,6 +588,7 @@ async function saveContest(input) {
       'UPDATE contest_rating_config SET is_rated=?,updated_at=?,updated_by=? WHERE contest_id=?',
       [nextRated ? 1 : 0,now,input.actorId,input.id]
     );
+    await syncContestV2Projection(manager, input.id, input, false, now);
     return input.id;
   }));
 }
@@ -547,7 +607,7 @@ async function deleteContestInTransaction(manager, contestId, options) {
     if (!options.deleteSubmissions && submissions.length) {
       throw mutationError('已有比赛提交，不能删除该比赛。', 409);
     }
-    if (options.deleteSubmissions) {
+    if (options.deleteSubmissions && !options.allowPending) {
       const pendingSubmissions = await manager.query(
         `SELECT id FROM judge_state
          WHERE type=1 AND type_info=? AND (pending=1 OR status IN ('Waiting','Unknown'))
@@ -565,9 +625,64 @@ async function deleteContestInTransaction(manager, contestId, options) {
     if (!options.allowFinalized && finalized.length) {
       throw mutationError('比赛 Rating 已结算，不能删除该比赛。', 409);
     }
+    options.cycleEvidence = await migrationCycleEvidence.archiveCompletedCycle(
+      manager,
+      contestId,
+      options.actorId
+    );
     await lockRanklist(manager, context.contest.ranklist_id);
     await manager.query('SELECT id FROM contest_player WHERE contest_id=? FOR UPDATE', [contestId]);
-    if (options.deleteSubmissions && submissions.length) {
+    if (options.deleteSubmissions) {
+      const projectionRows = await manager.query(
+        'SELECT submission_id FROM submission_v2_projection WHERE contest_id=? FOR UPDATE',
+        [contestId]
+      );
+      const submissionRows = await manager.query(
+        'SELECT id FROM judge_state WHERE type=1 AND type_info=? FOR UPDATE',
+        [contestId]
+      );
+      const submissionIds = Array.from(new Set(
+        submissionRows.map(row => Number(row.id)).concat(projectionRows.map(row => Number(row.submission_id)))
+      )).filter(Number.isSafeInteger);
+      if (submissionIds.length) {
+        await manager.query('SELECT id FROM submission_v2_job WHERE submission_id IN (?) FOR UPDATE', [submissionIds]);
+        await manager.query('SELECT id FROM submission_v2_result_revision WHERE submission_id IN (?) FOR UPDATE', [submissionIds]);
+        await manager.query('SELECT id FROM submission_v2_attempt WHERE submission_id IN (?) FOR UPDATE', [submissionIds]);
+        await manager.query('SELECT id FROM submission_v2_code_version WHERE submission_id IN (?) FOR UPDATE', [submissionIds]);
+        await manager.query('SELECT local_submission_id FROM vjudge_v2_submission_sync WHERE local_submission_id IN (?) FOR UPDATE', [submissionIds]);
+        const rejudgeItems = await manager.query(
+          'SELECT job_id,submission_id FROM admin_v2_rejudge_item WHERE submission_id IN (?) FOR UPDATE',
+          [submissionIds]
+        );
+        await manager.query('DELETE FROM vjudge_v2_submission_sync WHERE local_submission_id IN (?)', [submissionIds]);
+        await manager.query('DELETE FROM admin_v2_rejudge_item WHERE submission_id IN (?)', [submissionIds]);
+        await manager.query('DELETE FROM submission_v2_job WHERE submission_id IN (?)', [submissionIds]);
+        await manager.query('DELETE FROM submission_v2_result_revision WHERE submission_id IN (?)', [submissionIds]);
+        await manager.query('DELETE FROM submission_v2_attempt WHERE submission_id IN (?)', [submissionIds]);
+        await manager.query('DELETE FROM submission_v2_projection WHERE submission_id IN (?)', [submissionIds]);
+        await manager.query('DELETE FROM submission_v2_code_version WHERE submission_id IN (?)', [submissionIds]);
+        const rejudgeJobIds = Array.from(new Set(rejudgeItems.map(row => row.job_id)));
+        for (const jobId of rejudgeJobIds) {
+          const counts = await manager.query(
+            `SELECT COUNT(*) AS total,SUM(state IN ('completed','failed','cancelled')) AS processed,
+                    SUM(state='failed') AS failed
+             FROM admin_v2_rejudge_item WHERE job_id=?`,
+            [jobId]
+          );
+          const remaining = counts[0] || {};
+          await manager.query(
+            `UPDATE admin_v2_rejudge_job
+             SET total=?,processed=?,failed=?,current_submission_id=NULL,
+                 stage=CASE WHEN ?=0 AND state IN ('queued','running','cancelling') THEN 'cancelled' ELSE stage END,
+                 state=CASE WHEN ?=0 AND state IN ('queued','running','cancelling') THEN 'cancelled' ELSE state END,
+                 updated_at=UTC_TIMESTAMP(3),
+                 completed_at=CASE WHEN ?=0 AND completed_at IS NULL THEN UTC_TIMESTAMP(3) ELSE completed_at END
+             WHERE id=?`,
+            [Number(remaining.total || 0),Number(remaining.processed || 0),Number(remaining.failed || 0),
+              Number(remaining.total || 0),Number(remaining.total || 0),Number(remaining.total || 0),jobId]
+          );
+        }
+      }
       await manager.query(
         `DELETE action FROM judge_state_admin_action action
          INNER JOIN judge_state state ON state.id=action.judge_id
@@ -576,12 +691,23 @@ async function deleteContestInTransaction(manager, contestId, options) {
       );
       await manager.query('DELETE FROM judge_state WHERE type=1 AND type_info=?', [contestId]);
     }
-    await manager.query("DELETE FROM notification WHERE type='contest_rating' AND source_id=?", [contestId]);
+    await manager.query(
+      'DELETE FROM notification WHERE id IN (SELECT notification_id FROM rating_notification_delivery WHERE contest_id=?)',
+      [contestId]
+    );
+    await manager.query('DELETE FROM rating_notification_delivery WHERE contest_id=?', [contestId]);
+    await manager.query("DELETE FROM notification WHERE type LIKE 'contest_rating%' AND source_id=?", [contestId]);
     await manager.query('DELETE FROM contest_rating_finalization WHERE contest_id=?', [contestId]);
     await manager.query('DELETE FROM contest_registration_removal WHERE contest_id=?', [contestId]);
     await manager.query('DELETE FROM contest_registration_setting WHERE contest_id=?', [contestId]);
     await manager.query('DELETE FROM contest_rating_config WHERE contest_id=?', [contestId]);
     await manager.query('DELETE FROM contest_player WHERE contest_id=?', [contestId]);
+    await manager.query('DELETE row FROM contest_v2_standing_row row INNER JOIN contest_v2_standings_version version ON version.id=row.version_id WHERE version.contest_id=?', [contestId]);
+    await manager.query('DELETE FROM contest_v2_standings_current WHERE contest_id=?', [contestId]);
+    await manager.query('DELETE FROM contest_v2_standings_version WHERE contest_id=?', [contestId]);
+    await manager.query('DELETE FROM contest_v2_problem_snapshot WHERE contest_id=?', [contestId]);
+    await manager.query('DELETE FROM contest_v2_config WHERE contest_id=?', [contestId]);
+    await manager.query('DELETE FROM contest_v2_state WHERE contest_id=?', [contestId]);
     await manager.query('DELETE FROM contest WHERE id=?', [contestId]);
     await manager.query('DELETE FROM contest_ranklist WHERE id=?', [context.contest.ranklist_id]);
     return context.contest;

@@ -1,0 +1,108 @@
+<% this.title = '管理题目'; this.active = 'problems'; %>
+<% include app_header %>
+<main class="app-page app-problem-manage-page">
+  <header class="app-page-header"><div class="app-page-heading"><a class="app-back-link" href="<%= syzoj.utils.makeUrl(['problem', problem.id]) %>"><i data-lucide="arrow-left"></i>返回题目</a><span class="app-kicker">JUDGE CONFIGURATION</span><h1 class="app-page-title"><%= problem.getDisplayId() %>. <%= syzoj.utils.removeTitleTag(problem.title) %></h1><p class="app-page-description">配置评测类型、资源限制、IO 和数据文件。</p></div><div class="app-page-actions"><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['problem', problem.id, 'testdata']) %>"><i data-lucide="database"></i>文件数据</a></div></header>
+  <div class="app-problem-manage-layout"><aside class="app-problem-testcase-panel"><div class="app-section-header"><div><h2 class="app-section-title">测试点概况</h2><p class="app-section-description">当前数据包解析结果</p></div></div><% include problem_testcases %></aside>
+  <form class="app-form app-problem-config-form" method="post" enctype="multipart/form-data" data-problem-config-v2><input type="hidden" name="type" value="<%= problem.type %>">
+    <section><div class="app-section-header"><div><h2 class="app-section-title">题目类型</h2><p class="app-section-description">选择对应的评测工作流</p></div></div><div class="app-segmented app-problem-type-tabs"><button type="button" data-problem-type="traditional" class="<%= problem.type === 'traditional' ? 'is-active' : '' %>">传统</button><button type="button" data-problem-type="interaction" class="<%= problem.type === 'interaction' ? 'is-active' : '' %>">交互</button><button type="button" data-problem-type="submit-answer" class="<%= problem.type === 'submit-answer' ? 'is-active' : '' %>">提交答案</button></div></section>
+    <section data-limit-fields<%= problem.type === 'submit-answer' ? ' hidden' : '' %>><div class="app-section-header"><div><h2 class="app-section-title">资源限制</h2><p class="app-section-description">评测单个测试点的上限</p></div></div><div class="app-form-grid"><label class="app-field"><span class="app-label">时间限制（ms）</span><input class="app-input" type="number" name="time_limit" value="<%= problem.time_limit %>" min="1"></label><label class="app-field"><span class="app-label">内存限制（MiB）</span><input class="app-input" type="number" name="memory_limit" value="<%= problem.memory_limit %>" min="1"></label></div></section>
+    <section data-io-fields<%= problem.type === 'interaction' || problem.type === 'submit-answer' ? ' hidden' : '' %>><div class="app-section-header"><div><h2 class="app-section-title">输入输出</h2><p class="app-section-description">标准 IO 或指定文件名</p></div></div><div class="app-choice-grid app-io-choice"><label class="app-choice"><input type="radio" name="io_method" value="std-io"<%= !problem.file_io ? ' checked' : '' %>><span><i data-lucide="terminal"></i><strong>标准 IO</strong><small>从标准输入读取并写入标准输出</small></span></label><label class="app-choice"><input type="radio" name="io_method" value="file-io"<%= problem.file_io ? ' checked' : '' %>><span><i data-lucide="files"></i><strong>文件 IO</strong><small>使用指定的输入输出文件名</small></span></label></div><div class="app-form-grid app-file-io-fields"<%= problem.file_io ? '' : ' hidden' %>><label class="app-field"><span class="app-label">输入文件名</span><input class="app-input" type="text" data-file-input name="file_io_input_name" value="<%= problem.file_io_input_name %>"></label><label class="app-field"><span class="app-label">输出文件名</span><input class="app-input" type="text" data-file-output name="file_io_output_name" value="<%= problem.file_io_output_name %>"></label></div></section>
+    <div class="app-notice" data-submit-answer-note<%= problem.type === 'submit-answer' ? '' : ' hidden' %>><i data-lucide="info"></i><span>提交答案题目无需设置时间、内存和 IO。已有提交后不能在提交答案与其他类型之间切换。</span></div>
+    <section><div class="app-section-header"><div><h2 class="app-section-title">数据包</h2><p class="app-section-description">ZIP 文件会替换当前对应数据</p></div></div><div class="app-problem-upload-grid"><label class="app-file-field"><input type="file" name="testdata" accept=".zip,application/zip"><span><i data-lucide="database-zap"></i><strong>测试数据</strong><small>选择 ZIP 数据包</small></span></label><label class="app-file-field"><input type="file" name="additional_file" accept=".zip,application/zip"><span><i data-lucide="paperclip"></i><strong>附加文件</strong><small>选择 ZIP 附件包</small></span></label></div></section>
+    <div class="app-form-actions"><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['problem', problem.id]) %>">取消</a><button class="app-button app-button-primary" type="submit"><i data-lucide="save"></i>保存评测配置</button></div>
+  </form></div>
+</main>
+<script>
+(function () {
+  var form = document.querySelector('[data-problem-config-v2]');
+  if (!form) return;
+  var typeInput = form.querySelector('[name="type"]');
+  var limitFields = form.querySelector('[data-limit-fields]');
+  var ioFields = form.querySelector('[data-io-fields]');
+  var note = form.querySelector('[data-submit-answer-note]');
+  var fileFields = form.querySelector('.app-file-io-fields');
+  var inputName = form.querySelector('[data-file-input]');
+  var outputName = form.querySelector('[data-file-output]');
+  function setType(type) {
+    typeInput.value = type;
+    form.querySelectorAll('[data-problem-type]').forEach(function (button) { button.classList.toggle('is-active', button.getAttribute('data-problem-type') === type); });
+    limitFields.hidden = type === 'submit-answer';
+    ioFields.hidden = type !== 'traditional';
+    note.hidden = type !== 'submit-answer';
+  }
+  form.querySelectorAll('[data-problem-type]').forEach(function (button) { button.addEventListener('click', function () { setType(button.getAttribute('data-problem-type')); }); });
+  form.querySelectorAll('[name="io_method"]').forEach(function (radio) { radio.addEventListener('change', function () { fileFields.hidden = radio.value !== 'file-io' || !radio.checked; }); });
+  inputName.addEventListener('input', function () { var base = inputName.value.replace(/\.[^.]*$/, ''); outputName.placeholder = base ? base + '.out' : 'output.out'; });
+  outputName.addEventListener('focus', function () { if (!outputName.value && outputName.placeholder) outputName.value = outputName.placeholder; });
+  form.addEventListener('submit', async function (event) {
+    event.preventDefault();
+    if (!outputName.value && outputName.placeholder && !fileFields.hidden) outputName.value = outputName.placeholder;
+    var button = form.querySelector('[type="submit"]');
+    button.disabled = true;
+    try {
+      var endpoint = '/api/v2/problems/<%= problem.id %>/judge-configuration';
+      var current = await fetch(endpoint, { credentials: 'same-origin', cache: 'no-store' });
+      var currentBody = await current.json();
+      if (!current.ok) throw new Error(currentBody && currentBody.error && currentBody.error.message || '评测配置读取失败。');
+      var type = typeInput.value;
+      var configResponse = await fetch(endpoint, {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'If-Match': current.headers.get('ETag') || '',
+          'Idempotency-Key': window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random()
+        },
+        body: JSON.stringify({
+          type: type,
+          time_limit: Number(form.elements.time_limit.value),
+          memory_limit: Number(form.elements.memory_limit.value),
+          file_io: type === 'traditional' && form.elements.io_method.value === 'file-io',
+          file_io_input_name: form.elements.file_io_input_name.value,
+          file_io_output_name: form.elements.file_io_output_name.value
+        })
+      });
+      var configBody = await configResponse.json();
+      if (!configResponse.ok) throw new Error(configBody && configBody.error && configBody.error.message || '评测配置保存失败。');
+
+      var testdata = form.elements.testdata.files[0];
+      var testdataJob = null;
+      if (testdata) {
+        var testdataPayload = new FormData();
+        testdataPayload.append('archive', testdata, testdata.name);
+        var testdataResponse = await fetch('/api/v2/problems/<%= problem.id %>/testdata/upload', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Idempotency-Key': window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random() },
+          body: testdataPayload
+        });
+        var testdataBody = await testdataResponse.json();
+        if (!testdataResponse.ok) throw new Error(testdataBody && testdataBody.error && testdataBody.error.message || '测试数据任务创建失败。');
+        testdataJob = testdataBody.data.id;
+      }
+
+      var additional = form.elements.additional_file.files[0];
+      if (additional) {
+        var additionalPayload = new FormData();
+        additionalPayload.append('archive', additional, additional.name);
+        var additionalResponse = await fetch('/api/v2/problems/<%= problem.id %>/additional-file', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Idempotency-Key': window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random() },
+          body: additionalPayload
+        });
+        var additionalBody = await additionalResponse.json();
+        if (!additionalResponse.ok) throw new Error(additionalBody && additionalBody.error && additionalBody.error.message || '附加文件上传失败。');
+      }
+
+      if (testdataJob) window.location.assign('/admin/jobs?job=' + encodeURIComponent(testdataJob));
+      else window.location.assign(window.location.pathname + '?saved=1');
+    } catch (error) {
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '保存评测配置失败。', 'danger');
+      else window.alert(error.message || '保存评测配置失败。');
+      button.disabled = false;
+    }
+  });
+})();
+</script>
+<% include app_footer %>

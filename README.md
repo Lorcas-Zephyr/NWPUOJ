@@ -2,11 +2,14 @@
 
 NWPUOJ 是面向高校程序设计教学、训练和竞赛的在线评测与社区平台。项目以 SYZOJ 作为底层 Web、数据模型和 Judge 协议框架，在其上提供现代化题库、比赛、评测、管理和社区能力。
 
-当前发行版：**v1.0.0**
+当前发行版：**v2.0.0**
 
 > 项目沿革：NWPUOJ 由 AlgoBeat Online Judge 现有代码与功能继续改版而来。自 NWPUOJ 起重新采用独立版本序列，并保留 SYZOJ 作为后台框架及相关技术标识。
 
 仓库地址：<https://github.com/Lorcas-Zephyr/NWPUOJ>
+
+详细文档：[使用手册](docs/USER_GUIDE.md) · [部署与维护手册](docs/MAINTENANCE.md) ·
+[发布与回滚](RELEASE.md) · [v2 兼容性边界](COMPATIBILITY.md)
 
 ## 系统能力
 
@@ -28,7 +31,7 @@ NWPUOJ 是面向高校程序设计教学、训练和竞赛的在线评测与社�
 - 标签支持搜索、多选和交集筛选，并按来源、算法、类型和难度分组。
 - 题目列表将标签放在题目名称右侧、通过数量左侧。
 - 支持 Markdown 题面、TeX 公式、样例、提示和本地测试数据。
-- 支持严格格式的 ZIP 批量导入；整批校验和事务回滚避免半成品题目。
+- 添加题目直接进入统一 Markdown 编辑器；列表支持受审计的批量公开、隐藏、归档和删除。
 - 超级管理员可以批量删除当前页题目，被比赛引用的题目会阻止删除。
 
 ### VJudge
@@ -51,8 +54,7 @@ NWPUOJ 是面向高校程序设计教学、训练和竞赛的在线评测与社�
 
 - 注册资料、学号、姓名和学院信息管理。
 - 本地头像上传、邮箱验证、密码重置和会话吊销。
-- 关注、粉丝、互关状态和用户动态。
-- 犇犇短文、图片、回复和 @ 提及。
+- 关注、粉丝和互关状态。
 - 站内通知、站内信和消息接收设置。
 - Markdown 个人剪贴板，支持私有、公开和限时分享链接。
 - 题解投稿、审核、评论、投稿开关和审核记录。
@@ -143,7 +145,6 @@ docker run --rm \
 mkdir -p \
   custom/uploads/avatar \
   custom/uploads/banner \
-  custom/uploads/benben \
   custom/uploads/tickets
 ```
 
@@ -330,6 +331,10 @@ docker compose up -d
 
 更新前先备份数据库和上传卷。不要使用 `docker compose down -v`。
 
+v2.0.0 只提供 `/api/v2` 业务接口。升级时必须使用仓库中的 `Dockerfile.web` 构建 Web
+镜像；构建会从上游基础镜像中移除 v1 API 与写入路由。升级和回滚步骤见
+[RELEASE.md](RELEASE.md)，删除清单与门禁见 [COMPATIBILITY.md](COMPATIBILITY.md)。
+
 ## 运行验证
 
 ```bash
@@ -347,10 +352,8 @@ docker compose exec -T rabbitmq \
 本地测试：
 
 ```bash
-node custom/tests/rating.test.js
-node custom/tests/problem_bulk_import.test.js
-node custom/tests/version_consistency.test.js
-bash custom/tests/run-vjudge-tests.sh
+cd custom
+npm test
 ```
 
 压测脚本会创建大量用户、比赛和提交，只能在隔离环境中运行。不要直接在生产站点执行。
@@ -370,7 +373,7 @@ docker compose exec mariadb mariadb -uroot syzoj
 
 ## 版本与发布
 
-NWPUOJ 使用独立语义化版本。当前首个发行版为 `v1.0.0`。
+NWPUOJ 使用独立语义化版本。当前发行版为 `v2.0.0`。
 
 版本号同时保存在：
 
@@ -384,10 +387,11 @@ NWPUOJ 使用独立语义化版本。当前首个发行版为 `v1.0.0`。
 
 ```bash
 node custom/tests/version_consistency.test.js
-git tag -a v1.0.0 -m "NWPUOJ v1.0.0"
+git tag -a v2.0.0 -m "NWPUOJ v2.0.0"
 ```
 
-完整发布记录见 [GitHub Releases](https://github.com/Lorcas-Zephyr/NWPUOJ/releases)。
+发布检查和回滚流程见 [RELEASE.md](RELEASE.md)，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+完整发行记录见 [GitHub Releases](https://github.com/Lorcas-Zephyr/NWPUOJ/releases)。
 
 ## 仓库结构
 
@@ -397,6 +401,7 @@ git tag -a v1.0.0 -m "NWPUOJ v1.0.0"
 ├── docker-compose.yml              # Web、数据库、缓存、队列和 Judge
 ├── env-app.example                 # 密钥、SMTP 和 VJudge 配置模板
 ├── deploy/                         # HTTPS 反向代理示例
+├── docs/                           # 用户使用与生产维护手册
 ├── custom/
 │   ├── web.json                    # 站点名称、版本和分页配置
 │   ├── header.ejs                  # 公共头部、导航和品牌元数据

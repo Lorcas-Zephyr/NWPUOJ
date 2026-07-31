@@ -2,16 +2,25 @@ const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
 const TypeORM = require('typeorm');
+const { normalizeQueueRows } = require('../libs/judge-monitor');
 
 const controlUrl = new URL(process.env.JUDGE_CONTROL_URL || 'http://judge-control:3000');
 const controlToken = fs.readFileSync(process.env.JUDGE_CONTROL_TOKEN_FILE || '/run/judge-control/token', 'utf8').trim();
 const restartingContainers = new Set();
 
-function requireAdmin(res) {
-  if (!res.locals.user || !res.locals.user.is_admin) {
+async function requireAdmin(res, capability) {
+  const required = capability || 'judge:read';
+  if (!res.locals.user || !await syzoj.utils.authorizationV2.authorize(res.locals.user, required, null, { scope: 'global' })) {
     const error = new ErrorMessage('您没有权限进行此操作。');
     error.statusCode = 403;
     throw error;
+  }
+}
+
+async function requireRecentAdminAction(req, res) {
+  await requireAdmin(res, 'judge:worker.restart');
+  if (!syzoj.utils.authorizationV2 || !syzoj.utils.authorizationV2.recentLoginSatisfied(req)) {
+    const error = new ErrorMessage('高风险评测运维操作需要近期登录或 MFA 验证。'); error.statusCode = 403; throw error;
   }
 }
 
@@ -25,6 +34,12 @@ function validAdminCsrf(req) {
 function controlRequest(method, requestPath, body) {
   return new Promise((resolve, reject) => {
     const payload = body == null ? null : Buffer.from(JSON.stringify(body));
+    const timestamp = String(Date.now());
+    const nonce = crypto.randomBytes(16).toString('hex');
+    const contentHash = crypto.createHash('sha256').update(payload || Buffer.alloc(0)).digest('hex');
+    const signature = crypto.createHmac('sha256', controlToken)
+      .update(`${method}\n${requestPath}\n${timestamp}\n${nonce}\n${contentHash}`)
+      .digest('hex');
     const request = http.request({
       hostname: controlUrl.hostname,
       port: controlUrl.port || 80,
@@ -32,6 +47,10 @@ function controlRequest(method, requestPath, body) {
       path: requestPath,
       headers: {
         Authorization: `Bearer ${controlToken}`,
+        'X-Control-Timestamp': timestamp,
+        'X-Control-Nonce': nonce,
+        'X-Content-SHA256': contentHash,
+        'X-Control-Signature': signature,
         'Content-Type': 'application/json',
         'Content-Length': payload ? payload.length : 0
       }
@@ -56,17 +75,34 @@ function controlRequest(method, requestPath, body) {
 }
 
 async function loadJudgeWorkerStatus() {
-  const [controlStatus, pendingRows] = await Promise.all([
+  if (syzoj.utils.submissionV2 && typeof syzoj.utils.submissionV2.ensureSchema === 'function') {
+    await syzoj.utils.submissionV2.ensureSchema();
+  }
+  const [controlStatus, pendingRows, queueRows] = await Promise.all([
     controlRequest('GET', '/status'),
     TypeORM.getConnection().query(
       `SELECT COUNT(*) AS pending,
               SUM(submit_time < UNIX_TIMESTAMP() - 900) AS stale
        FROM judge_state WHERE pending=1`
+    ),
+    TypeORM.getConnection().query(
+      `SELECT judge.id,judge.problem_id,judge.user_id,judge.type,judge.type_info,
+              judge.language,judge.status,judge.submit_time,problem.title AS problem_title,
+              user.username,projection.status AS projected_status,
+              projection.dispatch_attempts,projection.last_error
+         FROM judge_state judge
+         LEFT JOIN problem ON problem.id=judge.problem_id
+         LEFT JOIN user ON user.id=judge.user_id
+         LEFT JOIN submission_v2_projection projection ON projection.submission_id=judge.id
+        WHERE judge.pending=1
+        ORDER BY judge.submit_time ASC,judge.id ASC
+        LIMIT 50`
     )
   ]);
   return {
     project: controlStatus.project,
     containers: controlStatus.containers,
+    queue: normalizeQueueRows(queueRows),
     summary: {
       pending: Number(pendingRows[0] && pendingRows[0].pending || 0),
       stale: Number(pendingRows[0] && pendingRows[0].stale || 0)
@@ -74,65 +110,52 @@ async function loadJudgeWorkerStatus() {
   };
 }
 
-app.post('/admin/restart', (req, res, next) => {
-  try {
-    requireAdmin(res);
-    res.render('admin_restart', (error, html) => {
-      if (error) return next(error);
-      res.once('finish', () => {
-        controlRequest('POST', '/restart-web').catch(restartError => {
-          syzoj.log('[web-restart] ' + (restartError.stack || restartError));
-        });
-      });
-      res.send(html);
-    });
-  } catch (error) {
-    next(error);
+syzoj.utils.loadJudgeWorkerStatusV2 = loadJudgeWorkerStatus;
+
+async function restartJudgeWorker(containerId) {
+  const requestedId = String(containerId || '');
+  if (!/^[a-f0-9]{64}$/i.test(requestedId)) {
+    const error = new Error('Judge worker ID is invalid.');
+    error.statusCode = 422;
+    throw error;
   }
-});
+  if (restartingContainers.has(requestedId)) {
+    const error = new Error('The judge worker is already restarting.');
+    error.statusCode = 409;
+    throw error;
+  }
+  const status = await loadJudgeWorkerStatus();
+  const worker = (status.containers || []).find(item => String(item.id || item.Id || '') === requestedId);
+  if (!worker) {
+    const error = new Error('Judge worker was not found.');
+    error.statusCode = 404;
+    throw error;
+  }
+  restartingContainers.add(requestedId);
+  try { return await controlRequest('POST', '/restart', { id: requestedId }); }
+  finally { restartingContainers.delete(requestedId); }
+}
+
+syzoj.utils.restartJudgeWorkerV2 = restartJudgeWorker;
+syzoj.utils.restartWebServiceV2 = () => controlRequest('POST', '/restart-web');
+
 
 app.get('/admin/judge-workers', async (req, res) => {
   try {
-    requireAdmin(res);
-    const { project, containers, summary } = await loadJudgeWorkerStatus();
-    res.render('admin_judge_workers', { project, containers, summary });
+    await requireAdmin(res);
+    const { project, containers, queue, summary } = await loadJudgeWorkerStatus();
+    res.render('admin_judge_workers', { project, containers, queue, summary, unavailable: false });
   } catch (error) {
     if (!error.statusCode || error.statusCode >= 500) syzoj.log('[judge-workers] ' + (error.stack || error));
-    res.status(error.statusCode || 500).render('error', { err: error });
-  }
-});
-
-app.get('/api/admin/judge-workers/status', async (req, res) => {
-  try {
-    requireAdmin(res);
-    res.set('Cache-Control', 'no-store');
-    res.json(await loadJudgeWorkerStatus());
-  } catch (error) {
-    if (!error.statusCode || error.statusCode >= 500) syzoj.log('[judge-workers] status failed: ' + (error.stack || error));
-    res.status(error.statusCode || 500).json({ error: error.message || '读取评测服务状态失败。' });
-  }
-});
-
-app.post('/admin/judge-workers/:id/restart', async (req, res) => {
-  const containerId = String(req.params.id || '');
-  try {
-    requireAdmin(res);
-    if (!validAdminCsrf(req)) {
-      const error = new ErrorMessage('页面已失效，请刷新后重试。');
-      error.statusCode = 403;
-      throw error;
+    if (error.statusCode && error.statusCode < 500) {
+      return res.status(error.statusCode).render('error', { err: error });
     }
-    if (!/^[a-f0-9]{64}$/i.test(containerId)) throw new ErrorMessage('容器 ID 不正确。');
-    if (restartingContainers.has(containerId)) throw new ErrorMessage('该评测实例正在重启。');
-    restartingContainers.add(containerId);
-    let result;
-    try { result = await controlRequest('POST', '/restart', { id: containerId }); }
-    finally { restartingContainers.delete(containerId); }
-    syzoj.log(`[judge-workers] admin #${res.locals.user.id} restarted ${result.name} (${result.id.slice(0, 12)})`);
-    res.redirect(303, syzoj.utils.makeUrl(['admin', 'judge-workers'], { restarted: result.name }));
-  } catch (error) {
-    restartingContainers.delete(containerId);
-    syzoj.log('[judge-workers] restart failed: ' + (error.stack || error));
-    res.status(error.statusCode || 400).render('error', { err: error });
+    res.render('admin_judge_workers', {
+      project: '评测控制服务暂不可用',
+      containers: [],
+      queue: [],
+      summary: { pending: 0, stale: 0 },
+      unavailable: true
+    });
   }
 });

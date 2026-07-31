@@ -1,129 +1,132 @@
 <%
-const headerContest = contestHeader.contest;
-const contestServerNow = syzoj.utils.getCurrentDate();
-const contestIsRunning = contestServerNow >= headerContest.start_time && contestServerNow < headerContest.end_time;
-let contestStart = syzoj.utils.formatDate(headerContest.start_time);
-let contestEnd = syzoj.utils.formatDate(headerContest.end_time);
-if (contestIsRunning && contestStart.split(' ')[0] === contestEnd.split(' ')[0]) {
-  contestStart = contestStart.split(' ')[1];
-  contestEnd = contestEnd.split(' ')[1];
+const appContest = contestHeader.contest;
+const appContestNow = syzoj.utils.getCurrentDate();
+const appContestRunning = appContestNow >= appContest.start_time && appContestNow < appContest.end_time;
+const appContestEnded = appContestNow >= appContest.end_time;
+const appContestDuration = Math.max(1, appContest.end_time - appContest.start_time);
+const appContestElapsed = Math.max(0, Math.min(appContestDuration, appContestNow - appContest.start_time));
+const appContestPercent = Math.round(appContestElapsed / appContestDuration * 100);
+const appContestRegistration = typeof contestRegistration !== 'undefined' && contestRegistration ? contestRegistration : null;
+const appContestCanView = !appContestRegistration || appContestRegistration.canViewProblems;
+const appContestCanParticipate = !appContestRegistration || appContestRegistration.ended || appContestRegistration.canParticipate;
+const appContestTimerOnly = !!contestHeader.timerOnly;
+const appContestSection = contestHeader.section || 'problems';
+const appContestType = { acm: 'ACM', ioi: 'IOI', noi: 'NOI' }[appContest.type] || String(appContest.type || '').toUpperCase();
+const appContestSectionLabel = {
+  details: '详情',
+  problems: '题目',
+  ranklist: '排行榜',
+  submissions: '提交记录',
+  participants: '参赛者'
+}[appContestSection] || '比赛';
+function appContestDurationLabel(seconds) {
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor(seconds % 86400 / 3600);
+  const minutes = Math.floor(seconds % 3600 / 60);
+  if (days) return days + ' 天' + (hours ? ' ' + hours + ' 小时' : '');
+  if (hours) return hours + ' 小时' + (minutes ? ' ' + minutes + ' 分钟' : '');
+  return Math.max(1, minutes) + ' 分钟';
 }
-const contestDuration = Math.max(1, headerContest.end_time - headerContest.start_time);
-const contestElapsed = contestServerNow - headerContest.start_time;
-const contestPercentage = Math.floor(Math.max(0, Math.min(1, contestElapsed / contestDuration)) * 100);
-const registration = (typeof contestRegistration !== 'undefined' && contestRegistration) ? contestRegistration : null;
-const contestContentAvailable = !registration || registration.canViewProblems;
-const contestParticipationAvailable = !registration || registration.ended || registration.canParticipate;
-const timerOnly = !!contestHeader.timerOnly;
 %>
 
-<style>
-.nwpuoj-contest-context .ui.label.pointing.below.left::before { left: 12%; }
-.nwpuoj-contest-context .ui.label.pointing.below.right::before { left: 88%; }
-.nwpuoj-contest-context .ui.label.pointing.below.left { margin-bottom: 0; }
-.nwpuoj-contest-context .ui.label.pointing.below.right { margin-bottom: 0; float: right; }
-.nwpuoj-contest-context ~ .padding > .ui.large.info.message { display: none; }
-.nwpuoj-contest-phase { margin-top: 8px; text-align: center; color: #555; min-height: 20px; }
-</style>
-
-<div class="padding nwpuoj-contest-context" style="margin-bottom: <%= timerOnly ? '0.25cm' : '0.7cm' %>;">
-  <% if (!timerOnly) { %>
-    <h1 class="ui center aligned header">
-      <%= headerContest.title %>
-      <span class="nwpuoj-status <%= typeof contestRated !== 'undefined' && contestRated ? 'nwpuoj-status-success' : 'nwpuoj-status-muted' %>" style="vertical-align:middle;"><%= typeof contestRated !== 'undefined' && contestRated ? 'Rated' : 'Unrated' %></span>
-    </h1>
-    <div class="ui pointing below left label"><%= contestStart %></div>
-    <div class="ui pointing below right label"><%= contestEnd %></div>
-  <% } %>
-  <div id="timer-progress" class="ui tiny indicating progress<% if (contestPercentage === 100) { %> success<% } %>" data-percent="<%= contestPercentage %>">
-    <div class="bar" style="width: <%= contestPercentage %>%;"></div>
+<% if (appContestTimerOnly) { %>
+  <div class="app-contest-compact" data-contest-clock data-now="<%= appContestNow %>" data-start="<%= appContest.start_time %>" data-end="<%= appContest.end_time %>">
+    <span class="app-contest-compact-title"><i data-lucide="trophy"></i><a href="<%= syzoj.utils.makeUrl(['contest', appContest.id]) %>"><%= appContest.title %></a></span>
+    <span class="app-contest-clock" data-contest-clock-text><%= appContestRunning ? '进行中' : (appContestEnded ? '已结束' : '未开始') %></span>
   </div>
-  <div class="nwpuoj-contest-phase" id="contest-phase" aria-live="polite"></div>
-
-  <% if (!timerOnly) { %>
-  <div class="ui grid" style="margin-top: 15px;">
-    <div class="row">
-      <div class="column" style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
-        <div class="ui buttons">
-          <a class="ui small blue <%= contestHeader.section === 'problems' ? 'active ' : '' %>button" href="<%= syzoj.utils.makeUrl(['contest', headerContest.id]) %>">题目列表</a>
-          <% if (contestHeader.seeRanklist && contestContentAvailable) { %>
-            <a class="ui small blue <%= contestHeader.section === 'ranklist' ? 'active ' : '' %>button" href="<%= syzoj.utils.makeUrl(['contest', headerContest.id, 'ranklist']) %>">排行榜</a>
-          <% } %>
-          <% if (contestParticipationAvailable) { %>
-            <a class="ui small positive <%= contestHeader.section === 'submissions' ? 'active ' : '' %>button" href="<%= contestHeader.submissionsUrl %>">提交记录</a>
-          <% } %>
-          <% if (contestHeader.isSupervisior) { %>
-            <a class="ui small labeled icon button" href="<%= syzoj.utils.makeUrl(['contest', headerContest.id, 'edit']) %>"><i class="settings icon"></i>比赛管理</a>
-          <% } %>
+<% } else { %>
+  <section class="app-contest-context" data-contest-clock data-now="<%= appContestNow %>" data-start="<%= appContest.start_time %>" data-end="<%= appContest.end_time %>">
+    <div class="app-contest-context-main">
+      <div class="app-contest-context-copy">
+        <span class="app-kicker">CONTEST #<%= appContest.id %> · <%= appContestSectionLabel %></span>
+        <h1><%= appContest.title %></h1>
+        <div class="app-contest-meta">
+          <span class="app-status <%= appContestRunning ? 'app-status-running' : (appContestEnded ? 'app-status-muted' : 'app-status-waiting') %>" data-contest-state><%= appContestRunning ? '进行中' : (appContestEnded ? '已结束' : '未开始') %></span>
+          <span><%= appContestType %></span>
+          <span><%= typeof contestRated !== 'undefined' && contestRated ? 'Rated' : 'Unrated' %></span>
+          <span><%= appContestDurationLabel(appContestDuration) %></span>
         </div>
-        <% if (registration && !registration.ended && !registration.isSupervisior) { %>
-          <div>
-            <% if (registration.canRegister) { %>
-              <form method="post" action="<%= syzoj.utils.makeUrl(['contest', headerContest.id, 'register']) %>" style="margin: 0;">
-                <input type="hidden" name="csrf_token" value="<%= registration.csrfToken %>">
-                <button type="submit" class="ui small primary labeled icon button"><i class="user plus icon"></i>报名</button>
-              </form>
-            <% } else if (registration.canCancel) { %>
-              <form method="post" action="<%= syzoj.utils.makeUrl(['contest', headerContest.id, 'unregister']) %>" style="margin: 0;" onsubmit="return confirm('确定取消报名吗？');">
-                <input type="hidden" name="csrf_token" value="<%= registration.csrfToken %>">
-                <button type="submit" class="ui small basic red labeled icon button"><i class="user times icon"></i>取消报名</button>
-              </form>
-            <% } else if (registration.registered) { %>
-              <button type="button" class="ui small positive labeled icon disabled button"><i class="check icon"></i>已报名</button>
-            <% } else if (registration.removedByAdmin) { %>
-              <button type="button" class="ui small basic red disabled button">已被移出报名</button>
-            <% } else if (registration.registrationOpen && !user) { %>
-              <a class="ui small primary button" href="<%= syzoj.utils.makeUrl(['login'], { url: req.originalUrl }) %>">登录后报名</a>
-            <% } else if (registration.running) { %>
-              <button type="button" class="ui small disabled button">报名已截止</button>
+      </div>
+      <div class="app-contest-focus">
+        <span>当前赛程</span>
+        <strong class="app-contest-clock" data-contest-clock-text><%= appContestRunning ? '进行中' : (appContestEnded ? '比赛已结束' : '等待开始') %></strong>
+        <div class="app-contest-context-actions">
+          <% if (appContestRegistration && !appContestRegistration.ended && !appContestRegistration.isSupervisior) { %>
+            <% if (appContestRegistration.canRegister) { %>
+              <form method="post" data-contest-registration-v2="register" data-contest-id="<%= appContest.id %>"><input type="hidden" name="csrf_token" value="<%= appContestRegistration.csrfToken %>"><button class="app-button app-button-primary" type="submit"><i data-lucide="user-plus"></i>报名比赛</button></form>
+            <% } else if (appContestRegistration.canCancel) { %>
+              <form method="post" data-contest-registration-v2="unregister" data-contest-id="<%= appContest.id %>" data-confirm="确定取消报名吗？"><input type="hidden" name="csrf_token" value="<%= appContestRegistration.csrfToken %>"><button class="app-button app-button-danger-outline" type="submit"><i data-lucide="user-minus"></i>取消报名</button></form>
+            <% } else if (appContestRegistration.registered) { %>
+              <span class="app-button app-button-secondary is-disabled"><i data-lucide="check"></i>已报名</span>
+            <% } else if (appContestRegistration.removedByAdmin) { %>
+              <span class="app-button app-button-secondary is-disabled">已移出报名</span>
+            <% } else if (appContestRegistration.registrationOpen && !user) { %>
+              <a class="app-button app-button-primary" href="<%= syzoj.utils.makeUrl(['login'], { url: req.originalUrl }) %>">登录后报名</a>
+            <% } else if (appContestRegistration.running) { %>
+              <span class="app-button app-button-secondary is-disabled">报名已截止</span>
             <% } %>
-          </div>
-        <% } %>
+          <% } %>
+          <% if (contestHeader.isSupervisior) { %><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['contest', appContest.id, 'edit']) %>"><i data-lucide="settings"></i>比赛管理</a><% } %>
+        </div>
       </div>
     </div>
-  </div>
-
-  <% if (contestHeader.section === 'problems') { %>
-    <div style="margin-top: 15px;">
-      <h4 class="ui top attached block header">比赛描述</h4>
-      <div class="ui bottom attached segment font-content"><%- contestHeader.subtitle %></div>
+    <div class="app-contest-schedule" aria-label="比赛赛程">
+      <div><span>开始时间</span><strong><%= syzoj.utils.formatDate(appContest.start_time) %></strong></div>
+      <div class="app-contest-progress-wrap">
+        <span>比赛进度 <strong data-contest-progress-label><%= appContestPercent %>%</strong></span>
+        <div class="app-progress" role="progressbar" aria-label="比赛进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="<%= appContestPercent %>"><span data-contest-progress style="width:<%= appContestPercent %>%"></span></div>
+      </div>
+      <div class="is-end"><span>结束时间</span><strong><%= syzoj.utils.formatDate(appContest.end_time) %></strong></div>
     </div>
-  <% } %>
-  <% } %>
-</div>
+    <nav class="app-tabs app-contest-tabs" aria-label="比赛导航">
+      <a class="app-tab<%= appContestSection === 'details' ? ' is-active' : '' %>" href="<%= syzoj.utils.makeUrl(['contest', appContest.id, 'details']) %>"<% if (appContestSection === 'details') { %> aria-current="page"<% } %>><i data-lucide="info"></i>详情</a>
+      <a class="app-tab<%= appContestSection === 'problems' ? ' is-active' : '' %>" href="<%= syzoj.utils.makeUrl(['contest', appContest.id], { view: 'problems' }) %>"<% if (appContestSection === 'problems') { %> aria-current="page"<% } %>><i data-lucide="list-tree"></i>题目</a>
+      <% if (contestHeader.seeRanklist && appContestCanView) { %><a class="app-tab<%= appContestSection === 'ranklist' ? ' is-active' : '' %>" href="<%= syzoj.utils.makeUrl(['contest', appContest.id, 'ranklist']) %>"<% if (appContestSection === 'ranklist') { %> aria-current="page"<% } %>><i data-lucide="chart-no-axes-column-increasing"></i>排行榜</a><% } %>
+      <% if (appContestCanParticipate) { %><a class="app-tab<%= appContestSection === 'submissions' ? ' is-active' : '' %>" href="<%= contestHeader.submissionsUrl %>"<% if (appContestSection === 'submissions') { %> aria-current="page"<% } %>><i data-lucide="activity"></i>提交记录</a><% } %>
+      <% if (user) { %><a class="app-tab<%= appContestSection === 'participants' ? ' is-active' : '' %>" href="<%= syzoj.utils.makeUrl(['contest', appContest.id, 'participants']) %>"<% if (appContestSection === 'participants') { %> aria-current="page"<% } %>><i data-lucide="users"></i>参赛者</a><% } %>
+    </nav>
+  </section>
+<% } %>
 
 <script>
-$(function () {
-  var serverOffset = <%= contestServerNow * 1000 %> - Date.now();
-  var initialPhase = <%= contestServerNow < headerContest.start_time ? 0 : contestServerNow < headerContest.end_time ? 1 : 2 %>;
+(function () {
+  var root = document.currentScript.previousElementSibling;
+  if (!root || !root.hasAttribute('data-contest-clock')) return;
+  var serverOffset = Number(root.dataset.now) * 1000 - Date.now();
+  var start = Number(root.dataset.start);
+  var end = Number(root.dataset.end);
+  var initialPhase = Number(root.dataset.now) < start ? 0 : (Number(root.dataset.now) < end ? 1 : 2);
   var reloading = false;
-  function duration(value) {
-    value = Math.max(0, Math.floor(value));
-    var days = Math.floor(value / 86400);
-    var hours = Math.floor(value % 86400 / 3600);
-    var minutes = Math.floor(value % 3600 / 60);
-    var seconds = value % 60;
-    return (days ? days + '天 ' : '') + [hours, minutes, seconds].map(function (part) { return String(part).padStart(2, '0'); }).join(':');
+  function duration(seconds) {
+    seconds = Math.max(0, Math.floor(seconds));
+    var days = Math.floor(seconds / 86400);
+    var hours = Math.floor(seconds % 86400 / 3600);
+    var minutes = Math.floor(seconds % 3600 / 60);
+    var secs = seconds % 60;
+    return (days ? days + ' 天 ' : '') + [hours, minutes, secs].map(function (value) { return String(value).padStart(2, '0'); }).join(':');
   }
-  function updateContestClock() {
+  function update() {
     var now = (Date.now() + serverOffset) / 1000;
-    var phase = now < <%= headerContest.start_time %> ? 0 : now < <%= headerContest.end_time %> ? 1 : 2;
-    var text = phase === 0
-      ? '未开始 · 距开始 ' + duration(<%= headerContest.start_time %> - now)
-      : phase === 1
-        ? '进行中 · 剩余 ' + duration(<%= headerContest.end_time %> - now)
-        : '已结束';
-    $('#contest-phase').text(text);
-    $('#timer-progress').progress({
-      value: now - <%= headerContest.start_time %>,
-      total: <%= contestDuration %>
-    });
-    if (phase !== initialPhase && !reloading) {
-      reloading = true;
-      location.reload();
+    var phase = now < start ? 0 : (now < end ? 1 : 2);
+    var text = phase === 0 ? '距开始 ' + duration(start - now) : (phase === 1 ? '剩余 ' + duration(end - now) : '比赛已结束');
+    root.querySelectorAll('[data-contest-clock-text]').forEach(function (node) { node.textContent = text; });
+    var state = root.querySelector('[data-contest-state]');
+    if (state) {
+      state.textContent = phase === 0 ? '未开始' : (phase === 1 ? '进行中' : '已结束');
+      state.className = 'app-status ' + (phase === 0 ? 'app-status-waiting' : phase === 1 ? 'app-status-running' : 'app-status-muted');
     }
+    var progress = root.querySelector('[data-contest-progress]');
+    var percent = Math.max(0, Math.min(100, (now - start) / Math.max(1, end - start) * 100));
+    if (progress) {
+      progress.style.width = percent + '%';
+      if (progress.parentElement) progress.parentElement.setAttribute('aria-valuenow', String(Math.round(percent)));
+    }
+    var progressLabel = root.querySelector('[data-contest-progress-label]');
+    if (progressLabel) progressLabel.textContent = Math.round(percent) + '%';
+    if (phase !== initialPhase && !reloading) { reloading = true; location.reload(); }
   }
-  updateContestClock();
-  setInterval(updateContestClock, 1000);
-});
+  update();
+  window.setInterval(update, 1000);
+})();
 </script>
+<% include contest_registration_v2_script %>

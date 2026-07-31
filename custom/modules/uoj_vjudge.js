@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const TypeORM = require('typeorm');
 const Problem = syzoj.model('problem');
 const ProblemTag = syzoj.model('problem_tag');
 const JudgeState = syzoj.model('judge_state');
@@ -10,14 +11,17 @@ const BULK_IMPORT_INTERVAL = 500;
 const bulkImportStatus = { state: 'idle' };
 const importStatus = createImportStatus('uoj', bulkImportStatus);
 
-function requireAdmin(res) {
-  if (!res.locals.user || !res.locals.user.is_admin) {
+async function requireAdmin(res) {
+  if (!res.locals.user || !await syzoj.utils.authorizationV2.authorize(res.locals.user, 'vjudge:import.create', null, { scope: 'global' })) {
     throw new ErrorMessage('您没有权限进行此操作。');
   }
 }
 
-function requireAdminAction(req, res) {
-  requireAdmin(res);
+async function requireAdminAction(req, res) {
+  await requireAdmin(res);
+  if (!syzoj.utils.authorizationV2.recentLoginSatisfied(req)) {
+    const error = new ErrorMessage('高风险 VJudge 操作需要近期登录或 MFA 验证。'); error.statusCode = 403; throw error;
+  }
   const expected = req.session && req.session.adminCsrfToken;
   const actual = req.body && req.body.csrf_token;
   if (typeof expected !== 'string' || typeof actual !== 'string' || expected.length !== actual.length ||
@@ -44,6 +48,8 @@ async function ensureUojSourceTag() {
       sourceTag.color = 'pink';
       await sourceTag.save();
     }
+    if (syzoj.utils.problemWorkflowV2) await syzoj.utils.problemWorkflowV2.ensureSchema();
+    await TypeORM.getConnection().query("UPDATE problem_tag SET category='source',color='pink' WHERE id=?", [sourceTag.id]);
   });
   return sourceTag;
 }
@@ -172,58 +178,27 @@ async function startBulkImport(userId, isPublic) {
   return true;
 }
 
-app.post('/admin/uoj/check', async (req, res) => {
-  try {
-    requireAdminAction(req, res);
-    await uoj.verifyAccount();
-    res.render('admin_other', {
-      success: true,
-      successMessage: 'UOJ 账号连接成功。'
-    });
-  } catch (e) {
-    syzoj.log(e);
-    res.render('error', { err: e });
-  }
-});
+syzoj.utils.vjudgeImporters = syzoj.utils.vjudgeImporters || {};
+syzoj.utils.vjudgeImporters.uoj = {
+  withCredential: (reference, operation) => uoj.withCredential(reference, operation, { secretResolver: syzoj.utils.vjudgeSecretResolver }),
+  checkAccount: () => uoj.checkAccount(),
+  verifyAccount: () => uoj.checkAccount(),
+  searchProblems: (query, cursor) => uoj.searchProblems(query, cursor),
+  fetchProblem: remoteId => uoj.fetchProblem(remoteId),
+  fetchProblemList: cursor => uoj.fetchProblemList(cursor),
+  submit: (remoteProblem, language, source, options) => uoj.submit(remoteProblem, language, source, options),
+  pollSubmission: (remoteSubmissionId, options) => uoj.pollSubmission(remoteSubmissionId, options),
+  normalizeResult: rawResult => uoj.normalizeResult(rawResult),
+  fetchProblemIds: () => uoj.fetchProblemIds(),
+  importProblem: (remoteId, options) => importUojProblem(remoteId, options)
+};
 
-app.post('/admin/uoj/import', async (req, res) => {
-  try {
-    requireAdminAction(req, res);
 
-    const remoteId = parseInt(req.body.problem_id);
-    if (!Number.isSafeInteger(remoteId) || remoteId <= 0) {
-      throw new ErrorMessage('UOJ 题号不正确。');
-    }
 
-    const result = await importUojProblem(remoteId, {
-      userId: res.locals.user.id,
-      isPublic: req.body.is_public === 'on',
-      skipExisting: false
-    });
-
-    res.redirect(syzoj.utils.makeUrl(['problem', result.localId]));
-  } catch (e) {
-    syzoj.log(e);
-    res.render('error', { err: e });
-  }
-});
-
-app.post('/admin/uoj/import-all', async (req, res) => {
-  try {
-    requireAdminAction(req, res);
-    if (!await startBulkImport(res.locals.user.id, req.body.is_public === 'on')) {
-      return res.status(409).render('error', { err: new ErrorMessage('UOJ 批量导入正在运行。') });
-    }
-    res.redirect('/admin/other');
-  } catch (e) {
-    syzoj.log(e);
-    res.render('error', { err: e });
-  }
-});
 
 app.get('/admin/uoj/import-all/status', async (req, res) => {
   try {
-    requireAdmin(res);
+    await requireAdmin(res);
     await importStatus.ready();
     res.json(bulkImportStatus);
   } catch (e) {

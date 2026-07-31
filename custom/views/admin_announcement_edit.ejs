@@ -1,71 +1,60 @@
-<% this.title = announcement.id ? '编辑公告' : '新建公告' %>
-<% include header %>
-
+<% this.adminPage = 'announcements'; %>
+<% include admin_header %>
 <%
-function fmtDateLocal(ts) {
+function appDateLocal(ts) {
   if (!ts) return '';
-  let d = new Date(ts * 1000);
-  // 转成 yyyy-MM-ddTHH:mm 格式给 datetime-local input
-  let pad = (n) => n < 10 ? '0' + n : n;
-  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
-    'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  const date = new Date(ts * 1000);
+  const pad = function (value) { return value < 10 ? '0' + value : value; };
+  return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate()) + 'T' + pad(date.getHours()) + ':' + pad(date.getMinutes());
 }
 %>
 
-<div class="padding">
-  <h2><%= announcement.id ? '编辑公告' : '新建公告' %></h2>
-
-  <form class="ui form" method="post" action="<%= syzoj.utils.makeUrl(['admin', 'announcement', announcement.id, 'edit']) %>">
-    <div class="field">
-      <label>标题</label>
-      <input type="text" name="title" maxlength="120" value="<%= announcement.title || '' %>" placeholder="例如：服务器维护通知" required>
-    </div>
-
-    <div class="two fields">
-      <div class="field">
-        <label>开始时间</label>
-        <input type="datetime-local" name="start_time" value="<%= fmtDateLocal(announcement.start_time) %>" required>
-      </div>
-      <div class="field">
-        <label>结束时间</label>
-        <input type="datetime-local" name="end_time" value="<%= fmtDateLocal(announcement.end_time) %>" required>
-      </div>
-    </div>
-
-    <div class="field">
-      <label>级别</label>
-      <select name="level" class="ui dropdown">
-        <option value="info" <% if (announcement.level === 'info') { %>selected<% } %>>信息（蓝色）</option>
-        <option value="warning" <% if (announcement.level === 'warning') { %>selected<% } %>>警告（黄色）</option>
-        <option value="important" <% if (announcement.level === 'important') { %>selected<% } %>>重要（红色）</option>
-      </select>
-    </div>
-
-    <div class="field">
-      <label>内容（支持 Markdown）</label>
-      <textarea name="content" rows="10" required><%= announcement.content || '' %></textarea>
-    </div>
-
-    <div class="field">
-      <div class="ui toggle checkbox">
-        <input type="checkbox" name="is_active" <% if (announcement.is_active !== false) { %>checked<% } %>>
-        <label>启用此公告（关闭后即使在生效期内也不会显示）</label>
-      </div>
-    </div>
-
-    <div style="text-align: center; margin-top: 20px;">
-      <button type="submit" class="ui primary labeled icon button">
-        <i class="checkmark icon"></i> 保存
-      </button>
-      <a class="ui button" href="<%= syzoj.utils.makeUrl(['admin', 'announcements']) %>">取消</a>
-    </div>
-  </form>
-
-  <div class="ui divider"></div>
-  <div style="color: #999; font-size: 0.9em;">
-    <i class="info circle icon"></i>
-    用户访问首页时会以弹窗形式显示当前生效的公告。每个公告每位访客（按浏览器记录）在生效期内只弹一次。
-  </div>
-</div>
-
-<% include footer %>
+<div class="app-admin-toolbar"><div><h3><%= announcement.id ? '编辑公告' : '新建公告' %></h3><p>公告会在设定的时间段内展示给访问者。</p></div><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['admin', 'announcements']) %>"><i data-lucide="arrow-left"></i>返回列表</a></div>
+<form class="app-form" method="post" data-announcement-v2-edit data-announcement-id="<%= announcement.id || 0 %>">
+  <input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>">
+  <section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">MESSAGE</span><h2>公告内容</h2><p>使用明确标题和简洁正文。正文支持 Markdown。</p></div><div class="app-settings-fields"><label class="app-field app-field-full"><span class="app-label">标题</span><input class="app-input" type="text" name="title" maxlength="120" value="<%= announcement.title || '' %>" placeholder="例如：服务器维护通知" required></label><label class="app-field app-field-full"><span class="app-label">内容</span><textarea class="app-textarea app-admin-editor" name="content" rows="12" required><%= announcement.content || '' %></textarea></label></div></section>
+  <section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">SCHEDULE</span><h2>展示规则</h2><p>设置生效区间、信息级别和启用状态。</p></div><div class="app-settings-fields"><div class="app-form-grid"><label class="app-field"><span class="app-label">开始时间</span><input class="app-input" type="datetime-local" name="start_time" value="<%= appDateLocal(announcement.start_time) %>" required></label><label class="app-field"><span class="app-label">结束时间</span><input class="app-input" type="datetime-local" name="end_time" value="<%= appDateLocal(announcement.end_time) %>" required></label><label class="app-field app-field-full"><span class="app-label">级别</span><select class="app-select" name="level"><option value="info"<%= announcement.level === 'info' ? ' selected' : '' %>>信息</option><option value="warning"<%= announcement.level === 'warning' ? ' selected' : '' %>>警告</option><option value="important"<%= announcement.level === 'important' ? ' selected' : '' %>>重要</option></select></label></div><div class="app-setting-row"><span><strong>启用公告</strong><small>关闭后即使处于生效期也不会展示。</small></span><input class="app-switch" type="checkbox" name="is_active"<%= announcement.is_active !== false ? ' checked' : '' %> aria-label="启用公告"></div></div></section>
+  <div class="app-settings-submit"><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['admin', 'announcements']) %>">取消</a><button class="app-button app-button-primary" type="submit"><i data-lucide="check"></i>保存公告</button></div>
+</form>
+<div class="app-notice"><i data-lucide="info"></i><span>同一公告在生效期内，每个浏览器只会自动弹出一次。</span></div>
+<script>
+(function () {
+  var form = document.querySelector('form[data-announcement-v2-edit]');
+  if (!form) return;
+  function requestKey() { return window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random(); }
+  function message(body, fallback) { return body && body.error && body.error.message || fallback; }
+form.addEventListener('submit', async function (event) {
+    event.preventDefault();
+    var button = form.querySelector('button[type="submit"]');
+    if (button) button.disabled = true;
+    try {
+      var id = Number(form.dataset.announcementId || 0);
+      var headers = { 'Content-Type': 'application/json', 'Idempotency-Key': requestKey() };
+      var method = id ? 'PATCH' : 'POST';
+      var url = '/api/v2/admin/announcements' + (id ? '/' + encodeURIComponent(id) : '');
+      if (id) {
+        var currentResponse = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
+        var currentBody = await currentResponse.json();
+        if (!currentResponse.ok) throw Object.assign(new Error(message(currentBody, '公告读取失败。')), { code: currentBody && currentBody.error && currentBody.error.code });
+        headers['If-Match'] = currentResponse.headers.get('ETag') || '';
+      }
+      var payload = {
+        title: form.elements.title.value,
+        content: form.elements.content.value,
+        level: form.elements.level.value,
+        starts_at: new Date(form.elements.start_time.value).toISOString(),
+        ends_at: new Date(form.elements.end_time.value).toISOString(),
+        active: form.elements.is_active.checked
+      };
+      var response = await fetch(url, { method: method, credentials: 'same-origin', headers: headers, body: JSON.stringify(payload) });
+      var body = await response.json();
+      if (!response.ok) throw new Error(message(body, '公告保存失败。'));
+      window.location.assign('/admin/announcements');
+    } catch (error) {
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '公告保存失败。', 'danger');
+      if (button) button.disabled = false;
+    }
+  });
+})();
+</script>
+<% include admin_footer %>

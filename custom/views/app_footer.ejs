@@ -1,0 +1,27 @@
+      </main>
+      <footer class="app-footer">
+        <span>NWPUOJ · 西北工业大学程序设计训练平台</span>
+        <a href="https://github.com/Lorcas-Zephyr/NWPUOJ" target="_blank" rel="noopener">项目源码</a>
+      </footer>
+    </div>
+  </div>
+  <div class="app-toast-region" data-toast-region aria-live="polite" aria-atomic="true"></div>
+  <script>
+    (function () {
+      function renderPageIcons() {
+        return typeof window.__NWPUOJ_RENDER_ICONS === 'function' && window.__NWPUOJ_RENDER_ICONS(document);
+      }
+      function scheduleIconRender() {
+        renderPageIcons();
+        window.setTimeout(renderPageIcons, 0);
+        window.setTimeout(renderPageIcons, 120);
+        window.setTimeout(renderPageIcons, 600);
+      }
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', scheduleIconRender);
+      else scheduleIconRender();
+      window.addEventListener('load', scheduleIconRender);
+    })();
+  </script>
+  <script src="/self/app-v2.js?v=<%= encodeURIComponent(syzoj.config.nwpuoj_version || '2.0.0') %>&amp;rev=20260731-3"></script>
+</body>
+</html>

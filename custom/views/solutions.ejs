@@ -1,113 +1,34 @@
 <% this.title = problem.title + ' - 题解' %>
-<% include header %>
+<% include app_header %>
+<% include problem_context %>
 
-<div class="padding">
-  <div class="nwpuoj-page-header">
-    <div>
-      <h2 class="nwpuoj-page-title">题解</h2>
-      <div class="nwpuoj-meta">共 <%= solutions.length %> 篇当前可见题解</div>
-    </div>
-    <div class="nwpuoj-page-actions">
-      <% if (typeof submissionDisabled !== 'undefined' && submissionDisabled) { %>
-        <span class="ui disabled button" aria-disabled="true">
-          <i class="ban icon"></i> 已关闭投稿
-        </span>
-      <% } else if (allowedPost) { %>
-        <a class="ui primary button" href="<%= syzoj.utils.makeUrl(['problem', problem.id, 'solution', 'new']) %>">
-          <i class="edit icon"></i> 投稿题解
-        </a>
-      <% } else if (!res.locals.user) { %>
-        <a class="ui button" href="<%= syzoj.utils.makeUrl(['login'], { url: req.originalUrl }) %>">
-          <i class="sign in icon"></i> 登录后投稿
-        </a>
-      <% } %>
+<div class="app-page app-solutions-page">
+  <div class="app-section-header app-context-section-header"><div><h2 class="app-section-title">题解</h2><p class="app-section-description">共 <%= solutions.length %> 篇当前可见题解。</p></div><div class="app-page-actions"><% if (typeof submissionDisabled !== 'undefined' && submissionDisabled) { %><span class="app-button app-button-secondary is-disabled"><i data-lucide="lock"></i>投稿已关闭</span><% } else if (allowedPost) { %><a class="app-button app-button-primary" href="<%= syzoj.utils.makeUrl(['problem', problem.id, 'solution', 'new']) %>"><i data-lucide="square-pen"></i>投稿题解</a><% } else if (!res.locals.user) { %><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['login'], { url: req.originalUrl }) %>">登录后投稿</a><% } %><% if (typeof canManageSetting !== 'undefined' && canManageSetting) { %><form method="post" action="/api/v2/problems/<%= problem.id %>/solution-settings" data-solution-settings-v2 data-enabled="<%= submissionDisabled ? 'true' : 'false' %>" data-confirm="确定<%= submissionDisabled ? '重新开放' : '关闭' %>此题的题解投稿吗？"><button class="app-button app-button-secondary" type="submit"><i data-lucide="<%= submissionDisabled ? 'lock-open' : 'lock' %>"></i><%= submissionDisabled ? '开放投稿' : '关闭投稿' %></button></form><% } %></div></div>
 
-      <% if (typeof canManageSetting !== 'undefined' && canManageSetting) { %>
-        <% if (submissionDisabled) { %>
-          <form method="post"
-                action="<%= syzoj.utils.makeUrl(['problem', problem.id, 'solution-toggle-submission']) %>"
-                onsubmit="return confirm('确定重新开放此题的题解提交吗？');"
-                style="display:inline;margin:0;">
-            <button type="submit" class="ui green button">
-              <i class="unlock icon"></i> 开放投稿
-            </button>
-          </form>
-        <% } else { %>
-          <form method="post"
-                action="<%= syzoj.utils.makeUrl(['problem', problem.id, 'solution-toggle-submission']) %>"
-                onsubmit="return confirm('确定关闭此题的题解提交吗？已通过的题解仍然可见，但用户不能再投稿。');"
-                style="display: inline; margin: 0;">
-            <button type="submit" class="ui yellow button">
-              <i class="lock icon"></i> 关闭投稿
-            </button>
-          </form>
-        <% } %>
-      <% } %>
-    </div>
-  </div>
+  <% if (typeof submissionDisabled !== 'undefined' && submissionDisabled) { %><div class="app-notice app-notice-warning"><i data-lucide="info"></i><span>该题已关闭题解投稿，已通过的题解仍可查看和评论。</span></div><% } %>
 
-  <% if (typeof submissionDisabled !== 'undefined' && submissionDisabled) { %>
-    <div class="ui yellow message">
-      <i class="info circle icon"></i>
-      <b>该题已关闭题解投稿。</b>已通过的题解仍可查看和评论；新的题解投稿暂不接受。
-    </div>
-  <% } %>
-
-  <% if (solutions.length === 0) { %>
-     <div class="nwpuoj-empty-state">
-       <i class="file alternate outline icon"></i>
-       <h3>暂无题解</h3>
-      <% if (allowedPost) { %>
-        <a class="ui primary button" href="<%= syzoj.utils.makeUrl(['problem', problem.id, 'solution', 'new']) %>">
-          成为第一个投稿者
-        </a>
-      <% } %>
-    </div>
-  <% } else { %>
-    <div class="nwpuoj-table-region" role="region" aria-label="题解列表" tabindex="0">
-    <table class="ui very basic table">
-      <thead>
-        <tr>
-          <th scope="col" style="width:50%;">标题</th>
-          <th class="nwpuoj-priority-2" scope="col">作者</th>
-          <th scope="col">状态</th>
-          <th class="nwpuoj-priority-3" scope="col">发布时间</th>
-        </tr>
-      </thead>
-      <tbody>
-        <% for (let sol of solutions) { %>
-          <tr>
-            <td class="left aligned">
-              <a href="<%= syzoj.utils.makeUrl(['solution', sol.id]) %>">
-                <%= sol.title || '(无标题)' %>
-              </a>
-            </td>
-            <td class="nwpuoj-priority-2">
-              <% if (sol.user) { %>
-                <%- syzoj.utils.renderUsername(sol.user) %>
-              <% } else { %>
-                <i>已删除</i>
-              <% } %>
-            </td>
-            <td>
-              <% if (sol.status === 'accepted') { %>
-                <span class="nwpuoj-status nwpuoj-status-success">已通过</span>
-              <% } else if (sol.status === 'pending') { %>
-                <span class="nwpuoj-status nwpuoj-status-warning">待审核</span>
-              <% } else if (sol.status === 'rejected') { %>
-                <span class="nwpuoj-status nwpuoj-status-danger">已拒绝</span>
-              <% } else if (sol.status === 'withdrawn') { %>
-                <span class="nwpuoj-status nwpuoj-status-muted">已撤回</span>
-              <% } %>
-            </td>
-            <td class="nwpuoj-priority-3"><%= syzoj.utils.formatDate(sol.public_time) %></td>
-          </tr>
-        <% } %>
-      </tbody>
-    </table>
-    </div>
-    <% include page %>
-  <% } %>
+  <% if (solutions.length) { %><div class="app-table-region" role="region" aria-label="题解列表" tabindex="0"><table class="app-table"><thead><tr><th class="app-cell-primary">题解</th><th>作者</th><th>状态</th><th>发布时间</th></tr></thead><tbody><% for (const solution of solutions) { const appSolutionStatus = { accepted: ['已通过', 'app-status-accepted'], pending: ['待审核', 'app-status-waiting'], rejected: ['已拒绝', 'app-status-error'], withdrawn: ['已撤回', ''] }[solution.status] || [solution.status, '']; %><tr><td class="app-cell-primary"><span class="app-row-title"><a href="<%= syzoj.utils.makeUrl(['solution', solution.id]) %>"><%= solution.title || '无标题题解' %></a></span></td><td><% if (solution.user) { %><a href="<%= syzoj.utils.makeUrl(['user', solution.user.id]) %>"><%= solution.user.username %></a><% } else { %>已删除用户<% } %></td><td><span class="app-status <%= appSolutionStatus[1] %>"><%= appSolutionStatus[0] %></span></td><td class="app-cell-number"><%= syzoj.utils.formatDate(solution.public_time) %></td></tr><% } %></tbody></table></div><% include app_pagination %><% } else { %><div class="app-empty"><div class="app-empty-inner"><i data-lucide="notebook-tabs"></i><strong>暂无题解</strong><p>当前还没有可见的题解内容。</p><% if (allowedPost) { %><a class="app-button app-button-primary" href="<%= syzoj.utils.makeUrl(['problem', problem.id, 'solution', 'new']) %>">投稿第一篇题解</a><% } %></div></div><% } %>
 </div>
 
-<% include footer %>
+<script>
+(function () {
+  var form = document.querySelector('[data-solution-settings-v2]');
+  if (!form) return;
+  form.addEventListener('submit', async function (event) {
+    event.preventDefault();
+    var button = form.querySelector('button[type="submit"]');
+    if (button) button.disabled = true;
+    try {
+      var response = await fetch(form.action, { method: 'PATCH', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ submissions_enabled: form.dataset.enabled === 'true' }) });
+      var body = await response.json();
+      if (!response.ok) throw new Error(body && body.error && body.error.message || '题解投稿设置保存失败。');
+      window.location.reload();
+    } catch (error) {
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '题解投稿设置保存失败。', 'danger');
+      if (button) button.disabled = false;
+    }
+  });
+})();
+</script>
+
+<% include app_footer %>

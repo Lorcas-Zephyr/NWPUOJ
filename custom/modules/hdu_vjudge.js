@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const TypeORM = require('typeorm');
 const Problem = syzoj.model('problem');
 const ProblemTag = syzoj.model('problem_tag');
 const JudgeState = syzoj.model('judge_state');
@@ -10,14 +11,17 @@ const BULK_IMPORT_INTERVAL = 500;
 const bulkImportStatus = { state: 'idle' };
 const importStatus = createImportStatus('hdu', bulkImportStatus);
 
-function requireAdmin(res) {
-  if (!res.locals.user || !res.locals.user.is_admin) {
+async function requireAdmin(res) {
+  if (!res.locals.user || !await syzoj.utils.authorizationV2.authorize(res.locals.user, 'vjudge:import.create', null, { scope: 'global' })) {
     throw new ErrorMessage('您没有权限进行此操作。');
   }
 }
 
-function requireAdminAction(req, res) {
-  requireAdmin(res);
+async function requireAdminAction(req, res) {
+  await requireAdmin(res);
+  if (!syzoj.utils.authorizationV2.recentLoginSatisfied(req)) {
+    const error = new ErrorMessage('高风险 VJudge 操作需要近期登录或 MFA 验证。'); error.statusCode = 403; throw error;
+  }
   const expected = req.session && req.session.adminCsrfToken;
   const actual = req.body && req.body.csrf_token;
   if (typeof expected !== 'string' || typeof actual !== 'string' || expected.length !== actual.length ||
@@ -44,6 +48,8 @@ async function ensureHduSourceTag() {
       sourceTag.color = 'pink';
       await sourceTag.save();
     }
+    if (syzoj.utils.problemWorkflowV2) await syzoj.utils.problemWorkflowV2.ensureSchema();
+    await TypeORM.getConnection().query("UPDATE problem_tag SET category='source',color='pink' WHERE id=?", [sourceTag.id]);
   });
   return sourceTag;
 }
@@ -172,56 +178,27 @@ async function startBulkImport(userId, isPublic) {
   return true;
 }
 
-app.post('/admin/hdu/check', async (req, res) => {
-  try {
-    requireAdminAction(req, res);
-    await hdu.verifyAccount();
-    res.render('admin_other', {
-      success: true,
-      successMessage: 'HDU 账号连接成功。'
-    });
-  } catch (e) {
-    syzoj.log('[hdu-account-check] ' + (e.stack || e.message || e));
-    res.render('error', { err: e });
-  }
-});
+syzoj.utils.vjudgeImporters = syzoj.utils.vjudgeImporters || {};
+syzoj.utils.vjudgeImporters.hdu = {
+  withCredential: (reference, operation) => hdu.withCredential(reference, operation, { secretResolver: syzoj.utils.vjudgeSecretResolver }),
+  checkAccount: () => hdu.checkAccount(),
+  verifyAccount: () => hdu.checkAccount(),
+  searchProblems: (query, cursor) => hdu.searchProblems(query, cursor),
+  fetchProblem: remoteId => hdu.fetchProblem(remoteId),
+  fetchProblemList: cursor => hdu.fetchProblemList(cursor),
+  submit: (remoteProblem, language, source, options) => hdu.submit(remoteProblem, language, source, options),
+  pollSubmission: (remoteSubmissionId, options) => hdu.pollSubmission(remoteSubmissionId, options),
+  normalizeResult: rawResult => hdu.normalizeResult(rawResult),
+  fetchProblemIds: () => hdu.fetchProblemIds(),
+  importProblem: (remoteId, options) => importHduProblem(remoteId, options)
+};
 
-app.post('/admin/hdu/import', async (req, res) => {
-  try {
-    requireAdminAction(req, res);
-    const remoteId = parseInt(req.body.problem_id);
-    if (!Number.isSafeInteger(remoteId) || remoteId <= 0) {
-      throw new ErrorMessage('HDU 题号不正确。');
-    }
 
-    const result = await importHduProblem(remoteId, {
-      userId: res.locals.user.id,
-      isPublic: req.body.is_public === 'on',
-      skipExisting: false
-    });
-    res.redirect(syzoj.utils.makeUrl(['problem', result.localId]));
-  } catch (e) {
-    syzoj.log('[hdu-import] ' + (e.stack || e.message || e));
-    res.render('error', { err: e });
-  }
-});
 
-app.post('/admin/hdu/import-all', async (req, res) => {
-  try {
-    requireAdminAction(req, res);
-    if (!await startBulkImport(res.locals.user.id, req.body.is_public === 'on')) {
-      return res.status(409).render('error', { err: new ErrorMessage('HDU 批量导入正在运行。') });
-    }
-    res.redirect('/admin/other');
-  } catch (e) {
-    syzoj.log('[hdu-import-all] ' + (e.stack || e.message || e));
-    res.render('error', { err: e });
-  }
-});
 
 app.get('/admin/hdu/import-all/status', async (req, res) => {
   try {
-    requireAdmin(res);
+    await requireAdmin(res);
     await importStatus.ready();
     res.json(bulkImportStatus);
   } catch (e) {

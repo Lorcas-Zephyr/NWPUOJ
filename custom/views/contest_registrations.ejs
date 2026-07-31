@@ -1,110 +1,210 @@
-<% this.title = '比赛管理 - ' + contest.title; %>
-<% include header %>
-<div class="padding">
-  <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;">
-    <h1 class="ui header" style="margin: 0;">比赛管理</h1>
-    <a class="ui basic labeled icon button" href="<%= syzoj.utils.makeUrl(['contest', contest.id]) %>"><i class="angle left icon"></i>返回比赛</a>
-  </div>
-  <h3 class="ui header" style="margin-top:0;"><%= contest.title %></h3>
-  <div class="ui secondary pointing menu" style="margin-bottom:24px;">
-    <a class="item" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'edit']) %>"><i class="edit outline icon"></i>比赛内容</a>
-    <a class="active item" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'registrations']) %>"><i class="users icon"></i>报名管理 <span class="ui small label"><%= registrations.length %> 人</span></a>
-  </div>
-  <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px;">
-    <a class="ui small basic labeled icon button" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'registrations', 'export']) %>"><i class="download icon"></i>一键导出报名信息</a>
-    <form method="post" action="<%= syzoj.utils.makeUrl(['contest', contest.id, 'rebuild-standings']) %>" style="margin:0;" onsubmit="return confirm('将根据有效比赛提交重建选手分数和排行榜，确定继续吗？');">
-      <input type="hidden" name="csrf_token" value="<%= registrationManagementCsrfToken %>">
-      <button type="submit" class="ui small basic labeled icon button"><i class="refresh icon"></i>校验并重建排行榜</button>
-    </form>
+<% this.title = '报名管理 - ' + contest.title %>
+<% include app_header %>
+
+<div class="app-page app-contest-registrations-page">
+  <header class="app-page-header"><div class="app-page-heading"><a class="app-back-link" href="<%= syzoj.utils.makeUrl(['contest', contest.id]) %>"><i data-lucide="arrow-left"></i>返回比赛</a><span class="app-kicker">CONTEST MANAGEMENT</span><h1 class="app-page-title"><%= contest.title %></h1><p class="app-page-description">维护参赛资格、报名资料与临时比赛账户。</p></div></header>
+  <nav class="app-tabs app-contest-admin-tabs"><a href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'edit']) %>"><i data-lucide="square-pen"></i>比赛内容</a><a class="is-active" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'registrations']) %>" aria-current="page"><i data-lucide="users-round"></i>报名管理</a></nav>
+  <div class="app-section-header app-contest-participant-header">
+    <div><h2 class="app-section-title">参赛者管理</h2><p class="app-section-description"><%= registrations.length %> 名有效报名用户</p></div>
+    <div class="app-page-actions">
+      <a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'registrations', 'export']) %>"><i data-lucide="download"></i>导出报名信息</a>
+      <form method="post" data-contest-standings-v2 data-contest-id="<%= contest.id %>" data-confirm="将根据有效比赛提交重建分数和排行榜，确定继续吗？"><input type="hidden" name="csrf_token" value="<%= registrationManagementCsrfToken %>"><button class="app-button app-button-secondary" type="submit"><i data-lucide="refresh-cw"></i>重建排行榜</button></form>
+    </div>
   </div>
 
-  <% if (!contest.isEnded()) { %>
-    <div class="ui segment" style="margin-bottom:20px;">
-      <h3 class="ui header"><i class="user clock icon"></i>生成临时比赛账户</h3>
-      <p class="nwpuoj-meta">上传 UTF-8 CSV，表头必须包含“姓名、学号、学院”。系统将创建并自动报名临时账户，用户名使用“学院-姓名”，随机密码只在本次下载结果中提供。</p>
-      <p class="nwpuoj-meta">比赛结束后账户自动禁止登录，但账户、用户主页、提交和排行榜成绩会永久保留。</p>
-      <p><a href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'temporary-accounts', 'template']) %>"><i class="download icon"></i>下载 CSV 模板</a></p>
-      <form class="ui form" method="post" enctype="multipart/form-data" action="<%= syzoj.utils.makeUrl(['contest', contest.id, 'temporary-accounts', 'import']) %>">
+  <% if (canManageRegistrations && !contest.isEnded()) { %>
+    <section class="app-temp-account-section">
+      <div><span class="app-kicker">TEMPORARY ACCOUNTS</span><h2>批量创建临时参赛用户</h2><p>上传包含“姓名、学号、学院”表头的 UTF-8 CSV。系统会自动创建并报名，随机密码只在本次下载中提供。</p><small>比赛结束后账户自动禁止登录，用户主页、提交和排行榜成绩会永久保留。</small></div>
+      <form class="app-form" method="post" enctype="multipart/form-data" data-temporary-accounts-v2 data-contest-id="<%= contest.id %>">
         <input type="hidden" name="csrf_token" value="<%= registrationManagementCsrfToken %>">
-        <div class="fields" style="align-items:flex-end;">
-          <div class="twelve wide field">
-            <label for="temporary_accounts_csv">账户 CSV</label>
-            <input id="temporary_accounts_csv" type="file" name="accounts_csv" accept=".csv,text/csv" required>
-          </div>
-          <div class="four wide field">
-            <button type="submit" class="ui fluid primary labeled icon button"><i class="upload icon"></i>导入并下载密码</button>
-          </div>
-        </div>
+        <label class="app-file-field"><input type="file" name="accounts_csv" accept=".csv,text/csv" required><span><i data-lucide="file-spreadsheet"></i><strong>选择账户 CSV</strong><small>UTF-8 编码</small></span></label>
+        <div class="app-form-actions app-form-actions-split"><a class="app-button app-button-quiet" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'temporary-accounts', 'template']) %>" data-temporary-accounts-template><i data-lucide="download"></i>下载模板</a><button class="app-button app-button-primary" type="submit"><i data-lucide="upload"></i>批量创建并下载密码</button></div>
       </form>
-    </div>
-  <% } %>
+    </section>
+  <% } else { %><div class="app-notice"><i data-lucide="lock-keyhole"></i><span><strong>参赛资格已锁定</strong><small>比赛结束后不能再创建临时参赛用户、删除或恢复参赛者。</small></span></div><% } %>
 
-  <% if (registrations.length) { %>
-    <div style="overflow-x: auto; width: 100%;">
-    <table class="ui very basic center aligned table">
-      <thead>
-        <tr>
-          <th>UID</th>
-          <th>用户名</th>
-          <th>姓名</th>
-          <th>学号</th>
-          <th>学院</th>
-          <th class="one wide">操作</th>
-        </tr>
-      </thead>
-      <tbody>
-        <% registrations.forEach(function (registration) { %>
-          <tr>
-            <td><%= registration.user_id %></td>
-            <td><a href="<%= syzoj.utils.makeUrl(['user', registration.user_id]) %>"><%= registration.username %></a></td>
-            <td><%= registration.real_name || '-' %></td>
-            <td><%= registration.student_id || '-' %></td>
-            <td><%= registration.college || '-' %></td>
-            <td>
-              <% if (!contest.isEnded()) { %>
-              <form method="post" action="<%= syzoj.utils.makeUrl(['contest', contest.id, 'registrations', registration.user_id, 'remove']) %>" style="margin: 0;" onsubmit="return confirm('确定取消该用户的比赛报名吗？');">
-                <input type="hidden" name="csrf_token" value="<%= registrationManagementCsrfToken %>">
-                <button type="submit" class="ui mini basic red icon button" title="取消报名" aria-label="取消报名"><i class="times icon"></i></button>
-              </form>
-              <% } else { %>-<% } %>
-            </td>
-          </tr>
+  <section class="app-section">
+    <div class="app-section-header"><div><h2 class="app-section-title">有效报名</h2><p class="app-section-description"><%= canManageRegistrations ? '当前拥有比赛访问和参赛资格的用户' : '已报名参加本场比赛的用户' %></p></div><span class="app-page-count"><strong><%= registrations.length %></strong> 人</span></div>
+    <% if (registrations.length) { %>
+      <div class="app-table-region" role="region" aria-label="有效报名用户" tabindex="0"><table class="app-table"><thead><tr><th>UID</th><th>用户名</th><% if (canManageRegistrations) { %><th>姓名</th><th>学号</th><th>学院</th><th aria-label="操作"></th><% } %></tr></thead><tbody>
+        <% registrations.forEach(function (registration) { const registrationUser = { id: registration.user_id, username: registration.username }; %>
+          <tr><td class="app-cell-number">#<%= registration.user_id %></td><td><%- syzoj.utils.renderUsername(registrationUser) %></td><% if (canManageRegistrations) { %><td><%= registration.real_name || '-' %></td><td class="app-cell-number"><%= registration.student_id || '-' %></td><td><%= registration.college || '-' %></td><td class="app-cell-actions"><% if (!contest.isEnded()) { %><form method="post" data-contest-participant-v2="remove" data-contest-id="<%= contest.id %>" data-user-id="<%= registration.user_id %>" data-confirm="确定将该用户从参赛者中删除吗？"><input type="hidden" name="csrf_token" value="<%= registrationManagementCsrfToken %>"><button class="app-icon-button app-icon-danger" type="submit" title="删除参赛者" aria-label="删除参赛者"><i data-lucide="user-minus"></i></button></form><% } %></td><% } %></tr>
         <% }); %>
-      </tbody>
-    </table>
-    </div>
-  <% } else { %>
-    <div class="ui placeholder segment">
-      <div class="ui icon header"><i class="users icon"></i>暂无报名用户</div>
-    </div>
-  <% } %>
+      </tbody></table></div>
+    <% } else { %><div class="app-empty app-empty-compact"><div class="app-empty-inner"><i data-lucide="users-round"></i><strong>暂无报名用户</strong><p>用户报名后会显示在这里。</p></div></div><% } %>
+  </section>
 
-  <% if (removedRegistrations && removedRegistrations.length) { %>
-    <h3 class="ui header" style="margin-top: 28px;">已移出用户 <span class="ui small label"><%= removedRegistrations.length %> 人</span></h3>
-    <div style="overflow-x: auto; width: 100%;">
-    <table class="ui very basic center aligned table">
-      <thead><tr><th>UID</th><th>用户名</th><th>姓名</th><th>学号</th><th>移出时间</th><th>操作</th></tr></thead>
-      <tbody>
-      <% removedRegistrations.forEach(function (registration) { %>
-        <tr>
-          <td><%= registration.user_id %></td>
-          <td><a href="<%= syzoj.utils.makeUrl(['user', registration.user_id]) %>"><%= registration.username %></a></td>
-          <td><%= registration.real_name || '-' %></td>
-          <td><%= registration.student_id || '-' %></td>
-          <td><%= syzoj.utils.formatDate(registration.removed_at) %></td>
-          <td>
-            <% if (!contest.isEnded()) { %>
-            <form method="post" action="<%= syzoj.utils.makeUrl(['contest', contest.id, 'registrations', registration.user_id, 'restore']) %>" style="margin: 0;">
-              <input type="hidden" name="csrf_token" value="<%= registrationManagementCsrfToken %>">
-              <button type="submit" class="ui mini basic green labeled icon button"><i class="undo icon"></i>恢复</button>
-            </form>
-            <% } else { %>-<% } %>
-          </td>
-        </tr>
-      <% }); %>
-      </tbody>
-    </table>
-    </div>
+  <% if (canManageRegistrations && removedRegistrations && removedRegistrations.length) { %>
+    <section class="app-section">
+      <div class="app-section-header"><div><h2 class="app-section-title">已移出用户</h2><p class="app-section-description">可以在比赛结束前恢复资格</p></div><span class="app-page-count"><strong><%= removedRegistrations.length %></strong> 人</span></div>
+      <div class="app-table-region" role="region" aria-label="已移出报名用户" tabindex="0"><table class="app-table"><thead><tr><th>UID</th><th>用户名</th><th>姓名</th><th>学号</th><th>移出时间</th><th aria-label="操作"></th></tr></thead><tbody>
+        <% removedRegistrations.forEach(function (registration) { const registrationUser = { id: registration.user_id, username: registration.username }; %>
+          <tr><td class="app-cell-number">#<%= registration.user_id %></td><td><%- syzoj.utils.renderUsername(registrationUser) %></td><td><%= registration.real_name || '-' %></td><td class="app-cell-number"><%= registration.student_id || '-' %></td><td class="app-cell-number"><%= syzoj.utils.formatDate(registration.removed_at) %></td><td class="app-cell-actions"><% if (!contest.isEnded()) { %><form method="post" data-contest-participant-v2="restore" data-contest-id="<%= contest.id %>" data-user-id="<%= registration.user_id %>"><input type="hidden" name="csrf_token" value="<%= registrationManagementCsrfToken %>"><button class="app-icon-button" type="submit" title="恢复参赛者" aria-label="恢复参赛者"><i data-lucide="undo"></i></button></form><% } %></td></tr>
+        <% }); %>
+      </tbody></table></div>
+    </section>
   <% } %>
 </div>
-<% include footer %>
+
+<script>
+(function () {
+  function operationKey() {
+    return window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random();
+  }
+
+  async function readResponse(response) {
+    var body = null;
+    try { body = await response.json(); } catch (error) {}
+    return { response: response, body: body };
+  }
+function message(result, fallback) {
+    return result.body && result.body.error && result.body.error.message || fallback;
+  }
+
+  function showError(error) {
+    if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '操作失败。', 'danger');
+    else window.alert(error.message || '操作失败。');
+  }
+document.querySelectorAll('form[data-contest-participant-v2]').forEach(function (form) {
+    form.addEventListener('submit', async function (event) {
+      if (event.defaultPrevented) return;
+      event.preventDefault();
+      var button = form.querySelector('[type="submit"]');
+      if (button) button.disabled = true;
+      try {
+        var result = await readResponse(await fetch('/api/v2/contests/' + encodeURIComponent(form.dataset.contestId) + '/participants/bulk-action', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operationKey() },
+          body: JSON.stringify({ action: form.dataset.contestParticipantV2, user_ids: [Number(form.dataset.userId)] })
+        }));
+        if (!result.response.ok) throw new Error(message(result, '参赛者资格更新失败。'));
+        if (result.body && result.body.data && result.body.data.failed && result.body.data.failed.length) throw new Error(result.body.data.failed[0].message || '参赛者资格更新失败。');
+        window.location.reload();
+      } catch (error) {
+        showError(error);
+        if (button) button.disabled = false;
+      }
+    });
+  });
+
+  var standingsForm = document.querySelector('form[data-contest-standings-v2]');
+  if (standingsForm) standingsForm.addEventListener('submit', async function (event) {
+    if (event.defaultPrevented) return;
+    event.preventDefault();
+    var button = standingsForm.querySelector('[type="submit"]');
+    if (button) button.disabled = true;
+    standingsForm.setAttribute('aria-busy', 'true');
+    try {
+      var contestId = standingsForm.dataset.contestId;
+      var result = await readResponse(await fetch('/api/v2/contests/' + encodeURIComponent(contestId) + '/standings/rebuild', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operationKey() },
+        body: '{}'
+      }));
+      if (!result.response.ok) throw new Error(message(result, '排行榜重建任务创建失败。'));
+      var job = result.body && result.body.data;
+      if (!job || !job.id) throw new Error('排行榜重建任务缺少编号。');
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast('排行榜正在重建。', 'success');
+      var attempts = 0;
+      async function poll() {
+        attempts += 1;
+        var status = await readResponse(await fetch('/api/v2/contests/' + encodeURIComponent(contestId) + '/standings/rebuilds/' + encodeURIComponent(job.id), {
+          credentials: 'same-origin', cache: 'no-store'
+        }));
+        if (!status.response.ok) throw new Error(message(status, '暂时无法读取排行榜任务状态。'));
+        var state = status.body && status.body.data && status.body.data.state;
+        if (state === 'completed') return window.location.reload();
+        if (state === 'failed' || state === 'cancelled') throw new Error(status.body.data.error && status.body.data.error.message || '排行榜重建未完成。');
+        if (attempts >= 120) throw new Error('排行榜仍在后台重建，可稍后刷新查看。');
+        window.setTimeout(function () { poll().catch(finishError); }, 1000);
+      }
+      function finishError(error) {
+        showError(error);
+        if (button) button.disabled = false;
+        standingsForm.removeAttribute('aria-busy');
+      }
+      window.setTimeout(function () { poll().catch(finishError); }, 500);
+    } catch (error) {
+      showError(error);
+      if (button) button.disabled = false;
+      standingsForm.removeAttribute('aria-busy');
+    }
+  });
+})();
+</script>
+
+<script>
+(function () {
+  var form = document.querySelector('[data-temporary-accounts-v2]');
+  if (!form) return;
+
+  function csvCell(value) {
+    var text = String(value == null ? '' : value);
+    if (/^[=+\-@\t\r]/.test(text)) text = "'" + text;
+    return '"' + text.replace(/"/g, '""') + '"';
+  }
+
+  function downloadCsv(filename, rows) {
+    var csv = '\uFEFF' + rows.map(function (row) { return row.map(csvCell).join(','); }).join('\r\n') + '\r\n';
+    var url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    var link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+function showError(message) {
+    if (window.NWPUOJApp) window.NWPUOJApp.showToast(message, 'danger');
+    else window.alert(message);
+  }
+
+  var template = form.querySelector('[data-temporary-accounts-template]');
+  if (template) template.addEventListener('click', function (event) {
+    event.preventDefault();
+    downloadCsv('contest-' + form.dataset.contestId + '-temporary-accounts-template.csv', [
+      ['姓名', '学号', '学院'],
+      ['张三', '2026000001', '计算机学院']
+    ]);
+  });
+
+  form.addEventListener('submit', async function (event) {
+    if (event.defaultPrevented) return;
+    event.preventDefault();
+    var submit = form.querySelector('[type="submit"]');
+    if (submit) submit.disabled = true;
+    form.setAttribute('aria-busy', 'true');
+    try {
+      var payload = new FormData(form);
+      payload.set('contest_id', form.dataset.contestId);
+      var response = await fetch('/api/v2/admin/contest-temp-accounts/import', {
+        method: 'POST',
+        credentials: 'same-origin',
+        body: payload
+      });
+      var body = null;
+      try { body = await response.json(); } catch (parseError) {}
+      if (!response.ok) throw new Error(body && body.error && body.error.message || '临时账户导入失败。');
+      var result = body && body.data;
+      var accounts = result && Array.isArray(result.accounts) ? result.accounts : [];
+      if (!accounts.length) throw new Error('导入响应中没有可下载的账户。');
+      downloadCsv('contest-' + form.dataset.contestId + '-temporary-accounts.csv', [
+        ['用户名', '密码', '姓名', '学号', '学院']
+      ].concat(accounts.map(function (account) {
+        return [account.username, account.password, account.name, account.student_id, account.college];
+      })));
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast('已创建 ' + accounts.length + ' 个临时参赛账户。', 'success');
+      window.setTimeout(function () { window.location.reload(); }, 500);
+    } catch (error) {
+      showError(error.message || '临时账户导入失败。');
+      if (submit) submit.disabled = false;
+      form.removeAttribute('aria-busy');
+    }
+  });
+})();
+</script>
+
+<% include app_footer %>

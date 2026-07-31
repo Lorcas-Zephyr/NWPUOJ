@@ -24,7 +24,7 @@ function parseImportStatus(value) {
 
 app.get('/admin/info', async (req, res) => {
   try {
-    if (!res.locals.user || !res.locals.user.is_admin) {
+    if (!res.locals.user || !await syzoj.utils.authorizationV2.authorize(res.locals.user, 'admin:health.read', null, { scope: 'global' })) {
       return res.status(403).render('error', { err: new ErrorMessage('您没有权限进行此操作。') });
     }
     const connection = TypeORM.getConnection();
@@ -95,4 +95,26 @@ app.get('/admin/info', async (req, res) => {
     syzoj.log('[admin-overview] ' + (error.stack || error));
     res.status(500).render('error', { err: error });
   }
+});
+
+app.get('/admin/other', async (req, res) => {
+  if (!res.locals.user || !await syzoj.utils.authorizationV2.authorize(res.locals.user, 'vjudge:source.manage', null, { scope: 'global' })) {
+    return res.status(403).render('error', { err: new ErrorMessage('您没有权限管理远程题源。') });
+  }
+  return res.render('admin_other');
+});
+
+app.get('/admin/rating', async (req, res) => {
+  if (!res.locals.user || !await syzoj.utils.authorizationV2.authorize(res.locals.user, 'rating:read', null, { scope: 'global' })) {
+    return res.status(403).render('error', { err: new ErrorMessage('您没有权限管理 Rating。') });
+  }
+  await syzoj.utils.ensureContestRatingSchema();
+  const ratingContests = await syzoj.utils.listContestRatingStatuses();
+  const ratingCanCalculate = await syzoj.utils.authorizationV2.authorize(
+    res.locals.user,
+    'rating:recalculate',
+    null,
+    { scope: 'global' }
+  );
+  return res.render('admin_rating', { ratingContests, ratingCanCalculate });
 });

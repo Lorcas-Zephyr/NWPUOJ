@@ -1,75 +1,89 @@
-/* 用户名颜色分档样式 */
-.username-tier-default { color: #555; font-weight: normal; text-decoration: none; }
-.username-tier-default:hover { text-decoration: underline; }
-
-.username-tier-unknown { color: #999; font-style: italic; }
-
-.username-tier-gray  { color: #999; font-weight: normal; }
-.username-tier-blue  { color: #2185d0; font-weight: bold; }
-.username-tier-green { color: #21ba45; font-weight: bold; }
-.username-tier-orange { color: #f2711c; font-weight: bold; }
-.username-tier-red   { color: #db2828; font-weight: bold; }
-
-.username-tier-admin { color: #a333c8; font-weight: bold; }
-.username-tier-admin:hover { color: #8e2cb0; }
-
-/* 让所有 tier 链接 hover 时有下划线 */
-a.username-tier-blue:hover,
-a.username-tier-green:hover,
-a.username-tier-orange:hover,
-a.username-tier-red:hover,
-a.username-tier-gray:hover { text-decoration: underline; }
-/* ============ 用户名 tag ============ */
-.user-name-tag {
-  display: inline-block;
-  padding: 1px 7px;
-  margin-left: 4px;
-  border-radius: 3px;
-  font-size: 0.78em;
-  font-weight: bold;
-  color: #fff;
-  vertical-align: 1px;
-  line-height: 1.4;
-  white-space: nowrap;
+/* Canonical username tier and account-label presentation. */
+:root {
+  --username-default: #4b5563;
+  --username-gray: #697386;
+  --username-blue: #145fb8;
+  --username-green: #117a49;
+  --username-orange: #a4510d;
+  --username-red: #b8323a;
+  --username-admin: #7a3eb1;
+  --username-cheater: #76513a;
 }
 
-.user-name-tag.tag-tier-default { background: #aaa; }
-.user-name-tag.tag-tier-gray    { background: #888; }
-.user-name-tag.tag-tier-blue    { background: #2185d0; }
-.user-name-tag.tag-tier-green   { background: #21ba45; }
-.user-name-tag.tag-tier-orange  { background: #f2711c; }
-.user-name-tag.tag-tier-red     { background: #db2828; }
-.user-name-tag.tag-tier-admin   { background: #a333c8; }
-/* ============ 作弊者 ============ */
+:root[data-theme="dark"] {
+  --username-default: #c2c8d1;
+  --username-gray: #9ca6b4;
+  --username-blue: #78adf5;
+  --username-green: #65cf98;
+  --username-orange: #f2ae62;
+  --username-red: #f58489;
+  --username-admin: #c9a0ec;
+  --username-cheater: #c69a79;
+}
+
+.username-tier-default {
+  color: var(--username-default) !important;
+  font-weight: 560;
+  text-decoration: none;
+}
+
+.username-tier-unknown,
+.username-tier-gray {
+  color: var(--username-gray) !important;
+}
+
+.username-tier-unknown {
+  font-style: italic;
+}
+
+.username-tier-blue { color: var(--username-blue) !important; }
+.username-tier-green { color: var(--username-green) !important; }
+.username-tier-orange { color: var(--username-orange) !important; }
+.username-tier-red { color: var(--username-red) !important; }
+.username-tier-admin { color: var(--username-admin) !important; }
+
+.username-tier-blue,
+.username-tier-green,
+.username-tier-orange,
+.username-tier-red,
+.username-tier-admin,
 .username-tier-cheater {
-  color: #8B4513; /* 棕色 */
-  font-weight: bold;
+  font-weight: 700;
+}
+
+.username-tier-cheater {
+  color: var(--username-cheater) !important;
   text-decoration: line-through;
 }
+
+a[class*="username-tier-"]:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 a.username-tier-cheater:hover {
-  color: #6F3611;
   text-decoration: line-through underline;
 }
 
-/* ============ 用户名 tag ============ */
 .user-name-tag {
-  display: inline-block;
-  padding: 1px 7px;
-  margin-left: 4px;
+  display: inline-flex;
+  margin-left: 5px;
+  padding: 2px 5px;
+  align-items: center;
   border-radius: 3px;
-  font-size: 0.78em;
-  font-weight: bold;
-  color: #fff;
-  vertical-align: 1px;
+  color: #ffffff;
+  font-size: var(--app-font-xs);
+  font-weight: 700;
   line-height: 1.4;
+  vertical-align: middle;
   white-space: nowrap;
 }
 
-.user-name-tag.tag-tier-default { background: #aaa; }
-.user-name-tag.tag-tier-gray    { background: #888; }
-.user-name-tag.tag-tier-blue    { background: #2185d0; }
-.user-name-tag.tag-tier-green   { background: #21ba45; }
-.user-name-tag.tag-tier-orange  { background: #f2711c; }
-.user-name-tag.tag-tier-red     { background: #db2828; }
-.user-name-tag.tag-tier-admin   { background: #a333c8; }
-.user-name-tag.tag-tier-cheater { background: #8B4513; }
+.user-name-tag.tag-tier-default { background: var(--username-default); }
+.user-name-tag.tag-tier-gray { background: var(--username-gray); }
+.user-name-tag.tag-tier-blue { background: var(--username-blue); }
+.user-name-tag.tag-tier-green { background: var(--username-green); }
+.user-name-tag.tag-tier-orange { background: var(--username-orange); }
+.user-name-tag.tag-tier-red { background: var(--username-red); }
+.user-name-tag.tag-tier-admin { background: var(--username-admin); }
+.user-name-tag.tag-tier-cheater { background: var(--username-cheater); }
