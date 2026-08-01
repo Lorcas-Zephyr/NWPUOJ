@@ -56,6 +56,11 @@ test('a contest draft may submit an explicitly empty problem list', () => {
   assert.match(view, /data-review-problems/);
 });
 
+test('contest schedule values use a zero-padded date and time format', () => {
+  assert.match(view, /name="start_time" value="<%= syzoj\.utils\.formatDate\(contest\.start_time \|\| syzoj\.utils\.getCurrentDate\(\), 'YYYY-MM-DD HH:mm:ss'\) %>"/);
+  assert.match(view, /name="end_time" value="<%= syzoj\.utils\.formatDate\(contest\.end_time \|\| syzoj\.utils\.getCurrentDate\(\), 'YYYY-MM-DD HH:mm:ss'\) %>"/);
+});
+
 test('contest steps are stable on desktop and remain one horizontal rail on mobile', () => {
   assert.match(css, /\.app-contest-step-nav ol\s*\{[^}]*grid-template-columns: repeat\(4,/s);
   assert.match(css, /\.app-contest-editor-form\.is-wizard-ready > \.app-settings-section:not\(\[hidden\]\)/);

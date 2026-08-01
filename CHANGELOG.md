@@ -21,6 +21,7 @@
   while retaining each submission's actual snapshot identifier for traceability.
 - Documented ZIP layouts for traditional, interaction, and submit-answer problem testdata, including
   interactor language selection and required archive contents.
+- Zero-padded contest schedule defaults as `YYYY-MM-DD HH:mm:ss` in the creation and editing form.
 
 ## 2.0.0 - 2026-08-01
 
