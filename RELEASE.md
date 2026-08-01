@@ -1,4 +1,4 @@
-# NWPUOJ v2.0.0 Release Runbook
+# NWPUOJ v2.0.1 Release Runbook
 
 ## Preconditions
 
@@ -61,6 +61,6 @@ volume set so rows, files, events, and projections return to one consistent poin
 
 ## Publish
 
-After validation, create the annotated `v2.0.0` tag and GitHub release from the reviewed release
+After validation, create the annotated `v2.0.1` tag and GitHub release from the reviewed release
 commit. Include `CHANGELOG.md`, compatibility counts, test totals, image digest, backup identifiers,
 contest drill evidence, and the named rollback owner in the release notes.

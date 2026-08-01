@@ -85,6 +85,37 @@ test('problem creation uses one canonical Markdown field while retaining legacy 
   assert.match(problem, /if \(!appSplitStatement\)/);
 });
 
+test('problem editing loads the current version and only redirects after an effective save', () => {
+  const editor = read('custom/views/problem_edit.ejs');
+  const lifecycle = read('custom/modules/_problem_lifecycle_guard.js');
+
+  assert.match(editor, /data-can-publish=/);
+  assert.match(editor, /current\.current_version_id/);
+  assert.match(editor, /\/versions\/.*current\.current_version_id/);
+  assert.match(editor, /form\.elements\.description\.value = content\.description/);
+  assert.match(editor, /wasPublic && versionId && canPublish/);
+  assert.match(editor, /\/publish'/);
+  assert.match(editor, /\/review-request'/);
+  assert.match(editor, /destination \+= '\?version=' \+ encodeURIComponent\(versionId\)/);
+  assert.match(editor, /window\.location\.replace\(destination\)/);
+  assert.ok(editor.indexOf("'/publish'") < editor.indexOf('window.location.replace(destination)'));
+  assert.match(lifecycle, /app\.use\('\/problem\/:id'/);
+  assert.match(lifecycle, /private, no-store, must-revalidate/);
+});
+
+test('problem detail reads the effective v2 version instead of a stale legacy model', () => {
+  const lifecycle = read('custom/modules/_problem_lifecycle_guard.js');
+  const problem = read('custom/views/problem.ejs');
+
+  assert.match(lifecycle, /state\.current_version_id/);
+  assert.match(lifecycle, /version\.content_json/);
+  assert.match(lifecycle, /problemDomain\.parseStoredContent\(row\.content_json\)/);
+  assert.match(lifecycle, /res\.locals\.problemV2View/);
+  assert.match(problem, /Object\.assign\(problem, problemV2View\.content\)/);
+  assert.match(problem, /data-problem-version=/);
+  assert.match(problem, /当前显示刚保存的题面草稿/);
+});
+
 test('problem context has stable desktop and mobile layout rules', () => {
   const css = readAppCss();
 

@@ -25,6 +25,15 @@ test('problem library retains repository, progress, tag, search, sort and bulk c
   assert.match(view, /bulk_job/);
 });
 
+test('problem progress links use the submission verdict palette without turning link blue', () => {
+  for (const variant of ['accepted', 'wrong', 'runtime', 'time', 'memory', 'compile']) {
+    assert.match(view, new RegExp(`app-verdict app-verdict-` + variant));
+    assert.match(css, new RegExp(`\\.app-verdict-` + variant));
+  }
+  assert.match(view, /<a href="<%= syzoj\.utils\.makeUrl\(\['submission', problem\.judge_state\.id\]\) %>" class="app-status/);
+  assert.match(css, /\.app-v2 a\.app-status,\s*\.app-v2 a\.app-status:hover\s*\{[^}]*color:\s*var\(--app-status-color\)/s);
+});
+
 test('problem tag visibility uses a labeled switch without inheriting native switch dimensions', () => {
   assert.match(view, /class="app-switch-control"[^>]*><input[^>]*data-problem-tags-toggle/);
   assert.match(css, /\.app-switch-control\s*\{[^}]*display: inline-flex[^}]*white-space: nowrap/s);

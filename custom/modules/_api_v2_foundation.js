@@ -455,10 +455,17 @@ const RATE_WINDOW_MS = 60 * 1000;
 const MAX_BODY_BYTES = 1024 * 1024;
 
 function gatewayLimits(req, res) {
+  const bodyLimit = apiHelpers.requestBodyLimit(req.originalUrl, req.get('content-type'), {
+    defaultBytes: MAX_BODY_BYTES,
+    multipartOverheadBytes: MAX_BODY_BYTES,
+    testdataArchiveBytes: 200 * 1024 * 1024,
+    testdataFilesBytes: Number(syzoj.config.limit && syzoj.config.limit.testdata || 200 * 1024 * 1024),
+    additionalFileBytes: Number(syzoj.config.limit && syzoj.config.limit.data_size || 200 * 1024 * 1024)
+  });
   const contentLength = Number(req.get('content-length') || 0);
   const bodyBytes = apiHelpers.bodySize(req.body);
-  if (contentLength > MAX_BODY_BYTES || bodyBytes > MAX_BODY_BYTES) {
-    apiFail(res, 413, 'REQUEST_BODY_TOO_LARGE', 'The request body exceeds the API limit.', { maximum_bytes: MAX_BODY_BYTES });
+  if (contentLength > bodyLimit || bodyBytes > bodyLimit) {
+    apiFail(res, 413, 'REQUEST_BODY_TOO_LARGE', 'The request body exceeds the API limit.', { maximum_bytes: bodyLimit });
     return false;
   }
   const isWrite = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);

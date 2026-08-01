@@ -520,9 +520,10 @@
 }
 
 .app-status {
+  --app-status-color: var(--app-text-secondary);
   padding: 5px 8px;
   background: var(--app-bg);
-  color: var(--app-text-secondary);
+  color: var(--app-status-color);
   font-size: var(--app-font-xs);
   font-weight: 760;
 }
@@ -538,29 +539,38 @@
 .app-status-success,
 .app-status-accepted,
 .app-status-running {
+  --app-status-color: var(--app-success);
   background: var(--app-success-soft);
-  color: var(--app-success);
+  color: var(--app-status-color);
 }
 
 .app-status-warning,
 .app-status-waiting,
 .app-status-partial {
+  --app-status-color: var(--app-warning);
   background: var(--app-warning-soft);
-  color: var(--app-warning);
+  color: var(--app-status-color);
 }
 
 .app-status-danger,
 .app-status-error,
 .app-status-rejected {
+  --app-status-color: var(--app-danger);
   background: var(--app-danger-soft);
-  color: var(--app-danger);
+  color: var(--app-status-color);
 }
 
 .app-status-info,
 .app-status-judging,
 .app-status-compiling {
+  --app-status-color: var(--app-accent);
   background: var(--app-accent-soft);
-  color: var(--app-accent);
+  color: var(--app-status-color);
+}
+
+.app-v2 a.app-status,
+.app-v2 a.app-status:hover {
+  color: var(--app-status-color);
 }
 
 .app-verdict-accepted { --app-verdict-color: var(--app-success); --app-verdict-soft: var(--app-success-soft); }

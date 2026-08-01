@@ -20,7 +20,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.web
-    image: nwpuoj-web:v2.0.0
+    image: nwpuoj-web:v2.0.1
     restart: unless-stopped
     depends_on:
       judge-control: { condition: service_healthy }

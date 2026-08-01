@@ -189,7 +189,9 @@ async function createProblemAggregate(manager, Problem, content, actorId, option
 async function updateProblemAggregate(manager, problem, content, actorId) {
   const states = await manager.query('SELECT * FROM problem_v2_state WHERE problem_id=? FOR UPDATE', [problem.id]);
   const state = states[0] || null;
-  const published = state ? state.lifecycle_status === 'published' : !!problem.is_public;
+  // Visibility is the public-projection boundary. A pending draft must never
+  // write through merely because lifecycle state was moved back to draft.
+  const published = !!problem.is_public;
   if (!published) {
     const assignments = EDITABLE_FIELDS.map(field => `${field}=?`).join(',');
     await manager.query(
@@ -267,6 +269,88 @@ async function publishProblemAggregate(manager, problem, versionId, actorId, sna
   return { version, snapshot_id: finalSnapshotId, content };
 }
 
+async function refreshTestdataSnapshotAggregate(manager, problem, actorId, requestedSnapshotId, testdataSnapshot) {
+  if (!testdataSnapshot || !testdataSnapshot.hash || !testdataSnapshot.path) {
+    const error = new Error('A complete testdata snapshot is required.');
+    error.code = 'TESTDATA_SNAPSHOT_INVALID';
+    throw error;
+  }
+
+  const states = await manager.query('SELECT * FROM problem_v2_state WHERE problem_id=? FOR UPDATE', [problem.id]);
+  const state = states[0] || null;
+  if (!state || !state.current_snapshot_id) {
+    const error = new Error('The problem does not have a current snapshot.');
+    error.code = 'PROBLEM_SNAPSHOT_REQUIRED';
+    throw error;
+  }
+
+  const currentRows = await manager.query('SELECT * FROM problem_v2_snapshot WHERE id=? AND problem_id=? LIMIT 1', [state.current_snapshot_id, problem.id]);
+  if (!currentRows.length) {
+    const error = new Error('The current problem snapshot is missing.');
+    error.code = 'PROBLEM_SNAPSHOT_REQUIRED';
+    throw error;
+  }
+
+  const current = currentRows[0];
+  let base = current;
+  // A public problem may have a newer statement draft. Testdata activation must
+  // retain the published statement until that draft is explicitly published.
+  if (!problem.is_public && state.current_version_id && String(state.current_version_id) !== String(current.version_id)) {
+    const versions = await manager.query('SELECT * FROM problem_v2_version WHERE id=? AND problem_id=? LIMIT 1', [state.current_version_id, problem.id]);
+    if (!versions.length) {
+      const error = new Error('The current problem version is missing.');
+      error.code = 'PROBLEM_VERSION_REQUIRED';
+      throw error;
+    }
+    const version = versions[0];
+    const content = parseStoredContent(version.content_json);
+    const providerConfig = content.vjudge_config == null ? problem.vjudge_config || null : content.vjudge_config;
+    content.vjudge_config = providerConfig;
+    base = {
+      version_id: version.id,
+      content_hash: version.content_hash,
+      content_json: serializeContent(content),
+      provider_config: providerConfig
+    };
+  }
+
+  if (
+    String(current.content_hash) === String(base.content_hash) &&
+    String(current.testdata_hash || '') === String(testdataSnapshot.hash)
+  ) {
+    return { snapshot_id: String(current.id), created: false, changed: false };
+  }
+
+  let snapshots = await manager.query(
+    'SELECT id FROM problem_v2_snapshot WHERE problem_id=? AND content_hash=? AND testdata_hash <=> ? LIMIT 1',
+    [problem.id, base.content_hash, testdataSnapshot.hash]
+  );
+  let created = false;
+  if (!snapshots.length) {
+    try {
+      await manager.query(
+        'INSERT INTO problem_v2_snapshot (id,problem_id,version_id,content_hash,content_json,provider_config,testdata_hash,testdata_path,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(3))',
+        [requestedSnapshotId, problem.id, base.version_id, base.content_hash, base.content_json, base.provider_config || null, testdataSnapshot.hash, testdataSnapshot.path, actorId]
+      );
+      snapshots = [{ id: requestedSnapshotId }];
+      created = true;
+    } catch (insertError) {
+      snapshots = await manager.query(
+        'SELECT id FROM problem_v2_snapshot WHERE problem_id=? AND content_hash=? AND testdata_hash <=> ? LIMIT 1',
+        [problem.id, base.content_hash, testdataSnapshot.hash]
+      );
+      if (!snapshots.length) throw insertError;
+    }
+  }
+
+  const snapshotId = String(snapshots[0].id);
+  await manager.query(
+    'UPDATE problem_v2_state SET current_snapshot_id=?,updated_at=UTC_TIMESTAMP(3) WHERE problem_id=?',
+    [snapshotId, problem.id]
+  );
+  return { snapshot_id: snapshotId, created, changed: snapshotId !== String(current.id) };
+}
+
 async function archiveProblemAggregate(manager, problemId) {
   await manager.query(
     `INSERT INTO problem_v2_state (problem_id,lifecycle_status,current_version_id,current_snapshot_id,archived_at,updated_at)
@@ -301,6 +385,7 @@ module.exports = {
   problemContent,
   problemResource,
   publishProblemAggregate,
+  refreshTestdataSnapshotAggregate,
   reviewDecisionAllowed,
   reviewRequestAllowed,
   serializeContent,

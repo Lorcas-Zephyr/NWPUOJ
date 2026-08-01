@@ -86,6 +86,17 @@ async function ensureProblemWorkflowSchema() {
 function api() { return syzoj.utils.apiV2; }
 async function can(user, capability, problem) { return !!(user && await syzoj.utils.authorizationV2.authorize(user, capability, problem ? { ownerId: problem.user_id, scope: `problem:${problem.id}` } : null, problem ? { scope: `problem:${problem.id}` } : {})); }
 function jobPayload(row) { const input = row.input_json ? JSON.parse(row.input_json) : {}; const result = row.result_json ? JSON.parse(row.result_json) : null; return { id: row.id, problem_id: row.kind === 'bulk_archive' ? null : Number(row.problem_id), kind: row.kind === 'bulk_archive' ? 'problem_bulk_action' : row.kind, subtype: row.kind === 'bulk_archive' ? input.action : row.kind, state: row.state, progress: Number(row.progress), impact: row.kind === 'bulk_archive' ? { problem_ids: input.problem_ids || [] } : { problem_id: Number(row.problem_id) }, result, error: row.error_json ? JSON.parse(row.error_json) : null, created_at: api().databaseIso(row.created_at), updated_at: api().databaseIso(row.updated_at) }; }
+function testdataSummary(parsed) {
+  const subtasks = Array.isArray(parsed)
+    ? parsed
+    : parsed && Array.isArray(parsed.testcases) ? parsed.testcases : [];
+  return {
+    valid: !!parsed && !parsed.error,
+    testcases: subtasks.reduce((count, subtask) => count + (Array.isArray(subtask && subtask.cases) ? subtask.cases.length : 0), 0),
+    special_judge: !!(parsed && parsed.spj),
+    error: parsed && parsed.error ? String(parsed.error) : null
+  };
+}
 async function contentTransaction(work) { await api().ensureFoundationSchema(); return TypeORM.getConnection().transaction(work); }
 function contentFailure(res, error) { const expected = Number.isInteger(error.statusCode); return api().fail(res, expected ? error.statusCode : 500, expected ? error.code : 'CONTENT_WRITE_FAILED', expected ? error.message : 'The content operation could not be completed.', expected ? error.fields || {} : {}); }
 function auditRecorder(req) { return (event, manager) => syzoj.utils.authorizationV2.recordAudit(req, event, manager); }
@@ -188,7 +199,7 @@ async function runValidationJob(jobId, problem) {
       await connection.query("UPDATE problem_v2_job SET state='cancelled',updated_at=UTC_TIMESTAMP(3) WHERE id=?", [jobId]);
       return;
     }
-    const result = parsed && parsed.error ? { valid: false, error: String(parsed.error) } : { valid: true, testcases: parsed && parsed.testcases ? parsed.testcases.length : null, special_judge: !!(parsed && parsed.spj) };
+    const result = testdataSummary(parsed);
     await connection.query("UPDATE problem_v2_job SET state='completed',progress=100,result_json=?,updated_at=UTC_TIMESTAMP(3) WHERE id=?", [JSON.stringify(result), jobId]);
     await api().appendEvent({ stream: `problem-job:${jobId}`, type: 'problem.testdata.validated', aggregateId: jobId, payload: result });
   } catch (error) {
@@ -202,7 +213,7 @@ async function runUploadJob(jobId, problem) {
   let archive = null;
   let staging = null;
   try {
-    const rows = await connection.query('SELECT cancel_requested,input_json FROM problem_v2_job WHERE id=? LIMIT 1', [jobId]);
+    const rows = await connection.query('SELECT cancel_requested,input_json,actor_id FROM problem_v2_job WHERE id=? LIMIT 1', [jobId]);
     if (!rows.length || rows[0].cancel_requested) return connection.query("UPDATE problem_v2_job SET state='cancelled',updated_at=UTC_TIMESTAMP(3) WHERE id=?", [jobId]);
     const input = rows[0].input_json ? JSON.parse(rows[0].input_json) : {};
     if (!/^[0-9a-f-]{36}\.zip$/.test(String(input.archive || ''))) throw Object.assign(new Error('Upload payload is invalid.'), { code: 'TESTDATA_UPLOAD_INVALID', statusCode: 422 });
@@ -218,7 +229,9 @@ async function runUploadJob(jobId, problem) {
     await connection.query("UPDATE problem_v2_job SET progress=70,updated_at=UTC_TIMESTAMP(3) WHERE id=?", [jobId]);
     await testdataUpload.replaceDirectory(problem.getTestdataPath(), staging, path.join(testdataUploadRoot(), `${jobId}.backup`));
     await fs.move(archive, problem.getTestdataArchivePath(), { overwrite: true }); archive = null;
-    const result = { valid: true, testcases: parsed.testcases ? parsed.testcases.length : null, special_judge: !!parsed.spj };
+    const result = testdataSummary(parsed);
+    const snapshot = await syzoj.utils.problemV2.refreshCurrentTestdataSnapshot(problem, Number(rows[0].actor_id));
+    result.snapshot_id = snapshot.snapshot_id;
     await connection.query("UPDATE problem_v2_job SET state='completed',progress=100,result_json=?,updated_at=UTC_TIMESTAMP(3) WHERE id=?", [JSON.stringify(result), jobId]);
     await api().appendEvent({ stream: `problem-job:${jobId}`, type: 'problem.testdata.uploaded', aggregateId: jobId, payload: result });
   } catch (error) {
@@ -337,6 +350,15 @@ app.post('/api/v2/problems/:id/testdata/files', requireTestdataWriter, (req, res
       await problem.uploadTestdataSingleFile(filename, file.path, file.size, unrestricted);
       uploaded.push(filename);
     }
+    let summary;
+    try {
+      summary = testdataSummary(await syzoj.utils.parseTestdata(problem.getTestdataPath(), problem.type === 'submit-answer'));
+    } catch (error) {
+      summary = { valid: false, testcases: 0, special_judge: false, error: error.message || 'Testdata parsing failed.' };
+    }
+    const snapshot = summary.valid
+      ? await syzoj.utils.problemV2.refreshCurrentTestdataSnapshot(problem, user.id)
+      : null;
     const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, {
       action: 'problem:testdata.files.upload',
       resourceType: 'problem',
@@ -351,7 +373,7 @@ app.post('/api/v2/problems/:id/testdata/files', requireTestdataWriter, (req, res
       actor: user,
       payload: { filenames: uploaded, audit_event_id: auditEventId }
     });
-    return api().send(res, { problem_id: Number(problem.id), filenames: uploaded, audit_event_id: auditEventId, event_id: String(event.id) }, 201);
+    return api().send(res, { problem_id: Number(problem.id), filenames: uploaded, testdata: summary, snapshot_id: snapshot && snapshot.snapshot_id || null, audit_event_id: auditEventId, event_id: String(event.id) }, 201);
   } catch (error) {
     return api().fail(res, error.statusCode || 500, error.code || 'CONTENT_WRITE_FAILED', error.message || 'Testdata upload failed.', error.fields || {});
   } finally {
@@ -405,6 +427,15 @@ app.delete('/api/v2/problems/:id/testdata/files/:filename', requireTestdataWrite
       return api().fail(res, 404, 'TESTDATA_FILE_NOT_FOUND', 'Testdata file was not found.');
     }
     await problem.deleteTestdataSingleFile(filename);
+    let summary;
+    try {
+      summary = testdataSummary(await syzoj.utils.parseTestdata(problem.getTestdataPath(), problem.type === 'submit-answer'));
+    } catch (error) {
+      summary = { valid: false, testcases: 0, special_judge: false, error: error.message || 'Testdata parsing failed.' };
+    }
+    const snapshot = summary.valid
+      ? await syzoj.utils.problemV2.refreshCurrentTestdataSnapshot(problem, user.id)
+      : null;
     const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, {
       action: 'problem:testdata.file.delete',
       resourceType: 'problem_testdata_file',
@@ -424,6 +455,8 @@ app.delete('/api/v2/problems/:id/testdata/files/:filename', requireTestdataWrite
       problem_id: Number(problem.id),
       filename,
       deleted: true,
+      testdata: summary,
+      snapshot_id: snapshot && snapshot.snapshot_id || null,
       audit_event_id: auditEventId,
       event_id: String(event.id)
     });

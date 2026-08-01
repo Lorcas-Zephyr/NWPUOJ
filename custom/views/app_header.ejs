@@ -2,7 +2,7 @@
 <%
 const appActive = typeof active === 'string' ? active : '';
 const appPath = req && req.path ? req.path : '/';
-const appVersion = syzoj.config.nwpuoj_version || '2.0.0';
+const appVersion = syzoj.config.nwpuoj_version || '2.0.1';
 const isProblemsActive = appActive.startsWith('problem');
 const isContestsActive = appActive.startsWith('contest');
 const isSubmissionsActive = appActive.startsWith('submission');
@@ -84,7 +84,7 @@ if (syzoj.userTagsEnabled !== false && syzoj.userTags) {
   <link rel="apple-touch-icon" href="/self/favicon.png?v=<%= encodeURIComponent(appVersion) %>">
   <link rel="stylesheet" href="<%- selfLib('syntect-tomorrow.css') %>?20220512">
   <link rel="stylesheet" href="/self/app-shell.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20260801-9">
-  <link rel="stylesheet" href="/self/app-shared.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20260731-5">
+  <link rel="stylesheet" href="/self/app-shared.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20260801-1">
   <link rel="stylesheet" href="/self/app-features.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20260801-18">
   <link rel="stylesheet" href="/self/username_tiers.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20260731-3">
   <!-- Load before Monaco installs its AMD loader on submission pages. -->

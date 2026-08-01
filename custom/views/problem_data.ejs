@@ -12,7 +12,7 @@ function appFileIcon(filename) {
   <div class="app-problem-manage-layout"><aside class="app-problem-testcase-panel"><div class="app-section-header"><div><h2 class="app-section-title">测试点概况</h2><p class="app-section-description">当前数据包解析结果</p></div></div><% include problem_testcases %></aside>
   <section class="app-problem-file-panel"><div class="app-section-header"><div><h2 class="app-section-title">文件列表</h2><p class="app-section-description"><%= testdata && testdata.files ? testdata.files.length + ' 个文件' : '无数据' %></p></div></div>
   <% if (testdata) { %><div class="app-admin-file-list"><% if (testdata.zip) { %><div><i data-lucide="file-archive"></i><span><strong>完整数据包</strong><small><%= testdata.zip.size ? syzoj.utils.formatSize(testdata.zip.size) : '大小未知' %></small></span><a class="app-icon-button" href="<%= syzoj.utils.makeUrl(['problem', problem.id, 'testdata', 'download']) %>" title="下载完整数据包" aria-label="下载完整数据包"><i data-lucide="download"></i></a></div><% } %><% if (testdata.files) for (const file of testdata.files) { %><div><i data-lucide="<%= appFileIcon(file.filename) %>"></i><span><strong><%= file.filename %></strong><small><%= syzoj.utils.formatSize(file.size) %></small></span><a class="app-icon-button" href="<%= syzoj.utils.makeUrl(['problem', problem.id, 'testdata', 'download', file.filename]) %>" title="下载 <%= file.filename %>" aria-label="下载 <%= file.filename %>"><i data-lucide="download"></i></a><% if (problem.allowedEdit) { %><button class="app-icon-button app-icon-danger" type="button" data-testdata-v2-delete="<%= file.filename %>" data-confirm="确认删除文件“<%= file.filename %>”吗？" title="删除 <%= file.filename %>" aria-label="删除 <%= file.filename %>"><i data-lucide="trash"></i></button><% } %></div><% } %></div><% } else { %><div class="app-empty app-empty-compact"><div class="app-empty-inner"><i data-lucide="database"></i><strong>无测试数据</strong></div></div><% } %>
-  <% if (problem.allowedEdit) { %><form class="app-form app-problem-data-upload" id="form_upload" method="post" data-testdata-files-v2 enctype="multipart/form-data" data-existing-files="<%= JSON.stringify(testdata && testdata.files ? testdata.files.map(function (file) { return file.filename; }) : []) %>"><label class="app-file-field"><input type="file" name="file" multiple required><span><i data-lucide="files"></i><strong>选择文件</strong><small>可一次上传多个文件</small></span></label><button class="app-button app-button-primary" type="submit"><i data-lucide="upload"></i>上传文件</button></form><% } %>
+  <% if (problem.allowedEdit) { %><form class="app-form app-problem-data-upload" id="form_upload" method="post" data-testdata-files-v2 enctype="multipart/form-data" data-existing-files="<%= JSON.stringify(testdata && testdata.files ? testdata.files.map(function (file) { return file.filename; }) : []) %>"><label class="app-file-field"><input type="file" name="file" multiple required><span><i data-lucide="files"></i><strong>选择文件</strong><small>可一次上传多个文件</small></span></label><button class="app-button app-button-primary" type="submit"><i data-lucide="upload"></i><span data-testdata-upload-label>上传文件</span></button><span class="app-form-status" data-testdata-upload-status role="status" aria-live="polite"></span></form><% } %>
   </section></div>
 </main>
 <script>
@@ -40,7 +40,12 @@ function appFileIcon(filename) {
       try { body = await response.json(); } catch (error) {}
       if (!response.ok) throw new Error(body && body.error && body.error.message || '删除测试数据文件失败。');
       if (window.NWPUOJApp) window.NWPUOJApp.showToast('测试数据文件已删除', 'success');
-      window.setTimeout(function () { window.location.reload(); }, 250);
+      window.setTimeout(function () {
+        var next = new URL(window.location.href);
+        next.searchParams.set('testdata_updated', '1');
+        next.searchParams.set('_refresh', String(Date.now()));
+        window.location.replace(next.pathname + next.search);
+      }, 250);
     } catch (error) {
       if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '删除测试数据文件失败。', 'danger');
       else window.alert(error.message || '删除测试数据文件失败。');
@@ -50,12 +55,20 @@ function appFileIcon(filename) {
   if (!form) return;
   form.addEventListener('submit', async function (event) {
     event.preventDefault();
-    var existing = JSON.parse(form.getAttribute('data-existing-files') || '[]');
+    var button = form.querySelector('[type="submit"]');
+    var label = form.querySelector('[data-testdata-upload-label]');
+    var status = form.querySelector('[data-testdata-upload-status]');
     var files = Array.prototype.slice.call(form.querySelector('[type="file"]').files);
+    if (!files.length) return;
+    var existing = [];
+    try { existing = JSON.parse(form.getAttribute('data-existing-files') || '[]'); } catch (error) {}
     var replacements = files.map(function (file) { return file.name; }).filter(function (name) { return existing.includes(name); });
     if (replacements.length && !window.confirm('以下文件将被替换：\n' + replacements.join('\n') + '\n\n确定继续吗？')) return;
-    var button = form.querySelector('[type="submit"]');
+    form.setAttribute('aria-busy', 'true');
     button.disabled = true;
+    button.classList.add('is-loading');
+    label.textContent = '正在上传…';
+    status.textContent = files.length + ' 个文件正在写入';
     try {
       var payload = new FormData();
       files.forEach(function (file) { payload.append('files', file, file.name); });
@@ -73,11 +86,23 @@ function appFileIcon(filename) {
       try { body = await response.json(); } catch (error) {}
       if (!response.ok) throw new Error(body && body.error && body.error.message || '上传测试数据文件失败。');
       if (window.NWPUOJApp) window.NWPUOJApp.showToast('测试数据文件已上传', 'success');
-      window.location.reload();
+      var summary = body && body.data && body.data.testdata;
+      status.textContent = summary && summary.valid
+        ? '已识别 ' + Number(summary.testcases || 0) + ' 个测试点，正在刷新…'
+        : '文件已上传，正在刷新解析结果…';
+      var next = new URL(window.location.href);
+      next.searchParams.set('testdata_updated', '1');
+      next.searchParams.set('_refresh', String(Date.now()));
+      window.location.replace(next.pathname + next.search);
     } catch (error) {
-      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '上传测试数据文件失败。', 'danger');
-      else window.alert(error.message || '上传测试数据文件失败。');
+      var message = error.message || '上传测试数据文件失败。';
+      status.textContent = message;
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(message, 'danger');
+      else window.alert(message);
       button.disabled = false;
+      button.classList.remove('is-loading');
+      label.textContent = '上传文件';
+      form.removeAttribute('aria-busy');
     }
   });
 })();

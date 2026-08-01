@@ -101,11 +101,34 @@ test('idempotency decisions distinguish reserve, conflict, pending, and replay',
 
 test('request body sizing and fixed-window limits are deterministic', () => {
   assert.equal(api.bodySize({ source: 'abc' }), 16);
+  const mib = 1024 * 1024;
+  const limits = {
+    defaultBytes: mib,
+    multipartOverheadBytes: mib,
+    testdataArchiveBytes: 200 * mib,
+    testdataFilesBytes: 20 * mib,
+    additionalFileBytes: 30 * mib
+  };
+  assert.equal(api.requestBodyLimit('/api/v2/problems/7/judge-configuration', 'application/json', limits), mib);
+  assert.equal(api.requestBodyLimit('/api/v2/unknown/upload', 'multipart/form-data; boundary=x', limits), mib);
+  assert.equal(api.requestBodyLimit('/api/v2/problems/7/testdata/upload', 'multipart/form-data; boundary=x', limits), 201 * mib);
+  assert.equal(api.requestBodyLimit('/api/v2/problems/7/testdata/files?replace=1', 'multipart/form-data; boundary=x', limits), 21 * mib);
+  assert.equal(api.requestBodyLimit('/api/v2/problems/7/additional-file', 'multipart/form-data; boundary=x', limits), 31 * mib);
   const buckets = new Map();
   assert.deepEqual(api.consumeFixedWindow(buckets, 'member:write', 1000, 60000, 2), { allowed: true, remaining: 1, resetAt: 61000 });
   assert.equal(api.consumeFixedWindow(buckets, 'member:write', 1001, 60000, 2).allowed, true);
   assert.equal(api.consumeFixedWindow(buckets, 'member:write', 1002, 60000, 2).allowed, false);
   assert.equal(api.consumeFixedWindow(buckets, 'member:write', 61000, 60000, 2).allowed, true);
+});
+
+test('gateway keeps the JSON limit while delegating known multipart uploads to route limits', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_foundation.js'), 'utf8');
+  assert.match(source, /apiHelpers\.requestBodyLimit\(req\.originalUrl, req\.get\('content-type'\)/);
+  assert.match(source, /testdataArchiveBytes: 200 \* 1024 \* 1024/);
+  assert.match(source, /testdataFilesBytes: Number\(syzoj\.config\.limit/);
+  assert.match(source, /additionalFileBytes: Number\(syzoj\.config\.limit/);
+  assert.match(source, /contentLength > bodyLimit \|\| bodyBytes > bodyLimit/);
+  assert.match(source, /maximum_bytes: bodyLimit/);
 });
 
 test('anonymous write allowlist contains only public identity and markdown operations', () => {

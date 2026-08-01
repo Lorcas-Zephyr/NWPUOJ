@@ -58,6 +58,24 @@ function bodySize(body) {
   }
 }
 
+function requestBodyLimit(pathValue, contentType, options = {}) {
+  const defaultBytes = Number(options.defaultBytes || 1024 * 1024);
+  if (!/^multipart\/form-data(?:;|$)/i.test(String(contentType || ''))) return defaultBytes;
+
+  const path = String(pathValue || '').split('?')[0].replace(/\/+$/, '');
+  const overheadBytes = Number(options.multipartOverheadBytes || 1024 * 1024);
+  let payloadBytes = null;
+  if (/^\/api\/v2\/problems\/\d+\/testdata\/upload$/.test(path)) {
+    payloadBytes = Number(options.testdataArchiveBytes || 200 * 1024 * 1024);
+  } else if (/^\/api\/v2\/problems\/\d+\/testdata\/files$/.test(path)) {
+    payloadBytes = Number(options.testdataFilesBytes || 200 * 1024 * 1024);
+  } else if (/^\/api\/v2\/problems\/\d+\/additional-file$/.test(path)) {
+    payloadBytes = Number(options.additionalFileBytes || 200 * 1024 * 1024);
+  }
+  if (!Number.isSafeInteger(payloadBytes) || payloadBytes < 1) return defaultBytes;
+  return payloadBytes + Math.max(0, overheadBytes);
+}
+
 function consumeFixedWindow(store, key, now, windowMs, limit) {
   let bucket = store.get(key);
   if (!bucket || bucket.resetAt <= now) {
@@ -235,6 +253,7 @@ module.exports = {
   requestHash,
   classifyIdempotency,
   bodySize,
+  requestBodyLimit,
   consumeFixedWindow,
   etagFor,
   normalizeEtag,

@@ -39,3 +39,29 @@ test('single-file deletion rejects path traversal and emits audited domain event
   assert.match(source, /type: 'problem\.testdata\.file\.deleted'/);
   assert.match(source, /TESTDATA_FILE_NOT_FOUND/);
 });
+
+test('testdata upload pages wait for durable data before refreshing their testcase summary', () => {
+  const workflow = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_problem_workflows.js'), 'utf8');
+  const manage = fs.readFileSync(path.join(__dirname, '../views/problem_manage.ejs'), 'utf8');
+  const data = fs.readFileSync(path.join(__dirname, '../views/problem_data.ejs'), 'utf8');
+
+  assert.match(workflow, /function testdataSummary\(parsed\)/);
+  assert.match(workflow, /testcases:\s*subtasks\.reduce/);
+  assert.match(workflow, /summary = \{ valid: false, testcases: 0, special_judge: false, error:/);
+  assert.match(workflow, /filenames: uploaded, testdata: summary/);
+  assert.match(workflow, /refreshCurrentTestdataSnapshot\(problem, Number\(rows\[0\]\.actor_id\)\)/);
+  assert.match(workflow, /refreshCurrentTestdataSnapshot\(problem, user\.id\)/);
+  assert.match(workflow, /result\.snapshot_id = snapshot\.snapshot_id/);
+  assert.match(workflow, /snapshot_id: snapshot && snapshot\.snapshot_id \|\| null/);
+  assert.match(workflow, /limits: \{ fileSize: 200 \* 1024 \* 1024, files: 1 \}/);
+  assert.match(manage, /async function waitForTestdataJob\(jobId\)/);
+  assert.match(manage, /\/api\/v2\/problem-jobs\/' \+ encodeURIComponent\(jobId\)/);
+  assert.match(manage, /if \(job\.state === 'completed'\) return job/);
+  assert.match(manage, /await waitForTestdataJob\(testdataJob\)/);
+  assert.match(manage, /window\.location\.replace\(next\.pathname \+ next\.search\)/);
+  assert.doesNotMatch(manage, /\/admin\/jobs\?job=/);
+  assert.match(data, /data-testdata-upload-status/);
+  assert.match(data, /body\.data\.testdata/);
+  assert.match(data, /window\.location\.replace\(next\.pathname \+ next\.search\)/);
+  assert.doesNotMatch(data, /window\.location\.reload\(\)/);
+});

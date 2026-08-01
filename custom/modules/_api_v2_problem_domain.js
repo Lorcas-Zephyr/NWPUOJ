@@ -12,6 +12,7 @@ const {
   problemContent,
   problemResource,
   publishProblemAggregate,
+  refreshTestdataSnapshotAggregate,
   reviewDecisionAllowed,
   reviewRequestAllowed,
   syncSourceProjection,
@@ -286,13 +287,36 @@ async function ensureCurrentSnapshot(problem, actorId) {
   });
 }
 
+async function refreshCurrentTestdataSnapshot(problem, actorId) {
+  await ensureCurrentSnapshot(problem, actorId);
+  const requestedSnapshotId = `ps_${crypto.randomUUID().replace(/-/g, '')}`;
+  let testdata;
+  let refreshed;
+  try {
+    testdata = await captureTestdataSnapshot(problem, requestedSnapshotId);
+    refreshed = await TypeORM.getConnection().transaction(manager =>
+      refreshTestdataSnapshotAggregate(manager, problem, actorId, requestedSnapshotId, testdata)
+    );
+    if (refreshed.snapshot_id !== requestedSnapshotId && testdata.created) {
+      await testdataSnapshots.remove(syzoj.config.upload_dir, requestedSnapshotId);
+    }
+    return refreshed;
+  } catch (error) {
+    if (testdata && testdata.created) {
+      await testdataSnapshots.remove(syzoj.config.upload_dir, requestedSnapshotId).catch(() => {});
+    }
+    throw error;
+  }
+}
+
 syzoj.utils.problemV2 = {
   ensureSchema: ensureProblemSchema,
   ensureCurrentSnapshot,
   ensureSnapshotTestdata,
   loadState,
   serializeProblem,
-  problemResource
+  problemResource,
+  refreshCurrentTestdataSnapshot
 };
 
 const requireCapability = (capability, loader) => syzoj.utils.authorizationV2.requireScopedCapability(capability, loader);

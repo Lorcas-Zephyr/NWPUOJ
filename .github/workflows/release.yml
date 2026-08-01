@@ -1,0 +1,42 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: custom/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+        working-directory: custom
+      - name: Run test suite
+        run: npm test
+        working-directory: custom
+      - name: Prepare release notes
+        run: |
+          release_version="${GITHUB_REF_NAME#v}"
+          awk -v heading="## ${release_version} " '
+            index($0, heading) == 1 { found = 1 }
+            found && /^## [0-9]/ && index($0, heading) != 1 { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          test -s release-notes.md
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --verify-tag --title "NWPUOJ $GITHUB_REF_NAME" --notes-file release-notes.md

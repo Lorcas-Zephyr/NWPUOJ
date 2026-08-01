@@ -15,7 +15,7 @@ const appStatementMarkdown = appUsesSplitStatement
 %>
 <main class="app-page app-problem-editor-page">
   <header class="app-page-header"><div class="app-page-heading"><a class="app-back-link" href="<%= problem.id ? syzoj.utils.makeUrl(['problem', problem.id]) : syzoj.utils.makeUrl(['problems']) %>"><i data-lucide="arrow-left"></i><%= problem.id ? '返回题目' : '返回题库' %></a><span class="app-kicker">PROBLEM WORKSPACE</span><h1 class="app-page-title"><%= problem.new ? '新建题目' : '编辑题目' %></h1><p class="app-page-description">使用一份 Markdown 编写完整题面。</p></div></header>
-  <form class="app-form" method="post" data-problem-editor-v2 data-problem-id="<%= problem.id || 0 %>">
+  <form class="app-form" method="post" data-problem-editor-v2 data-problem-id="<%= problem.id || 0 %>" data-can-publish="<%= problem.allowedManage ? '1' : '0' %>">
     <div class="app-editor-bar"><div class="app-segmented" role="tablist"><button class="is-active" type="button" role="tab" aria-selected="true" data-problem-editor-tab="edit"><i data-lucide="square-pen"></i>编辑</button><button type="button" role="tab" aria-selected="false" data-problem-editor-tab="preview"><i data-lucide="eye"></i>预览</button></div></div>
     <div class="app-problem-editor-fields" data-problem-editor-panel="edit">
       <div class="app-form-grid"><% if (problem.allowedManage) { %><label class="app-field"><span class="app-label"><%= problem.new ? '题目编号' : '修改题目编号' %></span><input class="app-input" type="text" name="id" value="<%= problem.id || '' %>" placeholder="<%= problem.new ? '留空则自动延伸' : '留空则不修改' %>"></label><% } %><label class="app-field <%= problem.allowedManage ? '' : 'app-field-full' %>"><span class="app-label">题目名称</span><input class="app-input" type="text" id="title" name="title" value="<%= problem.title %>" required></label></div>
@@ -24,13 +24,59 @@ const appStatementMarkdown = appUsesSplitStatement
       <section class="app-settings-section app-problem-editor-meta"><div class="app-settings-copy"><span class="app-kicker">METADATA</span><h2>标签与署名</h2><p>搜索并添加标签；匿名上传不会在题目页展示上传者。</p></div><div class="app-settings-fields"><div class="app-entity-picker" data-tag-picker><div class="app-entity-selected" data-tag-selected><% for (const tag of problem.tags) { %><span data-tag-id="<%= tag.id %>"><strong><%= tag.name %></strong><button type="button" aria-label="移除 <%= tag.name %>"><i data-lucide="x"></i></button><input type="hidden" name="tags" value="<%= tag.id %>"></span><% } %></div><span class="app-input-wrap"><i data-lucide="search"></i><input class="app-input" type="search" data-tag-search placeholder="搜索标签"></span><div class="app-entity-results" data-tag-results hidden></div></div><div class="app-setting-row"><span><strong>匿名上传</strong><small>隐藏题目页面中的上传者用户名。</small></span><input class="app-switch" type="checkbox" name="is_anonymous"<%= problem.is_anonymous ? ' checked' : '' %> aria-label="匿名上传"></div></div></section>
     </div>
     <div class="app-problem-preview app-markdown" data-problem-editor-panel="preview" hidden><h1 data-preview-title></h1><div data-preview-output="statement"></div></div>
-    <% if (problem.allowedEdit) { %><div class="app-form-actions"><button class="app-button app-button-primary" id="submit_button" type="submit"><i data-lucide="save"></i>保存题目</button></div><% } %>
+    <% if (problem.allowedEdit) { %><div class="app-form-actions"><span class="app-form-status" data-problem-save-status role="status" aria-live="polite"></span><button class="app-button app-button-primary" id="submit_button" type="submit"><i data-lucide="save"></i><span data-problem-save-label>保存题目</span></button></div><% } %>
   </form>
 </main>
 <script>
 (function () {
   var form = document.querySelector('[data-problem-editor-v2]');
   if (!form) return;
+  var problemId = Number(form.dataset.problemId || 0);
+  var canPublish = form.dataset.canPublish === '1';
+  var saveButton = form.querySelector('button[type="submit"]');
+  var saveLabel = form.querySelector('[data-problem-save-label]');
+  var saveStatus = form.querySelector('[data-problem-save-status]');
+  var contentFields = [form.elements.title, form.elements.description].filter(Boolean);
+  var editorReady = Promise.resolve();
+  function setSaveState(message, busy) {
+    if (saveStatus) saveStatus.textContent = message || '';
+    if (saveButton) saveButton.disabled = !!busy;
+    form.setAttribute('aria-busy', busy ? 'true' : 'false');
+  }
+  async function readJson(response) {
+    try { return await response.json(); } catch (error) { return null; }
+  }
+  function responseError(body, fallback) {
+    return new Error(body && body.error && body.error.message || fallback);
+  }
+  if (problemId) {
+    setSaveState('正在载入最新题面...', true);
+    contentFields.forEach(function (field) { field.readOnly = true; });
+    editorReady = fetch('/api/v2/problems/' + encodeURIComponent(problemId), { credentials: 'same-origin', cache: 'no-store' })
+      .then(async function (response) {
+        var body = await readJson(response);
+        if (!response.ok) throw responseError(body, '题目读取失败。');
+        var current = body && body.data;
+        if (!current || !current.current_version_id) return;
+        var versionResponse = await fetch('/api/v2/problems/' + encodeURIComponent(problemId) + '/versions/' + encodeURIComponent(current.current_version_id), { credentials: 'same-origin', cache: 'no-store' });
+        var versionBody = await readJson(versionResponse);
+        if (!versionResponse.ok) throw responseError(versionBody, '最新题面版本读取失败。');
+        var content = versionBody && versionBody.data && versionBody.data.content;
+        if (!content) return;
+        form.elements.title.value = content.title || '';
+        form.elements.description.value = content.description || '';
+      })
+      .then(function () {
+        contentFields.forEach(function (field) { field.readOnly = false; });
+        setSaveState('', false);
+        return true;
+      })
+      .catch(function (error) {
+        setSaveState('最新题面载入失败，请刷新后重试。', true);
+        if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '最新题面载入失败。', 'danger');
+        return false;
+      });
+  }
   var tabs = form.querySelectorAll('[data-problem-editor-tab]');
   var panels = form.querySelectorAll('[data-problem-editor-panel]');
   function renderMarkdown(source, output) {
@@ -54,10 +100,11 @@ const appStatementMarkdown = appUsesSplitStatement
   });
   form.addEventListener('submit', async function (event) {
     event.preventDefault();
-    var button = form.querySelector('button[type="submit"]');
-    if (button) button.disabled = true;
+    if (await editorReady === false) return;
+    setSaveState('正在保存...', true);
+    if (saveLabel) saveLabel.textContent = '正在保存';
     try {
-      var id = Number(form.dataset.problemId || 0);
+      var id = problemId;
       var tagIds = Array.prototype.map.call(form.querySelectorAll('input[name="tags"]'), function (input) { return Number(input.value); });
       var payload = {
         id: id ? undefined : (form.elements.id && form.elements.id.value || null),
@@ -69,19 +116,47 @@ const appStatementMarkdown = appUsesSplitStatement
       };
       var url = id ? '/api/v2/problems/' + encodeURIComponent(id) : '/api/v2/problems';
       var headers = { 'Content-Type': 'application/json' };
+      var wasPublic = false;
       if (id) {
         var current = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
-        if (!current.ok) throw new Error('题目读取失败。');
+        var currentBody = await readJson(current);
+        if (!current.ok) throw responseError(currentBody, '题目读取失败。');
         headers['If-Match'] = current.headers.get('ETag') || '';
+        wasPublic = !!(currentBody && currentBody.data && currentBody.data.visibility === 'public');
       }
       var response = await fetch(url, { method: id ? 'PATCH' : 'POST', credentials: 'same-origin', headers: headers, body: JSON.stringify(payload) });
-      var body = await response.json();
-      if (!response.ok) throw new Error(body && body.error && body.error.message || '题目保存失败。');
+      var body = await readJson(response);
+      if (!response.ok) throw responseError(body, '题目保存失败。');
       var savedId = id || body.data && body.data.problem && body.data.problem.id;
-      window.location.assign('/problem/' + encodeURIComponent(savedId));
+      var versionId = body && body.data && body.data.version && body.data.version.id;
+      if (id && wasPublic && versionId && canPublish) {
+        setSaveState('题面已保存，正在更新公开版本...', true);
+        var publishResponse = await fetch('/api/v2/problems/' + encodeURIComponent(id) + '/publish', {
+          method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ version_id: versionId })
+        });
+        var publishBody = await readJson(publishResponse);
+        if (!publishResponse.ok) throw responseError(publishBody, '草稿已保存，但公开题面更新失败。');
+      } else if (id && wasPublic && versionId) {
+        setSaveState('题面已保存，正在提交审核...', true);
+        var versionResponse = await fetch('/api/v2/problems/' + encodeURIComponent(id) + '/versions/' + encodeURIComponent(versionId), { credentials: 'same-origin', cache: 'no-store' });
+        var versionBody = await readJson(versionResponse);
+        if (!versionResponse.ok) throw responseError(versionBody, '草稿已保存，但版本状态读取失败。');
+        var reviewResponse = await fetch('/api/v2/problems/' + encodeURIComponent(id) + '/versions/' + encodeURIComponent(versionId) + '/review-request', {
+          method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'If-Match': versionResponse.headers.get('ETag') || '' }, body: '{}'
+        });
+        var reviewBody = await readJson(reviewResponse);
+        if (!reviewResponse.ok) throw responseError(reviewBody, '草稿已保存，但提交审核失败。');
+        setSaveState('修改已保存并提交审核，审核通过后公开题面会自动更新。', false);
+        if (saveLabel) saveLabel.textContent = '保存题目';
+        return;
+      }
+      var destination = '/problem/' + encodeURIComponent(savedId);
+      if (versionId) destination += '?version=' + encodeURIComponent(versionId);
+      window.location.replace(destination);
     } catch (error) {
       if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '题目保存失败。', 'danger');
-      if (button) button.disabled = false;
+      setSaveState(error.message || '题目保存失败。', false);
+      if (saveLabel) saveLabel.textContent = '重新保存';
     }
   });
   var picker = form.querySelector('[data-tag-picker]');

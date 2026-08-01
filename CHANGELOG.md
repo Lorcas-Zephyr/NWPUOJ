@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.0.1 - 2026-08-02
+
+### Fixed
+
+- Kept problem detail and editing views synchronized with the current immutable statement version,
+  including draft visibility and post-save cache behavior.
+- Advanced the active immutable testdata snapshot after ZIP upload, individual file upload, and
+  deletion so subsequent submissions are judged against the newly saved data.
+- Made testdata upload pages wait for durable processing and report parsed testcase status before
+  refreshing the management view.
+- Applied route-aware multipart request limits to testdata and additional-file uploads while
+  retaining the 1 MiB gateway limit for JSON and unknown endpoints.
+- Preserved verdict palette colors for linked problem progress statuses.
+
 ## 2.0.0 - 2026-08-01
 
 ### Added

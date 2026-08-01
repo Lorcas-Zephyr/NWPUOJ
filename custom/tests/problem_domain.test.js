@@ -190,6 +190,18 @@ test('editing a published problem creates a draft without mutating the public le
   assert.equal(insert.params[2], 77);
 });
 
+test('a pending draft never makes a still-public problem write through to the legacy projection', async () => {
+  const manager = versionManager({ states: [{ lifecycle_status: 'draft', current_version_id: 78 }], nextVersion: 5 });
+  const mutation = await problemDomain.updateProblemAggregate(
+    manager,
+    { id: 7, user_id: 2, is_public: true },
+    content({ title: 'Another draft title' }),
+    2
+  );
+  assert.equal(mutation.legacy_projection_updated, false);
+  assert.equal(manager.calls.some(call => call.sql && call.sql.startsWith('UPDATE problem SET')), false);
+});
+
 test('publishing writes one immutable snapshot and updates the compatibility projection atomically', async () => {
   const calls = [];
   const stored = content({ title: 'Published title', memory_limit: 512 });
@@ -243,6 +255,76 @@ test('publishing includes the immutable testdata hash and worker-relative path i
   const snapshot = calls.find(call => call.sql.startsWith('INSERT INTO problem_v2_snapshot'));
   assert.equal(snapshot.params[6], 'a'.repeat(64));
   assert.equal(snapshot.params[7], 'snapshots/ps_testdata_0001');
+});
+
+test('refreshing published testdata advances the snapshot without exposing a newer statement draft', async () => {
+  const calls = [];
+  const manager = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (sql.startsWith('SELECT * FROM problem_v2_state')) {
+        return [{ current_version_id: 99, current_snapshot_id: 'ps_published_old' }];
+      }
+      if (sql.startsWith('SELECT * FROM problem_v2_snapshot')) {
+        return [{
+          id: 'ps_published_old',
+          version_id: 91,
+          content_hash: 'published-content',
+          content_json: '{"title":"Published"}',
+          provider_config: null,
+          testdata_hash: 'old-testdata'
+        }];
+      }
+      if (sql.startsWith('SELECT id FROM problem_v2_snapshot')) return [];
+      return {};
+    }
+  };
+
+  const refreshed = await problemDomain.refreshTestdataSnapshotAggregate(
+    manager,
+    { id: 7, is_public: true },
+    5,
+    'ps_testdata_new',
+    { hash: 'new-testdata', path: 'snapshots/ps_testdata_new' }
+  );
+
+  assert.deepEqual(refreshed, { snapshot_id: 'ps_testdata_new', created: true, changed: true });
+  assert.equal(calls.some(call => call.sql.startsWith('SELECT * FROM problem_v2_version')), false);
+  const insert = calls.find(call => call.sql.startsWith('INSERT INTO problem_v2_snapshot'));
+  assert.equal(insert.params[2], 91);
+  assert.equal(insert.params[3], 'published-content');
+  assert.equal(insert.params[6], 'new-testdata');
+  assert.equal(insert.params[7], 'snapshots/ps_testdata_new');
+  const stateUpdate = calls.find(call => call.sql.startsWith('UPDATE problem_v2_state SET current_snapshot_id'));
+  assert.deepEqual(stateUpdate.params, ['ps_testdata_new', 7]);
+});
+
+test('refreshing unchanged testdata keeps the existing snapshot pointer', async () => {
+  const calls = [];
+  const manager = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (sql.startsWith('SELECT * FROM problem_v2_state')) {
+        return [{ current_version_id: 91, current_snapshot_id: 'ps_current' }];
+      }
+      if (sql.startsWith('SELECT * FROM problem_v2_snapshot')) {
+        return [{ id: 'ps_current', version_id: 91, content_hash: 'content', testdata_hash: 'same-data' }];
+      }
+      return {};
+    }
+  };
+
+  const refreshed = await problemDomain.refreshTestdataSnapshotAggregate(
+    manager,
+    { id: 7, is_public: true },
+    5,
+    'ps_unused',
+    { hash: 'same-data', path: 'snapshots/ps_unused' }
+  );
+
+  assert.deepEqual(refreshed, { snapshot_id: 'ps_current', created: false, changed: false });
+  assert.equal(calls.some(call => call.sql.startsWith('INSERT INTO problem_v2_snapshot')), false);
+  assert.equal(calls.some(call => call.sql.startsWith('UPDATE problem_v2_state SET current_snapshot_id')), false);
 });
 
 test('unpublishing returns the mutable projection to draft without discarding version or snapshot pointers', async () => {

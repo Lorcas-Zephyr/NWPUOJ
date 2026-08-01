@@ -9,7 +9,7 @@
     <section data-io-fields<%= problem.type === 'interaction' || problem.type === 'submit-answer' ? ' hidden' : '' %>><div class="app-section-header"><div><h2 class="app-section-title">输入输出</h2><p class="app-section-description">标准 IO 或指定文件名</p></div></div><div class="app-choice-grid app-io-choice"><label class="app-choice"><input type="radio" name="io_method" value="std-io"<%= !problem.file_io ? ' checked' : '' %>><span><i data-lucide="terminal"></i><strong>标准 IO</strong><small>从标准输入读取并写入标准输出</small></span></label><label class="app-choice"><input type="radio" name="io_method" value="file-io"<%= problem.file_io ? ' checked' : '' %>><span><i data-lucide="files"></i><strong>文件 IO</strong><small>使用指定的输入输出文件名</small></span></label></div><div class="app-form-grid app-file-io-fields"<%= problem.file_io ? '' : ' hidden' %>><label class="app-field"><span class="app-label">输入文件名</span><input class="app-input" type="text" data-file-input name="file_io_input_name" value="<%= problem.file_io_input_name %>"></label><label class="app-field"><span class="app-label">输出文件名</span><input class="app-input" type="text" data-file-output name="file_io_output_name" value="<%= problem.file_io_output_name %>"></label></div></section>
     <div class="app-notice" data-submit-answer-note<%= problem.type === 'submit-answer' ? '' : ' hidden' %>><i data-lucide="info"></i><span>提交答案题目无需设置时间、内存和 IO。已有提交后不能在提交答案与其他类型之间切换。</span></div>
     <section><div class="app-section-header"><div><h2 class="app-section-title">数据包</h2><p class="app-section-description">ZIP 文件会替换当前对应数据</p></div></div><div class="app-problem-upload-grid"><label class="app-file-field"><input type="file" name="testdata" accept=".zip,application/zip"><span><i data-lucide="database-zap"></i><strong>测试数据</strong><small>选择 ZIP 数据包</small></span></label><label class="app-file-field"><input type="file" name="additional_file" accept=".zip,application/zip"><span><i data-lucide="paperclip"></i><strong>附加文件</strong><small>选择 ZIP 附件包</small></span></label></div></section>
-    <div class="app-form-actions"><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['problem', problem.id]) %>">取消</a><button class="app-button app-button-primary" type="submit"><i data-lucide="save"></i>保存评测配置</button></div>
+    <div class="app-form-actions"><span class="app-form-status" data-problem-config-status role="status" aria-live="polite"></span><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['problem', problem.id]) %>">取消</a><button class="app-button app-button-primary" type="submit"><i data-lucide="save"></i>保存评测配置</button></div>
   </form></div>
 </main>
 <script>
@@ -23,6 +23,38 @@
   var fileFields = form.querySelector('.app-file-io-fields');
   var inputName = form.querySelector('[data-file-input]');
   var outputName = form.querySelector('[data-file-output]');
+  var status = form.querySelector('[data-problem-config-status]');
+  function setStatus(message) {
+    status.textContent = message || '';
+  }
+  function wait(delay) {
+    return new Promise(function (resolve) { window.setTimeout(resolve, delay); });
+  }
+  async function waitForTestdataJob(jobId) {
+    var deadline = Date.now() + 10 * 60 * 1000;
+    var delay = 250;
+    while (Date.now() < deadline) {
+      var response = await fetch('/api/v2/problem-jobs/' + encodeURIComponent(jobId), {
+        credentials: 'same-origin',
+        cache: 'no-store'
+      });
+      var body = null;
+      try { body = await response.json(); } catch (error) {}
+      if (!response.ok) throw new Error(body && body.error && body.error.message || '测试数据处理状态读取失败。');
+      var job = body && body.data;
+      if (!job) throw new Error('测试数据处理状态无效。');
+      if (job.state === 'completed') return job;
+      if (job.state === 'failed' || job.state === 'cancelled') {
+        throw new Error(job.error && job.error.message || (job.state === 'cancelled' ? '测试数据处理已取消。' : '测试数据处理失败。'));
+      }
+      setStatus(job.state === 'queued'
+        ? '测试数据已上传，等待解析…'
+        : '正在解析测试数据' + (Number.isFinite(Number(job.progress)) ? '（' + Number(job.progress) + '%）' : '') + '…');
+      await wait(delay);
+      delay = Math.min(Math.round(delay * 1.5), 1000);
+    }
+    throw new Error('测试数据处理超时，任务可能仍在后台运行，请稍后重新打开本页确认。');
+  }
   function setType(type) {
     typeInput.value = type;
     form.querySelectorAll('[data-problem-type]').forEach(function (button) { button.classList.toggle('is-active', button.getAttribute('data-problem-type') === type); });
@@ -38,7 +70,11 @@
     event.preventDefault();
     if (!outputName.value && outputName.placeholder && !fileFields.hidden) outputName.value = outputName.placeholder;
     var button = form.querySelector('[type="submit"]');
+    var configSaved = false;
+    form.setAttribute('aria-busy', 'true');
     button.disabled = true;
+    button.classList.add('is-loading');
+    setStatus('正在保存评测配置…');
     try {
       var endpoint = '/api/v2/problems/<%= problem.id %>/judge-configuration';
       var current = await fetch(endpoint, { credentials: 'same-origin', cache: 'no-store' });
@@ -64,10 +100,12 @@
       });
       var configBody = await configResponse.json();
       if (!configResponse.ok) throw new Error(configBody && configBody.error && configBody.error.message || '评测配置保存失败。');
+      configSaved = true;
 
       var testdata = form.elements.testdata.files[0];
       var testdataJob = null;
       if (testdata) {
+        setStatus('正在上传测试数据…');
         var testdataPayload = new FormData();
         testdataPayload.append('archive', testdata, testdata.name);
         var testdataResponse = await fetch('/api/v2/problems/<%= problem.id %>/testdata/upload', {
@@ -83,6 +121,7 @@
 
       var additional = form.elements.additional_file.files[0];
       if (additional) {
+        setStatus('正在上传附加文件…');
         var additionalPayload = new FormData();
         additionalPayload.append('archive', additional, additional.name);
         var additionalResponse = await fetch('/api/v2/problems/<%= problem.id %>/additional-file', {
@@ -95,12 +134,26 @@
         if (!additionalResponse.ok) throw new Error(additionalBody && additionalBody.error && additionalBody.error.message || '附加文件上传失败。');
       }
 
-      if (testdataJob) window.location.assign('/admin/jobs?job=' + encodeURIComponent(testdataJob));
-      else window.location.assign(window.location.pathname + '?saved=1');
+      if (testdataJob) {
+        await waitForTestdataJob(testdataJob);
+        setStatus('测试数据已生效，正在刷新测试点…');
+      } else {
+        setStatus('评测配置已保存，正在刷新…');
+      }
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(testdataJob ? '评测配置和测试数据已保存' : '评测配置已保存', 'success');
+      var next = new URL(window.location.href);
+      next.searchParams.set('saved', '1');
+      if (testdataJob) next.searchParams.set('testdata_updated', '1');
+      window.location.replace(next.pathname + next.search);
     } catch (error) {
-      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '保存评测配置失败。', 'danger');
-      else window.alert(error.message || '保存评测配置失败。');
+      var message = error.message || '保存评测配置失败。';
+      if (configSaved) message = '评测配置已保存，但' + message;
+      setStatus(message);
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(message, 'danger');
+      else window.alert(message);
       button.disabled = false;
+      button.classList.remove('is-loading');
+      form.removeAttribute('aria-busy');
     }
   });
 })();

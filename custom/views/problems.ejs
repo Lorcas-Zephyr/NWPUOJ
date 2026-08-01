@@ -74,11 +74,16 @@ function sortIcon(key) {
 }
 function judgeStateClass(state) {
   const value = String(state || '').toLowerCase();
-  if (value === 'accepted') return 'app-status-accepted';
-  if (value.includes('waiting')) return 'app-status-waiting';
-  if (value.includes('running') || value.includes('judging')) return 'app-status-judging';
-  if (value.includes('partially')) return 'app-status-partial';
-  return 'app-status-error';
+  if (value === 'accepted') return 'app-verdict app-verdict-accepted';
+  if (value === 'waiting') return 'app-status-waiting';
+  if (value === 'judging' || value === 'running' || value === 'compiling') return 'app-status-judging';
+  if (value === 'partially correct') return 'app-status-partial';
+  if (value === '作弊' || value === 'cheated' || value === 'wrong answer') return 'app-verdict app-verdict-wrong';
+  if (value === 'runtime error' || value === 'invalid interaction') return 'app-verdict app-verdict-runtime';
+  if (value === 'time limit exceeded') return 'app-verdict app-verdict-time';
+  if (value === 'memory limit exceeded' || value === 'output limit exceeded') return 'app-verdict app-verdict-memory';
+  if (value.includes('error') || value === 'judgement failed') return 'app-verdict app-verdict-compile';
+  return '';
 }
 %>
 <% include app_header %>
