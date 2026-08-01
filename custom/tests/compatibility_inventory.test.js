@@ -180,6 +180,8 @@ test('submission lists stream status updates through the v2 batch event endpoint
   assert.match(route, /app\.post\(["']\/api\/v2\/submissions\/events["']/);
   assert.doesNotMatch(route, /["']\/api\/submissions\/events["']/);
   assert.match(route, /SUBMISSION_FORBIDDEN/);
+  assert.match(route, /Cache-Control', 'private, no-store, must-revalidate'/);
+  assert.match(route, /latestContestTitle/);
 });
 
 test('new content clients and contracts use their registered v2 replacements', () => {

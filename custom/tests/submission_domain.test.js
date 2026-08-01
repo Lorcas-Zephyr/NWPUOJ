@@ -215,17 +215,22 @@ test('submission diagnostics are restricted consistently across detail, testpoin
   assert.match(source, /return api\.sse\(req, res, stream, \{ serialize: event => \{/);
 });
 
-test('contest submissions bind to their locked contest problem snapshot instead of the mutable current problem snapshot', () => {
+test('contest submissions and rejudges follow the current problem version snapshot', () => {
   const fs = require('node:fs');
   const path = require('node:path');
   const source = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_submission_domain.js'), 'utf8');
   const contestSource = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_contest_domain.js'), 'utf8');
   assert.match(source, /async function resolveSubmissionSnapshot\(problem, contest, actorId\)/);
-  assert.match(source, /contestV2\.getProblemSnapshot\(contest\.id, problem\.id\)/);
+  assert.match(source, /problemV2\.snapshotForCurrentVersion\(problem, actorId/);
+  assert.match(source, /includeDraft: !!contest \|\| !problem\.is_public/);
+  assert.match(source, /contestV2\.trackProblemSnapshot\(contest\.id, problem\.id, snapshot\.snapshot_id\)/);
   assert.match(source, /PROBLEM_SNAPSHOT_REQUIRED/);
   assert.match(source, /const snapshotId = await resolveSubmissionSnapshot\(problem, contest, user\.id\)/);
+  assert.match(source, /async function rejudgeWithCurrentSnapshot\(judge, actorId\)/);
+  assert.match(source, /UPDATE submission_v2_projection SET snapshot_id=\?/);
+  assert.match(source, /await rejudgeWithCurrentSnapshot\(judge, job\.actor_id\)/);
   assert.match(contestSource, /async function loadContestProblemSnapshot\(contestId, problemId\)/);
-  assert.match(contestSource, /getProblemSnapshot: loadContestProblemSnapshot/);
+  assert.match(contestSource, /trackProblemSnapshot: trackContestProblemSnapshot/);
 });
 
 test('judge dispatch materializes immutable execution settings from the persisted problem snapshot', () => {
@@ -249,5 +254,6 @@ test('submission list supports an explicit descending cursor for recent-workbenc
   assert.match(source, /const descending = String\(req\.query\.order \|\| ''\)\.toLowerCase\(\) === 'desc'/);
   assert.match(source, /const cursorOperator = descending \? '<' : '>'/);
   assert.match(source, /ORDER BY projection\.submission_id \$\{orderDirection\} LIMIT \?/);
-  assert.match(source, /problem\.title AS problem_title/);
+  assert.match(source, /current_version\.content_json,'\$\.title'/);
+  assert.match(source, /ELSE problem\.title END AS problem_title/);
 });

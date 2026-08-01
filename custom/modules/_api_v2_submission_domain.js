@@ -343,9 +343,14 @@ async function resolveContestProblem(contest, token) {
 }
 
 async function resolveSubmissionSnapshot(problem, contest, actorId) {
-  if (!contest) return syzoj.utils.problemV2.ensureCurrentSnapshot(problem, actorId);
-  const reference = await syzoj.utils.contestV2.getProblemSnapshot(contest.id, problem.id);
-  return reference && reference.problem_snapshot_id ? String(reference.problem_snapshot_id) : null;
+  const snapshot = await syzoj.utils.problemV2.snapshotForCurrentVersion(problem, actorId, {
+    includeDraft: !!contest || !problem.is_public,
+    activate: !problem.is_public
+  });
+  if (contest && snapshot && snapshot.snapshot_id && syzoj.utils.contestV2.trackProblemSnapshot) {
+    await syzoj.utils.contestV2.trackProblemSnapshot(contest.id, problem.id, snapshot.snapshot_id);
+  }
+  return snapshot && snapshot.snapshot_id || null;
 }
 
 function missingProblemSnapshot(snapshotId) {
@@ -755,9 +760,15 @@ app.get('/api/v2/submissions', async (req, res) => {
   const orderDirection = descending ? 'DESC' : 'ASC';
   const params = ownOnly ? [res.locals.user.id, cursor, limit + 1] : [cursor, limit + 1];
   const rows = await TypeORM.getConnection().query(
-    `SELECT projection.*,problem.title AS problem_title,judge.status AS legacy_status,judge.pending,judge.score,judge.total_time,judge.max_memory,judge.code_length,judge.submit_time
+    `SELECT projection.*,
+            CASE WHEN projection.contest_id IS NOT NULL
+              THEN COALESCE(JSON_UNQUOTE(JSON_EXTRACT(current_version.content_json,'$.title')),problem.title)
+              ELSE problem.title END AS problem_title,
+            judge.status AS legacy_status,judge.pending,judge.score,judge.total_time,judge.max_memory,judge.code_length,judge.submit_time
        FROM submission_v2_projection projection JOIN judge_state judge ON judge.id=projection.submission_id
        LEFT JOIN problem problem ON problem.id=projection.problem_id
+       LEFT JOIN problem_v2_state problem_state ON problem_state.problem_id=projection.problem_id
+       LEFT JOIN problem_v2_version current_version ON current_version.id=problem_state.current_version_id
       WHERE ${ownOnly ? 'projection.user_id=? AND ' : ''} projection.submission_id${cursorOperator}? ORDER BY projection.submission_id ${orderDirection} LIMIT ?`,
     params
   );
@@ -782,9 +793,16 @@ app.get('/api/v2/submissions/:id', async (req, res) => {
   await ensureSubmissionSchema();
   await projectStatus(judge);
   const rows = await TypeORM.getConnection().query(
-    `SELECT projection.*,judge.status AS legacy_status,judge.pending,judge.score,judge.total_time,judge.max_memory,judge.code_length,judge.submit_time,judge.code,judge.result,judge.compilation,
+    `SELECT projection.*,
+            CASE WHEN projection.contest_id IS NOT NULL
+              THEN COALESCE(JSON_UNQUOTE(JSON_EXTRACT(current_version.content_json,'$.title')),problem.title)
+              ELSE problem.title END AS problem_title,
+            judge.status AS legacy_status,judge.pending,judge.score,judge.total_time,judge.max_memory,judge.code_length,judge.submit_time,judge.code,judge.result,judge.compilation,
             code_version.source_hash,code_version.source_code AS version_source
        FROM submission_v2_projection projection JOIN judge_state judge ON judge.id=projection.submission_id
+       LEFT JOIN problem problem ON problem.id=projection.problem_id
+       LEFT JOIN problem_v2_state problem_state ON problem_state.problem_id=projection.problem_id
+       LEFT JOIN problem_v2_version current_version ON current_version.id=problem_state.current_version_id
        LEFT JOIN submission_v2_code_version code_version ON code_version.id=projection.code_version_id
       WHERE projection.submission_id=? LIMIT 1`,
     [judge.id]
@@ -876,6 +894,35 @@ async function snapshotSubmissionResult(manager, judge, actorId, reason) {
   return String(result.insertId);
 }
 
+async function rejudgeWithCurrentSnapshot(judge, actorId) {
+  const connection = TypeORM.getConnection();
+  await judge.loadRelationships();
+  const contest = Number(judge.type) === 1 ? await Contest.findById(Number(judge.type_info)) : null;
+  const snapshotId = await resolveSubmissionSnapshot(judge.problem, contest, actorId);
+  const executionProblem = await immutableExecutionProblem(judge.problem, snapshotId);
+  await connection.query('UPDATE submission_v2_projection SET snapshot_id=?,updated_at=UTC_TIMESTAMP(3) WHERE submission_id=?', [snapshotId, judge.id]);
+  await syzoj.utils.lock(['JudgeState::rejudge', judge.id], async () => {
+    judge.status = 'Unknown';
+    judge.pending = false;
+    judge.score = null;
+    if (judge.language) {
+      judge.total_time = null;
+      judge.max_memory = null;
+    }
+    judge.result = {};
+    judge.task_id = require('randomstring').generate(10);
+    await judge.save();
+    await judge.updateRelatedInfo(false);
+    await Judger.judge(judge, executionProblem, contest ? 3 : 2, { snapshotId });
+    judge.pending = true;
+    judge.status = 'Waiting';
+    await judge.save();
+  });
+  return snapshotId;
+}
+
+syzoj.utils.rejudgeSubmissionWithCurrentSnapshot = rejudgeWithCurrentSnapshot;
+
 async function runRejudgeJob(jobId) {
   const connection = TypeORM.getConnection();
   try {
@@ -891,7 +938,7 @@ async function runRejudgeJob(jobId) {
       await connection.query("UPDATE submission_v2_job SET state='cancelled',progress=40,updated_at=UTC_TIMESTAMP(3) WHERE id=?", [jobId]);
       return;
     }
-    await judge.loadRelationships(); await judge.rejudge();
+    await rejudgeWithCurrentSnapshot(judge, job.actor_id);
     await submissionTransaction(async manager => {
       const projections = await manager.query('SELECT attempts FROM submission_v2_projection WHERE submission_id=? LIMIT 1 FOR UPDATE', [judge.id]);
       const result = await submissionDomain.transitionProjection(manager, {

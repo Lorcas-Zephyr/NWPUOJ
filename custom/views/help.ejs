@@ -7,6 +7,6 @@
 </div>
 
 <script>
-(function () { var content = document.getElementById('help-content'); var toc = document.getElementById('help-toc'); var headings = content.querySelectorAll('h2'); headings.forEach(function (heading, index) { var id = heading.textContent.trim() === 'ZIP 批量导入严格格式' ? 'zip-bulk-import-format' : 'help-section-' + (index + 1); heading.id = heading.id || id; var link = document.createElement('a'); link.href = '#' + heading.id; link.textContent = heading.textContent; toc.appendChild(link); }); if (!headings.length) document.querySelector('.app-help-toc').hidden = true; })();
+(function () { var content = document.getElementById('help-content'); var toc = document.getElementById('help-toc'); var headings = content.querySelectorAll('h2'); headings.forEach(function (heading, index) { var id = heading.textContent.trim() === '评测数据 ZIP 格式' ? 'testdata-zip-format' : 'help-section-' + (index + 1); heading.id = heading.id || id; var link = document.createElement('a'); link.href = '#' + heading.id; link.textContent = heading.textContent; toc.appendChild(link); }); if (!headings.length) document.querySelector('.app-help-toc').hidden = true; })();
 </script>
 <% include app_footer %>

@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 const TypeORM = require('typeorm');
 const contentDomain = require('../libs/content-domain');
+const problemDomain = require('../libs/problem-domain');
 const bulkAction = require('../libs/problem-bulk-action');
 const testdataUpload = require('../libs/testdata-upload');
 const Problem = syzoj.model('problem');
@@ -323,11 +324,11 @@ app.patch('/api/v2/problems/:id/judge-configuration', async (req, res) => {
       const fileIo = type === 'traditional' && !!(req.body && req.body.file_io);
       const inputName = fileIo ? judgeConfigFilename(req.body.file_io_input_name, 'file_io_input_name') : current.file_io_input_name;
       const outputName = fileIo ? judgeConfigFilename(req.body.file_io_output_name, 'file_io_output_name') : current.file_io_output_name;
-      await manager.query('UPDATE problem SET type=?,time_limit=?,memory_limit=?,file_io=?,file_io_input_name=?,file_io_output_name=? WHERE id=?', [type, timeLimit, memoryLimit, fileIo ? 1 : 0, inputName, outputName, problem.id]);
       const saved = { problem_id: Number(problem.id), type, time_limit: timeLimit, memory_limit: memoryLimit, file_io: fileIo, file_io_input_name: inputName, file_io_output_name: outputName };
+      const projection = await problemDomain.updateJudgeConfigurationAggregate(manager, problem, saved, user.id);
       const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, { action: 'problem:judge-configuration.update', resourceType: 'problem', resourceId: Number(problem.id), scope: `problem:${problem.id}`, details: saved }, manager);
       const eventId = await contentDomain.appendEvent(manager, { stream: `problem:${problem.id}`, type: 'problem.judge-configuration.updated', aggregateId: problem.id, actorId: user.id, payload: { ...saved, audit_event_id: auditEventId } });
-      return { ...saved, audit_event_id: auditEventId, event_id: eventId };
+      return { ...saved, version_id: projection.version_id, snapshot_id: projection.snapshot_id, audit_event_id: auditEventId, event_id: eventId };
     });
     return api().send(res, result);
   } catch (error) { return contentFailure(res, error); }

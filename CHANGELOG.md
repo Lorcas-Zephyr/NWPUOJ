@@ -13,6 +13,14 @@
 - Applied route-aware multipart request limits to testdata and additional-file uploads while
   retaining the 1 MiB gateway limit for JSON and unknown endpoints.
 - Preserved verdict palette colors for linked problem progress statuses.
+- Kept contest problem statements, titles, and testdata synchronized with the current problem
+  version before and after the contest starts.
+- Made new submissions and rejudges materialize and record the latest problem/testdata snapshot
+  instead of reusing the snapshot captured when the problem was first added to a contest.
+- Displayed current problem titles throughout contest workspaces and submission lists/details,
+  while retaining each submission's actual snapshot identifier for traceability.
+- Documented ZIP layouts for traditional, interaction, and submit-answer problem testdata, including
+  interactor language selection and required archive contents.
 
 ## 2.0.0 - 2026-08-01
 

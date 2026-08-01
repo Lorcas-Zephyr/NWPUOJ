@@ -12,6 +12,7 @@ const {
   problemContent,
   problemResource,
   publishProblemAggregate,
+  materializeCurrentVersionSnapshotAggregate,
   refreshTestdataSnapshotAggregate,
   reviewDecisionAllowed,
   reviewRequestAllowed,
@@ -116,6 +117,22 @@ async function loadState(problemId) {
   await ensureProblemSchema();
   const rows = await TypeORM.getConnection().query('SELECT * FROM problem_v2_state WHERE problem_id=? LIMIT 1', [problemId]);
   return rows[0] || null;
+}
+
+async function loadCurrentVersionContent(problemId) {
+  await ensureProblemSchema();
+  const rows = await TypeORM.getConnection().query(
+    `SELECT state.current_version_id,version.content_json
+       FROM problem_v2_state state
+       JOIN problem_v2_version version ON version.id=state.current_version_id
+      WHERE state.problem_id=? LIMIT 1`,
+    [Number(problemId)]
+  );
+  if (!rows.length || !rows[0].content_json) return null;
+  return {
+    version_id: String(rows[0].current_version_id),
+    content: parseStoredContent(rows[0].content_json)
+  };
 }
 
 function versionRevision(row) {
@@ -309,13 +326,23 @@ async function refreshCurrentTestdataSnapshot(problem, actorId) {
   }
 }
 
+async function snapshotForCurrentVersion(problem, actorId, options = {}) {
+  await ensureCurrentSnapshot(problem, actorId);
+  const requestedSnapshotId = `ps_${crypto.randomUUID().replace(/-/g, '')}`;
+  return TypeORM.getConnection().transaction(manager =>
+    materializeCurrentVersionSnapshotAggregate(manager, problem, actorId, requestedSnapshotId, options)
+  );
+}
+
 syzoj.utils.problemV2 = {
   ensureSchema: ensureProblemSchema,
   ensureCurrentSnapshot,
   ensureSnapshotTestdata,
+  loadCurrentVersionContent,
   loadState,
   serializeProblem,
   problemResource,
+  snapshotForCurrentVersion,
   refreshCurrentTestdataSnapshot
 };
 

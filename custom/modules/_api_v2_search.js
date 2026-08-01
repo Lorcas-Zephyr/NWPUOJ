@@ -50,6 +50,12 @@ app.get('/api/v2/search/problems/:keyword*?', async (req, res) => {
       if (result.length >= syzoj.config.page.edit_contest_problem_list) break;
       if (problem.id !== id && await mayReturn(problem)) result.push(problem);
     }
+    if (contestOnly && syzoj.utils.problemV2 && syzoj.utils.problemV2.loadCurrentVersionContent) {
+      await Promise.all(result.map(async problem => {
+        const current = await syzoj.utils.problemV2.loadCurrentVersionContent(problem.id);
+        if (current) Object.assign(problem, current.content);
+      }));
+    }
     return api.send(res, result.map(problem => ({
       name: `${problem.getDisplayId()}. ${problem.title}`,
       value: problem.id,

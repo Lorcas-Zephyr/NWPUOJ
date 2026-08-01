@@ -202,6 +202,114 @@ test('a pending draft never makes a still-public problem write through to the le
   assert.equal(manager.calls.some(call => call.sql && call.sql.startsWith('UPDATE problem SET')), false);
 });
 
+test('updating judge configuration advances a draft version and snapshot together', async () => {
+  const stored = content();
+  const calls = [];
+  const manager = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (sql.startsWith('SELECT * FROM problem_v2_state')) {
+        return [{ current_version_id: 91, current_snapshot_id: 'ps_old' }];
+      }
+      if (sql.startsWith('SELECT * FROM problem_v2_version')) {
+        return [{ id: 91, content_json: problemDomain.serializeContent(stored), content_hash: problemDomain.contentHash(stored) }];
+      }
+      if (sql.startsWith('SELECT * FROM problem_v2_snapshot')) {
+        return [{
+          id: 'ps_old',
+          version_id: 91,
+          content_json: problemDomain.serializeContent(stored),
+          content_hash: problemDomain.contentHash(stored),
+          testdata_hash: 'a'.repeat(64),
+          testdata_path: 'snapshots/ps_old'
+        }];
+      }
+      if (sql.startsWith('SELECT COALESCE')) return [{ next_version: 2 }];
+      if (sql.startsWith('INSERT INTO problem_v2_version')) return { insertId: 92 };
+      return {};
+    }
+  };
+
+  const updated = await problemDomain.updateJudgeConfigurationAggregate(manager, { id: 7, is_public: false }, {
+    type: 'interaction',
+    time_limit: 2000,
+    memory_limit: 512,
+    file_io: false,
+    file_io_input_name: '',
+    file_io_output_name: ''
+  }, 5, () => 'ps_new');
+
+  assert.deepEqual(updated, { version_id: '92', snapshot_id: 'ps_new' });
+  const projection = calls.find(call => call.sql.startsWith('UPDATE problem SET type='));
+  assert.deepEqual(projection.params, ['interaction', 2000, 512, false, '', '', 7]);
+  const versionInsert = calls.find(call => call.sql.startsWith('INSERT INTO problem_v2_version'));
+  assert.equal(JSON.parse(versionInsert.params[4]).type, 'interaction');
+  assert.equal(versionInsert.params[2], 91);
+  assert.equal(versionInsert.params[3], 'draft');
+  const snapshotInsert = calls.find(call => call.sql.startsWith('INSERT INTO problem_v2_snapshot'));
+  assert.equal(snapshotInsert.params[0], 'ps_new');
+  assert.equal(snapshotInsert.params[2], '92');
+  assert.equal(JSON.parse(snapshotInsert.params[4]).type, 'interaction');
+  assert.equal(snapshotInsert.params[6], 'a'.repeat(64));
+  assert.equal(snapshotInsert.params[7], 'snapshots/ps_old');
+  const stateUpdate = calls.find(call => call.sql.startsWith('UPDATE problem_v2_state SET current_version_id'));
+  assert.deepEqual(stateUpdate.params, ['92', 'ps_new', 7]);
+});
+
+test('updating published judge configuration preserves a pending statement draft', async () => {
+  const published = content({ title: 'Published statement' });
+  const draft = content({ title: 'Pending statement' });
+  const calls = [];
+  let nextVersion = 100;
+  const manager = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (sql.startsWith('SELECT * FROM problem_v2_state')) {
+        return [{ current_version_id: 99, current_snapshot_id: 'ps_published' }];
+      }
+      if (sql.startsWith('SELECT * FROM problem_v2_version')) {
+        return [{ id: 99, content_json: problemDomain.serializeContent(draft), content_hash: problemDomain.contentHash(draft) }];
+      }
+      if (sql.startsWith('SELECT * FROM problem_v2_snapshot')) {
+        return [{
+          id: 'ps_published',
+          version_id: 91,
+          content_json: problemDomain.serializeContent(published),
+          content_hash: problemDomain.contentHash(published),
+          testdata_hash: 'b'.repeat(64),
+          testdata_path: 'snapshots/ps_published'
+        }];
+      }
+      if (sql.startsWith('SELECT COALESCE')) return [{ next_version: nextVersion - 90 }];
+      if (sql.startsWith('INSERT INTO problem_v2_version')) return { insertId: nextVersion++ };
+      return {};
+    }
+  };
+
+  const updated = await problemDomain.updateJudgeConfigurationAggregate(manager, { id: 8, is_public: true }, {
+    type: 'interaction',
+    time_limit: 1500,
+    memory_limit: 256,
+    file_io: false,
+    file_io_input_name: '',
+    file_io_output_name: ''
+  }, 5, () => 'ps_published_new');
+
+  assert.deepEqual(updated, { version_id: '101', snapshot_id: 'ps_published_new' });
+  const versionInserts = calls.filter(call => call.sql.startsWith('INSERT INTO problem_v2_version'));
+  assert.equal(versionInserts.length, 2);
+  assert.equal(versionInserts[0].params[2], 91);
+  assert.equal(versionInserts[0].params[3], 'published');
+  assert.equal(JSON.parse(versionInserts[0].params[4]).title, 'Published statement');
+  assert.equal(JSON.parse(versionInserts[0].params[4]).type, 'interaction');
+  assert.equal(versionInserts[1].params[2], 99);
+  assert.equal(versionInserts[1].params[3], 'draft');
+  assert.equal(JSON.parse(versionInserts[1].params[4]).title, 'Pending statement');
+  assert.equal(JSON.parse(versionInserts[1].params[4]).type, 'interaction');
+  const stateUpdate = calls.find(call => call.sql.startsWith('UPDATE problem_v2_state SET current_version_id'));
+  assert.deepEqual(stateUpdate.params, ['101', 'ps_published_new', 8]);
+});
+
 test('publishing writes one immutable snapshot and updates the compatibility projection atomically', async () => {
   const calls = [];
   const stored = content({ title: 'Published title', memory_limit: 512 });
@@ -327,6 +435,49 @@ test('refreshing unchanged testdata keeps the existing snapshot pointer', async 
   assert.equal(calls.some(call => call.sql.startsWith('UPDATE problem_v2_state SET current_snapshot_id')), false);
 });
 
+test('materializing the current version combines the latest statement with current testdata', async () => {
+  const calls = [];
+  const latest = content({ title: 'Latest contest title', description: 'Latest statement.' });
+  const manager = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (sql.startsWith('SELECT * FROM problem_v2_state')) {
+        return [{ current_version_id: 102, current_snapshot_id: 'ps_old' }];
+      }
+      if (sql.startsWith('SELECT * FROM problem_v2_snapshot')) {
+        return [{
+          id: 'ps_old', version_id: 91, content_hash: 'old-content',
+          content_json: problemDomain.serializeContent(content({ title: 'Old title' })),
+          testdata_hash: 'current-data', testdata_path: 'snapshots/ps_old'
+        }];
+      }
+      if (sql.startsWith('SELECT * FROM problem_v2_version')) {
+        return [{
+          id: 102, content_hash: problemDomain.contentHash(latest),
+          content_json: problemDomain.serializeContent(latest)
+        }];
+      }
+      if (sql.startsWith('SELECT id FROM problem_v2_snapshot')) return [];
+      return {};
+    }
+  };
+
+  const materialized = await problemDomain.materializeCurrentVersionSnapshotAggregate(
+    manager,
+    { id: 7, is_public: true, vjudge_config: null },
+    5,
+    'ps_latest',
+    { includeDraft: true, activate: false }
+  );
+
+  assert.deepEqual(materialized, { snapshot_id: 'ps_latest', created: true, changed: true });
+  const insert = calls.find(call => call.sql.startsWith('INSERT INTO problem_v2_snapshot'));
+  assert.equal(JSON.parse(insert.params[4]).title, 'Latest contest title');
+  assert.equal(insert.params[6], 'current-data');
+  assert.equal(insert.params[7], 'snapshots/ps_old');
+  assert.equal(calls.some(call => call.sql.startsWith('UPDATE problem_v2_state SET current_snapshot_id')), false);
+});
+
 test('unpublishing returns the mutable projection to draft without discarding version or snapshot pointers', async () => {
   const calls = [];
   const manager = {
@@ -422,6 +573,7 @@ test('problem API routes use scoped capabilities and transaction-backed aggregat
   assert.match(workflowSource, /can\(user, 'problem:testdata\.write', problem\)/);
   assert.match(workflowSource, /testdataUpload\.extractTestdataArchive/);
   assert.match(workflowSource, /testdataUpload\.replaceDirectory/);
+  assert.match(workflowSource, /app\.patch\('\/api\/v2\/problems\/:id\/judge-configuration'[\s\S]*problemDomain\.updateJudgeConfigurationAggregate/);
   assert.match(workflowSource, /bulkAction\.normalize/);
   assert.match(workflowSource, /runBulkArchiveJob/);
   assert.match(workflowSource, /recentLoginSatisfied\(req\)/);

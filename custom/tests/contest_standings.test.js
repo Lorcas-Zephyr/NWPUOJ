@@ -62,7 +62,9 @@ test('contest route applies shared snapshot and standings access policies', () =
   const route = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_contest_domain.js'), 'utf8');
   assert.match(route, /snapshotRefreshAllowed\(action\)/);
   assert.match(route, /problem_snapshot_id VARCHAR\(80\) NULL/);
-  assert.match(route, /problemV2\.ensureCurrentSnapshot\(problem/);
+  assert.match(route, /problemV2\.snapshotForCurrentVersion\(problem/);
+  assert.match(route, /includeDraft: true/);
+  assert.match(route, /trackProblemSnapshot: trackContestProblemSnapshot/);
   assert.match(route, /SELECT id,content_hash FROM problem_v2_snapshot/);
   assert.match(route, /problem_snapshot_id,snapshot_hash/);
   assert.match(route, /app\.get\('\/api\/v2\/contests\/:id\/problem-snapshots'/);

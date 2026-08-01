@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-31T17:44:28.449Z",
+  "generated_at": "2026-08-01T22:51:27.516Z",
   "frontend_page_routes": [
     {
       "method": "GET",
@@ -137,31 +137,37 @@
       "method": "GET",
       "route": "/contest/:id",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 186
+      "line": 218
+    },
+    {
+      "method": "GET",
+      "route": "/contest/:id/edit",
+      "source": "custom/modules/_contest_interactions.js",
+      "line": 223
     },
     {
       "method": "GET",
       "route": "/contest/:id/details",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 191
+      "line": 237
     },
     {
       "method": "GET",
       "route": "/contest/:id",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 213
+      "line": 259
     },
     {
       "method": "GET",
       "route": "/contest/:id/ranklist",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 237
+      "line": 286
     },
     {
       "method": "GET",
       "route": "/contest/:id/problem/:pid",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 270
+      "line": 320
     },
     {
       "method": "GET",
@@ -287,31 +293,31 @@
       "method": "GET",
       "route": "/submissions",
       "source": "custom/modules/_submission_routes.js",
-      "line": 293
+      "line": 320
     },
     {
       "method": "GET",
       "route": "/contest/:id/submissions",
       "source": "custom/modules/_submission_routes.js",
-      "line": 308
+      "line": 335
     },
     {
       "method": "GET",
       "route": "/contest/submission/:id",
       "source": "custom/modules/_submission_routes.js",
-      "line": 320
+      "line": 347
     },
     {
       "method": "GET",
       "route": "/submission/:id",
       "source": "custom/modules/_submission_routes.js",
-      "line": 334
+      "line": 361
     },
     {
       "method": "GET",
       "route": "/contest/submission/:id",
       "source": "custom/modules/_submission_routes.js",
-      "line": 334
+      "line": 361
     },
     {
       "method": "GET",
@@ -585,7 +591,7 @@
   "approved_runtime_callbacks": [],
   "compatibility_adapters": [],
   "summary": {
-    "frontend_page_route_registrations": 96,
+    "frontend_page_route_registrations": 97,
     "frontend_page_route_shapes": 77,
     "v1_api_reads": 0,
     "v1_write_routes": 0,

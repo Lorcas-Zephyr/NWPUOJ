@@ -9,6 +9,15 @@ const judger = require('../libs/judger');
 const vjudge = require('../libs/vjudge');
 const TypeORM = require('typeorm');
 
+app.use(['/submissions', '/submission/:id', '/contest/:id/submissions', '/contest/submission/:id'], (req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    res.setHeader('Cache-Control', 'private, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  }
+  next();
+});
+
 const VALID_STATUSES = new Set([
   'Accepted', 'Wrong Answer', 'Runtime Error', 'Invalid Interaction',
   'Time Limit Exceeded', 'Memory Limit Exceeded', 'Output Limit Exceeded',
@@ -133,9 +142,27 @@ async function loadJudgeRelationships(judges) {
   ]);
   const userById = new Map(users.map(user => [Number(user.id), user]));
   const problemById = new Map(problems.filter(Boolean).map(problem => [Number(problem.id), problem]));
+  const contestProblemIds = Array.from(new Set(judges
+    .filter(judge => Number(judge.type) === 1)
+    .map(judge => Number(judge.problem_id))
+    .filter(Boolean)));
+  const latestTitles = new Map();
+  if (contestProblemIds.length) {
+    const rows = await TypeORM.getConnection().query(
+      `SELECT state.problem_id,JSON_UNQUOTE(JSON_EXTRACT(version.content_json,'$.title')) AS title
+         FROM problem_v2_state state
+         JOIN problem_v2_version version ON version.id=state.current_version_id
+        WHERE state.problem_id IN (?)`,
+      [contestProblemIds]
+    );
+    rows.forEach(row => latestTitles.set(Number(row.problem_id), String(row.title || '')));
+  }
   for (const judge of judges) {
     judge.user = userById.get(Number(judge.user_id));
     judge.problem = problemById.get(Number(judge.problem_id));
+    if (judge.problem && Number(judge.type) === 1 && latestTitles.get(Number(judge.problem_id))) {
+      judge.problem.title = latestTitles.get(Number(judge.problem_id));
+    }
   }
 }
 
@@ -335,11 +362,23 @@ app.get(['/submission/:id', '/contest/submission/:id'], async (req, res, next) =
   try {
     const id = parseProblemId(req.params.id);
     const judge = id && await JudgeState.findById(id);
+    let latestContestTitle = null;
+    if (judge && Number(judge.type) === 1) {
+      const rows = await TypeORM.getConnection().query(
+        `SELECT JSON_UNQUOTE(JSON_EXTRACT(version.content_json,'$.title')) AS title
+           FROM problem_v2_state state
+           JOIN problem_v2_version version ON version.id=state.current_version_id
+          WHERE state.problem_id=? LIMIT 1`,
+        [Number(judge.problem_id)]
+      );
+      latestContestTitle = rows[0] && rows[0].title || null;
+    }
     const originalRender = res.render.bind(res);
     res.render = function renderSubmissionWithSafeSocket(view, options) {
       if (view === 'submission' && options && options.info && options.displayConfig) {
         options.socketToken = null;
         options.submissionPending = !!(judge && judge.pending);
+        if (latestContestTitle) options.info.problemName = String(latestContestTitle);
       }
       return originalRender.apply(res, arguments);
     };

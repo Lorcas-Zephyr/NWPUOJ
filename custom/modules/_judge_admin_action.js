@@ -294,9 +294,7 @@ app.post('/api/v2/submissions/:id/restore-and-rejudge', async (req, res) => {
     await refreshAdminActionCache();
     if (syzoj.utils.refreshContestCheaterCache) await syzoj.utils.refreshContestCheaterCache();
 
-    // 调用 SYZOJ 自带的 rejudge model 方法
-    await judge.loadRelationships();
-    await judge.rejudge();
+    await syzoj.utils.rejudgeSubmissionWithCurrentSnapshot(judge, res.locals.user.id);
     await rebuildAffectedStatistics(judge, res.locals.contestMutationLockHeld);
     await auditJudgeAction(req, judge, 'submission:restore-and-rejudge', reason, { previous_status: 'Cancelled' });
 

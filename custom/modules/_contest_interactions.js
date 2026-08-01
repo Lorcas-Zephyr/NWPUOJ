@@ -1,5 +1,6 @@
 const TypeORM = require('typeorm');
 const { AsyncLocalStorage } = require('async_hooks');
+const problemDomain = require('../libs/problem-domain');
 
 const Contest = syzoj.model('contest');
 const ContestRanklist = syzoj.model('contest_ranklist');
@@ -10,6 +11,15 @@ const contestStatisticsCache = new Map();
 const contestRanklistCache = new Map();
 const contestProblemCache = new Map();
 const originalGetPlayers = ContestRanklist.prototype.getPlayers;
+
+app.use('/contest/:id', (req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    res.setHeader('Cache-Control', 'private, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  }
+  next();
+});
 
 function parseJson(value, fallback) {
   if (value && typeof value === 'object') return value;
@@ -157,7 +167,8 @@ async function loadContestRanklist(contest) {
 }
 
 async function loadContestProblemPresentation(problem) {
-  return cached(contestProblemCache, Number(problem.id), 5000, async () => {
+  const cacheKey = `${Number(problem.id)}:${problem.contestVersionId || 'legacy'}`;
+  return cached(contestProblemCache, cacheKey, 5000, async () => {
     const fields = ['description', 'input_format', 'output_format', 'example', 'limit_and_hint'];
     const rendered = {};
     for (const field of fields) rendered[field] = problem[field] || '';
@@ -168,6 +179,27 @@ async function loadContestProblemPresentation(problem) {
     ]);
     return { rendered, specialJudge, testcases };
   });
+}
+
+async function applyCurrentProblemVersions(problems) {
+  const valid = (problems || []).filter(Boolean);
+  const ids = Array.from(new Set(valid.map(problem => Number(problem.id)).filter(Boolean)));
+  if (!ids.length) return valid;
+  const rows = await TypeORM.getConnection().query(
+    `SELECT state.problem_id,state.current_version_id,version.content_json
+       FROM problem_v2_state state
+       JOIN problem_v2_version version ON version.id=state.current_version_id
+      WHERE state.problem_id IN (?)`,
+    [ids]
+  );
+  const versions = new Map(rows.map(row => [Number(row.problem_id), row]));
+  for (const problem of valid) {
+    const row = versions.get(Number(problem.id));
+    if (!row || !row.content_json) continue;
+    Object.assign(problem, problemDomain.parseStoredContent(row.content_json));
+    problem.contestVersionId = String(row.current_version_id);
+  }
+  return valid;
 }
 
 function cloneRanklistItem(item) {
@@ -186,6 +218,20 @@ function cloneRanklistItem(item) {
 app.get('/contest/:id', (req, res, next) => {
   if (req.query.view === 'problems') return contestOverviewContext.run(true, next);
   return res.redirect(302, syzoj.utils.makeUrl(['contest', req.params.id, 'details']));
+});
+
+app.get('/contest/:id/edit', (req, res, next) => {
+  const originalRender = res.render.bind(res);
+  res.render = function renderContestEditorWithCurrentProblems(view, options) {
+    if (view !== 'contest_edit' || !options || !Array.isArray(options.problems)) {
+      return originalRender.apply(res, arguments);
+    }
+    applyCurrentProblemVersions(options.problems)
+      .then(() => originalRender(view, options))
+      .catch(next);
+    return res;
+  };
+  next();
 });
 
 app.get('/contest/:id/details', async (req, res) => {
@@ -219,7 +265,10 @@ app.get('/contest/:id', (req, res, next) => {
     options.contest.running = options.contest.isRunning();
     options.contest.ended = options.contest.isEnded();
     const problemIds = options.problems.map(item => Number(item.problem && item.problem.id)).filter(Boolean);
-    loadContestStatistics(Number(options.contest.id), problemIds).then(statistics => {
+    Promise.all([
+      loadContestStatistics(Number(options.contest.id), problemIds),
+      applyCurrentProblemVersions(options.problems.map(item => item.problem))
+    ]).then(([statistics]) => {
       for (const item of options.problems) {
         item.statistics = statistics.get(Number(item.problem && item.problem.id)) || {
           attempt: 0,
@@ -254,6 +303,7 @@ app.get('/contest/:id/ranklist', async (req, res, next) => {
     const ranklist = allItems.slice(offset, offset + paginate.perPage).map(cloneRanklistItem);
     const problemIds = await contest.getProblems();
     const problems = (await Promise.all(problemIds.map(id => Problem.findById(id)))).filter(Boolean);
+    await applyCurrentProblemVersions(problems);
     res.render('contest_ranklist', {
       contest,
       ranklist,
@@ -279,6 +329,7 @@ app.get('/contest/:id/problem/:pid', async (req, res, next) => {
     }
     const problem = await Problem.findById(problemIds[problemIndex - 1]);
     if (!problem) throw new ErrorMessage('无此题目。');
+    await applyCurrentProblemVersions([problem]);
     const supervisor = await contest.isSupervisior(res.locals.user);
     contest.ended = contest.isEnded();
     if (!supervisor && !(contest.isRunning() || contest.ended)) {

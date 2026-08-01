@@ -11,6 +11,9 @@ const PROBLEM_TYPES = new Set([
   'traditional', 'submit-answer', 'interaction',
   'vjudge:luogu', 'vjudge:uoj', 'vjudge:hdu', 'vjudge:poj'
 ]);
+const JUDGE_CONFIGURATION_FIELDS = Object.freeze([
+  'type', 'time_limit', 'memory_limit', 'file_io', 'file_io_input_name', 'file_io_output_name'
+]);
 const REVIEW_REQUEST_STATUSES = new Set(['draft', 'rejected']);
 
 function orderedContent(source = {}) {
@@ -210,6 +213,122 @@ async function updateProblemAggregate(manager, problem, content, actorId) {
   return { version, legacy_projection_updated: !published };
 }
 
+function withJudgeConfiguration(content, configuration) {
+  const next = orderedContent(content || {});
+  JUDGE_CONFIGURATION_FIELDS.forEach(field => {
+    if (Object.prototype.hasOwnProperty.call(configuration, field)) next[field] = configuration[field];
+  });
+  return next;
+}
+
+async function insertJudgeConfigurationSnapshot(manager, problemId, version, content, currentSnapshot, actorId, snapshotIdFactory) {
+  const serialized = serializeContent(content);
+  const hash = contentHash(content);
+  if (currentSnapshot && String(currentSnapshot.content_hash) === hash) {
+    return { snapshot_id: String(currentSnapshot.id), created: false };
+  }
+
+  const testdataHash = currentSnapshot && currentSnapshot.testdata_hash || null;
+  const testdataPath = currentSnapshot && currentSnapshot.testdata_path || null;
+  const providerConfig = content.vjudge_config == null ? null : content.vjudge_config;
+  const requestedId = (snapshotIdFactory || (() => `ps_${crypto.randomUUID().replace(/-/g, '')}`))();
+  let snapshotId = requestedId;
+  try {
+    await manager.query(
+      'INSERT INTO problem_v2_snapshot (id,problem_id,version_id,content_hash,content_json,provider_config,testdata_hash,testdata_path,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(3))',
+      [requestedId, problemId, version.id, hash, serialized, providerConfig, testdataHash, testdataPath, actorId]
+    );
+  } catch (insertError) {
+    const snapshots = await manager.query(
+      'SELECT id FROM problem_v2_snapshot WHERE problem_id=? AND content_hash=? AND testdata_hash <=> ? LIMIT 1',
+      [problemId, hash, testdataHash]
+    );
+    if (!snapshots.length) throw insertError;
+    snapshotId = snapshots[0].id;
+  }
+  return { snapshot_id: String(snapshotId), created: snapshotId === requestedId };
+}
+
+async function updateJudgeConfigurationAggregate(manager, problem, configuration, actorId, snapshotIdFactory = null) {
+  const problemId = Number(problem && problem.id);
+  const states = await manager.query('SELECT * FROM problem_v2_state WHERE problem_id=? FOR UPDATE', [problemId]);
+  const state = states[0] || null;
+  const versionRows = state && state.current_version_id
+    ? await manager.query('SELECT * FROM problem_v2_version WHERE id=? AND problem_id=? LIMIT 1', [state.current_version_id, problemId])
+    : [];
+  const snapshotRows = state && state.current_snapshot_id
+    ? await manager.query('SELECT * FROM problem_v2_snapshot WHERE id=? AND problem_id=? LIMIT 1', [state.current_snapshot_id, problemId])
+    : [];
+  const currentVersion = versionRows[0] || null;
+  const currentSnapshot = snapshotRows[0] || null;
+  const currentVersionContent = currentVersion ? parseStoredContent(currentVersion.content_json) : problemContent(problem);
+  const desiredVersionContent = withJudgeConfiguration(currentVersionContent, configuration);
+  const publicProblem = !!problem.is_public;
+  const hasPendingDraft = publicProblem && currentSnapshot && currentVersion && String(currentSnapshot.version_id) !== String(currentVersion.id);
+
+  await manager.query(
+    'UPDATE problem SET type=?,time_limit=?,memory_limit=?,file_io=?,file_io_input_name=?,file_io_output_name=? WHERE id=?',
+    JUDGE_CONFIGURATION_FIELDS.map(field => configuration[field]).concat([problemId])
+  );
+
+  let publicVersion = null;
+  let publicContent = null;
+  let nextSnapshot = currentSnapshot ? { snapshot_id: String(currentSnapshot.id), created: false } : null;
+  if (currentSnapshot) {
+    publicContent = publicProblem
+      ? withJudgeConfiguration(parseStoredContent(currentSnapshot.content_json), configuration)
+      : desiredVersionContent;
+    if (contentHash(publicContent) !== String(currentSnapshot.content_hash)) {
+      if (!publicProblem && currentVersion && contentHash(desiredVersionContent) === String(currentVersion.content_hash)) {
+        publicVersion = currentVersion;
+      } else {
+        publicVersion = await insertVersion(
+          manager,
+          problemId,
+          publicContent,
+          actorId,
+          publicProblem ? 'published' : 'draft',
+          publicProblem ? currentSnapshot.version_id : currentVersion && currentVersion.id
+        );
+        if (publicProblem) {
+          await manager.query(
+            "UPDATE problem_v2_version SET reviewed_by=?,reviewed_at=UTC_TIMESTAMP(3),review_feedback='Judge configuration update',published_at=UTC_TIMESTAMP(3) WHERE id=? AND problem_id=?",
+            [actorId, publicVersion.id, problemId]
+          );
+        }
+      }
+      nextSnapshot = await insertJudgeConfigurationSnapshot(
+        manager, problemId, publicVersion, publicContent, currentSnapshot, actorId, snapshotIdFactory
+      );
+    }
+  }
+
+  let nextVersion = currentVersion;
+  if (!currentVersion || contentHash(desiredVersionContent) !== String(currentVersion.content_hash)) {
+    const snapshotVersionMatches = publicVersion && publicContent && contentHash(desiredVersionContent) === contentHash(publicContent);
+    nextVersion = snapshotVersionMatches && !hasPendingDraft
+      ? publicVersion
+      : await insertVersion(manager, problemId, desiredVersionContent, actorId, publicProblem && !hasPendingDraft ? 'published' : 'draft', currentVersion && currentVersion.id);
+    if (publicProblem && !hasPendingDraft && nextVersion !== publicVersion) {
+      await manager.query(
+        "UPDATE problem_v2_version SET reviewed_by=?,reviewed_at=UTC_TIMESTAMP(3),review_feedback='Judge configuration update',published_at=UTC_TIMESTAMP(3) WHERE id=? AND problem_id=?",
+        [actorId, nextVersion.id, problemId]
+      );
+    }
+  }
+
+  if (nextVersion || nextSnapshot) {
+    await manager.query(
+      'UPDATE problem_v2_state SET current_version_id=COALESCE(?,current_version_id),current_snapshot_id=COALESCE(?,current_snapshot_id),updated_at=UTC_TIMESTAMP(3) WHERE problem_id=?',
+      [nextVersion && nextVersion.id || null, nextSnapshot && nextSnapshot.snapshot_id || null, problemId]
+    );
+  }
+  return {
+    version_id: nextVersion && String(nextVersion.id) || null,
+    snapshot_id: nextSnapshot && nextSnapshot.snapshot_id || null
+  };
+}
+
 function parseStoredContent(value) {
   const parsed = typeof value === 'string' ? JSON.parse(value) : value;
   const content = orderedContent(parsed || {});
@@ -351,6 +470,66 @@ async function refreshTestdataSnapshotAggregate(manager, problem, actorId, reque
   return { snapshot_id: snapshotId, created, changed: snapshotId !== String(current.id) };
 }
 
+async function materializeCurrentVersionSnapshotAggregate(manager, problem, actorId, requestedSnapshotId, options = {}) {
+  const states = await manager.query('SELECT * FROM problem_v2_state WHERE problem_id=? FOR UPDATE', [problem.id]);
+  const state = states[0] || null;
+  if (!state || !state.current_snapshot_id || !state.current_version_id) {
+    const error = new Error('The problem does not have a current version and snapshot.');
+    error.code = 'PROBLEM_SNAPSHOT_REQUIRED';
+    throw error;
+  }
+
+  const [snapshotRows, versionRows] = await Promise.all([
+    manager.query('SELECT * FROM problem_v2_snapshot WHERE id=? AND problem_id=? LIMIT 1', [state.current_snapshot_id, problem.id]),
+    manager.query('SELECT * FROM problem_v2_version WHERE id=? AND problem_id=? LIMIT 1', [state.current_version_id, problem.id])
+  ]);
+  if (!snapshotRows.length || !versionRows.length) {
+    const error = new Error('The current problem version or snapshot is missing.');
+    error.code = 'PROBLEM_SNAPSHOT_REQUIRED';
+    throw error;
+  }
+
+  const current = snapshotRows[0];
+  const version = versionRows[0];
+  const includeDraft = options.includeDraft === true || !problem.is_public;
+  if (!includeDraft || String(current.content_hash) === String(version.content_hash)) {
+    return { snapshot_id: String(current.id), created: false, changed: false };
+  }
+
+  const content = parseStoredContent(version.content_json);
+  const providerConfig = content.vjudge_config == null ? problem.vjudge_config || null : content.vjudge_config;
+  let snapshots = await manager.query(
+    'SELECT id FROM problem_v2_snapshot WHERE problem_id=? AND content_hash=? AND testdata_hash <=> ? LIMIT 1',
+    [problem.id, version.content_hash, current.testdata_hash]
+  );
+  let created = false;
+  if (!snapshots.length) {
+    try {
+      await manager.query(
+        'INSERT INTO problem_v2_snapshot (id,problem_id,version_id,content_hash,content_json,provider_config,testdata_hash,testdata_path,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(3))',
+        [requestedSnapshotId, problem.id, version.id, version.content_hash, serializeContent(content), providerConfig, current.testdata_hash || null, current.testdata_path || null, actorId]
+      );
+      snapshots = [{ id: requestedSnapshotId }];
+      created = true;
+    } catch (insertError) {
+      snapshots = await manager.query(
+        'SELECT id FROM problem_v2_snapshot WHERE problem_id=? AND content_hash=? AND testdata_hash <=> ? LIMIT 1',
+        [problem.id, version.content_hash, current.testdata_hash]
+      );
+      if (!snapshots.length) throw insertError;
+    }
+  }
+
+  const snapshotId = String(snapshots[0].id);
+  if (options.activate !== false) {
+    await manager.query(
+      'UPDATE problem_v2_state SET current_snapshot_id=?,updated_at=UTC_TIMESTAMP(3) WHERE problem_id=?',
+      [snapshotId, problem.id]
+    );
+  }
+  return { snapshot_id: snapshotId, created, changed: snapshotId !== String(current.id) };
+}
+
 async function archiveProblemAggregate(manager, problemId) {
   await manager.query(
     `INSERT INTO problem_v2_state (problem_id,lifecycle_status,current_version_id,current_snapshot_id,archived_at,updated_at)
@@ -385,6 +564,7 @@ module.exports = {
   problemContent,
   problemResource,
   publishProblemAggregate,
+  materializeCurrentVersionSnapshotAggregate,
   refreshTestdataSnapshotAggregate,
   reviewDecisionAllowed,
   reviewRequestAllowed,
@@ -394,6 +574,7 @@ module.exports = {
   syncSourceProjection,
   statementMarkdown,
   unpublishProblemAggregate,
+  updateJudgeConfigurationAggregate,
   updateProblemAggregate,
   validateContent
 };

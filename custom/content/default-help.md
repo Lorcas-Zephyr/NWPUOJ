@@ -15,116 +15,103 @@
 
 拥有题目管理权限的用户可在[添加题目](/problem/0/edit)页面创建单道主题库题目。题面使用 Markdown，并支持 TeX 公式。
 
-## ZIP 批量导入严格格式
+<span id="zip-bulk-import-format"></span>
+## 评测数据 ZIP 格式
 
-ZIP 批量导入入口位于“题库 -> 添加题目 -> ZIP 批量导入”。ZIP 根目录下的**每个一级子文件夹生成一道传统题**。格式不符合以下任一规则时，整批导入失败，已创建的本批题目会回滚。
+在题目的“管理题目 -> 数据包”中上传测试数据 ZIP。压缩包内的文件必须直接放在 ZIP 根目录，不能额外套一层同名文件夹；`data.yml` 中引用的文件名也相对于根目录。文件名区分大小写，禁止绝对路径、反斜杠路径、`..` 路径穿越、符号链接、设备文件和加密条目。
 
-### 完整目录结构
+上传 ZIP、解压后总大小的上限均为 200 MiB；最多 2000 个条目，单个解压文件最大 50 MiB。上传后请确认页面显示的测试点数量与预期一致。
 
-```text
-problems.zip
-├── A-plus-B/
-│   ├── problem.json
-│   ├── description.md
-│   ├── input.md
-│   ├── output.md
-│   ├── example.md          # 可选
-│   ├── hint.md             # 可选
-│   └── testdata/
-│       ├── 1.in
-│       ├── 1.out
-│       ├── 2.in
-│       └── 2.ans           # .out 与 .ans 二选一
-└── Second-problem/
-    ├── problem.json
-    ├── description.md
-    ├── input.md
-    ├── output.md
-    └── testdata/
-        ├── sample.in
-        └── sample.out
-```
+`data.yml` 使用 UTF-8 YAML。文件名模板中的 `#` 会替换为 `cases` 中的测试点编号。每个子任务的 `score` 为该子任务分值，`type` 可取 `sum`、`min` 或 `mul`；所有子任务分值通常应合计为 100。
 
-ZIP 根目录只能包含题目一级目录。不得额外套一层总目录，不得在根目录放文件。
+### 传统题
 
-### `problem.json`
-
-每道题必须提供严格 UTF-8 编码的 `problem.json`。JSON 不允许注释、尾随逗号或规范外字段。
-
-```json
-{
-  "title": "A+B Problem",
-  "time_limit": 1000,
-  "memory_limit": 256,
-  "tags": ["入门", "模拟"],
-  "is_anonymous": false
-}
-```
-
-允许且仅允许以下字段：
-
-| 字段 | 必需 | 类型 | 约束 |
-| --- | --- | --- | --- |
-| `title` | 是 | 字符串 | 1 至 80 字符，首尾不得有空白 |
-| `time_limit` | 是 | 整数 | 毫秒，必须大于 0 且不超过站点上限 |
-| `memory_limit` | 是 | 整数 | MiB，必须大于 0 且不超过站点上限 |
-| `tags` | 否 | 字符串数组 | 最多 20 项；标签必须已在本站创建 |
-| `is_anonymous` | 否 | 布尔值 | 省略时为 `false` |
-
-### 题面文件
-
-以下文件都必须使用严格 UTF-8 编码：
-
-| 文件 | 必需 | 内容 |
-| --- | --- | --- |
-| `description.md` | 是 | 题目描述，不能为空 |
-| `input.md` | 是 | 输入格式；无输入时保留空文件 |
-| `output.md` | 是 | 输出格式；无输出时保留空文件 |
-| `example.md` | 否 | 样例，使用 Markdown 代码块 |
-| `hint.md` | 否 | 数据范围、提示和来源 |
-
-每个 Markdown 文件最大 512 KiB，`problem.json` 最大 64 KiB。
-
-### 测试数据
-
-- `testdata` 目录必须存在，并至少包含一组输入输出。
-- 测试数据必须直接位于 `testdata` 中，不允许继续嵌套目录。
-- 文件名只能包含英文字母、数字、下划线、连字符和点，且必须以字母或数字开头。
-- 每个基础文件名必须有一个 `.in`，并且只能配对一个同名 `.out` 或 `.ans`。
-- `.out` 和 `.ans` 不得同时存在。
-- 文件名区分大小写；ZIP 中不得出现仅大小写不同的重复路径。
-
-合法配对：
+不需要子任务或 Special Judge 时，可以不写 `data.yml`。系统会自动配对根目录下同名的 `.in` 与 `.out`；`.ans` 也可代替 `.out`。
 
 ```text
-01.in + 01.out
-large-2.in + large-2.ans
+traditional.zip
+├── 1.in
+├── 1.out
+├── 2.in
+└── 2.out
 ```
 
-非法配对：
+需要划分子任务时，在根目录加入：
+
+```yaml
+inputFile: "#.in"
+outputFile: "#.out"
+subtasks:
+  - score: 30
+    type: sum
+    cases: [1, 2]
+  - score: 70
+    type: sum
+    cases: [3, 4]
+```
+
+使用 Special Judge 时，将检查器源文件放在根目录，并在 `data.yml` 中增加：
+
+```yaml
+specialJudge:
+  language: cpp17
+  fileName: checker.cpp
+```
+
+检查器运行目录提供 `input`、`answer`、`user_out` 和 `code` 文件。检查器向标准输出写入 `0` 至 `100` 的得分，向标准错误写入提示信息。`cpp` 使用 C++03；需要 C++11 或更新语法时请使用 `cpp11` 或 `cpp17`。没有 `data.yml` 时，也可使用自动识别名称，例如 `spj_cpp.cpp`。
+
+### 交互题
+
+交互题必须提供 `data.yml` 和交互器源文件，并用 `interactor` 声明语言和文件名。下面的包包含两个测试点：
 
 ```text
-1.in                  # 缺少输出
-2.out                 # 缺少输入
-3.in + 3.out + 3.ans  # 输出重复
+interaction.zip
+├── data.yml
+├── interactor.cpp
+├── 1.in
+├── 1.ans
+├── 2.in
+└── 2.ans
 ```
 
-### 明确禁止
+```yaml
+inputFile: "#.in"
+outputFile: "#.ans"
+interactor:
+  language: cpp17
+  fileName: interactor.cpp
+subtasks:
+  - score: 100
+    type: sum
+    cases: [1, 2]
+```
 
-- `data.yml`、Special Judge、交互器、附加源文件和文件输入输出配置。
-- 可执行文件、脚本、符号链接、设备文件和加密 ZIP 项。
-- 绝对路径、反斜杠路径、`..` 路径穿越、空路径段和 Unicode 非 NFC 路径。
-- 规范中未列出的任何文件或目录。
+交互器通过标准输入输出与选手程序通信。运行目录提供 `input`、`answer` 和 `code` 文件；交互器正常结束前必须在当前目录写入 `score.txt`，内容为 `0` 至 `100` 的数字。写入 `-1` 表示交互无效。`cpp` 使用 C++03；包含 `using`、属性或其他现代 C++ 语法的交互器应声明为 `cpp11` 或 `cpp17`。
 
-### 容量限制
+### 提交答案题
 
-- 上传 ZIP 最大 50 MiB。
-- 每个 ZIP 最多 50 道题、2000 个文件项。
-- 解压后总大小最大 200 MiB。
-- 单题解压后最大 50 MiB。
-- 单个测试数据文件最大 20 MiB。
+提交答案题建议始终提供 `data.yml`，使用 `userOutput` 明确选手答案 ZIP 中每个测试点的文件名。测试数据包示例：
 
-导入前会完整检查 ZIP 中的所有路径、大小、元数据和测试数据配对。所有题目会先以未公开状态创建；测试数据全部安装并被评测系统识别后，才会按照上传页面的选项统一公开。
+```text
+submit-answer.zip
+├── data.yml
+├── 1.in
+├── 1.ans
+├── 2.in
+└── 2.ans
+```
+
+```yaml
+inputFile: "#.in"
+outputFile: "#.ans"
+userOutput: "#.out"
+subtasks:
+  - score: 100
+    type: sum
+    cases: [1, 2]
+```
+
+选手提交的答案 ZIP 必须在根目录包含 `1.out`、`2.out` 等 `userOutput` 指定的文件，不能额外套文件夹。缺少任一文件会得到文件错误。需要自定义评分时，可按传统题相同方式增加 `specialJudge`；未配置检查器时使用普通输出比较。
 
 ## Hit 值
 

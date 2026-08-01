@@ -129,6 +129,16 @@ test('bare contest entries default to details while the problem workspace stays 
   assert.doesNotMatch(context, /appContestSection === 'problems'[\s\S]{0,180}makeUrl\(\['contest', appContest\.id\]\)(?!,)/);
 });
 
+test('contest workspaces render the current problem version instead of the original snapshot title', () => {
+  const interactions = read('custom/modules/_contest_interactions.js');
+  const search = read('custom/modules/_api_v2_search.js');
+  assert.match(interactions, /async function applyCurrentProblemVersions\(problems\)/);
+  assert.match(interactions, /JOIN problem_v2_version version ON version\.id=state\.current_version_id/);
+  assert.match(interactions, /applyCurrentProblemVersions\(options\.problems\.map\(item => item\.problem\)\)/);
+  assert.match(interactions, /await applyCurrentProblemVersions\(\[problem\]\)/);
+  assert.match(search, /loadCurrentVersionContent\(problem\.id\)/);
+});
+
 test('contest rankings and submissions start directly with their working content', () => {
   const ranklist = read('custom/views/contest_ranklist.ejs');
   const submissions = read('custom/views/submissions.ejs');

@@ -44,6 +44,21 @@ test('admin content workflows cover deletion, locked replacement, and atomic hel
   assert.doesNotMatch(banners, /app\.(?:post|put|patch|delete)\(/);
 });
 
+test('default help documents testdata ZIP layouts for every local problem type', () => {
+  const help = read('custom/content/default-help.md');
+  const view = read('custom/views/help.ejs');
+  assert.match(help, /## 评测数据 ZIP 格式/);
+  assert.match(help, /### 传统题[\s\S]*traditional\.zip/);
+  assert.match(help, /### 交互题[\s\S]*interaction\.zip[\s\S]*interactor:/);
+  assert.match(help, /interactor:[\s\S]*language: cpp17[\s\S]*`cpp` 使用 C\+\+03/);
+  assert.match(help, /### 提交答案题[\s\S]*submit-answer\.zip[\s\S]*userOutput:/);
+  assert.match(help, /inputFile: "#\.in"/);
+  assert.match(help, /outputFile: "#\.ans"/);
+  assert.match(help, /score\.txt/);
+  assert.doesNotMatch(help, /ZIP 根目录下的\*\*每个一级子文件夹生成一道传统题/);
+  assert.match(view, /评测数据 ZIP 格式' \? 'testdata-zip-format'/);
+});
+
 test('announcement and banner workspaces use v2-first writes with safe image upload', () => {
   const admin = read('custom/modules/_api_v2_admin_domain.js');
   const announcements = read('custom/views/admin_announcements.ejs');

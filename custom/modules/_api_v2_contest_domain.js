@@ -286,7 +286,11 @@ async function snapshotProblems(contest, user, req, options) {
     const problem = await syzoj.model('problem').findById(problemId);
     if (!problem) continue;
     const scoring = scoringByProblem.get(problemId) || { alias: String.fromCharCode(65 + index), score: 1, penalty: 20 };
-    const problemSnapshotId = await syzoj.utils.problemV2.ensureCurrentSnapshot(problem, user && user.id || problem.user_id);
+    const materialized = await syzoj.utils.problemV2.snapshotForCurrentVersion(problem, user && user.id || problem.user_id, {
+      includeDraft: true,
+      activate: !problem.is_public
+    });
+    const problemSnapshotId = materialized.snapshot_id;
     const snapshots = await connection.query('SELECT id,content_hash FROM problem_v2_snapshot WHERE id=? AND problem_id=? LIMIT 1', [problemSnapshotId, problemId]);
     if (!snapshots.length) throw Object.assign(new Error('The immutable problem snapshot could not be loaded.'), { code: 'PROBLEM_SNAPSHOT_REQUIRED', statusCode: 409 });
     const sourceSnapshot = snapshots[0];
@@ -306,6 +310,21 @@ async function loadContestProblemSnapshot(contestId, problemId) {
     [Number(contestId), Number(problemId)]
   );
   return rows[0] || null;
+}
+
+async function trackContestProblemSnapshot(contestId, problemId, problemSnapshotId) {
+  await ensureContestV2Schema();
+  const connection = TypeORM.getConnection();
+  const snapshots = await connection.query(
+    'SELECT content_hash FROM problem_v2_snapshot WHERE id=? AND problem_id=? LIMIT 1',
+    [String(problemSnapshotId), Number(problemId)]
+  );
+  if (!snapshots.length) return false;
+  await connection.query(
+    'UPDATE contest_v2_problem_snapshot SET problem_snapshot_id=?,snapshot_hash=? WHERE contest_id=? AND problem_id=?',
+    [String(problemSnapshotId), snapshots[0].content_hash, Number(contestId), Number(problemId)]
+  );
+  return true;
 }
 
 function standingsKind(status, requested) {
@@ -529,6 +548,7 @@ syzoj.utils.contestV2 = {
   ensureSchema: ensureContestV2Schema,
   ensureConfig: loadContestConfig,
   getProblemSnapshot: loadContestProblemSnapshot,
+  trackProblemSnapshot: trackContestProblemSnapshot,
   status: lifecycleFor,
   state: stateFor,
   transition: writeState
@@ -725,6 +745,10 @@ async function saveContestV2(req, res, contestId) {
   const id = await contestMutation.saveContest({ id: contestId || 0, actorId: user.id, title, subtitle: String(body.subtitle == null && existing ? existing.subtitle || '' : body.subtitle || ''), information: String(body.information == null && existing ? existing.information || '' : body.information || ''), problems: problemIds.join('|'), admins: admins.join('|'), type, rankingParams: normalizedRankingParams, startTime: Math.floor(start / 1000), endTime: Math.floor(end / 1000), hideStatistics: body.hide_statistics === undefined && existing ? !!existing.hide_statistics : !!body.hide_statistics, isPublic: visibility === 'public', allowLateRegistration, isRated, revision: mutationRevision });
   const saved = await Contest.findById(id);
   let state = await stateFor(id);
+  if (lifecycleFor(saved, state) === 'scheduled') {
+    await snapshotProblems(saved, user, req, { refresh: true });
+    state = await stateFor(id);
+  }
   return api.send(res, serializeContest(saved, state, true), existing ? 200 : 201);
 }
 app.post('/api/v2/contests', (req, res) => saveContestV2(req, res, 0));
