@@ -1,7 +1,7 @@
 <% this.adminPage = 'announcements'; %>
 <% include admin_header %>
 
-<div class="app-admin-toolbar"><div><h3>公告列表</h3><p>管理首页弹窗公告的时间、级别和启用状态。</p></div><a class="app-button app-button-primary" href="<%= syzoj.utils.makeUrl(['admin', 'announcement', 0, 'edit']) %>"><i data-lucide="plus"></i>新建公告</a></div>
+<div class="app-admin-toolbar"><div><h3>通知列表</h3><p>编辑、发布和撤回全站通知；通知也会显示在用户右上角的通知中心。</p></div><a class="app-button app-button-primary" href="<%= syzoj.utils.makeUrl(['admin', 'announcement', 0, 'edit']) %>"><i data-lucide="plus"></i>新建通知</a></div>
 <% if (announcements.length) { %>
 <div class="app-table-region"><table class="app-table app-admin-announcements-table"><thead><tr><th>标题</th><th>级别</th><th>生效时段</th><th>状态</th><th aria-label="操作"></th></tr></thead><tbody>
 <% for (const announcement of announcements) { const appLevel = announcement.level === 'important' ? ['重要', 'app-status-rejected'] : announcement.level === 'warning' ? ['警告', 'app-status-pending'] : ['信息', 'app-status-info']; const appState = !announcement.is_active ? ['已停用', 'app-status-muted'] : announcement.isLive ? ['生效中', 'app-status-accepted'] : now < announcement.start_time ? ['未开始', 'app-status-info'] : ['已过期', 'app-status-muted']; %>

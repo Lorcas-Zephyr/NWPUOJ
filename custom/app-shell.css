@@ -1,25 +1,25 @@
 :root {
   color-scheme: light;
-  --app-bg: #f6f7f9;
+  --app-bg: #f4f8fc;
   --app-surface: #ffffff;
   --app-surface-raised: #ffffff;
   --app-sidebar: #ffffff;
-  --app-sidebar-hover: #f0f3f7;
+  --app-sidebar-hover: #edf6fd;
   --app-sidebar-text: #1b1e24;
   --app-sidebar-muted: #707784;
   --app-sidebar-item: #4d5562;
   --app-sidebar-icon: #697280;
-  --app-sidebar-active: #eaf2ff;
-  --app-sidebar-active-text: #0d56bd;
-  --app-sidebar-line: #e5e8ed;
+  --app-sidebar-active: #dff0fc;
+  --app-sidebar-active-text: #1769a7;
+  --app-sidebar-line: #dceaf4;
   --app-text: #17191d;
   --app-text-secondary: #5d6470;
   --app-text-muted: #858c98;
   --app-line: #e5e8ed;
   --app-line-strong: #d5d9e0;
-  --app-accent: #1565d8;
-  --app-accent-hover: #0d56bd;
-  --app-accent-soft: #eaf2ff;
+  --app-accent: #2b83c6;
+  --app-accent-hover: #1769a7;
+  --app-accent-soft: #e3f2fc;
   --app-on-accent: #ffffff;
   --app-success: #17834f;
   --app-success-soft: #e9f7f0;
@@ -27,7 +27,7 @@
   --app-warning-soft: #fff5d8;
   --app-danger: #c33538;
   --app-danger-soft: #fff0f0;
-  --app-info-soft: #edf6ff;
+  --app-info-soft: #e9f5fc;
   --app-verdict-runtime: #7c3aed;
   --app-verdict-runtime-soft: #f3e8ff;
   --app-verdict-memory: #087f8c;
@@ -38,12 +38,12 @@
   --app-markdown-code-bg: #f2f4f7;
   --app-markdown-code-text: #242932;
   --app-banner-bg: #20242b;
-  --app-focus: 0 0 0 3px rgba(21, 101, 216, 0.2);
-  --app-shadow-menu: 0 18px 50px rgba(21, 26, 35, 0.14), 0 2px 8px rgba(21, 26, 35, 0.08);
+  --app-focus: 0 0 0 3px rgba(43, 131, 198, 0.22);
+  --app-shadow-menu: 0 18px 50px rgba(35, 91, 126, 0.14), 0 2px 8px rgba(35, 91, 126, 0.08);
   --app-sidebar-width: 186px;
-  --app-topbar-height: 66px;
-  --app-radius: 6px;
-  --app-radius-small: 4px;
+  --app-topbar-height: 72px;
+  --app-radius: 10px;
+  --app-radius-small: 7px;
   --app-content: 1440px;
   --app-control-height: 38px;
   --app-font-xs: 12px;
@@ -76,7 +76,7 @@
   --app-text-muted: #7f8793;
   --app-line: #292e37;
   --app-line-strong: #383e48;
-  --app-accent: #69a4ff;
+  --app-accent: #7ab9e5;
   --app-accent-hover: #8ab7ff;
   --app-accent-soft: #152c4d;
   --app-on-accent: #09111d;
@@ -308,6 +308,18 @@ body.app-v2.is-dialog-open {
   transition: color 140ms ease, background-color 140ms ease, transform 140ms ease;
 }
 
+.app-nav-item::before {
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  left: 0;
+  width: 3px;
+  border-radius: 0 4px 4px 0;
+  background: transparent;
+  content: '';
+  transition: background-color 140ms ease;
+}
+
 .app-nav-item > .app-static-icon {
   width: 19px;
   height: 19px;
@@ -330,6 +342,10 @@ body.app-v2.is-dialog-open {
 .app-nav-item.is-active {
   background: var(--app-sidebar-active);
   color: var(--app-sidebar-active-text) !important;
+}
+
+.app-nav-item.is-active::before {
+  background: var(--app-accent);
 }
 
 .app-sidebar-foot {
@@ -369,8 +385,9 @@ body.app-v2.is-dialog-open {
   gap: 24px;
   padding: 0 28px;
   border-bottom: 1px solid var(--app-line);
-  background: color-mix(in srgb, var(--app-surface) 94%, transparent);
+  background: color-mix(in srgb, var(--app-surface) 96%, transparent);
   backdrop-filter: blur(16px);
+  box-shadow: 0 1px 0 rgba(33, 104, 150, 0.04), 0 8px 24px rgba(33, 104, 150, 0.035);
 }
 
 .app-topbar-context,
@@ -392,6 +409,19 @@ body.app-v2.is-dialog-open {
   display: flex;
   min-width: 0;
   flex-direction: column;
+  position: relative;
+  padding-left: 12px;
+}
+
+.app-context-copy::before {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 0;
+  width: 3px;
+  border-radius: 4px;
+  background: var(--app-accent);
+  content: '';
 }
 
 .app-context-eyebrow {
