@@ -129,6 +129,8 @@ async function findOperation(req, key, ignoreMemory = false) {
     const row = rows[0];
     return {
       id: row.id,
+      method: row.method,
+      path: row.path,
       requestHash: row.request_hash,
       status: row.status,
       responseStatus: row.response_status,
@@ -153,6 +155,8 @@ async function reserveOperation(req) {
   }
   const record = {
     id: operationId(),
+    method: req.method,
+    path: req.originalUrl || req.url,
     requestHash,
     status: 'started',
     responseStatus: null,
@@ -441,7 +445,11 @@ function operationMiddleware(req, res, next) {
   reserveOperation(req).then(result => {
     if (result.conflict) {
       req.apiV2SkipOperationCompletion = true;
-      return apiFail(res, 409, 'IDEMPOTENCY_CONFLICT', 'The idempotency key was already used with a different request.');
+      return apiFail(res, 409, 'IDEMPOTENCY_CONFLICT', 'The idempotency key was already used with a different request. Generate a new key and retry this action.', {
+        retryable: true,
+        original_method: result.operation && result.operation.method || null,
+        original_path: result.operation && result.operation.path || null
+      });
     }
     if (result.pending) {
       req.apiV2SkipOperationCompletion = true;
