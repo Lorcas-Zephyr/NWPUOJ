@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const TypeORM = require('typeorm');
 const contentDomain = require('../libs/content-domain');
 const { sortAnnouncements } = require('../libs/announcement-order');
+const { linkUserMentions } = require('../libs/user-mentions');
 
 async function canManageAnnouncements(user) {
   return !!(user && await syzoj.utils.authorizationV2.authorize(user, 'announcement:manage', null, {}));
@@ -51,6 +52,11 @@ app.get('/announcements', async (req, res) => {
     sortAnnouncements(announcements, now);
     for (let announcement of announcements) {
       announcement.contentRendered = await syzoj.utils.markdown(announcement.content || '');
+      try {
+        announcement.contentRendered = await linkUserMentions(announcement.contentRendered);
+      } catch (error) {
+        syzoj.log('[announcements] mention rendering failed: ' + error.message);
+      }
     }
 
     res.render('announcements', {

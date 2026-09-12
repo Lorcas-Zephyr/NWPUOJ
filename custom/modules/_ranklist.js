@@ -18,16 +18,19 @@ app.get('/ranklist', async (req, res) => {
       throw new ErrorMessage('错误的排序参数。');
     }
 
+    const ordinaryUsers = () => User.createQueryBuilder('u')
+      .leftJoin('temporary_contest_account', 'temporary_account', 'temporary_account.user_id = u.id')
+      .where('u.is_show = TRUE')
+      .andWhere('temporary_account.user_id IS NULL');
     let pageSize = syzoj.config.page.ranklist;
-    let total = await User.countForPagination({ is_show: true });
+    let total = await ordinaryUsers().getCount();
     let paginate = syzoj.utils.paginate(total, req.query.page, pageSize);
 
     let ranklist;
     if (sortByHit) {
       // 按 Hit 值排序: LEFT JOIN user_hit_score 表
-      let qb = User.createQueryBuilder('u')
+      let qb = ordinaryUsers()
         .leftJoin('user_hit_score', 'h', 'h.user_id = u.id')
-        .where('u.is_show = TRUE')
         .addSelect('COALESCE(h.total, 0)', 'hit_total')
         .orderBy('hit_total', order.toUpperCase())
         .addOrderBy('u.id', 'ASC')
@@ -42,7 +45,12 @@ app.get('/ranklist', async (req, res) => {
         ranklist[i].__hitTotal = parseInt(raws.raw[i].hit_total) || 0;
       }
     } else {
-      ranklist = await User.queryPage(paginate, { is_show: true }, { [sort]: order.toUpperCase() });
+      ranklist = await ordinaryUsers()
+        .orderBy(`u.${sort}`, order.toUpperCase())
+        .addOrderBy('u.id', 'ASC')
+        .limit(paginate.perPage)
+        .offset((paginate.currPage - 1) * paginate.perPage)
+        .getMany();
     }
 
     await ranklist.forEachAsync(async function(x) { return x.renderInformation(); });

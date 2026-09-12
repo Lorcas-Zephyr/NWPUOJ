@@ -14,7 +14,7 @@ async function detail(id) {
     var response = await fetch('/api/v2/admin/banners/' + encodeURIComponent(id), { credentials: 'same-origin', cache: 'no-store' });
     var body = await response.json();
     if (!response.ok) throw Object.assign(new Error(message(body, '轮播图读取失败。')), { code: body && body.error && body.error.code });
-    return { etag: response.headers.get('ETag'), data: body.data };
+    return { etag: response.headers.get('ETag') || body && body.meta && body.meta.etag || '', data: body.data };
   }
   document.querySelectorAll('form[data-banner-v2]').forEach(function (form) {
     form.addEventListener('submit', async function (event) {
@@ -40,6 +40,8 @@ async function detail(id) {
             sort_order: Number(form.elements.sort_order.value || 0),
             active: form.elements.is_active.checked
           });
+          if (action === 'edit') options.body = JSON.stringify(Object.assign(JSON.parse(options.body), { if_match: current.etag }));
+          else options.body = JSON.stringify({ if_match: current.etag });
           response = await fetch('/api/v2/admin/banners/' + encodeURIComponent(id), options);
         }
         var body = await response.json();

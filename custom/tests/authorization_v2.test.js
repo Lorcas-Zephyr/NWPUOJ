@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const test = require('node:test');
 const {
   AUTHENTICATION_WINDOW_MS,
@@ -18,10 +20,12 @@ const {
   scopeMatches
 } = require('../libs/authorization-v2');
 
+const runtimeAuthorization = fs.readFileSync(path.resolve(__dirname, '../modules/_api_v2_authorization.js'), 'utf8');
+
 test('all documented built-in roles exist', () => {
   assert.deepEqual(Object.keys(BUILT_IN_ROLES), [
     'guest', 'member', 'participant', 'problem_editor', 'problem_reviewer',
-    'contest_manager', 'judge_operator', 'content_moderator', 'rating_manager',
+    'contest_manager', 'problemset_manager', 'judge_operator', 'content_moderator', 'rating_manager',
     'vjudge_manager', 'site_admin', 'owner'
   ]);
 });
@@ -30,6 +34,9 @@ test('dedicated high-risk roles own their capabilities', () => {
   assert.equal(roleAllows('rating_manager', 'rating:publish'), true);
   assert.equal(roleAllows('judge_operator', 'judge:worker.restart'), true);
   assert.equal(roleAllows('vjudge_manager', 'vjudge:source.manage'), true);
+  assert.equal(roleAllows('problem_editor', 'problem:delete'), true);
+  assert.equal(roleAllows('contest_manager', 'contest:delete'), true);
+  assert.equal(roleAllows('contest_manager', 'contest:standings.export'), true);
 });
 
 test('site admin follows the documented operations matrix', () => {
@@ -38,6 +45,7 @@ test('site admin follows the documented operations matrix', () => {
   assert.equal(roleAllows('site_admin', 'judge:worker.restart'), true);
   assert.equal(roleAllows('site_admin', 'vjudge:source.manage'), true);
   assert.equal(roleAllows('site_admin', 'admin:config.write'), true);
+  assert.equal(roleAllows('site_admin', 'contest:standings.export'), true);
 });
 
 test('owner wildcard and high-risk catalog behave consistently', () => {
@@ -55,7 +63,7 @@ test('built-in roles follow the documented domain permission matrix', () => {
   const expected = {
     member: ['submission:create', 'contest:register', 'solution:create', 'message:own', 'notification:read', 'ticket:create'],
     problem_editor: ['problem:edit', 'problem:testdata.write'],
-    contest_manager: ['contest:edit', 'contest:registration.manage'],
+    contest_manager: ['contest:edit', 'contest:registration.manage', 'contest:standings.export'],
     judge_operator: ['judge:read', 'submission:rejudge'],
     rating_manager: ['rating:preview', 'rating:publish', 'rating:recalculate'],
     content_moderator: ['solution:moderate', 'discussion:moderate', 'announcement:manage', 'ticket:manage'],
@@ -97,6 +105,7 @@ test('every built-in role has an explicit allowed and denied matrix branch', () 
     problem_editor: { allow: 'problem:edit', deny: 'problem:publish' },
     problem_reviewer: { allow: 'problem:publish', deny: 'contest:edit' },
     contest_manager: { allow: 'contest:edit', deny: 'rating:publish' },
+    problemset_manager: { allow: 'problemset:edit', deny: 'contest:edit' },
     judge_operator: { allow: 'judge:worker.restart', deny: 'admin:user.manage' },
     content_moderator: { allow: 'discussion:moderate', deny: 'problem:testdata.write' },
     rating_manager: { allow: 'rating:publish', deny: 'admin:config.write' },
@@ -114,21 +123,37 @@ test('every built-in role has an explicit allowed and denied matrix branch', () 
 test('resource ownership and scoped grants do not cross resource boundaries', () => {
   const subject = { id: 17 };
   assert.equal(resourceOwnerAllows(subject, 'problem:edit', { ownerId: 17 }), true);
-  assert.equal(resourceOwnerAllows(subject, 'problem:publish', { ownerId: 17 }), false);
+  assert.equal(resourceOwnerAllows(subject, 'problem:edit', { ownerId: '17' }), true);
+  assert.equal(resourceOwnerAllows(subject, 'problem:delete', { ownerId: 17 }), true);
+  assert.equal(resourceOwnerAllows(subject, 'problem:archive', { ownerId: 17 }), true);
+  assert.equal(resourceOwnerAllows(subject, 'problem:publish', { ownerId: 17 }), true);
+  assert.equal(resourceOwnerAllows(subject, 'problem:testdata.write', { ownerId: 17 }), true);
   assert.equal(resourceOwnerAllows(subject, 'problem:edit', { ownerId: 18 }), false);
+  assert.equal(resourceOwnerAllows(subject, 'problem:delete', { ownerId: 18 }), false);
+  assert.equal(resourceOwnerAllows(subject, 'problem:archive', { ownerId: 18 }), false);
+  assert.equal(resourceOwnerAllows(subject, 'problem:publish', { ownerId: 18 }), false);
+  assert.equal(resourceOwnerAllows(subject, 'contest:delete', { ownerId: '17' }), true);
+  assert.equal(resourceOwnerAllows(subject, 'contest:delete', { ownerId: '18' }), false);
+  assert.equal(resourceOwnerAllows(subject, 'contest:standings.export', { ownerId: '17' }), true);
+  assert.equal(resourceOwnerAllows(subject, 'contest:standings.export', { ownerId: '18' }), false);
   assert.equal(scopeMatches('global', null, 'contest:9'), true);
   assert.equal(scopeMatches('contest', '9', 'contest:9'), true);
   assert.equal(scopeMatches('contest', '9', 'contest:10'), false);
   assert.equal(scopeMatches('problem', '9', 'contest:9'), false);
 });
 
-test('recent login or MFA satisfies the high-risk window without accepting future timestamps', () => {
+test('recent authentication timestamps remain normalized for compatibility without accepting future values', () => {
   const now = 2_000_000;
   assert.deepEqual(recentAuthentication({ apiV2AuthenticatedAt: now - 1000 }, now), { recentLogin: true, recentMfa: false, satisfied: true });
   assert.deepEqual(recentAuthentication({ apiV2MfaVerifiedAt: now - 1000 }, now), { recentLogin: false, recentMfa: true, satisfied: true });
   assert.equal(recentAuthentication({ apiV2AuthenticatedAt: now - AUTHENTICATION_WINDOW_MS - 1 }, now).satisfied, false);
   assert.equal(recentAuthentication({ apiV2MfaVerifiedAt: now + 1 }, now).satisfied, false);
   assert.equal(recentAuthentication({}, now).satisfied, false);
+});
+
+test('authorized management sessions do not require a second login or MFA challenge', () => {
+  assert.match(runtimeAuthorization, /function recentLoginSatisfied\(req\)\s*\{[\s\S]*?return !!\(req && req\.res && req\.res\.locals && req\.res\.locals\.user\);[\s\S]*?\}/);
+  assert.doesNotMatch(runtimeAuthorization, /function recentLoginSatisfied\(req\)\s*\{\s*return recentAuthentication/);
 });
 
 test('authorization failures expose stable codes and actionable next steps', () => {

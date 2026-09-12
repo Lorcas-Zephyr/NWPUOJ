@@ -5,16 +5,20 @@ const contextTestcases = problemContext.testcases;
 const contextIsVJudge = typeof contextProblem.type === 'string' && contextProblem.type.startsWith('vjudge:');
 const contextContest = problemContext.contest || null;
 const contextContestProblemId = problemContext.contestProblemId || null;
+const contextProblemSet = problemContext.problemSet || null;
+const contextProblemSetProblemId = problemContext.problemSetProblemId || null;
 const contextNow = contextContest ? syzoj.utils.getCurrentDate() : null;
 const contextContestPhase = !contextContest ? null : (contextNow < contextContest.start_time ? 0 : (contextNow < contextContest.end_time ? 1 : 2));
-const contextCanParticipate = !contextContest || (
+const contextCanParticipate = contextProblemSet ? !!problemContext.problemSetCanParticipate : !contextContest || (
   typeof contestRegistration !== 'undefined' && contestRegistration
     ? contestRegistration.canParticipate
     : !!(user && contextContest.isRunning())
 );
-const contextCanViewSubmissions = !contextContest || contextContest.isEnded() || contextCanParticipate;
+const contextCanViewSubmissions = contextProblemSet ? contextCanParticipate : (!contextContest || contextContest.isEnded() || contextCanParticipate);
 const contextHasTestdata = contextIsVJudge || (contextTestcases && !contextTestcases.error);
-const contextCanSubmit = contextContest
+const contextCanSubmit = contextProblemSet
+  ? !!(user && contextCanParticipate && contextHasTestdata)
+  : contextContest
   ? !!(user && contextCanParticipate && syzoj.utils.contestSubmissionEnabled(contextProblem))
   : !!contextHasTestdata;
 const contextTypeNames = {
@@ -56,14 +60,22 @@ function contextNavIcon(name) {
 }
 const contextTitle = contextContest
   ? this.alpha(contextContestProblemId) + '. ' + syzoj.utils.removeTitleTag(contextProblem.title)
+  : contextProblemSet
+    ? this.alpha(contextProblemSetProblemId) + '. ' + syzoj.utils.removeTitleTag(contextProblem.title)
   : contextProblem.getDisplayId() + '. ' + syzoj.utils.removeTitleTag(contextProblem.title);
-const contextProblemUrl = contextContest
+const contextProblemUrl = contextProblemSet
+  ? syzoj.utils.makeUrl(['problem-set', contextProblemSet.id, 'problem', contextProblemSetProblemId])
+  : contextContest
   ? syzoj.utils.makeUrl(['contest', contextContest.id, 'problem', contextContestProblemId])
   : syzoj.utils.makeUrl(['problem', contextProblem.id]);
-const contextSubmitUrl = contextContest
+const contextSubmitUrl = contextProblemSet
+  ? syzoj.utils.makeUrl(['problem-set', contextProblemSet.id, 'problem', contextProblemSetProblemId, 'submit'])
+  : contextContest
   ? syzoj.utils.makeUrl(['contest', contextContest.id, 'problem', contextContestProblemId, 'submit'])
   : syzoj.utils.makeUrl(['problem', contextProblem.id, 'submit']);
-const contextSubmissionsUrl = contextContest
+const contextSubmissionsUrl = contextProblemSet
+  ? syzoj.utils.makeUrl(['problem-set', contextProblemSet.id, 'submissions'], { problem_id: contextProblem.id })
+  : contextContest
   ? syzoj.utils.makeUrl(['contest', contextContest.id, 'problem', contextContestProblemId, 'submissions'])
   : syzoj.utils.makeUrl(['problem', contextProblem.id, 'submissions']);
 const contextAdditionalFileUrl = contextContest
@@ -75,7 +87,9 @@ function contextAriaCurrent(section) { return contextSection === section ? ' ari
 
 <section class="app-problem-context-shell" aria-labelledby="problem-context-title"<% if (contextContest) { %> data-problem-contest-clock data-now="<%= contextNow %>" data-start="<%= contextContest.start_time %>" data-end="<%= contextContest.end_time %>"<% } %>>
   <div class="app-problem-context-origin">
-    <% if (contextContest) { %>
+    <% if (contextProblemSet) { %>
+      <a href="<%= syzoj.utils.makeUrl(['problem-set', contextProblemSet.id]) %>"><%- contextNavIcon('list-tree') %><span><%= contextProblemSet.title %></span></a><%- contextNavIcon('chevron-right') %><span>题目 <%= this.alpha(contextProblemSetProblemId) %></span>
+    <% } else if (contextContest) { %>
       <a href="<%= syzoj.utils.makeUrl(['contest', contextContest.id]) %>"><%- contextNavIcon('trophy') %><span><%= contextContest.title %></span></a><%- contextNavIcon('chevron-right') %><span>题目 <%= this.alpha(contextContestProblemId) %></span>
     <% } else { %>
       <a href="<%= syzoj.utils.makeUrl(['problems']) %>"><%- contextNavIcon('list-tree') %><span>题库</span></a><%- contextNavIcon('chevron-right') %><span>题目 <%= contextProblem.getDisplayId() %></span>
@@ -84,7 +98,7 @@ function contextAriaCurrent(section) { return contextSection === section ? ' ari
 
   <div class="app-problem-context-main">
     <div class="app-problem-context-copy">
-      <span class="app-kicker"><%= contextContest ? 'CONTEST PROBLEM' : 'PROBLEM ' + contextProblem.getDisplayId() %></span>
+      <span class="app-kicker"><%= contextProblemSet ? 'PROBLEM SET' : (contextContest ? 'CONTEST PROBLEM' : 'PROBLEM ' + contextProblem.getDisplayId()) %></span>
       <h1 id="problem-context-title"><%= contextTitle %></h1>
     </div>
     <% if (contextSection === 'statement') { %>
@@ -92,7 +106,7 @@ function contextAriaCurrent(section) { return contextSection === section ? ' ari
         <% if (contextCanSubmit) { %>
           <% if (user) { %><a class="app-button app-button-primary" href="<%= contextSubmitUrl %>"><%- contextNavIcon('send') %>提交答案</a><% } else if (!contextContest) { %><a class="app-button app-button-primary" href="<%= syzoj.utils.makeUrl(['login'], { url: contextSubmitUrl }) %>">登录后提交</a><% } %>
         <% } %>
-        <% if (!contextContest && (contextProblem.allowedEdit || contextProblem.allowedManage)) { %>
+        <% if (!contextContest && !contextProblemSet && (contextProblem.allowedEdit || contextProblem.allowedManage)) { %>
           <details class="app-action-menu">
             <summary class="app-button app-button-secondary"><%- contextNavIcon('settings') %>题目管理<%- contextNavIcon('chevron-down') %></summary>
             <div class="app-action-menu-list">
@@ -108,29 +122,27 @@ function contextAriaCurrent(section) { return contextSection === section ? ' ari
   </div>
 
   <dl class="app-problem-context-facts">
-    <% if (contextContest) { %><div class="app-problem-contest-clock"><dt>比赛状态</dt><dd data-problem-contest-clock-text><%= contextContestPhase === 0 ? '距开始' : (contextContestPhase === 1 ? '剩余时间' : '比赛已结束') %></dd></div><div class="app-problem-contest-schedule"><dt>比赛时段</dt><dd><%= syzoj.utils.formatDate(contextContest.start_time) %> - <%= syzoj.utils.formatDate(contextContest.end_time) %></dd></div><% } %>
+    <% if (contextProblemSet) { %><div><dt>题单期限</dt><dd><%= contextProblemSet.deadline_at ? syzoj.utils.formatDate(contextProblemSet.deadline_at) + ' 截止' : '无限期' %></dd></div><% } else if (contextContest) { %><div class="app-problem-contest-clock"><dt>比赛状态</dt><dd data-problem-contest-clock-text><%= contextContestPhase === 0 ? '距开始' : (contextContestPhase === 1 ? '剩余时间' : '比赛已结束') %></dd></div><div class="app-problem-contest-schedule"><dt>比赛时段</dt><dd><%= syzoj.utils.formatDate(contextContest.start_time) %> - <%= syzoj.utils.formatDate(contextContest.end_time) %></dd></div><% } %>
     <% if (contextProblem.type !== 'submit-answer') { %><div><dt>时间限制</dt><dd><%= contextProblem.time_limit %> ms</dd></div><div><dt>内存限制</dt><dd><%= contextProblem.memory_limit %> MiB</dd></div><% } %>
     <div><dt>题目类型</dt><dd><%= contextTypeNames[contextProblem.type] || contextProblem.type %></dd></div>
     <div><dt>评测方式</dt><dd><%= contextJudgeType %></dd></div>
     <% if (contextProblem.file_io && contextProblem.type !== 'interaction') { %><div><dt>输入文件</dt><dd><%= contextProblem.file_io_input_name %></dd></div><div><dt>输出文件</dt><dd><%= contextProblem.file_io_output_name %></dd></div><% } else if (contextProblem.type !== 'interaction' && contextProblem.type !== 'submit-answer') { %><div><dt>输入输出</dt><dd>标准输入输出</dd></div><% } %>
-    <% if (!contextContest) { %><div><dt>上传者</dt><dd><% if (contextProblem.is_anonymous && !contextProblem.allowedManage) { %>匿名<% } else if (contextProblem.user) { %><%- syzoj.utils.renderUsername(contextProblem.user) %><% } else { %>未知<% } %></dd></div><% if (contextProblem.allowedManage) { %><div><dt>公开者</dt><dd><% if (contextProblem.publicizer) { %><%- syzoj.utils.renderUsername(contextProblem.publicizer) %><% } else { %>未知<% } %></dd></div><% } %><% } %>
+    <% if (!contextContest && !contextProblemSet) { %><div><dt>上传者</dt><dd><% if (contextProblem.is_anonymous && !contextProblem.allowedManage) { %>匿名<% } else if (contextProblem.user) { %><%- syzoj.utils.renderUsername(contextProblem.user) %><% } else { %>未知<% } %></dd></div><% if (contextProblem.allowedManage) { %><div><dt>公开者</dt><dd><% if (contextProblem.publicizer) { %><%- syzoj.utils.renderUsername(contextProblem.publicizer) %><% } else { %>未知<% } %></dd></div><% } %><% } %>
   </dl>
 
   <nav class="app-tabs app-problem-context-tabs" aria-label="题目导航">
     <a class="app-tab<%= contextCurrent('statement') %>" href="<%= contextProblemUrl %>"<%- contextAriaCurrent('statement') %>><%- contextNavIcon('file-text') %>题目</a>
     <% if (contextCanSubmit) { %><a class="app-tab<%= contextCurrent('submit') %>" href="<%= contextSubmitUrl %>"<%- contextAriaCurrent('submit') %>><%- contextNavIcon('send') %>提交</a><% } else if (!contextContest && contextHasTestdata && !user) { %><a class="app-tab" href="<%= syzoj.utils.makeUrl(['login'], { url: contextSubmitUrl }) %>"><%- contextNavIcon('log-in') %>登录后提交</a><% } %>
     <% if (contextCanViewSubmissions) { %><a class="app-tab<%= contextCurrent('submissions') %>" href="<%= contextSubmissionsUrl %>"<%- contextAriaCurrent('submissions') %>><%- contextNavIcon('activity') %>提交记录</a><% } %>
-    <% if (!contextContest) { %>
+    <% if (!contextContest && !contextProblemSet) { %>
       <a class="app-tab<%= contextCurrent('statistics') %>" href="<%= syzoj.utils.makeUrl(['problem', contextProblem.id, 'statistics', contextProblem.type === 'submit-answer' ? 'shortest' : 'fastest']) %>"<%- contextAriaCurrent('statistics') %>><%- contextNavIcon('chart-no-axes-column-increasing') %>统计</a>
       <% if (!contextIsVJudge) { %><a class="app-tab<%= contextCurrent('testdata') %>" href="<%= syzoj.utils.makeUrl(['problem', contextProblem.id, 'testdata']) %>"<%- contextAriaCurrent('testdata') %>><%- contextNavIcon('database') %>测试数据</a><% } %>
-      <a class="app-tab<%= contextCurrent('discussion') %>" href="<%= syzoj.utils.makeUrl(['discussion', 'problem', contextProblem.id]) %>"<%- contextAriaCurrent('discussion') %>><%- contextNavIcon('messages-square') %>讨论<% if (problemContext.discussionCount) { %><span class="app-tab-count"><%= problemContext.discussionCount %></span><% } %></a>
-      <a class="app-tab<%= contextCurrent('solutions') %>" href="<%= syzoj.utils.makeUrl(['problem', contextProblem.id, 'solutions']) %>"<%- contextAriaCurrent('solutions') %>><%- contextNavIcon('book-open-check') %>题解</a>
     <% } %>
     <% if (contextProblem.additional_file) { %><a class="app-tab" href="<%= contextAdditionalFileUrl %>"><%- contextNavIcon('paperclip') %>附加文件</a><% } %>
   </nav>
 </section>
 
-<% if (!contextContest && contextProblem.allowedManage) { %><script>
+<% if (!contextContest && !contextProblemSet && contextProblem.allowedManage) { %><script>
 (function () {
   var problemId = '<%= contextProblem.id %>';
 

@@ -51,7 +51,7 @@ async function syncContestV2Projection(manager, contestId, input, isNew, now) {
     }))
   });
   const security = parseJson(current.security_json, { result_visibility: 'public_after_end', submission_visibility: 'own_during_contest', allow_vjudge: false });
-  const registration = Object.assign({}, parseJson(current.registration_json, { enabled: true, approval_required: false }), { enabled: true, allow_late_registration: !!input.allowLateRegistration });
+  const registration = Object.assign({}, parseJson(current.registration_json, { enabled: true, approval_required: false }), { enabled: !!input.allowRegistration, allow_late_registration: !!input.allowLateRegistration });
   const teams = parseJson(current.teams_json, { enabled: false, minimum_size: 1, maximum_size: 1 });
   const ratedProfile = input.isRated ? (input.type === 'acm' ? 'icpc' : 'ioi') : null;
   await manager.query(`INSERT INTO contest_v2_config
@@ -123,12 +123,12 @@ async function lockContestAndSetting(manager, contestId) {
   if (!contests.length) throw mutationError('无此比赛。', 404);
   await manager.query(
     `INSERT INTO contest_registration_setting
-      (contest_id,allow_late_registration,revision,updated_at)
-     VALUES (?,0,0,?) ON DUPLICATE KEY UPDATE contest_id=VALUES(contest_id)`,
+      (contest_id,allow_registration,allow_late_registration,revision,updated_at)
+     VALUES (?,1,0,0,?) ON DUPLICATE KEY UPDATE contest_id=VALUES(contest_id)`,
     [contestId, Math.floor(Date.now() / 1000)]
   );
   const settings = await manager.query(
-    'SELECT allow_late_registration,revision FROM contest_registration_setting WHERE contest_id = ? FOR UPDATE',
+    'SELECT allow_registration,allow_late_registration,revision FROM contest_registration_setting WHERE contest_id = ? FOR UPDATE',
     [contestId]
   );
   return { contest: contests[0], setting: settings[0] };
@@ -421,12 +421,15 @@ async function databaseNow(manager) {
   return Number(rows[0].now);
 }
 
-async function registerUser(contestId, userId) {
+async function registerUser(contestId, userId, options = {}) {
   return withContestLock(contestId, () => withTransactionRetry(async manager => {
     const context = await lockContestAndSetting(manager, contestId);
     const now = await databaseNow(manager);
     if (now >= Number(context.contest.end_time)) throw mutationError('比赛已结束，不能报名。');
-    if (now >= Number(context.contest.start_time) && !context.setting.allow_late_registration) {
+    if (!options.managed && Number(context.setting.allow_registration) === 0) {
+      throw mutationError('该比赛未开放用户报名，请使用比赛账号参赛。', 409);
+    }
+    if (!options.managed && now >= Number(context.contest.start_time) && !context.setting.allow_late_registration) {
       throw mutationError('该比赛不允许开赛后报名。');
     }
     const removals = await manager.query(
@@ -541,8 +544,8 @@ async function saveContest(input) {
       );
       await manager.query(
         `INSERT INTO contest_registration_setting
-          (contest_id,allow_late_registration,revision,updated_at) VALUES (?,?,1,?)`,
-        [contestId,input.allowLateRegistration ? 1 : 0,now]
+          (contest_id,allow_registration,allow_late_registration,revision,updated_at) VALUES (?,?,?,1,?)`,
+        [contestId,input.allowRegistration ? 1 : 0,input.allowLateRegistration ? 1 : 0,now]
       );
       await syncContestV2Projection(manager, contestId, input, true, now);
       return contestId;
@@ -580,9 +583,9 @@ async function saveContest(input) {
         input.isPublic ? 1 : 0,input.hideStatistics ? 1 : 0,input.id]
     );
     await manager.query(
-      `UPDATE contest_registration_setting SET allow_late_registration=?,revision=revision+1,updated_at=?
+      `UPDATE contest_registration_setting SET allow_registration=?,allow_late_registration=?,revision=revision+1,updated_at=?
        WHERE contest_id=?`,
-      [input.allowLateRegistration ? 1 : 0,now,input.id]
+      [input.allowRegistration ? 1 : 0,input.allowLateRegistration ? 1 : 0,now,input.id]
     );
     await manager.query(
       'UPDATE contest_rating_config SET is_rated=?,updated_at=?,updated_by=? WHERE contest_id=?',

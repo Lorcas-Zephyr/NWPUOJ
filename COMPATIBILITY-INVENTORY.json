@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-01T22:51:27.516Z",
+  "generated_at": "2026-09-12T12:32:39.171Z",
   "frontend_page_routes": [
     {
       "method": "GET",
@@ -29,43 +29,79 @@
       "method": "GET",
       "route": "/admin/users",
       "source": "custom/modules/_admin_users.js",
-      "line": 278
+      "line": 291
+    },
+    {
+      "method": "GET",
+      "route": "/admin/ai",
+      "source": "custom/modules/_ai_contest.js",
+      "line": 14
     },
     {
       "method": "GET",
       "route": "/admin/links",
       "source": "custom/modules/_api_v2_admin_domain.js",
-      "line": 1084
+      "line": 1095
     },
     {
       "method": "GET",
       "route": "/admin/config",
       "source": "custom/modules/_api_v2_admin_domain.js",
-      "line": 1199
+      "line": 1210
     },
     {
       "method": "GET",
       "route": "/admin/privilege",
       "source": "custom/modules/_api_v2_admin_domain.js",
-      "line": 1246
+      "line": 1257
+    },
+    {
+      "method": "GET",
+      "route": "/admin/jobs",
+      "source": "custom/modules/_api_v2_admin_domain.js",
+      "line": 1606
     },
     {
       "method": "GET",
       "route": "/admin/rejudge",
       "source": "custom/modules/_api_v2_admin_domain.js",
-      "line": 1576
+      "line": 1616
     },
     {
       "method": "GET",
       "route": "/admin/raw",
       "source": "custom/modules/_api_v2_admin_domain.js",
-      "line": 1584
+      "line": 1624
+    },
+    {
+      "method": "GET",
+      "route": "/problems/import/template",
+      "source": "custom/modules/_api_v2_problem_domain.js",
+      "line": 848
+    },
+    {
+      "method": "GET",
+      "route": "/problems/import",
+      "source": "custom/modules/_api_v2_problem_domain.js",
+      "line": 863
     },
     {
       "method": "GET",
       "route": "/password/reset/:token",
       "source": "custom/modules/_auth_security.js",
       "line": 318
+    },
+    {
+      "method": "GET",
+      "route": "/classes",
+      "source": "custom/modules/_class_groups.js",
+      "line": 77
+    },
+    {
+      "method": "GET",
+      "route": "/class/:id",
+      "source": "custom/modules/_class_groups.js",
+      "line": 97
     },
     {
       "method": "GET",
@@ -137,37 +173,43 @@
       "method": "GET",
       "route": "/contest/:id",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 218
+      "line": 312
     },
     {
       "method": "GET",
       "route": "/contest/:id/edit",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 223
+      "line": 321
     },
     {
       "method": "GET",
       "route": "/contest/:id/details",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 237
+      "line": 335
     },
     {
       "method": "GET",
       "route": "/contest/:id",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 259
+      "line": 362
     },
     {
       "method": "GET",
       "route": "/contest/:id/ranklist",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 286
+      "line": 389
+    },
+    {
+      "method": "GET",
+      "route": "/contest/:id/ranklist/export",
+      "source": "custom/modules/_contest_interactions.js",
+      "line": 445
     },
     {
       "method": "GET",
       "route": "/contest/:id/problem/:pid",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 320
+      "line": 479
     },
     {
       "method": "GET",
@@ -185,61 +227,67 @@
       "method": "GET",
       "route": "/contests",
       "source": "custom/modules/_contest_registration.js",
-      "line": 312
+      "line": 377
+    },
+    {
+      "method": "GET",
+      "route": "/",
+      "source": "custom/modules/_contest_registration.js",
+      "line": 434
     },
     {
       "method": "GET",
       "route": "/contest/:id/edit",
       "source": "custom/modules/_contest_registration.js",
-      "line": 388
+      "line": 485
     },
     {
       "method": "GET",
       "route": "/contest/:id/participants",
       "source": "custom/modules/_contest_registration.js",
-      "line": 468
+      "line": 651
     },
     {
       "method": "GET",
       "route": "/contest/:id/registrations",
       "source": "custom/modules/_contest_registration.js",
-      "line": 490
+      "line": 673
     },
     {
       "method": "GET",
       "route": "/contest/:id/registrations/export",
       "source": "custom/modules/_contest_registration.js",
-      "line": 522
+      "line": 714
     },
     {
       "method": "GET",
       "route": "/contest/:id/problem/:pid",
       "source": "custom/modules/_contest_registration.js",
-      "line": 574
+      "line": 769
     },
     {
       "method": "GET",
       "route": "/contest/:id/:pid/download/additional_file",
       "source": "custom/modules/_contest_registration.js",
-      "line": 575
+      "line": 770
     },
     {
       "method": "GET",
       "route": "/contest/:id/ranklist",
       "source": "custom/modules/_contest_registration.js",
-      "line": 576
+      "line": 771
     },
     {
       "method": "GET",
       "route": "/contest/:id/submissions",
       "source": "custom/modules/_contest_registration.js",
-      "line": 577
+      "line": 772
     },
     {
       "method": "GET",
       "route": "/contest/:id/temporary-accounts/template",
       "source": "custom/modules/_contest_temp_accounts.js",
-      "line": 250
+      "line": 248
     },
     {
       "method": "GET",
@@ -255,9 +303,75 @@
     },
     {
       "method": "GET",
+      "route": "/image-host",
+      "source": "custom/modules/_image_host.js",
+      "line": 133
+    },
+    {
+      "method": "GET",
       "route": "/admin/judge-workers",
       "source": "custom/modules/_judge_workers_admin.js",
       "line": 143
+    },
+    {
+      "method": "GET",
+      "route": "/problem-sets",
+      "source": "custom/modules/_problem_sets.js",
+      "line": 265
+    },
+    {
+      "method": "GET",
+      "route": "/problem-set/new",
+      "source": "custom/modules/_problem_sets.js",
+      "line": 286
+    },
+    {
+      "method": "GET",
+      "route": "/problem-set/:id/edit",
+      "source": "custom/modules/_problem_sets.js",
+      "line": 291
+    },
+    {
+      "method": "GET",
+      "route": "/problem-set/:id",
+      "source": "custom/modules/_problem_sets.js",
+      "line": 299
+    },
+    {
+      "method": "GET",
+      "route": "/problem-set/:id/problem/:pid",
+      "source": "custom/modules/_problem_sets.js",
+      "line": 343
+    },
+    {
+      "method": "GET",
+      "route": "/problem-set/:id/problem/:pid/submit",
+      "source": "custom/modules/_problem_sets.js",
+      "line": 344
+    },
+    {
+      "method": "GET",
+      "route": "/problem-set/:id/submissions",
+      "source": "custom/modules/_problem_sets.js",
+      "line": 383
+    },
+    {
+      "method": "GET",
+      "route": "/problem-set/:id/ranklist",
+      "source": "custom/modules/_problem_sets.js",
+      "line": 418
+    },
+    {
+      "method": "GET",
+      "route": "/problem-set/:id/ranklist/export",
+      "source": "custom/modules/_problem_sets.js",
+      "line": 436
+    },
+    {
+      "method": "GET",
+      "route": "/problem-set/:id/participants",
+      "source": "custom/modules/_problem_sets.js",
+      "line": 449
     },
     {
       "method": "GET",
@@ -269,121 +383,121 @@
       "method": "GET",
       "route": "/sign_up",
       "source": "custom/modules/_registration_identity.js",
-      "line": 326
+      "line": 377
     },
     {
       "method": "GET",
       "route": "/user/:id/edit",
       "source": "custom/modules/_registration_identity.js",
-      "line": 390
+      "line": 446
     },
     {
       "method": "GET",
       "route": "/login",
       "source": "custom/modules/_request_security.js",
-      "line": 141
+      "line": 158
     },
     {
       "method": "GET",
       "route": "/sign_up",
       "source": "custom/modules/_request_security.js",
-      "line": 141
+      "line": 158
     },
     {
       "method": "GET",
       "route": "/submissions",
       "source": "custom/modules/_submission_routes.js",
-      "line": 320
+      "line": 355
     },
     {
       "method": "GET",
       "route": "/contest/:id/submissions",
       "source": "custom/modules/_submission_routes.js",
-      "line": 335
+      "line": 370
     },
     {
       "method": "GET",
       "route": "/contest/submission/:id",
       "source": "custom/modules/_submission_routes.js",
-      "line": 347
+      "line": 382
     },
     {
       "method": "GET",
       "route": "/submission/:id",
       "source": "custom/modules/_submission_routes.js",
-      "line": 361
+      "line": 396
     },
     {
       "method": "GET",
       "route": "/contest/submission/:id",
       "source": "custom/modules/_submission_routes.js",
-      "line": 361
+      "line": 396
     },
     {
       "method": "GET",
       "route": "/submission/:id",
       "source": "custom/modules/_submission_visibility.js",
-      "line": 54
+      "line": 121
     },
     {
       "method": "GET",
       "route": "/contest/submission/:id",
       "source": "custom/modules/_submission_visibility.js",
-      "line": 55
+      "line": 122
     },
     {
       "method": "GET",
       "route": "/problem/:id",
       "source": "custom/modules/_user_privilege_loader.js",
-      "line": 189
+      "line": 213
     },
     {
       "method": "GET",
       "route": "/problems/search",
       "source": "custom/modules/_user_privilege_loader.js",
-      "line": 203
+      "line": 227
     },
     {
       "method": "GET",
       "route": "/problem/:id/submissions",
       "source": "custom/modules/_user_privilege_loader.js",
-      "line": 220
+      "line": 244
     },
     {
       "method": "GET",
       "route": "/contest/:id/problem/:pid/submissions",
       "source": "custom/modules/_user_privilege_loader.js",
-      "line": 233
+      "line": 257
     },
     {
       "method": "GET",
       "route": "/contest/:id/submissions",
       "source": "custom/modules/_user_privilege_loader.js",
-      "line": 273
+      "line": 297
     },
     {
       "method": "GET",
       "route": "/user/:id",
       "source": "custom/modules/_user_privilege_loader.js",
-      "line": 513
+      "line": 547
     },
     {
       "method": "GET",
       "route": "/user/:id/edit",
       "source": "custom/modules/_user_privilege_loader.js",
-      "line": 537
+      "line": 571
     },
     {
       "method": "GET",
       "route": "/problem/:id/submit",
       "source": "custom/modules/_user_privilege_loader.js",
-      "line": 581
+      "line": 584
     },
     {
       "method": "GET",
       "route": "/contest/:id/problem/:pid/submit",
       "source": "custom/modules/_user_privilege_loader.js",
-      "line": 615
+      "line": 618
     },
     {
       "method": "GET",
@@ -395,19 +509,19 @@
       "method": "GET",
       "route": "/announcements",
       "source": "custom/modules/announcement.js",
-      "line": 44
+      "line": 45
     },
     {
       "method": "GET",
       "route": "/admin/announcements",
       "source": "custom/modules/announcement.js",
-      "line": 67
+      "line": 73
     },
     {
       "method": "GET",
       "route": "/admin/announcement/:id/edit",
       "source": "custom/modules/announcement.js",
-      "line": 97
+      "line": 103
     },
     {
       "method": "GET",
@@ -501,9 +615,15 @@
     },
     {
       "method": "GET",
-      "route": "/problems/tag/:id/edit",
+      "route": "/problems/tags/manage",
       "source": "custom/modules/problem_tag.js",
       "line": 3
+    },
+    {
+      "method": "GET",
+      "route": "/problems/tag/:id/edit",
+      "source": "custom/modules/problem_tag.js",
+      "line": 31
     },
     {
       "method": "GET",
@@ -591,8 +711,8 @@
   "approved_runtime_callbacks": [],
   "compatibility_adapters": [],
   "summary": {
-    "frontend_page_route_registrations": 97,
-    "frontend_page_route_shapes": 77,
+    "frontend_page_route_registrations": 117,
+    "frontend_page_route_shapes": 97,
     "v1_api_reads": 0,
     "v1_write_routes": 0,
     "v1_write_route_shapes": 0,

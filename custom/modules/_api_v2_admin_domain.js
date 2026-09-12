@@ -43,7 +43,7 @@ const bannerUpload = multer({
   }
 }).single('image');
 const LEGACY_MANAGED_PRIVILEGES = Object.freeze([
-  'manage_problem', 'manage_problem_tag', 'manage_contest', 'manage_user'
+  'manage_problem', 'manage_problem_tag', 'manage_contest', 'manage_problemset', 'manage_user'
 ]);
 const LEGACY_MANAGED_PRIVILEGE_SET = new Set(LEGACY_MANAGED_PRIVILEGES);
 const LEGACY_CONFIG_ITEMS = Object.freeze({
@@ -77,6 +77,11 @@ function iso(value) { return api().databaseIso(value); }
 function inputBoolean(value, fallback) {
   if (value == null) return fallback;
   return value === true || value === 1 || value === '1' || value === 'true' || value === 'on';
+}
+function normalizeSex(value, fallback) {
+  const raw = String(value == null ? '' : value).trim();
+  if (raw === '') return String(fallback == null ? '0' : fallback);
+  return ['-1', '0', '1'].includes(raw) ? raw : null;
 }
 async function can(user, capability) { return !!(user && await syzoj.utils.authorizationV2.authorize(user, capability, null, {})); }
 async function contentTransaction(work) { await api().ensureFoundationSchema(); return TypeORM.getConnection().transaction(work); }
@@ -343,12 +348,13 @@ function serializeProblem(row) {
   const input = safeJson(row.input_json, {});
   const result = safeJson(row.result_json, {});
   if (row.kind === 'bulk_archive') {
+    const action = ['publish', 'unpublish', 'archive'].includes(input.action) ? input.action : 'archive';
     const failures = Array.isArray(result.failures) ? result.failures : row.error_json ? [safeJson(row.error_json, {})] : [];
     return {
-      id: row.id, kind: 'problem_bulk_action', subtype: 'archive', state: row.state, stage: row.kind,
+      id: row.id, kind: 'problem_bulk_action', subtype: action, state: row.state, stage: row.kind,
       actor_id: Number(row.actor_id), approved_by: null,
-      impact: { action: 'archive', problem_ids: Array.isArray(input.problem_ids) ? input.problem_ids.map(Number) : [], requested: Number(result.total || (input.problem_ids || []).length) },
-      progress: { processed: Number(result.processed || 0), total: Number(result.total || (input.problem_ids || []).length), failed: Number(result.failed || failures.length), archived: Number(result.archived || 0), skipped: Number(result.skipped || 0) },
+      impact: { action, problem_ids: Array.isArray(input.problem_ids) ? input.problem_ids.map(Number) : [], requested: Number(result.total || (input.problem_ids || []).length) },
+      progress: { processed: Number(result.processed || 0), total: Number(result.total || (input.problem_ids || []).length), failed: Number(result.failed || failures.length), published: Number(result.published || 0), unpublished: Number(result.unpublished || 0), archived: Number(result.archived || 0), changed: Number(result.changed || 0), skipped: Number(result.skipped || 0) },
       current_object: result.current_problem_id == null ? null : { type: 'problem', id: String(result.current_problem_id) }, failures, error: safeJson(row.error_json, null),
       created_at: iso(row.created_at), updated_at: iso(row.updated_at)
     };
@@ -499,7 +505,9 @@ const JOB_CAPABILITIES = Object.freeze({
   standings_rebuild: 'contest:standings.rebuild', migration: 'admin:job.manage', maintenance: 'admin:job.manage'
 });
 async function requireJobCapability(req, res, job) {
-  const capability = JOB_CAPABILITIES[job.kind] || 'admin:job.manage';
+  const capability = job.kind === 'problem_bulk_action' && job.subtype !== 'archive'
+    ? 'problem:publish'
+    : JOB_CAPABILITIES[job.kind] || 'admin:job.manage';
   if (!await can(res.locals.user, capability)) { api().fail(res, 403, 'CAPABILITY_REQUIRED', `Capability required: ${capability}.`); return false; }
   return true;
 }
@@ -678,7 +686,7 @@ function managedUserResource(target, profile, privileges) {
     username: target.username,
     email: target.email || '',
     information: target.information || '',
-    sex: String(target.sex == null ? 0 : target.sex),
+    sex: normalizeSex(target.sex, '0') || '0',
     public_email: !!target.public_email,
     prefer_formatted_code: !!target.prefer_formatted_code,
     is_admin: !!target.is_admin,
@@ -732,8 +740,8 @@ app.get('/api/v2/admin/users/:id', requireCapability('admin:user.manage'), async
 app.patch('/api/v2/admin/users/:id', requireCapability('admin:user.manage'), async (req, res) => {
   const targetId = Number(req.params.id);
   if (!Number.isSafeInteger(targetId) || targetId < 1) return api().fail(res, 422, 'VALIDATION_FAILED', 'User ID is invalid.', { id: 'invalid' });
-  if (!req.get('If-Match')) return api().fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when editing a user.', { if_match: 'required' });
   const body = req.body || {};
+  if (!(req.get('If-Match') || body.if_match)) return api().fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when editing a user.', { if_match: 'required' });
   const actor = res.locals.user;
   const actorIsOwner = Number(actor.id) === Number(syzoj.siteOwnerUserId || 0);
   const hasPrivileges = Object.prototype.hasOwnProperty.call(body, 'privileges');
@@ -743,7 +751,6 @@ app.patch('/api/v2/admin/users/:id', requireCapability('admin:user.manage'), asy
   }
   const canGrant = !hasPrivileges || await syzoj.utils.authorizationV2.authorize(actor, 'admin:permission.grant', null, { scope: 'global' });
   if (!canGrant) return api().fail(res, 403, 'CAPABILITY_REQUIRED', 'Capability required: admin:permission.grant.');
-  if (hasAdminStatus && !actorIsOwner) return api().fail(res, 403, 'OWNER_CAPABILITY_REQUIRED', 'Only the site owner can change site administrator status.');
   const requestedPrivileges = hasPrivileges
     ? Array.from(new Set((Array.isArray(body.privileges) ? body.privileges : [body.privileges]).map(String))).filter(value => LEGACY_MANAGED_PRIVILEGE_SET.has(value)).sort()
     : null;
@@ -770,10 +777,13 @@ app.patch('/api/v2/admin/users/:id', requireCapability('admin:user.manage'), asy
 
       const username = body.username == null ? target.username : String(body.username).trim();
       const email = body.email == null ? String(target.email || '') : String(body.email).trim().toLowerCase();
-      if (!syzoj.utils.isValidUsername(username)) throw managedUserError('VALIDATION_FAILED', 'Username is invalid.', 422, { username: 'invalid' });
+      if (!syzoj.utils.isValidUsername(username)) throw managedUserError('VALIDATION_FAILED', '用户名仅允许字母、数字、连字符和下划线，且不能超过 20 个字符。', 422, { username: 'invalid' });
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw managedUserError('VALIDATION_FAILED', 'Email is invalid.', 422, { email: 'invalid' });
       if (access.targetId === access.ownerId && username !== target.username) throw managedUserError('OWNER_ACCOUNT_PROTECTED', 'The site owner username cannot be changed.', 403);
       const isAdmin = hasAdminStatus ? inputBoolean(body.is_admin, !!target.is_admin) : !!target.is_admin;
+      if (hasAdminStatus && isAdmin !== !!target.is_admin && !access.actorIsOwner) {
+        throw managedUserError('OWNER_CAPABILITY_REQUIRED', 'Only the site owner can change site administrator status.', 403);
+      }
       if (access.targetId === access.ownerId && !isAdmin) throw managedUserError('OWNER_ACCOUNT_PROTECTED', 'The site owner administrator status cannot be removed.', 403);
       const emailChanged = email !== String(target.email || '').trim().toLowerCase();
       const passwordChanged = !!passwordHash;
@@ -791,7 +801,8 @@ app.patch('/api/v2/admin/users/:id', requireCapability('admin:user.manage'), asy
         ? await syzoj.utils.registrationIdentityV2.saveProfileFields(manager, targetId, body, true)
         : syzoj.utils.registrationIdentityV2.profileResource(profileRows[0]);
       const information = body.information == null ? String(target.information || '') : String(body.information).slice(0, 10000);
-      const sex = body.sex == null ? String(target.sex == null ? 0 : target.sex) : String(body.sex).slice(0, 20);
+      const sex = normalizeSex(body.sex, normalizeSex(target.sex, '0') || '0');
+      if (sex === null) throw managedUserError('VALIDATION_FAILED', 'Sex must be -1, 0, or 1.', 422, { sex: 'invalid' });
       const publicEmail = inputBoolean(body.public_email, !!target.public_email);
       const formattedCode = inputBoolean(body.prefer_formatted_code, !!target.prefer_formatted_code);
       await manager.query('UPDATE user SET username=?,email=?,information=?,sex=?,public_email=?,prefer_formatted_code=?,is_admin=?' + (passwordHash ? ',password=?' : '') + ' WHERE id=?', passwordHash
@@ -948,7 +959,7 @@ app.post('/api/v2/admin/announcements', requireCapability('announcement:manage',
 
 app.patch('/api/v2/admin/announcements/:id', requireCapability('announcement:manage', { recent: true }), async (req, res) => {
   const reason = operationReason(req); const id = Number(req.params.id);
-  if (!req.get('If-Match')) return api().fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when updating an announcement.');
+  if (!(req.get('If-Match') || req.body && req.body.if_match)) return api().fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when updating an announcement.', { if_match: 'required' });
   try {
     const saved = await contentTransaction(manager => contentDomain.updateAnnouncement(manager, { announcementId: id, actorId: res.locals.user.id, now: Math.floor(Date.now() / 1000), reason, validate: current => validateAnnouncement(req.body, current), ifMatch: current => api().ifMatch(req, announcementResource(current)), recordAudit: auditRecorder(req) }));
     const resource = announcementResource(saved.row); api().setResourceEtag(res, resource);
@@ -958,7 +969,7 @@ app.patch('/api/v2/admin/announcements/:id', requireCapability('announcement:man
 
 app.delete('/api/v2/admin/announcements/:id', requireCapability('announcement:manage', { recent: true }), async (req, res) => {
   const reason = operationReason(req); const id = Number(req.params.id);
-  if (!req.get('If-Match')) return api().fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when deleting an announcement.');
+  if (!(req.get('If-Match') || req.body && req.body.if_match)) return api().fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when deleting an announcement.', { if_match: 'required' });
   try {
     const removed = await contentTransaction(manager => contentDomain.deleteAnnouncement(manager, {
       announcementId: id, actorId: res.locals.user.id, reason,
@@ -1035,7 +1046,7 @@ app.post('/api/v2/admin/banners', requireCapability('announcement:manage', { rec
 
 app.patch('/api/v2/admin/banners/:id', requireCapability('announcement:manage', { recent: true }), async (req, res) => {
   const reason = operationReason(req); const id = Number(req.params.id);
-  if (!req.get('If-Match')) return api().fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when updating a banner.');
+  if (!(req.get('If-Match') || req.body && req.body.if_match)) return api().fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when updating a banner.');
   try {
     const saved = await contentTransaction(manager => contentDomain.updateBanner(manager, { bannerId: id, actorId: res.locals.user.id, reason, validate: current => validateBanner(req.body, current), ifMatch: current => api().ifMatch(req, bannerResource(current)), recordAudit: auditRecorder(req) }));
     const resource = bannerResource(saved.row); api().setResourceEtag(res, resource);
@@ -1045,7 +1056,7 @@ app.patch('/api/v2/admin/banners/:id', requireCapability('announcement:manage', 
 
 app.delete('/api/v2/admin/banners/:id', requireCapability('announcement:manage', { recent: true }), async (req, res) => {
   const reason = operationReason(req); const id = Number(req.params.id);
-  if (!req.get('If-Match')) return api().fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when deleting a banner.');
+  if (!(req.get('If-Match') || req.body && req.body.if_match)) return api().fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when deleting a banner.');
   try {
     const removed = await contentTransaction(manager => contentDomain.deleteBanner(manager, {
       bannerId: id, actorId: res.locals.user.id, reason,
@@ -1062,7 +1073,7 @@ app.get('/api/v2/admin/links', requireCapability('admin:content.manage'), async 
 
 app.put('/api/v2/admin/links', requireCapability('admin:content.manage', { recent: true }), async (req, res) => {
   const reason = operationReason(req);
-  if (!req.get('If-Match')) return api().fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when replacing site links.');
+  if (!(req.get('If-Match') || req.body && req.body.if_match)) return api().fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when replacing site links.');
   const result = validateLinks(req.body && req.body.links); if (Object.keys(result.errors).length) return api().fail(res, 422, 'VALIDATION_FAILED', 'One or more links are invalid.', result.errors);
   try {
     const saved = await contentTransaction(async manager => {
@@ -1092,7 +1103,7 @@ app.get('/admin/links', async (req, res) => {
 app.get(['/api/v2/admin/config-metadata', '/api/v2/admin/config/metadata'], requireCapability('admin:config.read'), async (req, res) => { await loadConfigOverrides(); const resource = configMetadataResource(); api().setResourceEtag(res, resource); return api().send(res, resource); });
 
 app.patch('/api/v2/admin/config', requireCapability('admin:config.write', { recent: true }), async (req, res) => {
-  const reason = operationReason(req); if (!req.get('If-Match')) return api().fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when updating site configuration.', { if_match: 'required' }); const changes = req.body && req.body.changes; if (!changes || typeof changes !== 'object' || Array.isArray(changes)) return api().fail(res, 422, 'VALIDATION_FAILED', 'A changes object is required.', { changes: 'object required' });
+  const reason = operationReason(req); if (!(req.get('If-Match') || req.body && req.body.if_match)) return api().fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when updating site configuration.', { if_match: 'required' }); const changes = req.body && req.body.changes; if (!changes || typeof changes !== 'object' || Array.isArray(changes)) return api().fail(res, 422, 'VALIDATION_FAILED', 'A changes object is required.', { changes: 'object required' });
   const normalized = {}; const errors = {}; for (const [name, value] of Object.entries(changes)) { const result = validateConfigChange(name, value); if (result.error) errors[name] = result.error; else normalized[name] = result.value; }
   if (Object.keys(errors).length) return api().fail(res, 422, 'VALIDATION_FAILED', 'One or more configuration fields are invalid.', errors); if (!Object.keys(normalized).length) return api().fail(res, 422, 'VALIDATION_FAILED', 'At least one mutable configuration field is required.', { changes: 'empty' });
   await ensureConfigOverrideSchema();
@@ -1560,17 +1571,46 @@ app.get('/api/v2/admin/rejudge/jobs/:id', requireCapability('submission:rejudge'
   const rows = await TypeORM.getConnection().query('SELECT * FROM admin_v2_rejudge_job WHERE id=? LIMIT 1', [req.params.id]);
   if (!rows.length) return api().fail(res, 404, 'JOB_NOT_FOUND', 'Job was not found.');
   const items = await TypeORM.getConnection().query(
-    'SELECT seq,submission_id,child_job_id,state,error_json,updated_at FROM admin_v2_rejudge_item WHERE job_id=? ORDER BY seq ASC',
+    `SELECT item.seq,item.submission_id,item.child_job_id,item.state,item.error_json,item.updated_at,
+      judge.pending AS submission_pending,judge.status AS submission_status
+      FROM admin_v2_rejudge_item item
+      LEFT JOIN judge_state judge ON judge.id=item.submission_id
+      WHERE item.job_id=? ORDER BY item.seq ASC`,
     [req.params.id]
   );
+  const pendingJudgements = items.filter(item => Number(item.submission_pending) === 1).length;
   return api().send(res, Object.assign(serializeRejudgeBatch(rows[0]), {
     audit_event_id: rows[0].audit_event_id,
+    judging: { pending: pendingJudgements, completed: Math.max(0, items.length - pendingJudgements) },
     items: items.map(item => ({
       sequence: Number(item.seq), submission_id: Number(item.submission_id),
       child_job_id: item.child_job_id || null, state: item.state,
+      submission_pending: Number(item.submission_pending) === 1,
+      submission_status: item.submission_status || null,
       error: safeJson(item.error_json, null), updated_at: iso(item.updated_at)
     }))
   }));
+});
+
+app.get('/api/v2/admin/rejudge/jobs', requireCapability('submission:rejudge'), async (req, res) => {
+  await ensureRejudgeBatchSchema();
+  const limit = api().parseLimit(req, 50, 100);
+  const rows = await TypeORM.getConnection().query(
+    'SELECT * FROM admin_v2_rejudge_job ORDER BY updated_at DESC,id DESC LIMIT ?',
+    [limit]
+  );
+  res.locals.apiMeta.limit = limit;
+  return api().send(res, rows.map(serializeRejudgeBatch));
+});
+
+app.get('/admin/jobs', async (req, res) => {
+  try {
+    const user = res.locals.user;
+    if (!user || !await can(user, 'admin:job.manage') && !await can(user, 'submission:rejudge')) {
+      throw legacyAdminError('您没有权限查看后台任务。', 403);
+    }
+    return res.render('admin_jobs', { initialJobId: String(req.query.job || '') });
+  } catch (error) { return renderLegacyAdminError(res, error); }
 });
 
 app.get('/admin/rejudge', async (req, res) => {

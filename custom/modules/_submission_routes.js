@@ -6,10 +6,11 @@ const Contest = syzoj.model('contest');
 const Problem = syzoj.model('problem');
 const submissionsProcess = require('../libs/submissions_process');
 const judger = require('../libs/judger');
+const compilerMessage = require('../libs/compiler-message');
 const vjudge = require('../libs/vjudge');
 const TypeORM = require('typeorm');
 
-app.use(['/submissions', '/submission/:id', '/contest/:id/submissions', '/contest/submission/:id'], (req, res, next) => {
+app.use(['/submissions', '/submission/:id', '/contest/:id/submissions', '/contest/submission/:id', '/problem-set/:id/submissions'], (req, res, next) => {
   if (req.method === 'GET' || req.method === 'HEAD') {
     res.setHeader('Cache-Control', 'private, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
@@ -176,24 +177,48 @@ function effectiveRoughResult(judge, displayConfig, action, roughOnly) {
   return submissionsProcess.getRoughResult(judge, displayConfig, roughOnly);
 }
 
+function makeSubmissionStatusToken(judge, contestId, viewerId, view) {
+  if (!judge || !judge.pending || judge.task_id == null) return null;
+  return jwt.sign({
+    scope: 'submission-list',
+    submissionId: judge.id,
+    taskId: judge.task_id,
+    contestId: Number(contestId || 0),
+    viewerId: Number(viewerId || 0),
+    view: view || 'list'
+  }, syzoj.config.session_secret, { expiresIn: '10m' });
+}
+
+// Problem-set pages use the same signed status stream as global submission lists.
+syzoj.utils.makeSubmissionStatusToken = makeSubmissionStatusToken;
+
 async function canAccessContestList(contest, user) {
   if (await isContestSupervisor(contest, user)) return true;
   if (contest.isEnded()) return !!contest.is_public;
   return !!(syzoj.utils.canParticipateInContest && await syzoj.utils.canParticipateInContest(contest, user));
 }
 
-async function renderSubmissionList(req, res, contest) {
+async function renderSubmissionList(req, res, contest, options = {}) {
   const curUser = res.locals.user;
   const inContest = !!contest;
+  const problemSet = options.problemSet || null;
+  const inProblemSet = !!problemSet;
   if (contest && !await canAccessContestList(contest, curUser)) {
     return res.status(403).render('error', { err: new ErrorMessage('您没有权限查看该比赛的提交记录。') });
   }
-  const displayConfig = contest ? await contestDisplayConfig(contest, curUser) : practiceDisplayConfig();
+  const displayConfig = contest ? await contestDisplayConfig(contest, curUser) : Object.assign(practiceDisplayConfig(), { inProblemSet });
   const query = JudgeState.createQueryBuilder('js');
   let isFiltered = false;
 
   if (contest) {
     query.andWhere('js.type = 1').andWhere('js.type_info = :contestId', { contestId: contest.id });
+  } else if (problemSet) {
+    query.innerJoin(
+      'problem_set_submission',
+      'problem_set_link',
+      'problem_set_link.submission_id = js.id AND problem_set_link.problem_set_id = :problemSetId',
+      { problemSetId: problemSet.id }
+    ).andWhere('js.type = 0');
   } else {
     query.andWhere('js.type = 0');
   }
@@ -240,19 +265,24 @@ async function renderSubmissionList(req, res, contest) {
 
   const requestedProblemId = parseProblemId(req.query.problem_id);
   let contestProblemIds = null;
+  const problemSetItems = Array.isArray(options.problemSetItems) ? options.problemSetItems : [];
   if (contest) contestProblemIds = (await contest.getProblems()).map(Number);
   if (requestedProblemId != null) {
     let problemId = requestedProblemId;
     if (contest) {
       problemId = contestProblemIds[requestedProblemId - 1] || 0;
       if (!problemId) throw new ErrorMessage('比赛中没有该题目。');
+    } else if (problemSet) {
+      const selectedItem = problemSetItems.find(item => Number(item.ordinal) === requestedProblemId);
+      problemId = selectedItem ? Number(selectedItem.problem_id) : 0;
+      if (!problemId) throw new ErrorMessage('题单中没有该题目。');
     } else {
       const problem = await Problem.findById(problemId);
       if (!problem || !await problem.isAllowedUseBy(curUser)) throw new ErrorMessage('无此题目。');
     }
     query.andWhere('js.problem_id = :filterProblemId', { filterProblemId: problemId });
     isFiltered = true;
-  } else if (!contest && !(curUser && await curUser.hasPrivilege('manage_problem'))) {
+  } else if (!contest && !problemSet && !(curUser && await curUser.hasPrivilege('manage_problem'))) {
     query.andWhere('js.is_public = 1');
     query.andWhere(`NOT EXISTS (
       SELECT 1 FROM contest active_contest
@@ -274,16 +304,23 @@ async function renderSubmissionList(req, res, contest) {
     ? curUser.privileges
     : (curUser ? await curUser.getPrivileges() : []);
   const canManageDetails = !!(curUser && (
-    curUser.is_admin || privileges.includes('manage_problem') || (contest && await contest.isSupervisior(curUser))
+    curUser.is_admin || privileges.includes('manage_problem') || (contest && await contest.isSupervisior(curUser)) || options.canManageDetails
   ));
+  const problemSetItemByProblem = new Map(problemSetItems.map(item => [Number(item.problem_id), item]));
   for (const judge of judges) {
     judge.adminActionType = actions[judge.id] && actions[judge.id].action_type;
-    judge.canViewDetail = contestRunning
+    judge.canViewDetail = inProblemSet && canManageDetails
+      ? true
+      : contestRunning
       ? !!(curUser && (canManageDetails || Number(judge.user_id) === Number(curUser.id)))
       : !!(syzoj.utils.canViewSubmissionDetail && await syzoj.utils.canViewSubmissionDetail(judge, curUser));
     if (contest) {
       judge.contestProblemIndex = contestProblemIds.indexOf(Number(judge.problem_id)) + 1;
       judge.problem.title = syzoj.utils.removeTitleTag(judge.problem.title);
+    } else if (problemSet) {
+      const item = problemSetItemByProblem.get(Number(judge.problem_id));
+      judge.problemSetProblemIndex = item ? Number(item.ordinal) : 0;
+      if (item && item.title) judge.problem.title = String(item.title);
     }
   }
 
@@ -291,21 +328,17 @@ async function renderSubmissionList(req, res, contest) {
   res.render('submissions', {
     vjudge,
     contest,
+    problemSet,
+    problemSetAccess: problemSet ? { manager: !!options.canManageDetails } : null,
     items: judges.map(judge => {
       const itemDisplayConfig = Object.assign({}, displayConfig, {
         showProgress: !!(displayConfig.showDetailResult || curUser && Number(judge.user_id) === Number(curUser.id))
       });
       return {
         info: submissionsProcess.getSubmissionInfo(judge, displayConfig),
-        token: judge.pending && judge.task_id != null ? jwt.sign({
-          scope: 'submission-list',
-          submissionId: judge.id,
-          taskId: judge.task_id,
-          contestId: contest ? Number(contest.id) : 0,
-          viewerId: curUser ? Number(curUser.id) : 0,
-        }, syzoj.config.session_secret, { expiresIn: '10m' }) : null,
+        token: makeSubmissionStatusToken(judge, contest && contest.id, curUser && curUser.id, problemSet ? 'problem-set' : 'list'),
         result: effectiveRoughResult(judge, itemDisplayConfig, actions[judge.id], true),
-        running: false
+        running: !!judge.pending
       };
     }),
     paginate,
@@ -316,6 +349,8 @@ async function renderSubmissionList(req, res, contest) {
     fast_pagination: false
   });
 }
+
+syzoj.utils.renderSubmissionList = renderSubmissionList;
 
 app.get('/submissions', async (req, res, next) => {
   try {
@@ -378,7 +413,32 @@ app.get(['/submission/:id', '/contest/submission/:id'], async (req, res, next) =
       if (view === 'submission' && options && options.info && options.displayConfig) {
         options.socketToken = null;
         options.submissionPending = !!(judge && judge.pending);
+        options.submissionStatusToken = makeSubmissionStatusToken(
+          judge,
+          judge && Number(judge.type) === 1 ? judge.type_info : 0,
+          res.locals.user && res.locals.user.id,
+          'detail'
+        );
+        if (options.submissionPending) options.detailResult = null;
+        const compile = options.detailResult && options.detailResult.compile;
+        options.compileMessageHtml = compile && compile.message
+          ? compilerMessage.sanitizeCompilerMessage(compile.message) : null;
         if (latestContestTitle) options.info.problemName = String(latestContestTitle);
+        const problemSetContext = res.locals.problemSetSubmissionContext;
+        if (problemSetContext) {
+          options.problemSet = problemSetContext.problemSet;
+          options.problemSetAccess = { manager: !!problemSetContext.manager };
+          options.problemSetProblemOrdinal = Number(problemSetContext.problemOrdinal);
+          options.displayConfig = Object.assign({}, options.displayConfig, { inProblemSet: true });
+          options.info.problemId = Number(problemSetContext.problemOrdinal);
+          if (problemSetContext.problemTitle) options.info.problemName = String(problemSetContext.problemTitle);
+          options.submissionStatusToken = makeSubmissionStatusToken(
+            judge,
+            0,
+            res.locals.user && res.locals.user.id,
+            'problem-set'
+          );
+        }
       }
       return originalRender.apply(res, arguments);
     };
@@ -406,7 +466,8 @@ function verifyStatusTokens(tokens, viewerId) {
       const payload = jwt.verify(String(token || ''), syzoj.config.session_secret);
       if (payload.scope !== 'submission-list' || Number(payload.viewerId || 0) !== viewerId ||
         !Number.isSafeInteger(Number(payload.submissionId)) || !payload.taskId ||
-        !Number.isSafeInteger(Number(payload.contestId || 0))) continue;
+        !Number.isSafeInteger(Number(payload.contestId || 0)) ||
+        !['list', 'detail', 'problem-set'].includes(String(payload.view || 'list'))) continue;
       payloads.push(payload);
     } catch (error) {}
   }
@@ -453,12 +514,19 @@ async function getListStatuses(payloads, user) {
       if (Number(judge.type) !== 1 || Number(judge.type_info) !== contestId) continue;
       if (!contestCache.has(contestId)) contestCache.set(contestId, Contest.findById(contestId));
       const contest = await contestCache.get(contestId);
-      if (!contest || !await canAccessContestList(contest, user)) continue;
+      if (!contest) continue;
+      const canAccessDetail = payload.view === 'detail' && syzoj.utils.canViewSubmissionDetail &&
+        await syzoj.utils.canViewSubmissionDetail(judge, user);
+      if (!canAccessDetail && !await canAccessContestList(contest, user)) continue;
       currentDisplayConfig = await contestDisplayConfig(contest, user);
-      if (!currentDisplayConfig.showOthers && (!user || Number(judge.user_id) !== Number(user.id))) continue;
+      if (!canAccessDetail && !currentDisplayConfig.showOthers &&
+        (!user || Number(judge.user_id) !== Number(user.id))) continue;
     } else {
       if (Number(judge.type) !== 0) continue;
-      if (!canManagePractice && (!judge.is_public || activeContestProblemIds.has(Number(judge.problem_id)))) continue;
+      const canAccessDetail = payload.view === 'detail' && syzoj.utils.canViewSubmissionDetail &&
+        await syzoj.utils.canViewSubmissionDetail(judge, user);
+      if (!canManagePractice && !canAccessDetail && payload.view !== 'problem-set' &&
+        (!judge.is_public || activeContestProblemIds.has(Number(judge.problem_id)))) continue;
       currentDisplayConfig = practiceDisplayConfig();
     }
     currentDisplayConfig.showProgress = !!(currentDisplayConfig.showDetailResult ||

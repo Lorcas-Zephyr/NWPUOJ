@@ -62,6 +62,8 @@ test('default help documents testdata ZIP layouts for every local problem type',
 test('announcement and banner workspaces use v2-first writes with safe image upload', () => {
   const admin = read('custom/modules/_api_v2_admin_domain.js');
   const announcements = read('custom/views/admin_announcements.ejs');
+  const publicAnnouncements = read('custom/views/announcements.ejs');
+  const announcementRoute = read('custom/modules/announcement.js');
   const editor = read('custom/views/admin_announcement_edit.ejs');
   const banners = read('custom/views/admin_banners.ejs');
   const publicContent = read('custom/modules/_api_v2_content_domain.js');
@@ -73,8 +75,15 @@ test('announcement and banner workspaces use v2-first writes with safe image upl
   assert.match(admin, /removeStoredBanner\(removed\.row\.image_path\)/);
   assert.match(announcements, /data-announcement-v2="toggle"/);
   assert.match(announcements, /data-announcement-v2="delete"/);
+  assert.match(publicAnnouncements, /const appLevelClass = announcement\.level === 'important'[\s\S]*'app-status-info'/);
+  assert.match(announcementRoute, /announcement\.contentRendered = await linkUserMentions\(announcement\.contentRendered\)/);
   assert.match(editor, /data-announcement-v2-edit/);
   assert.match(editor, /\/api\/v2\/admin\/announcements/);
+  assert.equal((editor.match(/data-app-datetime-picker/g) || []).length, 2);
+  assert.equal((editor.match(/step="60"/g) || []).length, 2);
+  assert.match(editor, /date\.setSeconds\(0, 0\)/);
+  assert.match(editor, /starts_at: minuteIso/);
+  assert.match(editor, /ends_at: minuteIso/);
   assert.match(banners, /data-banner-v2="upload"/);
   assert.match(banners, /data-banner-v2="edit"/);
   assert.match(banners, /data-banner-v2="delete"/);
@@ -84,8 +93,14 @@ test('announcement and banner workspaces use v2-first writes with safe image upl
     assert.doesNotMatch(view, /HTMLFormElement\.prototype\.submit\.call/);
   }
   assert.match(announcements, /'If-Match': current\.etag/);
+  assert.match(announcements, /body\.meta && body\.meta\.etag/);
+  assert.match(announcements, /if_match: current\.etag/);
+  assert.match(announcements, /action === 'delete'.*if_match: current\.etag/);
+  assert.match(editor, /currentBody\.meta && currentBody\.meta\.etag/);
+  assert.match(editor, /payload\.if_match = headers\['If-Match'\]/);
   assert.match(banners, /'If-Match': current\.etag/);
   assert.match(publicContent, /ORDER BY sort_order DESC,id DESC/);
+  assert.match(publicContent, /content_rendered: await renderAnnouncementContent\(row\.content\)/);
 });
 
 test('unified job cancellation and retry attach an audit event identifier', () => {
@@ -159,4 +174,20 @@ test('bulk rejudge parent supports cancellation, failed-item retry, progress, an
   assert.match(admin, /async function recoverRejudgeBatchJobs\(\)/);
   assert.match(admin, /code: 'BATCH_INTERRUPTED'/);
   assert.match(admin, /recoverRejudgeBatchJobs\(\)/);
+});
+
+test('bulk rejudge success opens a real task page that separates queueing from judge results', () => {
+  const admin = read('custom/modules/_api_v2_admin_domain.js');
+  const form = read('custom/views/admin_rejudge.ejs');
+  const jobs = read('custom/views/admin_jobs.ejs');
+  const navigation = read('custom/views/admin_header.ejs');
+  assert.match(form, /window\.location\.assign\('\/admin\/jobs\?job='/);
+  assert.match(admin, /app\.get\('\/admin\/jobs'/);
+  assert.match(admin, /app\.get\('\/api\/v2\/admin\/rejudge\/jobs', requireCapability\('submission:rejudge'\)/);
+  assert.match(admin, /judge\.pending AS submission_pending,judge\.status AS submission_status/);
+  assert.match(jobs, /data-admin-jobs/);
+  assert.match(jobs, /\/api\/v2\/admin\/rejudge\/jobs\//);
+  assert.match(jobs, /pendingJudgements > 0/);
+  assert.match(jobs, /Accepted、Wrong Answer、Compile Error/);
+  assert.match(navigation, /jobs: \['后台任务', 'list-checks'\]/);
 });

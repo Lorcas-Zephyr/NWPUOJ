@@ -3,8 +3,14 @@
 let tagIDs = [];
 if (typeof tags !== 'undefined') tagIDs = tags.map(tag => tag.id);
 const canBulkDelete = typeof canBulkArchive !== 'undefined' && canBulkArchive;
+const canBulkPublishAction = typeof canBulkPublish !== 'undefined' && canBulkPublish;
+const canBulkTagAction = typeof canBulkTag !== 'undefined' && canBulkTag;
+const canBulkActions = canBulkDelete || canBulkPublishAction || canBulkTagAction;
 const bulkJobId = /^[0-9a-f-]{36}$/i.test(String(req.query.bulk_job || '')) ? String(req.query.bulk_job) : '';
 const bulkQueuedCount = Math.max(0, Math.min(200, Number(req.query.bulk_queued) || 0));
+const bulkAction = ['publish', 'unpublish', 'archive'].includes(String(req.query.bulk_action || '')) ? String(req.query.bulk_action) : '';
+const bulkActionLabels = { publish: '公开', unpublish: '隐藏', archive: '归档' };
+const bulkActionLabel = bulkActionLabels[bulkAction] || '处理';
 const currentRepository = typeof repository !== 'undefined' && ['all', 'main', 'uoj', 'hdu', 'poj'].includes(repository) ? repository : 'all';
 const currentProgress = typeof progress !== 'undefined' ? progress : 'all';
 const currentOrder = curOrder ? 'asc' : 'desc';
@@ -46,7 +52,7 @@ const problemGroupCounts = visibleProblems.reduce((counts, problem) => {
   counts[group] = (counts[group] || 0) + 1;
   return counts;
 }, {});
-const problemColumnCount = 6 + (user ? 1 : 0) + (canBulkDelete ? 1 : 0);
+const problemColumnCount = 6 + (user ? 1 : 0) + (canBulkActions ? 1 : 0);
 function makeProblemFilterUrl(changes, nextTagIDs) {
   const query = {};
   if (currentRepository !== 'all') query.repository = currentRepository;
@@ -97,19 +103,21 @@ function judgeStateClass(state) {
     </div>
     <div class="app-page-actions">
       <% if (allowedManageTag) { %>
-        <a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['problems', 'tag', 0, 'edit']) %>"><i data-lucide="tag"></i>新建标签</a>
+        <a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['problems', 'tags', 'manage']) %>"><i data-lucide="tags"></i>标签管理</a>
       <% } %>
       <% if ((currentRepository === 'all' || currentRepository === 'main') && allowedCreateProblem) { %>
-        <a class="app-button app-button-primary" href="<%= syzoj.utils.makeUrl(['problem', 0, 'edit']) %>"><i data-lucide="file-plus"></i>添加题目</a>
+        <details class="app-menu app-add-problem-menu"><summary class="app-button app-button-primary" aria-haspopup="menu"><i data-lucide="file-plus"></i><span>添加题目</span><i data-lucide="chevron-down"></i></summary><div role="menu"><a role="menuitem" href="<%= syzoj.utils.makeUrl(['problem', 0, 'edit']) %>">新建题目</a><a role="menuitem" href="<%= syzoj.utils.makeUrl(['problems', 'import']) %>">批量导入题目</a></div></details>
       <% } %>
     </div>
   </header>
+  <% if (Number(req.query.bulk_imported) > 0) { %><div class="app-notice app-notice-success"><i data-lucide="circle-check"></i><span>已成功导入 <strong><%= Number(req.query.bulk_imported) %></strong> 道题目。</span></div><% } %>
+  <% if (canBulkTagAction && Number(req.query.bulk_tagged) > 0) { %><div class="app-notice app-notice-success"><i data-lucide="tag"></i><span>已为 <strong><%= Number(req.query.bulk_tagged) %></strong> 道题目添加标签<% if (req.query.bulk_tag_name) { %>“<%= req.query.bulk_tag_name %>”<% } %>。</span></div><% } %>
 
-  <% if (canBulkDelete && Number(req.query.bulk_archived) > 0) { %>
+  <% if (canBulkActions && Number(req.query.bulk_archived) > 0) { %>
     <div class="app-notice app-notice-success"><i data-lucide="circle-check"></i><span>已归档 <strong><%= Number(req.query.bulk_archived) %></strong> 道题目。</span></div>
   <% } %>
-  <% if (canBulkDelete && bulkJobId) { %>
-    <div class="app-notice" role="status" aria-live="polite" data-problem-bulk-job data-job-id="<%= bulkJobId %>"><i data-lucide="loader-circle"></i><span data-bulk-job-text>正在处理 <strong><%= bulkQueuedCount %></strong> 道题目...</span></div>
+  <% if (canBulkActions && bulkJobId) { %>
+    <div class="app-notice" role="status" aria-live="polite" data-problem-bulk-job data-job-id="<%= bulkJobId %>" data-action="<%= bulkAction %>"><i data-lucide="loader-circle"></i><span data-bulk-job-text>正在<%= bulkActionLabel %> <strong><%= bulkQueuedCount %></strong> 道题目...</span></div>
   <% } %>
 
   <section class="app-section">
@@ -144,13 +152,23 @@ function judgeStateClass(state) {
   </section>
 
   <% if (visibleProblems.length) { %>
-    <% if (canBulkDelete) { %>
+    <% if (canBulkActions) { %>
       <form method="post" id="problem-bulk-delete-form" data-select-group data-problem-bulk-v2>
         <input type="hidden" name="repository" value="<%= currentRepository %>">
         <input type="hidden" name="csrf_token" value="<%= bulkDeleteCsrfToken %>">
         <div class="app-bulk-bar">
           <span>已选择 <strong data-selected-count>0</strong> 题</span>
-          <button class="app-button app-button-danger-outline" type="button" data-dialog-open="problem-delete-dialog" data-requires-selection disabled><i data-lucide="archive"></i>批量归档</button>
+          <details class="app-action-menu" data-problem-bulk-action>
+            <summary class="app-button app-button-secondary"><i data-lucide="layers-2"></i>批量操作<i data-lucide="chevron-down"></i></summary>
+            <div class="app-action-menu-list">
+              <% if (canBulkPublishAction) { %>
+                <button type="button" data-bulk-action="publish" data-requires-selection disabled><i data-lucide="eye"></i>公开题目</button>
+                <button type="button" data-bulk-action="unpublish" data-requires-selection disabled><i data-lucide="eye-off"></i>隐藏题目</button>
+              <% } %>
+              <% if (canBulkDelete) { %><button type="button" data-bulk-action="archive" data-requires-selection disabled><i data-lucide="archive"></i>归档题目</button><% } %>
+              <% if (canBulkTagAction) { %><button type="button" data-bulk-action="add-tag" data-requires-selection disabled><i data-lucide="tag"></i>添加标签</button><% } %>
+            </div>
+          </details>
         </div>
     <% } %>
 
@@ -158,7 +176,7 @@ function judgeStateClass(state) {
       <table class="app-table app-problem-table">
         <thead>
           <tr>
-            <% if (canBulkDelete) { %><th><label class="app-check"><input type="checkbox" data-select-all aria-label="选择当前页全部题目"><span>选择</span></label></th><% } %>
+            <% if (canBulkActions) { %><th class="app-problem-select-cell"><input type="checkbox" data-select-all aria-label="选择当前页全部题目"></th><% } %>
             <% if (user) { %><th>状态</th><% } %>
             <th><a href="<%= problemSortUrl('id') %>">编号 <i data-lucide="<%= sortIcon('id') %>"></i></a></th>
             <th class="app-cell-primary"><a href="<%= problemSortUrl('title') %>">题目 <i data-lucide="<%= sortIcon('title') %>"></i></a></th>
@@ -175,7 +193,7 @@ function judgeStateClass(state) {
               <tr class="app-table-group"><td colspan="<%= problemColumnCount %>"><%= currentProblemGroup %><span><%= problemGroupCounts[currentProblemGroup] %> 题</span></td></tr>
             <% } %>
             <tr>
-              <% if (canBulkDelete) { %><td><input type="checkbox" name="problem_ids" value="<%= problem.id %>" data-select-item aria-label="选择 <%= problem.getDisplayId() %> <%= problem.title %>"></td><% } %>
+              <% if (canBulkActions) { %><td class="app-problem-select-cell"><% if (problem.allowedPublish || problem.allowedArchive || problem.allowedTag) { %><input type="checkbox" name="problem_ids" value="<%= problem.id %>" data-select-item aria-label="选择 <%= problem.getDisplayId() %> <%= problem.title %>"><% } %></td><% } %>
               <% if (user) { %>
                 <td><% if (problem.judge_state) { %><a href="<%= syzoj.utils.makeUrl(['submission', problem.judge_state.id]) %>" class="app-status <%= judgeStateClass(problem.judge_state.status) %>"><%= problem.judge_state.status %></a><% } else { %><span class="app-status">未提交</span><% } %></td>
               <% } %>
@@ -193,7 +211,7 @@ function judgeStateClass(state) {
       </table>
     </div>
 
-    <% if (canBulkDelete) { %></form><% } %>
+    <% if (canBulkActions) { %></form><% } %>
     <% include app_pagination %>
   <% } else { %>
     <div class="app-empty"><div class="app-empty-inner"><i data-lucide="<%= req.query.keyword ? 'search-x' : 'list-x' %>"></i><strong><%= req.query.keyword ? '没有匹配的题目' : '暂无题目' %></strong><p>调整筛选条件后再试。</p></div></div>
@@ -218,19 +236,87 @@ function judgeStateClass(state) {
   <div class="app-dialog-actions app-drawer-actions"><button class="app-button app-button-secondary" type="button" data-dialog-close>完成</button></div>
 </dialog>
 
-<% if (canBulkDelete) { %>
+<% if (canBulkActions) { %>
   <dialog class="app-dialog" id="problem-delete-dialog">
-    <div class="app-dialog-header"><h2>批量归档题目</h2><button class="app-icon-button" type="button" data-dialog-close aria-label="关闭"><i data-lucide="x"></i></button></div>
+    <div class="app-dialog-header"><h2 data-bulk-action-title>批量操作题目</h2><button class="app-icon-button" type="button" data-dialog-close aria-label="关闭"><i data-lucide="x"></i></button></div>
     <div class="app-dialog-body">
-      <div class="app-notice app-notice-warning"><i data-lucide="archive"></i><span>归档后题目将从公开题库隐藏，历史提交、比赛快照、讨论和测试数据保持不变。</span></div>
+      <div class="app-notice app-notice-warning"><i data-lucide="layers-2"></i><span data-bulk-action-message>请选择批量操作。</span></div>
+      <% if (canBulkTagAction) { %>
+        <label class="app-field" data-bulk-tag-field hidden><span class="app-label">要添加的标签</span><select class="app-select" data-bulk-tag-select><option value="">请选择标签</option><% for (const tag of allProblemTags || []) { %><option value="<%= tag.id %>"><%= tag.name %></option><% } %></select></label>
+      <% } %>
     </div>
-    <div class="app-dialog-actions"><button class="app-button app-button-secondary" type="button" data-dialog-close>取消</button><button class="app-button app-button-danger" type="submit" form="problem-bulk-delete-form"><i data-lucide="archive"></i>确认归档</button></div>
+    <div class="app-dialog-actions"><button class="app-button app-button-secondary" type="button" data-dialog-close>取消</button><button class="app-button app-button-danger" type="submit" form="problem-bulk-delete-form" data-bulk-action-submit><i data-lucide="check"></i>确认操作</button></div>
   </dialog>
 <% } %>
 
 <script>
 (function () {
+  document.querySelectorAll('.app-add-problem-menu').forEach(function (menu) {
+    var closeTimer;
+    function openMenu() { clearTimeout(closeTimer); menu.open = true; }
+    function closeMenu() { clearTimeout(closeTimer); closeTimer = setTimeout(function () { if (!menu.matches(':hover') && !menu.contains(document.activeElement)) menu.open = false; }, 80); }
+    menu.addEventListener('mouseenter', openMenu);
+    menu.addEventListener('mouseleave', closeMenu);
+    menu.addEventListener('focusin', openMenu);
+    menu.addEventListener('focusout', closeMenu);
+  });
   var bulkForm = document.querySelector('[data-problem-bulk-v2]');
+  var bulkAction = '';
+  var actionLabels = { publish: '公开', unpublish: '隐藏', archive: '归档', 'add-tag': '添加标签' };
+  var actionMenu = document.querySelector('[data-problem-bulk-action]');
+  var actionDialog = document.getElementById('problem-delete-dialog');
+  var actionTitle = actionDialog && actionDialog.querySelector('[data-bulk-action-title]');
+  var actionMessage = actionDialog && actionDialog.querySelector('[data-bulk-action-message]');
+  var actionSubmit = actionDialog && actionDialog.querySelector('[data-bulk-action-submit]');
+  var bulkTagField = actionDialog && actionDialog.querySelector('[data-bulk-tag-field]');
+  var bulkTagSelect = actionDialog && actionDialog.querySelector('[data-bulk-tag-select]');
+  function syncBulkSelection() {
+    if (!bulkForm) return;
+    var items = Array.from(bulkForm.querySelectorAll('[data-select-item]'));
+    var selected = items.filter(function (item) { return item.checked; }).length;
+    var master = bulkForm.querySelector('[data-select-all]');
+    var count = bulkForm.querySelector('[data-selected-count]');
+    if (master) {
+      master.checked = items.length > 0 && selected === items.length;
+      master.indeterminate = selected > 0 && selected < items.length;
+    }
+    if (count) count.textContent = String(selected);
+    bulkForm.querySelectorAll('[data-requires-selection]').forEach(function (button) {
+      button.disabled = selected === 0;
+      button.classList.toggle('is-disabled', selected === 0);
+    });
+  }
+  if (bulkForm) {
+    var bulkMaster = bulkForm.querySelector('[data-select-all]');
+    var bulkItems = Array.from(bulkForm.querySelectorAll('[data-select-item]'));
+    if (bulkMaster) bulkMaster.addEventListener('change', function () {
+      bulkItems.forEach(function (item) { item.checked = bulkMaster.checked; });
+      syncBulkSelection();
+    });
+    bulkItems.forEach(function (item) { item.addEventListener('change', syncBulkSelection); });
+    syncBulkSelection();
+  }
+  function selectBulkAction(action) {
+    if (!actionLabels[action]) return;
+    bulkAction = action;
+    var label = actionLabels[action];
+    if (actionTitle) actionTitle.textContent = '批量' + label + '题目';
+    if (actionMessage) actionMessage.textContent = action === 'archive'
+      ? '归档后题目将从公开题库隐藏，历史提交、比赛快照、讨论和测试数据保持不变。'
+      : (action === 'publish' ? '公开后题目将出现在公开题库中，并使用当前最新版本和测试数据。' : action === 'unpublish' ? '隐藏后题目将不再出现在公开题库中，历史提交和比赛快照保持不变。' : '为所选题目追加一个标签，已有标签不会被移除。');
+    if (bulkTagField) bulkTagField.hidden = action !== 'add-tag';
+    if (bulkTagSelect && action !== 'add-tag') bulkTagSelect.value = '';
+    if (actionSubmit) actionSubmit.innerHTML = '<i data-lucide="' + (action === 'archive' ? 'archive' : action === 'publish' ? 'eye' : action === 'unpublish' ? 'eye-off' : 'tag') + '"></i>确认' + label;
+    if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
+    if (actionMenu) actionMenu.open = false;
+    if (actionDialog) {
+      if (typeof actionDialog.showModal === 'function') actionDialog.showModal();
+      else actionDialog.setAttribute('open', '');
+    }
+  }
+  document.querySelectorAll('[data-bulk-action]').forEach(function (button) {
+    button.addEventListener('click', function () { selectBulkAction(button.dataset.bulkAction); });
+  });
   if (bulkForm) {
     bulkForm.addEventListener('submit', async function (event) {
       event.preventDefault();
@@ -238,27 +324,42 @@ function judgeStateClass(state) {
         return Number(input.value);
       }).filter(Number.isSafeInteger);
       if (!ids.length) return;
+      if (!actionLabels[bulkAction]) return;
+      if (bulkAction === 'add-tag' && (!bulkTagSelect || !Number(bulkTagSelect.value))) {
+        if (window.NWPUOJApp) window.NWPUOJApp.showToast('请选择要添加的标签。', 'danger');
+        else window.alert('请选择要添加的标签。');
+        return;
+      }
       var submit = document.querySelector('[type="submit"][form="problem-bulk-delete-form"]');
       if (submit) submit.disabled = true;
       try {
-        var response = await fetch('/api/v2/problems/bulk-actions', {
+        var isTagAction = bulkAction === 'add-tag';
+        var response = await fetch(isTagAction ? '/api/v2/problems/bulk-tags' : '/api/v2/problems/bulk-actions', {
           method: 'POST',
           credentials: 'same-origin',
           headers: {
             'Content-Type': 'application/json',
             'Idempotency-Key': window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random()
           },
-          body: JSON.stringify({ action: 'archive', problem_ids: ids })
+          body: JSON.stringify(isTagAction ? { tag_id: Number(bulkTagSelect.value), problem_ids: ids } : { action: bulkAction, problem_ids: ids })
         });
         var body = await response.json();
-        if (!response.ok) throw new Error(body && body.error && body.error.message || '批量归档任务创建失败。');
+        if (!response.ok) throw new Error(body && body.error && body.error.message || '批量操作任务创建失败。');
+        if (isTagAction) {
+          var taggedNext = new URL(window.location.href);
+          taggedNext.searchParams.set('bulk_tagged', String(body.data && body.data.added || 0));
+          taggedNext.searchParams.set('bulk_tag_name', String(body.data && body.data.tag && body.data.tag.name || ''));
+          window.location.assign(taggedNext.pathname + taggedNext.search);
+          return;
+        }
         var next = new URL(window.location.href);
         next.searchParams.set('bulk_job', body.data.id);
         next.searchParams.set('bulk_queued', String(ids.length));
+        next.searchParams.set('bulk_action', bulkAction);
         window.location.assign(next.pathname + next.search);
       } catch (error) {
-        if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '批量归档任务创建失败。', 'danger');
-        else window.alert(error.message || '批量归档任务创建失败。');
+        if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '批量操作任务创建失败。', 'danger');
+        else window.alert(error.message || '批量操作任务创建失败。');
         if (submit) submit.disabled = false;
       }
     });
@@ -281,6 +382,8 @@ function judgeStateClass(state) {
   if (bulkJobNotice) {
     var bulkJobText = bulkJobNotice.querySelector('[data-bulk-job-text]');
     var bulkJobId = bulkJobNotice.dataset.jobId;
+    var bulkJobAction = actionLabels[bulkJobNotice.dataset.action] ? bulkJobNotice.dataset.action : 'archive';
+    var bulkJobLabel = actionLabels[bulkJobAction];
     var bulkJobAttempts = 0;
     function renderBulkJob(job) {
       var result = job.result || {};
@@ -288,15 +391,16 @@ function judgeStateClass(state) {
       var processed = Number(result.processed || 0);
       if (job.state === 'completed') {
         bulkJobNotice.classList.add('app-notice-success');
-        bulkJobText.textContent = '归档完成：成功 ' + Number(result.archived || 0) + '，跳过 ' + Number(result.skipped || 0) + '，失败 ' + Number(result.failed || 0) + '。刷新列表即可查看结果。';
+        var changed = Number(result.published || result.unpublished || result.archived || result.changed || 0);
+        bulkJobText.textContent = bulkJobLabel + '完成：成功 ' + changed + '，跳过 ' + Number(result.skipped || 0) + '，失败 ' + Number(result.failed || 0) + '。刷新列表即可查看结果。';
         return true;
       }
       if (job.state === 'failed' || job.state === 'cancelled') {
         bulkJobNotice.classList.add(job.state === 'failed' ? 'app-notice-danger' : 'app-notice-warning');
-        bulkJobText.textContent = job.state === 'failed' ? '批量归档失败，请在后台任务中重试。' : '批量归档已取消。';
+        bulkJobText.textContent = job.state === 'failed' ? '批量' + bulkJobLabel + '失败，请在后台任务中重试。' : '批量' + bulkJobLabel + '已取消。';
         return true;
       }
-      bulkJobText.textContent = (job.state === 'cancelling' ? '正在取消' : '正在归档') + '：' + processed + ' / ' + total;
+      bulkJobText.textContent = (job.state === 'cancelling' ? '正在取消' : '正在' + bulkJobLabel) + '：' + processed + ' / ' + total;
       return false;
     }
     function refreshBulkJob() {

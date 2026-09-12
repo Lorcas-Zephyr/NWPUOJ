@@ -5,6 +5,7 @@ const test = require('node:test');
 const { advanceStandingsPointers, calculateStandingRows, serializeStandingRow } = require('../libs/contest-standings');
 const fs = require('node:fs');
 const path = require('node:path');
+const { buildContestRanklistCsv, buildContestRanklistRows, csvCell, problemAlias } = require('../libs/contest-ranklist-export');
 
 test('ACM standings use accepted count, penalty, stable ties, and competition ranks', () => {
   const rows = calculateStandingRows({
@@ -58,10 +59,58 @@ test('frozen standings keep the public pointer stable while live results advance
   assert.equal(pointers.public_version_id, 5);
 });
 
+test('ACM ranklist exports identity, total result, and per-problem details', () => {
+  const contest = { type: 'acm', start_time: 1000 };
+  const items = [{
+    user: { id: 7, username: 'student' },
+    player: {
+      standing_rank: 2,
+      overall_standing_rank: 5,
+      score: 1,
+      score_details: {
+        11: { accepted: true, acceptedTime: 1600, unacceptedCount: 2 },
+        12: { accepted: false, unacceptedCount: 1 }
+      }
+    },
+    tie: 3000
+  }];
+  const profiles = new Map([[7, { real_name: '张三', student_id: '2026000001', college: '计算机学院' }]]);
+  const rows = buildContestRanklistRows({ contest, items, problemIds: [11, 12], profiles, accountFilter: 'ordinary' });
+  assert.deepEqual(rows[0], ['当前名次', '总名次', '用户名', '姓名', '学号', '学院', '班级', '通过题数', '罚时（秒）', 'A-结果', 'A-尝试次数', 'A-通过用时（秒）', 'B-结果', 'B-尝试次数', 'B-通过用时（秒）']);
+  assert.deepEqual(rows[1], [2, 5, 'student', '张三', '2026000001', '计算机学院', '', 1, 3000, '通过', 3, 600, '未通过', 1, '']);
+});
+
+test('IOI ranklist exports total and weighted problem scores', () => {
+  const options = {
+    contest: { type: 'ioi', start_time: 1000 },
+    items: [{
+      user: { id: 8, username: '=unsafe' },
+      player: { standing_rank: 1, score: 140, score_details: { 21: { weighted_score: 80, judge_state: { submit_time: 1300 } }, 22: { weighted_score: 60, judge_state: { submit_time: 1450 } } } }
+    }],
+    problemIds: [21, 22],
+    profiles: new Map([[8, { real_name: '李四', student_id: '2026000002', college: '软件学院' }]]),
+    accountFilter: 'all'
+  };
+  const rows = buildContestRanklistRows(options);
+  assert.deepEqual(rows[0], ['名次', '用户名', '姓名', '学号', '学院', '班级', '总分', 'A-得分', 'A-提交时间（秒）', 'B-得分', 'B-提交时间（秒）']);
+  assert.deepEqual(rows[1], [1, '=unsafe', '李四', '2026000002', '软件学院', '', 140, 80, 300, 60, 450]);
+  const csv = buildContestRanklistCsv(options);
+  assert.equal(csv.startsWith('\uFEFF'), true);
+  assert.match(csv, /"'=unsafe"/);
+});
+
+test('ranklist CSV aliases continue after Z and neutralize spreadsheet formulas', () => {
+  assert.equal(problemAlias(0), 'A');
+  assert.equal(problemAlias(25), 'Z');
+  assert.equal(problemAlias(26), 'AA');
+  assert.equal(csvCell('  +SUM(A1:A2)'), '"\'  +SUM(A1:A2)"');
+});
+
 test('contest route applies shared snapshot and standings access policies', () => {
   const route = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_contest_domain.js'), 'utf8');
   assert.match(route, /snapshotRefreshAllowed\(action\)/);
   assert.match(route, /problem_snapshot_id VARCHAR\(80\) NULL/);
+  assert.match(route, /snapshotProblems,/);
   assert.match(route, /problemV2\.snapshotForCurrentVersion\(problem/);
   assert.match(route, /includeDraft: true/);
   assert.match(route, /trackProblemSnapshot: trackContestProblemSnapshot/);

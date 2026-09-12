@@ -6,7 +6,7 @@ const getSubmissionInfo = (s, displayConfig) => ({
     user: s.user.username,
     userId: s.user_id,
     problemName: s.problem.title,
-    problemId: s.contestProblemIndex || s.problem_id,
+    problemId: s.problemSetProblemIndex || s.contestProblemIndex || s.problem_id,
     sourceProblemId: s.problem && s.problem.id ? s.problem.id : s.problem_id,
     problemDisplayId: s.problem.getDisplayId(),
     language: displayConfig.showCode ? ((s.language != null && s.language !== '')
@@ -19,27 +19,27 @@ const getSubmissionInfo = (s, displayConfig) => ({
 });
 
 const getRoughResult = (x, displayConfig, roughOnly) => {
+    if (x.pending) {
+        const cached = getCachedJudgeState(x.task_id) || null;
+        const cachedStatus = String(cached && cached.result || '');
+        const runningMatch = /^Running\s+(\d+)\/(\d+)$/.exec(cachedStatus);
+        const pendingStatus = runningMatch
+          ? `Running ${runningMatch[1]}/${runningMatch[2]}`
+          : (cachedStatus === 'Compiling' ? 'Compiling' : 'Waiting');
+        return {
+            result: pendingStatus,
+            time: displayConfig.showUsage ? 0 : null,
+            memory: displayConfig.showUsage ? 0 : null,
+            score: displayConfig.showScore ? 0 : null
+        };
+    }
     if (displayConfig.showResult) {
-        if (x.pending) {
-            let res = getCachedJudgeState(x.task_id) || null;
-            if (!res) return null;
-            const runningResult = (displayConfig.showDetailResult || displayConfig.showProgress) && String(res.result || '').startsWith('Running ')
-              ? res.result
-              : (String(res.result || '').startsWith('Running ') || roughOnly ? 'Judging' : res.result);
-            return {
-              result: runningResult,
-              time: displayConfig.showUsage ? (roughOnly ? 0 : res.time) : null,
-              memory: displayConfig.showUsage ? (roughOnly ? 0 : res.memory) : null,
-              score: displayConfig.showScore ? (roughOnly ? 0 : res.score) : null
-            };
-        } else {
-            return {
-                result: x.status,
-                time: displayConfig.showUsage ? x.total_time : null,
-                memory: displayConfig.showUsage ? x.max_memory : null,
-                score: displayConfig.showScore ? x.score : null
-            };
-        }
+        return {
+            result: x.status,
+            time: displayConfig.showUsage ? x.total_time : null,
+            memory: displayConfig.showUsage ? x.max_memory : null,
+            score: displayConfig.showScore ? x.score : null
+        };
     } else {
         // 0: Waiting 1: Running
         if (x.status === "System Error")

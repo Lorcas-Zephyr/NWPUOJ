@@ -1,0 +1,11 @@
+<%
+const problemSetSection = typeof problemSetActiveSection !== 'undefined' ? problemSetActiveSection : 'problems';
+function problemSetTab(section, label, icon, path) {
+  return '<a class="app-tab' + (problemSetSection === section ? ' is-active' : '') + '" href="' + path + '"' + (problemSetSection === section ? ' aria-current="page"' : '') + '><i data-lucide="' + icon + '"></i>' + label + '</a>';
+}
+const problemSetBase = '/problem-set/' + problemSet.id;
+%>
+<section class="app-problem-set-context">
+  <div class="app-problem-set-context-main"><div><a class="app-back-link" href="/problem-sets"><i data-lucide="arrow-left"></i>返回题单</a><span class="app-kicker">PROBLEM SET #<%= problemSet.id %></span><h1><%= problemSet.title %></h1><p><span class="app-status <%= problemSet.status === 'published' ? 'app-status-accepted' : 'app-status-muted' %>"><%= problemSet.status === 'published' ? '已发布' : problemSet.status === 'archived' ? '已归档' : '草稿' %></span> · <%= problemSet.deadline_at ? syzoj.utils.formatDate(problemSet.deadline_at) + ' 截止' : '无限期' %></p></div><% if (typeof problemSetAccess !== 'undefined' && problemSetAccess.manager) { %><div class="app-page-actions"><a class="app-button app-button-secondary" href="<%= problemSetBase %>/participants"><i data-lucide="users-round"></i>报名管理</a><a class="app-button app-button-primary" href="<%= problemSetBase %>/edit"><i data-lucide="settings"></i>管理题单</a></div><% } %></div>
+  <nav class="app-tabs" aria-label="题单导航"><%- problemSetTab('problems','题目','list-checks',problemSetBase) %><%- problemSetTab('submissions','提交记录','activity',problemSetBase+'/submissions') %><%- problemSetTab('ranklist','榜单','chart-no-axes-column-increasing',problemSetBase+'/ranklist') %><% if (typeof problemSetAccess !== 'undefined' && problemSetAccess.manager) { %><%- problemSetTab('participants','报名管理','users-round',problemSetBase+'/participants') %><% } %></nav>
+</section>

@@ -8,7 +8,7 @@ const initialNotice = typeof registrationNotice !== 'undefined' ? registrationNo
 
 <div class="app-auth app-auth-wide">
   <section class="app-auth-intro">
-    <img src="/self/logo.png?v=<%= encodeURIComponent(syzoj.config.nwpuoj_version || '2.0.1') %>" alt="" width="52" height="52">
+    <img src="/self/logo.png?v=<%= encodeURIComponent(syzoj.config.nwpuoj_version || '2.1.0') %>" alt="" width="52" height="52">
     <h1>建立你的训练档案</h1>
     <p>账户用于保存做题记录、比赛报名、Rating 和站内通知。</p>
   </section>
@@ -21,7 +21,7 @@ const initialNotice = typeof registrationNotice !== 'undefined' ? registrationNo
       <input type="hidden" name="registration_csrf_token" value="<%= registrationCsrfToken %>">
       <input type="hidden" name="prevUrl" value="<%= registrationPrevUrl %>">
       <div class="app-form-grid">
-        <label class="app-field"><span class="app-label">用户名<span class="app-required">*</span></span><input class="app-input" type="text" name="username" value="<%= formValues.username || '' %>" autocomplete="username" required></label>
+        <label class="app-field"><span class="app-label">用户名<span class="app-required">*</span></span><input class="app-input" type="text" name="username" value="<%= formValues.username || '' %>" autocomplete="username" maxlength="20" required><span class="app-help">允许使用字母、数字、连字符和下划线，最多 20 个字符。</span></label>
         <label class="app-field"><span class="app-label">学号<span class="app-required">*</span></span><input class="app-input" type="text" name="student_id" value="<%= formValues.student_id || '' %>" inputmode="numeric" pattern="\d{10}" minlength="10" maxlength="10" autocomplete="off" required></label>
         <label class="app-field"><span class="app-label">姓名<span class="app-required">*</span></span><input class="app-input" type="text" name="real_name" value="<%= formValues.real_name || '' %>" maxlength="64" autocomplete="name" required></label>
         <label class="app-field"><span class="app-label">学院<span class="app-required">*</span></span><select class="app-select" name="college" required><option value="">请选择学院</option><% colleges.forEach(function (college) { %><option value="<%= college %>"<% if (formValues.college === college) { %> selected<% } %>><%= college %></option><% }); %></select></label>

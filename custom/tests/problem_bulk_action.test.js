@@ -4,10 +4,12 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const bulkAction = require('../libs/problem-bulk-action');
 
-test('bulk problem actions accept a bounded unique archive selection', () => {
-  assert.deepEqual(bulkAction.normalize({ action: 'archive', problem_ids: ['4', 8] }), {
-    action: 'archive', problem_ids: [4, 8]
-  });
+test('bulk problem actions accept all supported actions with bounded unique selections', () => {
+  for (const action of ['publish', 'unpublish', 'archive']) {
+    assert.deepEqual(bulkAction.normalize({ action, problem_ids: ['4', 8] }), {
+      action, problem_ids: [4, 8]
+    });
+  }
   assert.equal(bulkAction.progress(3, 0), 0);
   assert.equal(bulkAction.progress(3, 2), 66);
   assert.equal(bulkAction.progress(3, 3), 100);

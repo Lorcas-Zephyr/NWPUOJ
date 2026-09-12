@@ -1,0 +1,162 @@
+<% this.title = '标签管理'; this.active = 'problems'; const appTagTypes = [['source','题目来源'],['category','算法大类'],['algorithm','算法细目'],['problem_type','题目类型'],['difficulty','难度']]; const appTagTypeLabels = {}; for (const type of appTagTypes) appTagTypeLabels[type[0]] = type[1]; %>
+<% include app_header %>
+<main class="app-page app-problems-page app-tag-management-page">
+  <header class="app-page-header">
+    <div class="app-page-heading">
+      <a class="app-back-link" href="<%= syzoj.utils.makeUrl(['problems']) %>"><i data-lucide="arrow-left"></i>返回题库</a>
+      <span class="app-kicker">PROBLEM TAGS</span>
+      <h1 class="app-page-title">标签管理</h1>
+      <p class="app-page-description">统一维护题目标签的名称、类型和关联题目。</p>
+    </div>
+    <div class="app-page-actions"><button class="app-button app-button-primary" type="button" data-tag-create><i data-lucide="plus"></i>新建标签</button></div>
+  </header>
+
+  <% if (tags.length) { %>
+    <div class="app-table-region" role="region" aria-label="标签列表" tabindex="0">
+      <table class="app-table app-tag-management-table">
+        <thead><tr><th>标签</th><th>类型</th><th>颜色</th><th>关联题目</th><th aria-label="操作"></th></tr></thead>
+        <tbody>
+          <% for (const tag of tags) { %>
+            <tr data-tag-row data-tag-id="<%= tag.id %>" data-tag-name="<%= tag.name %>" data-tag-count="<%= tag.problem_count %>">
+              <td class="app-cell-primary"><span class="app-tag" data-tag-color="<%= tag.color || 'default' %>"><%= tag.name %></span></td>
+              <td><span class="app-status app-status-info"><%= appTagTypeLabels[tag.category] || tag.category || '未分类' %></span></td>
+              <td><code><%= tag.color || '-' %></code></td>
+              <td class="app-cell-number"><%= tag.problem_count %></td>
+              <td class="app-cell-actions"><div class="app-inline-actions"><button class="app-icon-button" type="button" data-tag-edit title="编辑标签" aria-label="编辑标签"><i data-lucide="square-pen"></i></button><button class="app-icon-button app-icon-danger" type="button" data-tag-delete title="删除标签" aria-label="删除标签"><i data-lucide="trash-2"></i></button></div></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } else { %>
+    <div class="app-empty"><div class="app-empty-inner"><i data-lucide="tags"></i><strong>还没有标签</strong><p>创建标签后可在题目编辑和批量操作中使用。</p></div></div>
+  <% } %>
+</main>
+
+<dialog class="app-dialog" id="tag-editor-dialog" aria-modal="true" aria-labelledby="tag-editor-title">
+  <form class="app-form" data-tag-management-form>
+    <div class="app-dialog-header"><h2 id="tag-editor-title">新建标签</h2><button class="app-icon-button" type="button" data-dialog-close aria-label="关闭"><i data-lucide="x"></i></button></div>
+    <div class="app-dialog-body">
+      <label class="app-field"><span class="app-label">标签名称</span><input class="app-input" type="text" name="name" maxlength="255" required></label>
+      <label class="app-field"><span class="app-label">标签类型</span><select class="app-select" name="category" required><% for (const type of appTagTypes) { %><option value="<%= type[0] %>"><%= type[1] %></option><% } %></select><span class="app-help">颜色由标签类型自动确定。</span></label>
+      <p class="app-form-status" data-tag-form-status hidden></p>
+    </div>
+    <div class="app-dialog-actions"><button class="app-button app-button-secondary" type="button" data-dialog-close>取消</button><button class="app-button app-button-primary" type="submit"><i data-lucide="save"></i>保存标签</button></div>
+  </form>
+</dialog>
+
+<dialog class="app-dialog" id="tag-delete-dialog" aria-modal="true" aria-labelledby="tag-delete-title">
+  <div class="app-dialog-header"><h2 id="tag-delete-title">删除标签</h2><button class="app-icon-button" type="button" data-dialog-close aria-label="关闭"><i data-lucide="x"></i></button></div>
+  <div class="app-dialog-body"><p data-tag-delete-message></p><p class="app-help">标签仍被题目使用时无法删除，请先在题目编辑或批量操作中移除它。</p></div>
+  <div class="app-dialog-actions"><button class="app-button app-button-secondary" type="button" data-dialog-close>取消</button><button class="app-button app-button-danger" type="button" data-tag-delete-confirm><i data-lucide="trash-2"></i>确认删除</button></div>
+</dialog>
+
+<script>
+(function () {
+  var editor = document.getElementById('tag-editor-dialog');
+  var deleteDialog = document.getElementById('tag-delete-dialog');
+  var form = document.querySelector('[data-tag-management-form]');
+  var editorTitle = document.getElementById('tag-editor-title');
+  var status = form && form.querySelector('[data-tag-form-status]');
+  var deleteMessage = deleteDialog && deleteDialog.querySelector('[data-tag-delete-message]');
+  var deleteConfirm = deleteDialog && deleteDialog.querySelector('[data-tag-delete-confirm]');
+  var editingId = 0;
+  var editingEtag = '';
+  var deletingId = 0;
+  var deletingEtag = '';
+
+  function showError(message) {
+    if (window.NWPUOJApp) window.NWPUOJApp.showToast(message, 'danger');
+    else window.alert(message);
+  }
+  function errorMessage(body, fallback) { return body && body.error && body.error.message || fallback; }
+  async function readTag(id) {
+    var response = await fetch('/api/v2/tags/' + encodeURIComponent(id), { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } });
+    var body = await response.json().catch(function () { return null; });
+    if (!response.ok) throw new Error(errorMessage(body, '标签读取失败。'));
+    return { data: body && body.data || {}, etag: response.headers.get('ETag') || body && body.meta && body.meta.etag || '' };
+  }
+  function openDialog(dialog) {
+    if (!dialog) return;
+    if (typeof dialog.showModal === 'function') dialog.showModal();
+    else dialog.setAttribute('open', '');
+  }
+  function closeDialog(dialog) { if (dialog && typeof dialog.close === 'function') dialog.close(); else if (dialog) dialog.removeAttribute('open'); }
+  function resetEditor() {
+    editingId = 0;
+    editingEtag = '';
+    if (!form) return;
+    form.reset();
+    form.elements.category.value = 'algorithm';
+    if (editorTitle) editorTitle.textContent = '新建标签';
+    if (status) { status.hidden = true; status.textContent = ''; }
+  }
+  var createButton = document.querySelector('[data-tag-create]');
+  if (createButton) createButton.addEventListener('click', function () { resetEditor(); openDialog(editor); });
+  document.querySelectorAll('[data-tag-edit]').forEach(function (button) {
+    button.addEventListener('click', async function () {
+      var row = button.closest('[data-tag-row]');
+      if (!row || !form) return;
+      try {
+        var current = await readTag(row.dataset.tagId);
+        editingId = Number(row.dataset.tagId);
+        editingEtag = current.etag;
+        form.elements.name.value = current.data.name || row.dataset.tagName || '';
+        form.elements.category.value = current.data.category || 'algorithm';
+        if (editorTitle) editorTitle.textContent = '编辑标签';
+        if (status) status.hidden = true;
+        openDialog(editor);
+      } catch (error) { showError(error.message || '标签读取失败。'); }
+    });
+  });
+  if (form) form.addEventListener('submit', async function (event) {
+    event.preventDefault();
+    var submit = form.querySelector('[type="submit"]');
+    if (submit) submit.disabled = true;
+    try {
+      var id = editingId;
+      var headers = { 'Content-Type': 'application/json' };
+      if (id) {
+        if (!editingEtag) throw new Error('标签版本信息缺失，请重新打开编辑窗口。');
+        headers['If-Match'] = editingEtag;
+      }
+      var requestBody = { name: form.elements.name.value, category: form.elements.category.value };
+      if (id) requestBody.if_match = editingEtag;
+      var response = await fetch(id ? '/api/v2/tags/' + encodeURIComponent(id) : '/api/v2/tags', { method: id ? 'PUT' : 'POST', credentials: 'same-origin', headers: headers, body: JSON.stringify(requestBody) });
+      var body = await response.json().catch(function () { return null; });
+      if (!response.ok) throw new Error(errorMessage(body, '标签保存失败。'));
+      closeDialog(editor);
+      window.location.reload();
+    } catch (error) {
+      if (status) { status.hidden = false; status.textContent = error.message || '标签保存失败。'; }
+      showError(error.message || '标签保存失败。');
+    } finally { if (submit) submit.disabled = false; }
+  });
+  document.querySelectorAll('[data-tag-delete]').forEach(function (button) {
+    button.addEventListener('click', async function () {
+      var row = button.closest('[data-tag-row]');
+      if (!row) return;
+      try {
+        var current = await readTag(row.dataset.tagId);
+        deletingId = Number(row.dataset.tagId);
+        deletingEtag = current.etag;
+        if (deleteMessage) deleteMessage.textContent = '确定删除标签“' + (current.data.name || row.dataset.tagName || '') + '”吗？当前关联 ' + Number(current.data.problem_count || row.dataset.tagCount || 0) + ' 道题目。';
+        openDialog(deleteDialog);
+      } catch (error) { showError(error.message || '标签读取失败。'); }
+    });
+  });
+  if (deleteConfirm) deleteConfirm.addEventListener('click', async function () {
+    if (!deletingId || !deletingEtag) return;
+    deleteConfirm.disabled = true;
+    try {
+      var response = await fetch('/api/v2/tags/' + encodeURIComponent(deletingId), { method: 'DELETE', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'If-Match': deletingEtag }, body: JSON.stringify({ if_match: deletingEtag }) });
+      var body = await response.json().catch(function () { return null; });
+      if (!response.ok) throw new Error(errorMessage(body, '标签删除失败。'));
+      closeDialog(deleteDialog);
+      window.location.reload();
+    } catch (error) { showError(error.message || '标签删除失败。'); }
+    finally { deleteConfirm.disabled = false; }
+  });
+})();
+</script>
+<% include app_footer %>

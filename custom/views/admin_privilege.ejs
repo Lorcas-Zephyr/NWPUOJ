@@ -1,4 +1,4 @@
-<% this.adminPage = 'privilege'; const appPrivileges = { manage_problem: '管理题目', manage_problem_tag: '管理题目标签', manage_contest: '管理比赛', manage_user: '管理用户' }; %>
+<% this.adminPage = 'privilege'; const appPrivileges = { manage_problem: '管理题目', manage_problem_tag: '管理题目标签', manage_contest: '管理比赛', manage_problemset: '管理题单', manage_user: '管理用户' }; %>
 <% include admin_header %>
 
 <div class="app-admin-toolbar"><div><h3>权限矩阵</h3><p>批量调整已有权限用户；新用户的首个权限请在用户编辑页授予。</p></div><button class="app-button app-button-primary" type="button" id="save-privileges"><i data-lucide="save"></i>保存权限</button></div>
@@ -21,7 +21,8 @@
         var current = await fetch('/api/v2/admin/users/' + encodeURIComponent(userId), { credentials: 'same-origin', cache: 'no-store' });
         var currentBody = await current.json();
         if (!current.ok) throw new Error(currentBody && currentBody.error && currentBody.error.message || '权限读取失败。');
-        var response = await fetch('/api/v2/admin/users/' + encodeURIComponent(userId), { method: 'PATCH', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'If-Match': current.headers.get('ETag') || '' }, body: JSON.stringify({ privileges: result[userId] }) });
+        var etag = current.headers.get('ETag') || currentBody && currentBody.meta && currentBody.meta.etag || '';
+        var response = await fetch('/api/v2/admin/users/' + encodeURIComponent(userId), { method: 'PATCH', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'If-Match': etag }, body: JSON.stringify({ privileges: result[userId], if_match: etag }) });
         var body = await response.json();
         if (!response.ok) throw new Error(body && body.error && body.error.message || '权限保存失败。');
       }

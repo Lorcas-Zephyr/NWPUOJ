@@ -1,6 +1,18 @@
 const jwt = require('jsonwebtoken');
 const url = require('url');
 
+// Some public gateways reject PATCH/PUT/DELETE before the request reaches OJ.
+// Accept a POST transport while restoring the effective method for downstream routes.
+const OVERRIDABLE_METHODS = new Set(['PATCH', 'PUT', 'DELETE']);
+app.apiRouter.use((req, res, next) => {
+  if (req.method !== 'POST' || !/^\/api\/v2(?:\/|$)/.test(req.path)) return next();
+  const override = String(req.get('x-http-method-override') || '').trim().toUpperCase();
+  if (!OVERRIDABLE_METHODS.has(override)) return next();
+  req.originalMethod = req.method;
+  req.method = override;
+  next();
+});
+
 function verifyJWT(token) {
   try {
     jwt.verify(token, syzoj.config.session_secret);

@@ -1,20 +1,21 @@
 <%
 const appAdminItems = {
   info: ['概览', 'layout-dashboard'], users: ['用户', 'users-round'], 'judge-workers': ['评测服务', 'server-cog'],
-  announcements: ['公告', 'megaphone'], banners: ['轮播', 'images'], help: ['帮助页', 'circle-help'], solutions: ['题解审核', 'file-check-2'],
+  announcements: ['公告', 'megaphone'], banners: ['轮播', 'images'], help: ['帮助页', 'circle-help'],
   'user-tags': ['用户名牌', 'badge'], privilege: ['权限', 'key-round'], rating: ['Rating', 'chart-no-axes-column-increasing'],
-  rejudge: ['批量重测', 'refresh-cw'], links: ['友链', 'link'], config: ['系统配置', 'sliders-horizontal'],
-  other: ['维护工具', 'wrench']
+  rejudge: ['批量重测', 'refresh-cw'], jobs: ['后台任务', 'list-checks'], links: ['友链', 'link'], config: ['系统配置', 'sliders-horizontal'],
+  other: ['维护工具', 'wrench'], ai: ['AI参赛', 'bot']
 };
 const appAdminCapabilities = {
   info: ['admin:health.read'], users: ['admin:user.manage'], 'judge-workers': ['judge:read'],
   announcements: ['announcement:manage'], banners: ['announcement:manage'], help: ['admin:config.read'],
-  solutions: ['solution:moderate'], 'user-tags': ['admin:user.manage'], privilege: ['admin:permission.grant'],
-  rating: ['rating:read'], rejudge: ['submission:rejudge'], links: ['admin:content.manage'],
-  config: ['admin:config.read'], other: ['vjudge:source.manage']
+  'user-tags': ['admin:user.manage'], privilege: ['admin:permission.grant'],
+  rating: ['rating:read'], rejudge: ['submission:rejudge'], jobs: ['admin:job.manage', 'submission:rejudge'], links: ['admin:content.manage'],
+  config: ['admin:config.read'], other: ['vjudge:source.manage'], ai: ['contest:edit']
 };
 const appIsFullAdmin = !!(user && (user.is_admin || (typeof isSiteOwner !== 'undefined' && isSiteOwner)));
 const appVisibleAdminItems = Object.keys(appAdminItems).filter(function (key) {
+  if (key === 'ai' && !appIsFullAdmin) return false;
   const hasMappedCapability = typeof appHasCapability === 'function' && appAdminCapabilities[key].some(function (capability) {
     return appHasCapability(capability);
   });

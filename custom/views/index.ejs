@@ -25,13 +25,6 @@ function contestType(contest) {
     </div>
   </header>
 
-  <% if (typeof pendingSolutionsCount !== 'undefined' && pendingSolutionsCount > 0) { %>
-    <div class="app-notice app-notice-warning" role="status">
-      <i data-lucide="clock-alert"></i>
-      <span>有 <strong><%= pendingSolutionsCount %></strong> 篇题解等待审核。<a href="<%= syzoj.utils.makeUrl(['admin', 'solutions']) %>">前往审核</a></span>
-    </div>
-  <% } %>
-
   <section class="app-banner" data-home-banner aria-label="站点轮播" aria-roledescription="轮播" hidden>
     <div class="app-banner-track" data-banner-track></div>
     <div class="app-banner-controls" data-banner-controls hidden>

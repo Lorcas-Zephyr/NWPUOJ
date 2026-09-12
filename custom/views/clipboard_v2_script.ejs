@@ -25,9 +25,9 @@ function errorMessage(result, fallback) {
   async function currentVersion(id) {
     var result = await readResponse(await fetch('/api/v2/clipboard/' + encodeURIComponent(id), { credentials: 'same-origin', cache: 'no-store' }));
     if (!result.response.ok) throw new Error(errorMessage(result, '暂时无法读取剪贴板。'));
-    var etag = result.response.headers.get('ETag');
+    var etag = result.response.headers.get('ETag') || result.body && result.body.meta && result.body.meta.etag;
     if (!etag) throw new Error('内容版本信息缺失，请刷新后重试。');
-    return { etag: etag };
+      return { etag: etag };
   }
 
   function editorPayload(form) {
@@ -63,12 +63,13 @@ function errorMessage(result, fallback) {
         endpoint += '/' + encodeURIComponent(id);
         if (action === 'save') {
           method = 'PATCH';
-          body = JSON.stringify(editorPayload(form));
+          body = JSON.stringify(Object.assign(editorPayload(form), { if_match: version.etag }));
         } else if (action === 'share') {
           endpoint += '/share';
+          body = JSON.stringify({ if_match: version.etag });
         } else if (action === 'delete') {
           method = 'DELETE';
-          body = undefined;
+          body = JSON.stringify({ if_match: version.etag });
         }
       }
       var result = await readResponse(await fetch(endpoint, { method: method, credentials: 'same-origin', headers: headers, body: body }));

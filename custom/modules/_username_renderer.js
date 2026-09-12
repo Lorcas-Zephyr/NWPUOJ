@@ -65,6 +65,16 @@ function renderTagHtml(user, tier) {
     '">' + escapeHtml(t.text) + '</span>';
 }
 
+function renderClassTagsHtml(user) {
+  if (!user || !syzoj.userClassTags || !syzoj.userClassTags.has(Number(user.id))) return '';
+  const groups = syzoj.userClassTags.get(Number(user.id)) || [];
+  const visible = groups.slice(0, 2).map(group =>
+    ' <span class="user-name-tag tag-tier-blue" title="班级：' + escapeHtml(group.name) + '">' + escapeHtml(group.tag) + '</span>'
+  ).join('');
+  if (groups.length <= 2) return visible;
+  return visible + ' <span class="user-name-tag tag-tier-default" title="' + escapeHtml(groups.slice(2).map(group => group.name).join('、')) + '">+' + (groups.length - 2) + '</span>';
+}
+
 syzoj.utils.renderUsername = function(user, options) {
   options = options || {};
 
@@ -76,7 +86,7 @@ syzoj.utils.renderUsername = function(user, options) {
   let url = '/user/' + user.id;
   let username = escapeHtml(user.username || '');
   let nameplate = syzoj.userTagsEnabled === false ? '' : (user.nameplate || '');
-  let tagHtml = options.noTag ? '' : renderTagHtml(user, tier);
+  let tagHtml = options.noTag ? '' : renderTagHtml(user, tier) + renderClassTagsHtml(user);
 
   if (options.noLink) {
     return '<span class="username-tier-' + tier + '">' + username + '</span>' + tagHtml + nameplate;

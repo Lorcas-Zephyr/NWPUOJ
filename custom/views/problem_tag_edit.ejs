@@ -14,12 +14,17 @@
       var id = Number(form.dataset.tagId || 0);
       var url = id ? '/api/v2/tags/' + encodeURIComponent(id) : '/api/v2/tags';
       var headers = { 'Content-Type': 'application/json' };
+      var currentBody = null;
       if (id) {
         var current = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
+        currentBody = await current.json().catch(function () { return null; });
         if (!current.ok) throw new Error('标签读取失败。');
-        headers['If-Match'] = current.headers.get('ETag') || '';
+        headers['If-Match'] = current.headers.get('ETag') || currentBody && currentBody.meta && currentBody.meta.etag || '';
+        if (!headers['If-Match']) throw new Error('标签版本信息缺失，请刷新页面后重试。');
       }
-      var response = await fetch(url, { method: id ? 'PUT' : 'POST', credentials: 'same-origin', headers: headers, body: JSON.stringify({ name: form.elements.name.value, category: form.elements.category.value }) });
+      var requestBody = { name: form.elements.name.value, category: form.elements.category.value };
+      if (id) requestBody.if_match = headers['If-Match'];
+      var response = await fetch(url, { method: id ? 'PUT' : 'POST', credentials: 'same-origin', headers: headers, body: JSON.stringify(requestBody) });
       var payload = await response.json();
       if (!response.ok) throw new Error(payload && payload.error && payload.error.message || '标签保存失败。');
       var saved = payload && payload.data;

@@ -32,6 +32,17 @@ test('command panel supports filtering and keyboard navigation', () => {
   assert.match(css, /\.app-command-group a:focus-visible/);
 });
 
+test('shared datetime controls open from the whole minute-precision field', () => {
+  const script = read('custom/app-v2.js');
+  const css = readAppCss();
+
+  assert.match(script, /function setupDateTimePickers\(\)/);
+  assert.match(script, /typeof input\.showPicker !== 'function'/);
+  assert.match(script, /input\.addEventListener\('focus', openPicker\)/);
+  assert.match(script, /input\.addEventListener\('click', openPicker\)/);
+  assert.match(css, /\.app-datetime-input\s*\{[^}]*letter-spacing:\s*0;[^}]*word-spacing:\s*0;[^}]*font-variant-numeric:\s*tabular-nums;/s);
+});
+
 test('theme toggle renders exactly one icon for each theme', () => {
   const header = read('custom/views/app_header.ejs');
   const css = readAppCss();
@@ -77,4 +88,23 @@ test('account menu uses the same canonical avatar source as the profile page', (
   assert.match(profile, /class="app-profile-avatar" src="<%= syzoj\.utils\.avatar\(show_user, 240\) %>"/);
   assert.doesNotMatch(header, /\(user\.username \|\| '\?'\)\.charAt/);
   assert.match(css, /\.app-avatar\s*\{[^}]*width:\s*32px[^}]*height:\s*32px[^}]*object-fit:\s*cover/s);
+});
+
+test('mobile guests see login instead of registration in the topbar', () => {
+  const header = read('custom/views/app_header.ejs');
+
+  assert.match(header, /class="app-button app-button-quiet" href="<%= syzoj\.utils\.makeUrl\(\['login'\]/);
+  assert.match(header, /class="app-button app-button-primary app-hide-phone" href="<%= syzoj\.utils\.makeUrl\(\['sign_up'\]/);
+});
+
+test('disabled solution and discussion modules have no shell entry points', () => {
+  const header = read('custom/views/app_header.ejs');
+  const adminHeader = read('custom/views/admin_header.ejs');
+  const problemContext = read('custom/views/problem_context.ejs');
+
+  assert.doesNotMatch(header, /href="\/discussion\/global"/);
+  assert.doesNotMatch(header, />讨论</);
+  assert.doesNotMatch(header, /data-command-terms="讨论 社区"/);
+  assert.doesNotMatch(adminHeader, /solutions|题解审核/);
+  assert.doesNotMatch(problemContext, /discussion|solutions|讨论|题解/);
 });

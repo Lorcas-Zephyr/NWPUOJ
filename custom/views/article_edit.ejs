@@ -59,7 +59,7 @@
           cache: 'no-store'
         }));
         if (!revision.response.ok) throw new Error(message(revision, '讨论状态读取失败。'));
-        var etag = revision.response.headers.get('ETag');
+        var etag = revision.response.headers.get('ETag') || revision.body && revision.body.meta && revision.body.meta.etag;
         if (!etag) throw new Error('讨论版本信息缺失，请刷新后重试。');
         endpoint = '/api/v2/discussions/' + encodeURIComponent(discussionId);
         method = 'PATCH';
@@ -73,7 +73,8 @@
           title: form.elements.title.value,
           content: form.elements.content.value,
           problem_id: problemId,
-          is_notice: form.elements.is_notice ? !!form.elements.is_notice.checked : false
+          is_notice: form.elements.is_notice ? !!form.elements.is_notice.checked : false,
+          if_match: headers['If-Match'] || ''
         })
       }));
       if (!result.response.ok) throw new Error(message(result, discussionId ? '讨论保存失败。' : '讨论发布失败。'));

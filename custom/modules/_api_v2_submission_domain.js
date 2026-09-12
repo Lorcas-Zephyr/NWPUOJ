@@ -397,8 +397,9 @@ async function immutableExecutionProblem(problem, snapshotId) {
 async function registeredForContest(contest, user) {
   if (!user) return false;
   if (await contest.isSupervisior(user)) return true;
-  if (!contest.isRunning()) return false;
   const rows = await TypeORM.getConnection().query('SELECT id FROM contest_player WHERE contest_id=? AND user_id=? LIMIT 1', [contest.id, user.id]);
+  if (contest.isEnded()) return !!rows.length;
+  if (!contest.isRunning()) return false;
   return !!rows.length;
 }
 
@@ -608,6 +609,7 @@ async function createSubmission(req, res, problem, contest) {
     try { sourceVisibility = submissionDomain.normalizeSourceVisibility(body.source_visibility); }
     catch (error) { return api.fail(res, 422, 'VALIDATION_FAILED', error.message, { source_visibility: 'private or public required' }); }
   }
+  if (contest && syzoj.utils.isContestSubmitted && await syzoj.utils.isContestSubmitted(contest.id, user.id)) return api.fail(res, 409, 'CONTEST_ALREADY_SUBMITTED', 'You have already handed in this contest.');
   if (contest && !await registeredForContest(contest, user)) return api.fail(res, 403, 'CONTEST_PARTICIPATION_REQUIRED', 'Register for the contest before submitting.');
   if (contest && !await contestAcceptsSubmissions(contest)) return api.fail(res, 409, 'CONTEST_NOT_RUNNING', 'Contest submissions are accepted only while the contest is running.');
   if (contest && !(await contest.getProblems()).map(Number).includes(Number(problem.id))) return api.fail(res, 404, 'CONTEST_PROBLEM_NOT_FOUND', 'The problem is not part of this contest.');
@@ -622,6 +624,7 @@ async function createSubmission(req, res, problem, contest) {
       return api.fail(res, error.statusCode || 422, error.code || 'ANSWER_ARCHIVE_INVALID', error.message, error.fields || {});
     }
   }
+  const problemSetContext = res.locals.problemSetSubmission || null;
   const created = await submissionTransaction(async manager => {
     const storedJudge = await submissionStorage.insertSubmission(manager, {
       submit_time: Math.floor(Date.now() / 1000), status: 'Unknown', task_id: require('randomstring').generate(10),
@@ -638,6 +641,12 @@ async function createSubmission(req, res, problem, contest) {
       contestId: contest ? contest.id : null, language,
       codeVersionId: codeVersion.id, sourceVisibility, actorId: user.id
     });
+    if (problemSetContext) {
+      await manager.query(
+        'INSERT INTO problem_set_submission (problem_set_id,submission_id,user_id,problem_id,submitted_at) VALUES (?,?,?,?,?)',
+        [problemSetContext.problemSetId, storedJudge.id, user.id, problem.id, storedJudge.submit_time]
+      );
+    }
     return { judge: storedJudge, codeVersion, event: projection.event };
   });
   const judge = JudgeState.create(created.judge);
@@ -673,12 +682,12 @@ async function createSubmission(req, res, problem, contest) {
       payload: { error_code: 'JUDGE_DISPATCH_UNAVAILABLE', retry_in_seconds: 10 }
     }));
   }
-  return api.send(res, { submission: { id: Number(judge.id), status: 'queued', problem_id: Number(problem.id), snapshot_id: snapshotId, code_version_id: created.codeVersion.id, language, source_visibility: sourceVisibility }, operation_id: res.locals.apiOperationId || null }, 202);
+  return api.send(res, { submission: { id: Number(judge.id), status: 'queued', problem_id: Number(problem.id), problem_set_id: problemSetContext ? Number(problemSetContext.problemSetId) : null, snapshot_id: snapshotId, code_version_id: created.codeVersion.id, language, source_visibility: sourceVisibility }, operation_id: res.locals.apiOperationId || null }, 202);
 }
 
 // VJudge exposes a provider-specific submission route, but the local task,
 // immutable snapshot, code-version, and dispatch transaction remain shared.
-syzoj.utils.submissionV2 = Object.freeze({ createSubmission });
+syzoj.utils.submissionV2 = Object.freeze({ createSubmission, receiveSubmitAnswer });
 
 function receiveSubmitAnswer(req, res, next) {
   submitAnswerUpload(req, res, error => {
@@ -1136,6 +1145,8 @@ ensureSubmissionSchema().then(() => {
 
 syzoj.utils.submissionV2 = {
   ensureSchema: ensureSubmissionSchema,
+  createSubmission,
+  receiveSubmitAnswer,
   projectStatus,
   projectRuntimeState,
   runRejudgeJob,

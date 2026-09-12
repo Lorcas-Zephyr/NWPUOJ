@@ -1,4 +1,18 @@
 const crypto = require('crypto');
+const fs = require('fs-extra');
+const os = require('os');
+const path = require('path');
+const multer = require('multer');
+const util = require('util');
+const execFile = util.promisify(require('child_process').execFile);
+// p7zip uses the process locale when decoding ZIP entry names. The web image
+// defaults to the POSIX `C` locale, which turns non-ASCII folder names into
+// `?` and can silently merge distinct problem folders during extraction.
+const ZIP_UTF8_ENV = Object.assign({}, process.env, { LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' });
+const bulkImportUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024, files: 1 }, fileFilter: (_req, file, callback) => {
+  if (/\.zip$/i.test(String(file.originalname || ''))) return callback(null, true);
+  return callback(Object.assign(new Error('Only ZIP archives are supported.'), { code: 'BULK_IMPORT_INVALID' }));
+} }).single('problems_zip');
 const TypeORM = require('typeorm');
 const problemDomain = require('../libs/problem-domain');
 const testdataSnapshots = require('../libs/testdata-snapshot');
@@ -27,6 +41,7 @@ async function ensureProblemSchema() {
   if (schemaPromise) return schemaPromise;
   schemaPromise = (async () => {
     const connection = TypeORM.getConnection();
+    await problemDomain.ensureLegacyProblemSchema(connection);
     await connection.query(`
       CREATE TABLE IF NOT EXISTS problem_v2_version (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -392,7 +407,7 @@ app.get('/api/v2/problems', async (req, res) => {
 app.post('/api/v2/problems', requireCapability('problem:create'), async (req, res) => {
   const api = syzoj.utils.apiV2;
   const Problem = syzoj.model('problem');
-  const content = contentFromInput(req.body || {}, { type: 'traditional', time_limit: 1000, memory_limit: 256 });
+  const content = contentFromInput(req.body || {}, { type: 'traditional', time_limit: 1000, python_time_limit_multiplier: 2, memory_limit: 256 });
   const fields = validateContent(content);
   const requestedId = req.body && req.body.id !== '' && req.body.id != null ? Number(req.body.id) : null;
   const tagIds = Array.isArray(req.body && req.body.tag_ids) ? req.body.tag_ids.map(Number) : [];
@@ -436,14 +451,14 @@ app.get('/api/v2/problems/:id', async (req, res) => {
   return api.send(res, payload);
 });
 
-app.patch('/api/v2/problems/:id', async (req, res, next) => {
+async function updateProblemV2(req, res, next) {
   const api = syzoj.utils.apiV2;
   const problem = await loadProblem(req, res, false);
   if (!problem) return api.fail(res, 404, 'PROBLEM_NOT_FOUND', 'Problem was not found.');
   return requireCapability('problem:edit', () => problemResource(problem))(req, res, async error => {
     if (error) return next(error);
     const current = serializeProblem(problem, await loadState(problem.id));
-    if (!req.get('If-Match')) return api.fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when editing a problem.', { if_match: 'required' });
+    if (!(req.get('If-Match') || req.body && req.body.if_match)) return api.fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when editing a problem.', { if_match: 'required' });
     if (!api.ifMatch(req, current)) return api.fail(res, 412, 'ETAG_MISMATCH', 'The problem changed. Refresh it and try again.');
     const content = contentFromInput(req.body || {}, problemContent(problem));
     const fields = validateContent(content);
@@ -468,13 +483,16 @@ app.patch('/api/v2/problems/:id', async (req, res, next) => {
       return value;
     });
     const version = mutation.version;
+    if (mutation.legacy_projection_updated) await syzoj.model('problem').deleteFromCache(problem.id);
     const updated = mutation.legacy_projection_updated
       ? await syzoj.model('problem').findById(problem.id)
       : Object.assign({}, problem, content);
     await api.appendEvent({ stream: `problem:${problem.id}`, type: 'problem.version.created', aggregateId: problem.id, actor: res.locals.user, payload: { version_id: version.id } });
     return api.send(res, { problem: serializeProblem(updated, await loadState(problem.id)), version });
   });
-});
+}
+app.patch('/api/v2/problems/:id', updateProblemV2);
+app.post('/api/v2/problems/:id/update', updateProblemV2);
 
 app.get('/api/v2/problems/:id/versions', async (req, res) => {
   const api = syzoj.utils.apiV2;
@@ -549,7 +567,7 @@ app.post('/api/v2/problems/:id/versions/:versionId/review-request', async (req, 
       await TypeORM.getConnection().transaction(async manager => {
         const version = await loadVersionRow(manager, problem.id, req.params.versionId, true);
         if (!version) throw problemVersionError('PROBLEM_VERSION_NOT_FOUND', 'Problem version was not found.', 404);
-        if (!req.get('If-Match')) throw problemVersionError('PRECONDITION_REQUIRED', 'If-Match is required when requesting review.', 428, { if_match: 'required' });
+        if (!(req.get('If-Match') || req.body && req.body.if_match)) throw problemVersionError('PRECONDITION_REQUIRED', 'If-Match is required when requesting review.', 428, { if_match: 'required' });
         if (!api.ifMatch(req, versionRevision(version))) throw problemVersionError('ETAG_MISMATCH', 'The problem version changed. Refresh it and try again.', 412);
         if (!reviewRequestAllowed(version.status)) {
           throw problemVersionError('PROBLEM_VERSION_NOT_REVIEWABLE', 'Only draft or rejected versions can be submitted for review.', 409, { status: version.status });
@@ -596,7 +614,7 @@ app.post('/api/v2/problems/:id/versions/:versionId/review', async (req, res, nex
       auditEventId = await TypeORM.getConnection().transaction(async manager => {
         const version = await loadVersionRow(manager, problem.id, req.params.versionId, true);
         if (!version) throw problemVersionError('PROBLEM_VERSION_NOT_FOUND', 'Problem version was not found.', 404);
-        if (!req.get('If-Match')) throw problemVersionError('PRECONDITION_REQUIRED', 'If-Match is required when reviewing a version.', 428, { if_match: 'required' });
+        if (!(req.get('If-Match') || req.body && req.body.if_match)) throw problemVersionError('PRECONDITION_REQUIRED', 'If-Match is required when reviewing a version.', 428, { if_match: 'required' });
         if (!api.ifMatch(req, versionRevision(version))) throw problemVersionError('ETAG_MISMATCH', 'The problem version changed. Refresh it and try again.', 412);
         if (!reviewDecisionAllowed(version.status)) {
           throw problemVersionError('PROBLEM_VERSION_NOT_REVIEWABLE', 'Only a version awaiting review can be reviewed.', 409, { status: version.status });
@@ -659,8 +677,16 @@ app.post('/api/v2/problems/:id/publish', async (req, res, next) => {
       return next(publishError);
     }
     if (!published) return api.fail(res, 409, 'PROBLEM_VERSION_REQUIRED', 'Create a problem version before publishing.');
+    await syzoj.model('problem').deleteFromCache(problem.id);
     const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, { action: 'problem:publish', resourceType: 'problem', resourceId: problem.id, scope: `problem:${problem.id}`, reason, details: { version_id: String(published.version.id), snapshot_id: published.snapshot_id } });
     await api.appendEvent({ stream: `problem:${problem.id}`, type: 'problem.published', aggregateId: problem.id, actor: res.locals.user, payload: { version_id: String(published.version.id), snapshot_id: published.snapshot_id, reason, audit_event_id: auditEventId } });
+    if (syzoj.utils.contestV2 && syzoj.utils.contestV2.syncProblemSnapshotsForProblem) {
+      try {
+        await syzoj.utils.contestV2.syncProblemSnapshotsForProblem(problem.id, res.locals.user, req);
+      } catch (syncError) {
+        syzoj.log(`[contest-v2] deferred live snapshot sync after publish: ${syncError.stack || syncError.message || syncError}`);
+      }
+    }
     return api.send(res, { problem_id: problem.id, version_id: String(published.version.id), snapshot_id: published.snapshot_id, audit_event_id: auditEventId });
   });
 });
@@ -674,6 +700,7 @@ app.post('/api/v2/problems/:id/unpublish', async (req, res, next) => {
     const reason = syzoj.utils.operationReason(req, '取消公开题目');
     await ensureProblemSchema();
     await TypeORM.getConnection().transaction(manager => unpublishProblemAggregate(manager, problem.id));
+    await syzoj.model('problem').deleteFromCache(problem.id);
     const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, {
       action: 'problem:unpublish',
       resourceType: 'problem',
@@ -706,6 +733,7 @@ app.post('/api/v2/problems/:id/archive', async (req, res, next) => {
     const reason = syzoj.utils.operationReason(req, '归档题目');
     await ensureProblemSchema();
     await TypeORM.getConnection().transaction(manager => archiveProblemAggregate(manager, problem.id));
+    await syzoj.model('problem').deleteFromCache(problem.id);
     const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, { action: 'problem:archive', resourceType: 'problem', resourceId: problem.id, scope: `problem:${problem.id}`, reason });
     await api.appendEvent({ stream: `problem:${problem.id}`, type: 'problem.archived', aggregateId: problem.id, actor: res.locals.user, payload: { reason, audit_event_id: auditEventId } });
     return api.send(res, { problem_id: problem.id, status: 'archived', audit_event_id: auditEventId });
@@ -713,3 +741,132 @@ app.post('/api/v2/problems/:id/archive', async (req, res, next) => {
 });
 
 ensureProblemSchema().catch(error => syzoj.log(`[problem-v2] schema initialization failed: ${error.stack || error.message}`));
+const BULK_PROBLEM_TEMPLATE = {
+  format_version: 1,
+  problems: [{
+    title: '',
+    type: 'traditional',
+    time_limit: 1000,
+    python_time_limit_multiplier: 2,
+    memory_limit: 256,
+    file_io: false,
+    file_io_input_name: '',
+    file_io_output_name: '',
+    tag_ids: [],
+    is_anonymous: false
+  }]
+};
+function bulkImportError(message, statusCode) { return Object.assign(new Error(message), { statusCode: statusCode || 422, code: 'BULK_IMPORT_INVALID' }); }
+async function directoryContainsFiles(directory) {
+  for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+    if (entry.isFile()) return true;
+    if (entry.isDirectory() && await directoryContainsFiles(path.join(directory, entry.name))) return true;
+  }
+  return false;
+}
+async function prepareBulkTestdataArchive(item, root) {
+  if (item.testdataPath) return item.testdataPath;
+  if (!item.testdataDir || !await directoryContainsFiles(item.testdataDir)) return null;
+  const archive = path.join(root, item.name.replace(/[^a-z0-9_-]/gi, '_') + '-' + crypto.randomUUID() + '.zip');
+  await execFile('/usr/bin/7z', ['a', '-tzip', '-bd', archive, '.'], { cwd: item.testdataDir, env: ZIP_UTF8_ENV });
+  return archive;
+}
+async function extractBulkImportArchive(file) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'nwpuoj-problems-'));
+  const archive = path.join(root, 'upload.zip');
+  const extracted = path.join(root, 'extracted');
+  await fs.ensureDir(extracted);
+  await fs.writeFile(archive, file.buffer);
+  try {
+    await execFile('/usr/bin/7z', ['x', '-bd', '-y', archive, '-o' + extracted], { maxBuffer: 1024 * 1024, env: ZIP_UTF8_ENV });
+  } catch (_) {
+    throw bulkImportError('ZIP 文件无法解压，请检查压缩包格式。');
+  }
+  const folders = (await fs.readdir(extracted, { withFileTypes: true })).filter(item => item.isDirectory() && !item.name.startsWith('.'));
+  if (!folders.length) throw bulkImportError('ZIP 根目录下至少需要一个题目文件夹。');
+  if (folders.some(folder => folder.name.includes('?'))) throw bulkImportError('ZIP 文件夹名称无法按 UTF-8 解析，请使用 UTF-8 文件名重新压缩。');
+  if (folders.length > 100) throw bulkImportError('一次最多导入 100 道题目。');
+  const items = [];
+  for (const folder of folders) {
+    const folderPath = path.join(extracted, folder.name);
+    const metadataPath = path.join(folderPath, 'problem.json');
+    let metadata = {};
+    if (await fs.pathExists(metadataPath)) {
+      try { metadata = JSON.parse(await fs.readFile(metadataPath, 'utf8')); } catch (_) { throw bulkImportError(`${folder.name}/problem.json 不是有效 JSON。`); }
+    }
+    const statementPath = ['statement.md', 'problem.md'].map(name => path.join(folderPath, name)).find(filePath => fs.pathExistsSync(filePath));
+    if (!statementPath) throw bulkImportError(`${folder.name} 缺少 statement.md（或 problem.md）。`);
+    if (metadata == null || typeof metadata !== 'object' || Array.isArray(metadata)) throw bulkImportError(`${folder.name}/problem.json 必须是对象。`);
+    const content = Object.assign({}, metadata, { title: metadata.title == null || String(metadata.title).trim() === '' ? folder.name : metadata.title, description: await fs.readFile(statementPath, 'utf8') });
+    const testdataPath = path.join(folderPath, 'testdata.zip');
+    const testdataDir = path.join(folderPath, 'testdata');
+    items.push({ name: folder.name, content, testdataPath: await fs.pathExists(testdataPath) ? testdataPath : null, testdataDir: await fs.pathExists(testdataDir) ? testdataDir : null });
+  }
+  return { root, items };
+}
+async function importBulkProblems(req, res) {
+  if (!req.file) return syzoj.utils.apiV2.fail(res, 422, 'BULK_IMPORT_INVALID', '请上传 ZIP 文件。');
+  let extracted;
+  try {
+    extracted = await extractBulkImportArchive(req.file);
+    const created = [], failures = [];
+    await ensureProblemSchema();
+    await syzoj.utils.vjudgeV2.ensureSchema();
+    for (const item of extracted.items) {
+      try {
+        const body = item.content || {};
+        const content = contentFromInput(body, {
+          type: 'traditional',
+          description: '',
+          input_format: '',
+          output_format: '',
+          example: '',
+          limit_and_hint: '',
+          time_limit: 1000,
+          python_time_limit_multiplier: 2,
+          memory_limit: 256
+        });
+        const fields = validateContent(content);
+        if (Object.keys(fields).length) throw bulkImportError(`${item.name} 题目字段无效：${Object.keys(fields).join('、')}`);
+        const archive = await prepareBulkTestdataArchive(item, extracted.root);
+        const problem = await TypeORM.getConnection().transaction(async manager => {
+          const value = await createProblemAggregate(manager, syzoj.model('problem'), content, res.locals.user.id, { id: body.id == null || body.id === '' ? null : Number(body.id), isAnonymous: body.is_anonymous === true });
+          await syncSourceProjection(manager, value.problem);
+          if (archive) await value.problem.updateTestdata(archive);
+          return value.problem;
+        });
+        created.push(Number(problem.id));
+      } catch (error) { failures.push({ folder: item.name, message: error && error.message ? error.message : '导入失败。' }); }
+    }
+    if (!created.length && failures.length) {
+      return syzoj.utils.apiV2.fail(res, 422, 'BULK_IMPORT_INVALID', failures[0].message, { failures });
+    }
+    return syzoj.utils.apiV2.send(res, { created: created.length, problem_ids: created, failed: failures.length, failures });
+  } catch (error) { return syzoj.utils.apiV2.fail(res, error.statusCode || 422, error.code || 'BULK_IMPORT_INVALID', error.message); }
+  finally { if (extracted && extracted.root) await fs.remove(extracted.root).catch(() => {}); }
+}
+app.get('/problems/import/template', async (req, res, next) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'nwpuoj-template-'));
+  try {
+    const sample = path.join(root, 'sample-problem');
+    await fs.ensureDir(sample);
+    await fs.writeFile(path.join(sample, 'statement.md'), '');
+    await fs.writeJson(path.join(sample, 'problem.json'), BULK_PROBLEM_TEMPLATE.problems[0], { spaces: 2 });
+    await fs.ensureDir(path.join(sample, 'testdata'));
+    await execFile('/usr/bin/7z', ['a', '-tzip', '-bd', path.join(root, 'nwpuoj-problems-template.zip'), 'sample-problem'], { cwd: root });
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.set('Content-Type', 'application/zip');
+    res.set('Content-Disposition', 'attachment; filename="nwpuoj-problems-template.zip"');
+    return res.send(await fs.readFile(path.join(root, 'nwpuoj-problems-template.zip')));
+  } catch (error) { return next(error); } finally { await fs.remove(root).catch(() => {}); }
+});
+app.get('/problems/import', async (req, res) => {
+  const user = res.locals.user;
+  if (!user || !await syzoj.utils.authorizationV2.authorize(user, 'problem:create', null, { scope: 'global' })) return res.status(403).render('error', { err: new ErrorMessage('您没有添加题目的权限。') });
+  res.set('Cache-Control', 'private, no-store, max-age=0');
+  return res.render('problem_bulk_import');
+});
+app.post('/api/v2/problems/import', requireCapability('problem:create'), (req, res, next) => bulkImportUpload(req, res, error => {
+  if (error) return syzoj.utils.apiV2.fail(res, error.code === 'LIMIT_FILE_SIZE' ? 413 : 422, error.code || 'BULK_IMPORT_INVALID', error.message);
+  return importBulkProblems(req, res).catch(next);
+}));

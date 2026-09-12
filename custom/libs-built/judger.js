@@ -12,6 +12,7 @@ const TypeORM = require('typeorm');
 const EventEmitter = require('events');
 const taskSignatures = require('../libs/judge-task-signature');
 const compileCacheKeys = require('../libs/compile-cache-key');
+const pythonTimeLimit = require('../libs/python-time-limit');
 
 const judgeStateCache = new Map();
 const judgeDetailCache = new Map();
@@ -541,7 +542,7 @@ module.exports.judge = async function (judge_state, problem, priority, execution
       param = {
         language: judge_state.language,
         code: judge_state.code,
-        timeLimit: problem.time_limit,
+        timeLimit: pythonTimeLimit.effectiveTimeLimit(problem.time_limit, judge_state.language, problem.python_time_limit_multiplier),
         memoryLimit: problem.memory_limit,
       }
       break;
@@ -550,7 +551,7 @@ module.exports.judge = async function (judge_state, problem, priority, execution
       param = {
         language: judge_state.language,
         code: judge_state.code,
-        timeLimit: problem.time_limit,
+        timeLimit: pythonTimeLimit.effectiveTimeLimit(problem.time_limit, judge_state.language, problem.python_time_limit_multiplier),
         memoryLimit: problem.memory_limit,
         fileIOInput: problem.file_io ? problem.file_io_input_name : null,
         fileIOOutput: problem.file_io ? problem.file_io_output_name : null
@@ -584,7 +585,7 @@ module.exports.judge = async function (judge_state, problem, priority, execution
     version: 1,
     submissionId: Number(judge_state.id),
     language: judge_state.language || null,
-    timeLimit: Number(problem.time_limit || 0),
+    timeLimit: pythonTimeLimit.effectiveTimeLimit(problem.time_limit, judge_state.language, problem.python_time_limit_multiplier),
     memoryLimit: Number(problem.memory_limit || 0),
     network: 'deny',
     filePolicy: problem.file_io ? { input: problem.file_io_input_name || null, output: problem.file_io_output_name || null } : { input: null, output: null },

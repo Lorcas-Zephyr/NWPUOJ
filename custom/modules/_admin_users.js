@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const TypeORM = require('typeorm');
+const classGroups = require('../libs/class-groups');
 
 const User = syzoj.model('user');
 const USER_PAGE_SIZE = 30;
@@ -137,7 +138,8 @@ async function deleteUserAccount(req, actor, targetId) {
   let domainEvent = null;
   await Promise.all([
     syzoj.utils.authorizationV2.ensureSchema(),
-    syzoj.utils.apiV2.ensureFoundationSchema()
+    syzoj.utils.apiV2.ensureFoundationSchema(),
+    classGroups.ensureSchema()
   ]);
   await TypeORM.getConnection().transaction(async manager => {
     const users = await manager.query('SELECT id,username,is_admin FROM user WHERE id=? FOR UPDATE', [targetId]);
@@ -213,6 +215,16 @@ async function deleteUserAccount(req, actor, targetId) {
     await manager.query('UPDATE auth_grant SET granted_by=? WHERE granted_by=?', [deletedAccountId,targetId]);
     await manager.query('DELETE FROM auth_team_member WHERE user_id=?', [targetId]);
     await manager.query('DELETE FROM auth_organization_member WHERE user_id=?', [targetId]);
+    // Class groups are user-owned resources without a database FK. Remove the
+    // owner's groups and all memberships atomically before deleting the user.
+    const ownedClassRows = await manager.query('SELECT id FROM class_group WHERE owner_id=? FOR UPDATE', [targetId]);
+    const ownedClassIds = ownedClassRows.map(row => Number(row.id)).filter(id => Number.isSafeInteger(id) && id > 0);
+    if (ownedClassIds.length) {
+      await manager.query('DELETE FROM class_group_member WHERE class_id IN (?)', [ownedClassIds]);
+      await manager.query('DELETE FROM class_group WHERE id IN (?) AND owner_id=?', [ownedClassIds, targetId]);
+    }
+    await manager.query('UPDATE class_group_member SET added_by=? WHERE added_by=?', [deletedAccountId, targetId]);
+    await manager.query('DELETE FROM class_group_member WHERE user_id=?', [targetId]);
     await manager.query('DELETE FROM auth_user_state WHERE user_id=?', [targetId]);
     await manager.query('DELETE FROM email_verification_token WHERE user_id=?', [targetId]);
     await manager.query('DELETE FROM content_form_token WHERE user_id=?', [targetId]);
@@ -261,6 +273,7 @@ async function deleteUserAccount(req, actor, targetId) {
   if (syzoj.utils.refreshVerifiedCache) await syzoj.utils.refreshVerifiedCache();
   if (syzoj.utils.refreshAvatarCache) await syzoj.utils.refreshAvatarCache();
   if (syzoj.utils.refreshUserTagsCache) await syzoj.utils.refreshUserTagsCache();
+  if (classGroups.refreshCache) await classGroups.refreshCache();
   if (syzoj.utils.refreshContestCheaterCache) await syzoj.utils.refreshContestCheaterCache();
   return { username: deletedUsername, auditEventId };
 }

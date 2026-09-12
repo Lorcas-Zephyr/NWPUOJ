@@ -2,9 +2,10 @@ const crypto = require('crypto');
 const TypeORM = require('typeorm');
 const { AsyncLocalStorage } = require('async_hooks');
 const contestMutation = require('../libs/contest-mutation');
+const classGroups = require('../libs/class-groups');
+const { sortContests } = require('../libs/contest-order');
 
 const Contest = syzoj.model('contest');
-const ContestPlayer = syzoj.model('contest_player');
 const ContestRanklist = syzoj.model('contest_ranklist');
 const JudgeState = syzoj.model('judge_state');
 const Problem = syzoj.model('problem');
@@ -16,10 +17,10 @@ const submissionRequestContext = new AsyncLocalStorage();
 const registrationCache = new Map();
 const registrationSettingCache = new Map();
 const registrationRemovalCache = new Map();
+const endedContestAutoSubmitCache = new Map();
 const contestSubmissionQueues = new Map();
 
 Contest.cache = false;
-ContestPlayer.cache = false;
 ContestRanklist.cache = false;
 
 let registrationIndexPromise = null;
@@ -29,12 +30,16 @@ function ensureRegistrationIndex() {
       await TypeORM.getConnection().query(`
         CREATE TABLE IF NOT EXISTS contest_registration_setting (
           contest_id INT NOT NULL,
+          allow_registration TINYINT(1) NOT NULL DEFAULT 1,
           allow_late_registration TINYINT(1) NOT NULL DEFAULT 0,
           revision INT NOT NULL DEFAULT 0,
           updated_at INT NOT NULL,
           PRIMARY KEY (contest_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
       `);
+      await TypeORM.getConnection().query(
+        'ALTER TABLE contest_registration_setting ADD COLUMN IF NOT EXISTS allow_registration TINYINT(1) NOT NULL DEFAULT 1 AFTER contest_id'
+      );
       await TypeORM.getConnection().query(
         'ALTER TABLE contest_registration_setting ADD COLUMN IF NOT EXISTS revision INT NOT NULL DEFAULT 0 AFTER allow_late_registration'
       );
@@ -53,6 +58,9 @@ function ensureRegistrationIndex() {
       );
       await TypeORM.getConnection().query(
         'CREATE UNIQUE INDEX IF NOT EXISTS uq_contest_player_registration ON contest_player (contest_id,user_id)'
+      );
+      await TypeORM.getConnection().query(
+        'ALTER TABLE contest_player ADD COLUMN IF NOT EXISTS submitted_at INT NULL AFTER user_id'
       );
       await TypeORM.getConnection().query(
         'CREATE INDEX IF NOT EXISTS idx_judge_state_contest_user ON judge_state (type,type_info,user_id)'
@@ -100,7 +108,10 @@ async function findRegistration(contestId, userId) {
   const cached = registrationCache.get(key);
   if (cached && cached.expiresAt > now) return cached.promise;
   const entry = { expiresAt: Infinity, promise: null };
-  const promise = ContestPlayer.findInContest({ contest_id: contestId, user_id: userId }).then(result => {
+  const promise = TypeORM.getConnection().query(
+    'SELECT * FROM contest_player WHERE contest_id=? AND user_id=? LIMIT 1',
+    [Number(contestId), Number(userId)]
+  ).then(rows => rows[0] || null).then(result => {
     entry.expiresAt = Date.now() + 5000;
     return result;
   }).catch(error => {
@@ -120,9 +131,10 @@ async function getRegistrationSetting(contestId) {
   if (cached && cached.expiresAt > now) return cached.promise;
   const entry = { expiresAt: Infinity, promise: null };
   const promise = TypeORM.getConnection().query(
-    'SELECT allow_late_registration,revision FROM contest_registration_setting WHERE contest_id = ? LIMIT 1',
+    'SELECT allow_registration,allow_late_registration,revision FROM contest_registration_setting WHERE contest_id = ? LIMIT 1',
     [contestId]
   ).then(rows => ({
+    allowRegistration: !rows[0] || Number(rows[0].allow_registration) !== 0,
     allowLateRegistration: !!(rows[0] && rows[0].allow_late_registration),
     revision: Number(rows[0] && rows[0].revision || 0)
   })).then(result => {
@@ -167,6 +179,35 @@ function invalidateRegistrationCache(contestId, userId) {
   if (syzoj.utils.invalidateContestReadCache) syzoj.utils.invalidateContestReadCache(contestId);
 }
 
+// Mark any unfinished participant as handed in once the contest has ended.
+// The update is idempotent and cached briefly so ordinary page loads do not
+// repeatedly write the same contest rows.
+async function autoSubmitEndedContest(contestId) {
+  const key = Number(contestId);
+  const now = Date.now();
+  const cached = endedContestAutoSubmitCache.get(key);
+  if (cached && cached.expiresAt > now) return cached.promise;
+  const entry = { expiresAt: Infinity, promise: null };
+  const promise = ensureRegistrationIndex().then(() => TypeORM.getConnection().query(
+    `UPDATE contest_player participant
+        INNER JOIN contest contest_row ON contest_row.id=participant.contest_id
+        SET participant.submitted_at=contest_row.end_time
+      WHERE participant.contest_id=?
+        AND contest_row.end_time <= UNIX_TIMESTAMP()
+        AND participant.submitted_at IS NULL`,
+    [key]
+  )).then(result => Number(result.affectedRows || 0)).then(result => {
+    entry.expiresAt = Date.now() + 5000;
+    return result;
+  }).catch(error => {
+    endedContestAutoSubmitCache.delete(key);
+    throw error;
+  });
+  entry.promise = promise;
+  endedContestAutoSubmitCache.set(key, entry);
+  return promise;
+}
+
 async function isProblemManager(user) {
   return !!(user && await syzoj.utils.authorizationV2.authorize(
     user,
@@ -183,22 +224,38 @@ async function canManageContest(contest, user, capability = 'contest:edit') {
     ownerId: Number(contest.holder_id),
     scope: `contest:${contest.id}`
   };
-  if (await syzoj.utils.authorizationV2.authorize(user, capability, resource, { scope: resource.scope })) return true;
-  return Number(contest.holder_id) === Number(user.id) ||
-    String(contest.admins || '').split('|').includes(String(user.id));
+  return syzoj.utils.authorizationV2.authorize(user, capability, resource, { scope: resource.scope });
 }
 
 async function canViewContestProblems(contest, user) {
   if (await contest.isSupervisior(user)) return true;
   if (contest.isEnded()) return true;
-  if (contest.isRunning() && user && await findRegistration(contest.id, user.id)) return true;
+  if (contest.isRunning() && user) {
+    const registration = await findRegistration(contest.id, user.id);
+    if (registration && !Number(registration.submitted_at)) return true;
+  }
   return isProblemManager(user);
 }
 
 async function canParticipateInContest(contest, user) {
   if (await contest.isSupervisior(user)) return true;
-  if (!contest.isRunning() || !user) return false;
-  return !!await findRegistration(contest.id, user.id);
+  if (!user) return false;
+  const registration = await findRegistration(contest.id, user.id);
+  // Hand-in is an in-contest lock. Once the contest ends, registered users
+  // regain the normal contest problem and submission entry points.
+  if (contest.isEnded()) return !!registration;
+  if (!contest.isRunning()) return false;
+  return !!registration && !Number(registration.submitted_at);
+}
+
+async function isContestSubmitted(contestId, userId) {
+  if (!userId) return false;
+  await autoSubmitEndedContest(contestId);
+  const rows = await TypeORM.getConnection().query(
+    'SELECT submitted_at FROM contest_player WHERE contest_id=? AND user_id=? LIMIT 1',
+    [Number(contestId), Number(userId)]
+  );
+  return !!(rows.length && Number(rows[0].submitted_at));
 }
 
 async function canAccessProblemOutsideContest(problemId, user) {
@@ -219,6 +276,7 @@ async function canAccessProblemOutsideContest(problemId, user) {
 }
 
 async function getRegistrationState(contest, user, req) {
+  if (contest.isEnded()) await autoSubmitEndedContest(contest.id);
   const registeredPlayer = user ? await findRegistration(contest.id, user.id) : null;
   const isSupervisior = await contest.isSupervisior(user);
   const setting = await getRegistrationSetting(contest.id);
@@ -227,17 +285,22 @@ async function getRegistrationState(contest, user, req) {
   const beforeStart = now < contest.start_time;
   const running = contest.isRunning(now);
   const ended = contest.isEnded(now);
-  const registrationOpen = !ended && (beforeStart || (running && setting.allowLateRegistration));
-  const canParticipate = isSupervisior || (running && !!registeredPlayer);
-  const canViewProblems = isSupervisior || ended || (running && !!registeredPlayer) || await isProblemManager(user);
+  const submitted = !!(registeredPlayer && Number(registeredPlayer.submitted_at));
+  const registrationOpen = setting.allowRegistration && !ended && (beforeStart || (running && setting.allowLateRegistration));
+  const activeRegistration = running && !!registeredPlayer && !submitted;
+  const canParticipate = isSupervisior || activeRegistration;
+  const canViewProblems = isSupervisior || ended || activeRegistration || await isProblemManager(user);
   return {
     contestId: Number(contest.id),
     registered: !!registeredPlayer,
+    submitted,
+    submittedAt: submitted ? Number(registeredPlayer.submitted_at) : null,
     playerId: registeredPlayer ? registeredPlayer.id : null,
     isSupervisior: isSupervisior,
     beforeStart: beforeStart,
     running: running,
     ended: ended,
+    allowRegistration: setting.allowRegistration,
     allowLateRegistration: setting.allowLateRegistration,
     revision: setting.revision,
     removedByAdmin: removedByAdmin,
@@ -245,7 +308,7 @@ async function getRegistrationState(contest, user, req) {
     canViewProblems: canViewProblems,
     canParticipate: canParticipate,
     canRegister: !!user && registrationOpen && !registeredPlayer && !isSupervisior && !removedByAdmin,
-    canCancel: !!user && beforeStart && !!registeredPlayer && !isSupervisior,
+    canCancel: !!user && setting.allowRegistration && beforeStart && !!registeredPlayer && !isSupervisior,
     csrfToken: user ? ensureCsrfToken(req) : null
   };
 }
@@ -253,6 +316,8 @@ async function getRegistrationState(contest, user, req) {
 syzoj.utils.isContestRegistered = async function isContestRegistered(contestId, userId) {
   return !!await findRegistration(contestId, userId);
 };
+syzoj.utils.isContestSubmitted = isContestSubmitted;
+syzoj.utils.invalidateContestRegistrationCache = invalidateRegistrationCache;
 syzoj.utils.canViewContestProblems = canViewContestProblems;
 syzoj.utils.canParticipateInContest = canParticipateInContest;
 syzoj.utils.canAccessProblemOutsideContest = canAccessProblemOutsideContest;
@@ -348,6 +413,7 @@ app.get('/contests', (req, res, next) => {
     ]).then(([entries, countRows, ratingRows, archivedRows]) => {
       const archivedIds = new Set(archivedRows.map(row => Number(row.contest_id)));
       options.contests = options.contests.filter(contest => !archivedIds.has(Number(contest.id)));
+      options.contests = sortContests(options.contests, syzoj.utils.getCurrentDate());
       const counts = Object.fromEntries(countRows.map(row => [Number(row.contest_id), Number(row.count)]));
       entries.forEach(([contestId, state]) => {
         state.registeredCount = counts[contestId] || 0;
@@ -365,10 +431,41 @@ app.get('/contests', (req, res, next) => {
   next();
 });
 
+app.get('/', (req, res, next) => {
+  const originalRender = res.render.bind(res);
+  res.render = function renderHome(view, options) {
+    if (view === 'index' && options && Array.isArray(options.contests)) {
+      options.contests = sortContests(options.contests, syzoj.utils.getCurrentDate());
+    }
+    return originalRender.apply(res, arguments);
+  };
+  next();
+});
+
 async function guardContestEditor(req, res, next) {
   try {
     const contestId = Number(req.params.id);
-    if (!Number.isSafeInteger(contestId) || contestId <= 0) return next();
+    if (!Number.isSafeInteger(contestId) || contestId < 0) return next();
+    if (contestId === 0) {
+      const canCreate = res.locals.user && await syzoj.utils.authorizationV2.authorize(
+        res.locals.user,
+        'contest:create',
+        null,
+        { scope: 'global' }
+      );
+      if (!canCreate) {
+        return res.status(403).render('error', { err: new ErrorMessage('您没有权限创建比赛。') });
+      }
+
+      // The legacy editor route only recognizes is_admin. Scope this compatibility
+      // flag to the blank editor request; the save API still enforces contest:create.
+      if (!res.locals.user.is_admin) {
+        const editorUser = Object.create(res.locals.user);
+        editorUser.is_admin = true;
+        res.locals.user = editorUser;
+      }
+      return next();
+    }
     const contest = await Contest.findById(contestId);
     if (!contest) return next();
     if (!await canManageContest(contest, res.locals.user, 'contest:edit')) {
@@ -426,6 +523,92 @@ app.use(async (req, res, next) => {
     next();
   } catch (error) {
     next(error);
+  }
+});
+
+// A participant who has handed in their paper may only retain the contest
+// details and ranking views until the contest ends. Supervisors are exempt.
+app.use('/contest/:id', async (req, res, next) => {
+  try {
+    const contest = await Contest.findById(Number(req.params.id));
+    const state = res.locals.contestRegistration;
+    if (!contest || !state || !state.submitted || state.ended || await contest.isSupervisior(res.locals.user)) return next();
+    const relativePath = req.path.replace(new RegExp('^/contest/' + contest.id), '') || '/';
+    if (relativePath === '/details' || relativePath === '/ranklist' || relativePath === '/') return next();
+    return res.redirect(syzoj.utils.makeUrl(['contest', contest.id, 'details']));
+  } catch (error) { return next(error); }
+});
+
+// Before a contest ends, visitors and users who have not registered may only
+// inspect its public details and ranking. Keep this check at the contest
+// prefix so direct URLs cannot bypass the navigation restrictions.
+app.use('/contest/:id', async (req, res, next) => {
+  try {
+    const contest = await Contest.findById(Number(req.params.id));
+    const state = res.locals.contestRegistration;
+    if (!contest || !state || state.ended || state.registered || state.isSupervisior || state.canViewProblems) return next();
+    const relativePath = (req.path.replace(new RegExp('^/contest/' + contest.id), '') || '/').replace(/\/+$/, '') || '/';
+    const isReadOnlyView = relativePath === '/details' || relativePath === '/ranklist' || (relativePath === '/' && req.query.view !== 'problems');
+    if (isReadOnlyView) return next();
+    return res.status(403).render('error', { err: new ErrorMessage('请先报名后访问比赛题目和提交页面。') });
+  } catch (error) { return next(error); }
+});
+
+app.post('/api/v2/contests/:id/submit', async (req, res) => {
+  const api = syzoj.utils.apiV2;
+  const user = res.locals.user;
+  if (!user) return api.fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.');
+  const contest = await Contest.findById(Number(req.params.id));
+  if (!contest) return api.fail(res, 404, 'CONTEST_NOT_FOUND', 'Contest was not found.');
+  if (await contest.isSupervisior(user)) return api.fail(res, 403, 'CAPABILITY_REQUIRED', '比赛管理者不需要交卷。');
+  if (!contest.isRunning()) return api.fail(res, 409, 'CONTEST_NOT_RUNNING', '只能在比赛进行中交卷。');
+  try {
+    await ensureRegistrationIndex();
+    const beforeRows = await TypeORM.getConnection().query(
+      'SELECT id,submitted_at FROM contest_player WHERE contest_id=? AND user_id=? LIMIT 1',
+      [contest.id, user.id]
+    );
+    if (!beforeRows.length) return api.fail(res, 403, 'CONTEST_PARTICIPATION_REQUIRED', '请先报名后交卷。');
+    const wasSubmitted = Number(beforeRows[0].submitted_at) > 0;
+    const submittedAtCandidate = Math.floor(Date.now() / 1000);
+    const result = await TypeORM.getConnection().query(
+      'UPDATE contest_player SET submitted_at=COALESCE(submitted_at, ?) WHERE contest_id=? AND user_id=? AND submitted_at IS NULL',
+      [submittedAtCandidate, contest.id, user.id]
+    );
+    // Always read back the durable marker. Some database drivers do not expose
+    // affectedRows consistently, and a cached registration row may be stale.
+    let afterRows = [];
+    try {
+      afterRows = await TypeORM.getConnection().query(
+        'SELECT submitted_at FROM contest_player WHERE contest_id=? AND user_id=? LIMIT 1',
+        [contest.id, user.id]
+      );
+    } catch (readError) {
+      syzoj.log('[contest-registration] hand-in readback deferred: ' + (readError.stack || readError));
+    }
+    // A few MySQL drivers can briefly return a stale read after a successful
+    // autocommit update. The update itself is the authoritative write; use
+    // the application timestamp as a response fallback in that case.
+    const submittedAt = afterRows.length
+      ? (Number(afterRows[0].submitted_at || 0) || submittedAtCandidate)
+      : submittedAtCandidate;
+    if (!submittedAt) return api.fail(res, 409, 'CONTEST_SUBMIT_FAILED', '交卷失败，请稍后重试。');
+    try {
+      invalidateRegistrationCache(contest.id, user.id);
+    } catch (cacheError) {
+      syzoj.log('[contest-registration] hand-in cache invalidation failed: ' + (cacheError.stack || cacheError));
+    }
+    if (!wasSubmitted && (!result || Number(result.affectedRows || result[0] && result[0].affectedRows || 0) > 0)) {
+      try {
+        await syzoj.utils.apiV2.appendEvent({ stream: `contest:${contest.id}`, type: 'contest.submitted', aggregateId: contest.id, actor: user, payload: { user_id: user.id, submitted_at: submittedAt } });
+      } catch (error) {
+        syzoj.log('[contest-registration] hand-in event failed: ' + (error.stack || error));
+      }
+    }
+    return api.send(res, { contest_id: Number(contest.id), user_id: Number(user.id), submitted: true, submitted_at: submittedAt });
+  } catch (error) {
+    syzoj.log('[contest-registration] hand-in failed: ' + (error.stack || error));
+    return api.fail(res, error.statusCode || 409, error.code || 'CONTEST_SUBMIT_FAILED', error.message || '交卷失败，请稍后重试。');
   }
 });
 
@@ -506,11 +689,20 @@ app.get('/contest/:id/registrations', async (req, res) => {
        WHERE removal.contest_id=? ORDER BY removal.removed_at DESC`,
       [contestId]
     );
+    await classGroups.ensureSchema();
+    const classOptions = await TypeORM.getConnection().query(
+      `SELECT group_table.id,group_table.name,group_table.tag_text,COUNT(member.user_id) AS member_count
+         FROM class_group group_table LEFT JOIN class_group_member member ON member.class_id=group_table.id
+        WHERE group_table.status='active' AND (group_table.allow_activity_import=1 OR group_table.owner_id=? OR ?=1)
+        GROUP BY group_table.id ORDER BY group_table.name,group_table.id`,
+      [res.locals.user.id, classGroups.isUnrestricted(res.locals.user) ? 1 : 0]
+    );
     res.render('contest_registrations', {
       contest: contest,
       registrations: registrations,
       removedRegistrations: removedRegistrations,
       canManageRegistrations: true,
+      registrationClassOptions: classOptions,
       registrationManagementCsrfToken: ensureCsrfToken(req)
     });
   } catch (error) {
@@ -558,9 +750,12 @@ async function guardContestContent(req, res, next) {
     const contest = await Contest.findById(Number(req.params.id));
     if (!contest) return next();
     const state = res.locals.contestRegistration;
-    const canView = state && Number(state.contestId) === Number(contest.id)
-      ? state.canViewProblems
-      : await canViewContestProblems(contest, res.locals.user);
+    const isRanklist = /^\/contest\/\d+\/ranklist\/?$/.test(req.path) || req.path === '/ranklist' || req.path === '/ranklist/';
+    const supervisor = await contest.isSupervisior(res.locals.user);
+    const publicRanklist = isRanklist && !!contest.is_public && !supervisor;
+    const canView = publicRanklist || (state && Number(state.contestId) === Number(contest.id)
+      ? (isRanklist && state.submitted ? true : state.canViewProblems)
+      : await canViewContestProblems(contest, res.locals.user));
     if (!canView) {
       const message = contest.isRunning() ? '请先报名后参加比赛。' : '比赛尚未开始。';
       return res.status(403).render('error', { err: new ErrorMessage(message) });

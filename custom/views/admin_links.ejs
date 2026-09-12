@@ -15,7 +15,8 @@
     var current = await fetch('/api/v2/admin/links', { credentials: 'same-origin', cache: 'no-store' });
     var currentBody = await current.json();
     if (!current.ok) throw new Error(currentBody && currentBody.error && currentBody.error.message || '友情链接读取失败。');
-    var response = await fetch('/api/v2/admin/links', { method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'If-Match': current.headers.get('ETag') || '' }, body: JSON.stringify({ links: links }) });
+    var etag = current.headers.get('ETag') || currentBody && currentBody.meta && currentBody.meta.etag || '';
+    var response = await fetch('/api/v2/admin/links', { method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'If-Match': etag }, body: JSON.stringify({ links: links, if_match: etag }) });
     var body = await response.json();
     if (!response.ok) throw new Error(body && body.error && body.error.message || '友情链接保存失败。');
     window.location.reload();

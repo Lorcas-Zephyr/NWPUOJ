@@ -8,6 +8,7 @@ const contentDomain = require('../libs/content-domain');
 const problemDomain = require('../libs/problem-domain');
 const bulkAction = require('../libs/problem-bulk-action');
 const testdataUpload = require('../libs/testdata-upload');
+const testdataSnapshots = require('../libs/testdata-snapshot');
 const Problem = syzoj.model('problem');
 const User = syzoj.model('user');
 const TAG_TYPE_COLORS = Object.freeze({
@@ -23,6 +24,12 @@ const testdataUploadMiddleware = multer({
   limits: { fileSize: 200 * 1024 * 1024, files: 1 },
   fileFilter: (req, file, callback) => callback(/\.zip$/i.test(String(file.originalname || '')) ? null : Object.assign(new Error('Only ZIP archives are supported.'), { code: 'TESTDATA_UPLOAD_INVALID' }), /\.zip$/i.test(String(file.originalname || '')))
 }).single('archive');
+const TESTDATA_CHUNK_SIZE = 512 * 1024;
+const TESTDATA_MAX_CHUNKS = Math.ceil((200 * 1024 * 1024) / TESTDATA_CHUNK_SIZE);
+const testdataChunkMiddleware = multer({
+  dest: os.tmpdir(),
+  limits: { fileSize: TESTDATA_CHUNK_SIZE, files: 1 }
+}).single('chunk');
 const testdataFilesMiddleware = multer({
   dest: os.tmpdir(),
   limits: {
@@ -44,6 +51,20 @@ const additionalFileMiddleware = multer({
   fileFilter: (_req, file, callback) => callback(/\.zip$/i.test(String(file.originalname || '')) ? null : Object.assign(new Error('Only ZIP archives are supported.'), { code: 'TESTDATA_UPLOAD_INVALID' }), /\.zip$/i.test(String(file.originalname || '')))
 }).single('archive');
 function testdataUploadRoot() { return path.join(syzoj.config.upload_dir, 'testdata-upload'); }
+function testdataChunkRoot(uploadId) { return path.join(testdataUploadRoot(), 'chunks', uploadId); }
+function validUploadId(value) { return /^[A-Za-z0-9_-]{16,128}$/.test(String(value || '')); }
+function uploadChunkMetadata(body) {
+  const uploadId = String(body && body.upload_id || '');
+  const index = Number(body && body.chunk_index);
+  const total = Number(body && body.total_chunks);
+  if (!validUploadId(uploadId) || !Number.isSafeInteger(index) || !Number.isSafeInteger(total) || total < 1 || total > TESTDATA_MAX_CHUNKS || index < 0 || index >= total) {
+    const error = new Error('Upload chunk metadata is invalid.');
+    error.code = 'TESTDATA_UPLOAD_INVALID';
+    error.statusCode = 422;
+    throw error;
+  }
+  return { uploadId, index, total };
+}
 function testdataFilename(value) {
   const filename = String(value || '');
   if (
@@ -91,14 +112,27 @@ function testdataSummary(parsed) {
   const subtasks = Array.isArray(parsed)
     ? parsed
     : parsed && Array.isArray(parsed.testcases) ? parsed.testcases : [];
+  const testcases = subtasks.reduce((count, subtask) => count + (Array.isArray(subtask && subtask.cases) ? subtask.cases.length : 0), 0);
+  const parseError = parsed && parsed.error ? String(parsed.error.message || parsed.error) : null;
   return {
-    valid: !!parsed && !parsed.error,
-    testcases: subtasks.reduce((count, subtask) => count + (Array.isArray(subtask && subtask.cases) ? subtask.cases.length : 0), 0),
+    valid: !!parsed && !parseError && testcases > 0,
+    testcases,
     special_judge: !!(parsed && parsed.spj),
-    error: parsed && parsed.error ? String(parsed.error) : null
+    error: parseError || (testcases ? null : '未找到可识别的测试点，请检查 .in/.out（或 .ans）文件名和 data.yml。')
   };
 }
 async function contentTransaction(work) { await api().ensureFoundationSchema(); return TypeORM.getConnection().transaction(work); }
+async function queueTestdataUpload(problem, user, sourcePath) {
+  await ensureProblemWorkflowSchema();
+  const id = crypto.randomUUID();
+  const archive = `${id}.zip`;
+  await fs.ensureDir(testdataUploadRoot());
+  await fs.move(sourcePath, path.join(testdataUploadRoot(), archive), { overwrite: false });
+  await TypeORM.getConnection().query("INSERT INTO problem_v2_job (id,problem_id,kind,state,progress,input_json,actor_id,created_at,updated_at) VALUES (?,?,'upload','queued',0,?, ?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))", [id, problem.id, JSON.stringify({ archive }), user.id]);
+  await api().appendEvent({ stream: `problem-job:${id}`, type: 'problem.testdata.upload.queued', aggregateId: id, actor: user, payload: { problem_id: Number(problem.id) } });
+  setImmediate(() => runUploadJob(id, problem));
+  return { id, problem_id: Number(problem.id), kind: 'upload', state: 'queued', progress: 0 };
+}
 function contentFailure(res, error) { const expected = Number.isInteger(error.statusCode); return api().fail(res, expected ? error.statusCode : 500, expected ? error.code : 'CONTENT_WRITE_FAILED', expected ? error.message : 'The content operation could not be completed.', expected ? error.fields || {} : {}); }
 function auditRecorder(req) { return (event, manager) => syzoj.utils.authorizationV2.recordAudit(req, event, manager); }
 function serializeSolution(row) { return { id: Number(row.id), problem_id: Number(row.problem_id), title: row.title, content: row.content, author: row.username == null ? { id: Number(row.user_id) } : { id: Number(row.user_id), username: row.username }, status: contentDomain.apiSolutionStatus(row.status), allow_comment: !!row.allow_comment, reject_reason: Number(row.user_id) === Number(row.viewer_id) || row.can_review ? row.reject_reason || null : undefined, published_at: time(row.public_time), updated_at: time(row.update_time) }; }
@@ -131,6 +165,10 @@ async function updateBulkJob(connection, id, state, result) {
   await connection.query(`UPDATE problem_v2_job SET state=?,progress=?,result_json=?,updated_at=UTC_TIMESTAMP(3) WHERE id=?${guard}`, [state, bulkAction.progress(total, processed), JSON.stringify(result), id]);
 }
 
+function bulkActionCapability(action) {
+  return action === 'archive' ? 'problem:archive' : 'problem:publish';
+}
+
 async function runBulkArchiveJob(jobId) {
   const connection = TypeORM.getConnection();
   let result = null;
@@ -139,11 +177,12 @@ async function runBulkArchiveJob(jobId) {
     if (!rows.length) return;
     const job = rows[0];
     const input = bulkAction.normalize(job.input_json ? JSON.parse(job.input_json) : {});
-    result = { action: input.action, total: input.problem_ids.length, processed: 0, archived: 0, skipped: 0, failed: 0, failures: [], audit_event_id: input.audit_event_id || null };
+    result = { action: input.action, total: input.problem_ids.length, processed: 0, published: 0, unpublished: 0, archived: 0, changed: 0, skipped: 0, failed: 0, failures: [], audit_event_id: input.audit_event_id || null };
     if (job.cancel_requested) { await updateBulkJob(connection, jobId, 'cancelled', result); await api().appendEvent({ stream: `problem-job:${jobId}`, type: 'problem.bulk.cancelled', aggregateId: jobId, payload: result }); return; }
     const actor = await User.findById(Number(job.actor_id));
     if (!actor) throw Object.assign(new Error('The job creator no longer exists.'), { code: 'ACTOR_NOT_FOUND' });
     await syzoj.utils.problemV2.ensureSchema();
+    if (input.action === 'publish' && syzoj.utils.vjudgeV2) await syzoj.utils.vjudgeV2.ensureSchema();
     await connection.query("UPDATE problem_v2_job SET state='running',progress=0,updated_at=UTC_TIMESTAMP(3) WHERE id=?", [jobId]);
     for (const problemId of input.problem_ids) {
       const control = await connection.query('SELECT cancel_requested FROM problem_v2_job WHERE id=? LIMIT 1', [jobId]);
@@ -156,19 +195,52 @@ async function runBulkArchiveJob(jobId) {
       try {
         const problem = await Problem.findById(problemId);
         if (!problem) throw Object.assign(new Error('Problem was not found.'), { code: 'PROBLEM_NOT_FOUND' });
-        if (!await can(actor, 'problem:archive', problem)) throw Object.assign(new Error('The current authorization no longer permits this archive.'), { code: 'CAPABILITY_REQUIRED' });
-        const changed = await connection.transaction(async manager => {
-          const states = await manager.query('SELECT lifecycle_status FROM problem_v2_state WHERE problem_id=? FOR UPDATE', [problem.id]);
-          if (states[0] && states[0].lifecycle_status === 'archived') return false;
-          await manager.query(`INSERT INTO problem_v2_state (problem_id,lifecycle_status,current_version_id,current_snapshot_id,archived_at,updated_at)
-            VALUES (?,'archived',NULL,NULL,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))
-            ON DUPLICATE KEY UPDATE lifecycle_status='archived',archived_at=UTC_TIMESTAMP(3),updated_at=UTC_TIMESTAMP(3)`, [problem.id]);
-          await manager.query('UPDATE problem SET is_public=0 WHERE id=?', [problem.id]);
-          return true;
-        });
+        const capability = bulkActionCapability(input.action);
+        if (!await can(actor, capability, problem)) throw Object.assign(new Error(`The current authorization no longer permits this ${input.action}.`), { code: 'CAPABILITY_REQUIRED' });
+        let testdata = null;
+        let requestedSnapshotId = null;
+        let published = null;
+        let changed = false;
+        try {
+          if (input.action === 'publish') {
+            requestedSnapshotId = `ps_${crypto.randomUUID().replace(/-/g, '')}`;
+            testdata = String(problem.type || '').startsWith('vjudge:')
+              ? { id: requestedSnapshotId, path: null, hash: null, files: [], created: false }
+              : await testdataSnapshots.capture(syzoj.config.upload_dir, problem.id, requestedSnapshotId);
+          }
+          changed = await connection.transaction(async manager => {
+            if (input.action === 'archive') {
+              const states = await manager.query('SELECT lifecycle_status FROM problem_v2_state WHERE problem_id=? FOR UPDATE', [problem.id]);
+              if (states[0] && states[0].lifecycle_status === 'archived') return false;
+              await problemDomain.archiveProblemAggregate(manager, problem.id);
+              return true;
+            }
+            if (input.action === 'unpublish') {
+              const states = await manager.query('SELECT lifecycle_status FROM problem_v2_state WHERE problem_id=? FOR UPDATE', [problem.id]);
+              if (states[0] && states[0].lifecycle_status === 'draft' && !problem.is_public) return false;
+              await problemDomain.unpublishProblemAggregate(manager, problem.id);
+              return true;
+            }
+            published = await problemDomain.publishProblemAggregate(manager, problem, undefined, actor.id, () => requestedSnapshotId, testdata);
+            if (!published) throw Object.assign(new Error('Create a problem version before publishing.'), { code: 'PROBLEM_VERSION_REQUIRED' });
+            await problemDomain.syncSourceProjection(manager, { ...problem, ...published.content });
+            return true;
+          });
+        } catch (error) {
+          if (testdata && testdata.created) await testdataSnapshots.remove(syzoj.config.upload_dir, requestedSnapshotId).catch(() => {});
+          throw error;
+        }
+        if (published && testdata && testdata.created && published.snapshot_id !== requestedSnapshotId) {
+          await testdataSnapshots.remove(syzoj.config.upload_dir, requestedSnapshotId).catch(() => {});
+        }
         if (changed) {
-          result.archived++;
-          await api().appendEvent({ stream: `problem:${problem.id}`, type: 'problem.archived', aggregateId: problem.id, actor, payload: { bulk: true, job_id: jobId, audit_event_id: result.audit_event_id } });
+          await Problem.deleteFromCache(problem.id);
+          result.changed++;
+          if (input.action === 'archive') result.archived++;
+          if (input.action === 'publish') result.published++;
+          if (input.action === 'unpublish') result.unpublished++;
+          const eventType = input.action === 'archive' ? 'problem.archived' : input.action === 'publish' ? 'problem.published' : 'problem.unpublished';
+          await api().appendEvent({ stream: `problem:${problem.id}`, type: eventType, aggregateId: problem.id, actor, payload: { bulk: true, job_id: jobId, audit_event_id: result.audit_event_id } });
         } else result.skipped++;
       } catch (error) {
         result.failed++;
@@ -223,8 +295,13 @@ async function runUploadJob(jobId, problem) {
     await connection.query("UPDATE problem_v2_job SET state='running',progress=10,updated_at=UTC_TIMESTAMP(3) WHERE id=?", [jobId]);
     await fs.remove(staging); await fs.ensureDir(staging);
     await testdataUpload.extractTestdataArchive(archive, staging);
+    await testdataUpload.normalizeTestdataDirectory(staging);
     const parsed = await syzoj.utils.parseTestdata(staging, problem.type === 'submit-answer');
-    if (!parsed || parsed.error) throw Object.assign(new Error('The archive does not contain valid judge testdata.'), { code: 'TESTDATA_UPLOAD_INVALID', statusCode: 422 });
+    const parsedSummary = testdataSummary(parsed);
+    if (!parsedSummary.valid) {
+      const detail = parsedSummary.error;
+      throw Object.assign(new Error(detail ? String(detail) : 'The archive does not contain valid judge testdata.'), { code: 'TESTDATA_UPLOAD_INVALID', statusCode: 422 });
+    }
     const controls = await connection.query('SELECT cancel_requested FROM problem_v2_job WHERE id=? LIMIT 1', [jobId]);
     if (!controls.length || controls[0].cancel_requested) return connection.query("UPDATE problem_v2_job SET state='cancelled',updated_at=UTC_TIMESTAMP(3) WHERE id=?", [jobId]);
     await connection.query("UPDATE problem_v2_job SET progress=70,updated_at=UTC_TIMESTAMP(3) WHERE id=?", [jobId]);
@@ -235,6 +312,9 @@ async function runUploadJob(jobId, problem) {
     result.snapshot_id = snapshot.snapshot_id;
     await connection.query("UPDATE problem_v2_job SET state='completed',progress=100,result_json=?,updated_at=UTC_TIMESTAMP(3) WHERE id=?", [JSON.stringify(result), jobId]);
     await api().appendEvent({ stream: `problem-job:${jobId}`, type: 'problem.testdata.uploaded', aggregateId: jobId, payload: result });
+    if (syzoj.utils.contestV2 && syzoj.utils.contestV2.syncProblemSnapshotsForProblem) {
+      await syzoj.utils.contestV2.syncProblemSnapshotsForProblem(problem.id, await User.findById(Number(rows[0].actor_id)), null);
+    }
   } catch (error) {
     await connection.query("UPDATE problem_v2_job SET state='failed',error_json=?,updated_at=UTC_TIMESTAMP(3) WHERE id=?", [JSON.stringify({ code: error.code || 'TESTDATA_VALIDATION_FAILED', message: error.message }), jobId]);
     await api().appendEvent({ stream: `problem-job:${jobId}`, type: 'problem.testdata.failed', aggregateId: jobId, payload: { code: error.code || 'TESTDATA_VALIDATION_FAILED' } });
@@ -249,12 +329,13 @@ async function queueBulkArchive(req, user, value) {
   for (const problemId of input.problem_ids) {
     const problem = await Problem.findById(problemId);
     if (!problem) throw Object.assign(new Error(`Problem #${problemId} was not found.`), { code: 'PROBLEM_NOT_FOUND', statusCode: 404 });
-    if (!await can(user, 'problem:archive', problem)) throw Object.assign(new Error(`Capability required: problem:archive for problem #${problemId}.`), { code: 'CAPABILITY_REQUIRED', statusCode: 403 });
+    const capability = bulkActionCapability(input.action);
+    if (!await can(user, capability, problem)) throw Object.assign(new Error(`Capability required: ${capability} for problem #${problemId}.`), { code: 'CAPABILITY_REQUIRED', statusCode: 403 });
   }
   await ensureProblemWorkflowSchema();
   const id = crypto.randomUUID();
   const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, {
-    action: 'problem:bulk.archive', resourceType: 'problem_batch', resourceId: id, scope: 'global',
+    action: `problem:bulk.${input.action}`, resourceType: 'problem_batch', resourceId: id, scope: 'global',
     details: { problem_ids: input.problem_ids, count: input.problem_ids.length }
   });
   const payload = { ...input, audit_event_id: auditEventId };
@@ -264,6 +345,80 @@ async function queueBulkArchive(req, user, value) {
   return { id, input, auditEventId };
 }
 
+function normalizeBulkTagInput(value) {
+  const source = value && typeof value === 'object' ? value : {};
+  const rawIds = Array.isArray(source.problem_ids) ? source.problem_ids : [];
+  const ids = rawIds.map(Number);
+  const tagId = Number(source.tag_id);
+  if (!Number.isSafeInteger(tagId) || tagId <= 0) {
+    throw Object.assign(new Error('A valid tag is required.'), { code: 'VALIDATION_FAILED', statusCode: 422, fields: { tag_id: 'positive integer required' } });
+  }
+  if (!ids.length || ids.length > 200 || ids.some(id => !Number.isSafeInteger(id) || id <= 0)) {
+    throw Object.assign(new Error('Problem IDs are invalid.'), { code: 'VALIDATION_FAILED', statusCode: 422, fields: { problem_ids: '1-200 unique positive integers required' } });
+  }
+  const uniqueIds = Array.from(new Set(ids)).sort((left, right) => left - right);
+  if (uniqueIds.length !== ids.length) {
+    throw Object.assign(new Error('Problem IDs must be unique.'), { code: 'VALIDATION_FAILED', statusCode: 422, fields: { problem_ids: 'duplicate values are not allowed' } });
+  }
+  return { tag_id: tagId, problem_ids: uniqueIds };
+}
+
+async function applyBulkTag(req, user, value) {
+  const input = normalizeBulkTagInput(value);
+  await ensureProblemWorkflowSchema();
+  const connection = TypeORM.getConnection();
+  const tagRows = await connection.query('SELECT id,name,color,category FROM problem_tag WHERE id=? LIMIT 1', [input.tag_id]);
+  if (!tagRows.length) throw Object.assign(new Error('Tag was not found.'), { code: 'TAG_NOT_FOUND', statusCode: 404 });
+  const problems = [];
+  for (const problemId of input.problem_ids) {
+    const problem = await Problem.findById(problemId);
+    if (!problem) throw Object.assign(new Error(`Problem #${problemId} was not found.`), { code: 'PROBLEM_NOT_FOUND', statusCode: 404 });
+    if (!await can(user, 'problem:edit', problem)) {
+      throw Object.assign(new Error(`Capability required: problem:edit for problem #${problemId}.`), { code: 'CAPABILITY_REQUIRED', statusCode: 403 });
+    }
+    problems.push(problem);
+  }
+  const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, {
+    action: 'problem:bulk.tag.add', resourceType: 'problem_batch', resourceId: crypto.randomUUID(), scope: 'global',
+    details: { tag_id: input.tag_id, problem_ids: input.problem_ids, count: input.problem_ids.length }
+  });
+  const result = await connection.transaction(async manager => {
+    const lockedTags = await manager.query('SELECT id FROM problem_tag WHERE id=? FOR UPDATE', [input.tag_id]);
+    if (!lockedTags.length) throw Object.assign(new Error('Tag was not found.'), { code: 'TAG_NOT_FOUND', statusCode: 404 });
+    let added = 0;
+    let skipped = 0;
+    for (const problemId of input.problem_ids) {
+      const mappings = await manager.query('SELECT tag_id FROM problem_tag_map WHERE problem_id=? AND tag_id=? FOR UPDATE', [problemId, input.tag_id]);
+      if (mappings.length) {
+        skipped++;
+        continue;
+      }
+      await manager.query('INSERT INTO problem_tag_map (problem_id,tag_id) VALUES (?,?)', [problemId, input.tag_id]);
+      added++;
+    }
+    return { added, skipped };
+  });
+  for (const problem of problems) {
+    if (typeof Problem.invalidateTagCache === 'function') Problem.invalidateTagCache(problem.id);
+    else await Problem.deleteFromCache(problem.id);
+    await api().appendEvent({
+      stream: `problem:${problem.id}`,
+      type: 'problem.tags.updated',
+      aggregateId: problem.id,
+      actor: user,
+      payload: { added_tag_id: input.tag_id, bulk: true, audit_event_id: auditEventId }
+    });
+  }
+  const tag = tagRows[0];
+  return {
+    tag: { id: Number(tag.id), name: tag.name, category: tag.category, color: tag.color },
+    problem_ids: input.problem_ids,
+    added: result.added,
+    skipped: result.skipped,
+    audit_event_id: auditEventId
+  };
+}
+
 app.post(['/api/v2/problems/:id/testdata-jobs', '/api/v2/problems/:id/testdata/validate'], async (req, res) => { const user = res.locals.user; if (!user) return api().fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.'); const problem = await Problem.findById(Number(req.params.id)); if (!problem) return api().fail(res, 404, 'PROBLEM_NOT_FOUND', 'Problem was not found.'); if (!await can(user, 'problem:testdata.write', problem)) return api().fail(res, 403, 'CAPABILITY_REQUIRED', 'Capability required: problem:testdata.write.'); const kind = String(req.body && req.body.kind || 'validate'); if (kind !== 'validate') return api().fail(res, 422, 'VALIDATION_FAILED', 'Only testdata validation jobs are accepted by this JSON endpoint.', { kind: 'unsupported' }); await ensureProblemWorkflowSchema(); const id = crypto.randomUUID(); await TypeORM.getConnection().query("INSERT INTO problem_v2_job (id,problem_id,kind,state,progress,actor_id,created_at,updated_at) VALUES (?,?,'validate','queued',0,?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))", [id, problem.id, user.id]); await api().appendEvent({ stream: `problem-job:${id}`, type: 'problem.testdata.queued', aggregateId: id, actor: user, payload: { problem_id: Number(problem.id) } }); setImmediate(() => runValidationJob(id, problem)); return api().send(res, { id, problem_id: Number(problem.id), kind, state: 'queued', progress: 0 }, 202); });
 async function requireTestdataWriter(req, res, next) { const user = res.locals.user; if (!user) return api().fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.'); const problem = await Problem.findById(Number(req.params.id)); if (!problem) return api().fail(res, 404, 'PROBLEM_NOT_FOUND', 'Problem was not found.'); if (!await can(user, 'problem:testdata.write', problem)) return api().fail(res, 403, 'CAPABILITY_REQUIRED', 'Capability required: problem:testdata.write.'); res.locals.testdataUploadProblem = problem; return next(); }
 function judgeConfigResource(row) {
@@ -271,6 +426,7 @@ function judgeConfigResource(row) {
     problem_id: Number(row.id),
     type: row.type,
     time_limit: Number(row.time_limit || 0),
+    python_time_limit_multiplier: Number(row.python_time_limit_multiplier) > 0 ? Number(row.python_time_limit_multiplier) : 2,
     memory_limit: Number(row.memory_limit || 0),
     file_io: !!row.file_io,
     file_io_input_name: row.file_io_input_name || '',
@@ -294,10 +450,10 @@ app.get('/api/v2/problems/:id/judge-configuration', async (req, res) => {
   const problem = await Problem.findById(Number(req.params.id));
   if (!problem) return api().fail(res, 404, 'PROBLEM_NOT_FOUND', 'Problem was not found.');
   if (!await can(user, 'problem:edit', problem)) return api().fail(res, 403, 'CAPABILITY_REQUIRED', 'Capability required: problem:edit.');
-  const rows = await TypeORM.getConnection().query('SELECT id,type,time_limit,memory_limit,file_io,file_io_input_name,file_io_output_name FROM problem WHERE id=? LIMIT 1', [problem.id]);
+  const rows = await TypeORM.getConnection().query('SELECT id,type,time_limit,python_time_limit_multiplier,memory_limit,file_io,file_io_input_name,file_io_output_name FROM problem WHERE id=? LIMIT 1', [problem.id]);
   return api().send(res, judgeConfigResource(rows[0]));
 });
-app.patch('/api/v2/problems/:id/judge-configuration', async (req, res) => {
+async function updateJudgeConfigurationV2(req, res) {
   const user = res.locals.user;
   if (!user) return api().fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.');
   const problem = await Problem.findById(Number(req.params.id));
@@ -305,7 +461,7 @@ app.patch('/api/v2/problems/:id/judge-configuration', async (req, res) => {
   if (!await can(user, 'problem:edit', problem)) return api().fail(res, 403, 'CAPABILITY_REQUIRED', 'Capability required: problem:edit.');
   try {
     const result = await contentTransaction(async manager => {
-      const rows = await manager.query('SELECT id,type,time_limit,memory_limit,file_io,file_io_input_name,file_io_output_name FROM problem WHERE id=? LIMIT 1 FOR UPDATE', [problem.id]);
+      const rows = await manager.query('SELECT id,type,time_limit,python_time_limit_multiplier,memory_limit,file_io,file_io_input_name,file_io_output_name FROM problem WHERE id=? LIMIT 1 FOR UPDATE', [problem.id]);
       if (!rows.length) throw Object.assign(new Error('Problem was not found.'), { code: 'PROBLEM_NOT_FOUND', statusCode: 404 });
       const current = judgeConfigResource(rows[0]);
       if (!api().ifMatch(req, current)) throw Object.assign(new Error('The judge configuration changed. Refresh it and try again.'), { code: 'ETAG_MISMATCH', statusCode: 412 });
@@ -316,24 +472,87 @@ app.patch('/api/v2/problems/:id/judge-configuration', async (req, res) => {
         if (Number(counts[0] && counts[0].total || 0) > 0) throw Object.assign(new Error('A problem with submissions cannot switch to or from submit-answer mode.'), { code: 'PROBLEM_TYPE_LOCKED', statusCode: 409 });
       }
       const timeLimit = type === 'submit-answer' ? current.time_limit : Number(req.body && req.body.time_limit);
+      const pythonMultiplierInput = req.body && req.body.python_time_limit_multiplier;
+      const pythonTimeLimitMultiplier = type === 'submit-answer' || pythonMultiplierInput == null || String(pythonMultiplierInput).trim() === '' ? current.python_time_limit_multiplier : Number(pythonMultiplierInput);
       const memoryLimit = type === 'submit-answer' ? current.memory_limit : Number(req.body && req.body.memory_limit);
       const maximumTime = Number(syzoj.config.limit && syzoj.config.limit.time_limit || 86400000);
       const maximumMemory = Number(syzoj.config.limit && syzoj.config.limit.memory_limit || 1048576);
       if (type !== 'submit-answer' && (!Number.isSafeInteger(timeLimit) || timeLimit < 1 || timeLimit > maximumTime)) throw Object.assign(new Error('Time limit is invalid.'), { code: 'VALIDATION_FAILED', statusCode: 422, fields: { time_limit: 'out of range' } });
+      if (type !== 'submit-answer' && (!Number.isFinite(pythonTimeLimitMultiplier) || pythonTimeLimitMultiplier <= 0 || pythonTimeLimitMultiplier > 1000)) throw Object.assign(new Error('Python time limit multiplier is invalid.'), { code: 'VALIDATION_FAILED', statusCode: 422, fields: { python_time_limit_multiplier: 'a number from 0 to 1000 is required' } });
       if (type !== 'submit-answer' && (!Number.isSafeInteger(memoryLimit) || memoryLimit < 1 || memoryLimit > maximumMemory)) throw Object.assign(new Error('Memory limit is invalid.'), { code: 'VALIDATION_FAILED', statusCode: 422, fields: { memory_limit: 'out of range' } });
       const fileIo = type === 'traditional' && !!(req.body && req.body.file_io);
       const inputName = fileIo ? judgeConfigFilename(req.body.file_io_input_name, 'file_io_input_name') : current.file_io_input_name;
       const outputName = fileIo ? judgeConfigFilename(req.body.file_io_output_name, 'file_io_output_name') : current.file_io_output_name;
-      const saved = { problem_id: Number(problem.id), type, time_limit: timeLimit, memory_limit: memoryLimit, file_io: fileIo, file_io_input_name: inputName, file_io_output_name: outputName };
+      const saved = { problem_id: Number(problem.id), type, time_limit: timeLimit, python_time_limit_multiplier: pythonTimeLimitMultiplier, memory_limit: memoryLimit, file_io: fileIo, file_io_input_name: inputName, file_io_output_name: outputName };
       const projection = await problemDomain.updateJudgeConfigurationAggregate(manager, problem, saved, user.id);
       const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, { action: 'problem:judge-configuration.update', resourceType: 'problem', resourceId: Number(problem.id), scope: `problem:${problem.id}`, details: saved }, manager);
       const eventId = await contentDomain.appendEvent(manager, { stream: `problem:${problem.id}`, type: 'problem.judge-configuration.updated', aggregateId: problem.id, actorId: user.id, payload: { ...saved, audit_event_id: auditEventId } });
       return { ...saved, version_id: projection.version_id, snapshot_id: projection.snapshot_id, audit_event_id: auditEventId, event_id: eventId };
     });
+    await Problem.deleteFromCache(problem.id);
     return api().send(res, result);
   } catch (error) { return contentFailure(res, error); }
+}
+app.patch('/api/v2/problems/:id/judge-configuration', updateJudgeConfigurationV2);
+app.post('/api/v2/problems/:id/judge-configuration/update', updateJudgeConfigurationV2);
+app.post('/api/v2/problems/:id/testdata/upload', requireTestdataWriter, (req, res, next) => testdataUploadMiddleware(req, res, error => { if (error) return api().fail(res, error.code === 'LIMIT_FILE_SIZE' ? 413 : 422, error.code === 'LIMIT_FILE_SIZE' ? 'SOURCE_TOO_LARGE' : 'TESTDATA_UPLOAD_INVALID', error.message); next(); }), async (req, res) => {
+  const user = res.locals.user; const problem = res.locals.testdataUploadProblem;
+  if (!req.file) return api().fail(res, 422, 'TESTDATA_UPLOAD_INVALID', 'A ZIP archive is required.', { archive: 'required' });
+  try {
+    const queued = await queueTestdataUpload(problem, user, req.file.path);
+    return api().send(res, queued, 202);
+  } catch (error) {
+    if (req.file && req.file.path) await fs.remove(req.file.path).catch(() => {});
+    return api().fail(res, error.statusCode || 500, error.code || 'CONTENT_WRITE_FAILED', error.message);
+  }
 });
-app.post('/api/v2/problems/:id/testdata/upload', requireTestdataWriter, (req, res, next) => testdataUploadMiddleware(req, res, error => { if (error) return api().fail(res, error.code === 'LIMIT_FILE_SIZE' ? 413 : 422, error.code === 'LIMIT_FILE_SIZE' ? 'SOURCE_TOO_LARGE' : 'TESTDATA_UPLOAD_INVALID', error.message); next(); }), async (req, res) => { const user = res.locals.user; const problem = res.locals.testdataUploadProblem; if (!req.file) return api().fail(res, 422, 'TESTDATA_UPLOAD_INVALID', 'A ZIP archive is required.', { archive: 'required' }); await ensureProblemWorkflowSchema(); const id = crypto.randomUUID(); const archive = `${id}.zip`; try { await fs.ensureDir(testdataUploadRoot()); await fs.move(req.file.path, path.join(testdataUploadRoot(), archive), { overwrite: false }); await TypeORM.getConnection().query("INSERT INTO problem_v2_job (id,problem_id,kind,state,progress,input_json,actor_id,created_at,updated_at) VALUES (?,?,'upload','queued',0,?, ?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))", [id, problem.id, JSON.stringify({ archive }), user.id]); await api().appendEvent({ stream: `problem-job:${id}`, type: 'problem.testdata.upload.queued', aggregateId: id, actor: user, payload: { problem_id: Number(problem.id) } }); setImmediate(() => runUploadJob(id, problem)); return api().send(res, { id, problem_id: Number(problem.id), kind: 'upload', state: 'queued', progress: 0 }, 202); } catch (error) { if (req.file && req.file.path) await fs.remove(req.file.path).catch(() => {}); return api().fail(res, error.statusCode || 500, error.code || 'CONTENT_WRITE_FAILED', error.message); } });
+
+// Large multipart requests are commonly rejected by a public reverse proxy.
+// Keep each transport request below 512 KiB, then assemble the archive before
+// handing it to the existing validation job.
+app.post('/api/v2/problems/:id/testdata/upload/chunk', requireTestdataWriter, (req, res, next) => testdataChunkMiddleware(req, res, error => {
+  if (error) return api().fail(res, error.code === 'LIMIT_FILE_SIZE' ? 413 : 422, error.code === 'LIMIT_FILE_SIZE' ? 'SOURCE_TOO_LARGE' : 'TESTDATA_UPLOAD_INVALID', error.message);
+  next();
+}), async (req, res) => {
+  let metadata;
+  try { metadata = uploadChunkMetadata(req.body); } catch (error) { if (req.file) await fs.remove(req.file.path).catch(() => {}); return api().fail(res, error.statusCode || 422, error.code || 'TESTDATA_UPLOAD_INVALID', error.message); }
+  if (!req.file) return api().fail(res, 422, 'TESTDATA_UPLOAD_INVALID', 'A ZIP upload chunk is required.', { chunk: 'required' });
+  const destination = path.join(testdataChunkRoot(metadata.uploadId), `${metadata.index}.part`);
+  try {
+    await fs.ensureDir(path.dirname(destination));
+    await fs.move(req.file.path, destination, { overwrite: true });
+    const stat = await fs.stat(destination);
+    return api().send(res, { upload_id: metadata.uploadId, chunk_index: metadata.index, total_chunks: metadata.total, received_bytes: stat.size });
+  } catch (error) {
+    await fs.remove(req.file.path).catch(() => {});
+    return api().fail(res, error.statusCode || 500, error.code || 'CONTENT_WRITE_FAILED', error.message);
+  }
+});
+
+app.post('/api/v2/problems/:id/testdata/upload/complete', requireTestdataWriter, async (req, res) => {
+  let metadata;
+  try { metadata = uploadChunkMetadata(req.body); } catch (error) { return api().fail(res, error.statusCode || 422, error.code || 'TESTDATA_UPLOAD_INVALID', error.message); }
+  const root = testdataChunkRoot(metadata.uploadId);
+  const assembled = path.join(testdataUploadRoot(), `${metadata.uploadId}.assembled.zip`);
+  try {
+    let totalBytes = 0;
+    await fs.writeFile(assembled, '');
+    for (let index = 0; index < metadata.total; index++) {
+      const part = path.join(root, `${index}.part`);
+      const stat = await fs.stat(part).catch(() => null);
+      if (!stat || !stat.isFile()) throw Object.assign(new Error(`Upload chunk ${index + 1} is missing.`), { code: 'TESTDATA_UPLOAD_INVALID', statusCode: 422 });
+      totalBytes += Number(stat.size);
+      if (totalBytes > 200 * 1024 * 1024) throw Object.assign(new Error('The uploaded ZIP exceeds the allowed size.'), { code: 'SOURCE_TOO_LARGE', statusCode: 413 });
+      await fs.appendFile(assembled, await fs.readFile(part));
+    }
+    const queued = await queueTestdataUpload(res.locals.testdataUploadProblem, res.locals.user, assembled);
+    await fs.remove(root);
+    return api().send(res, queued, 202);
+  } catch (error) {
+    await fs.remove(assembled).catch(() => {});
+    return api().fail(res, error.statusCode || 500, error.code || 'CONTENT_WRITE_FAILED', error.message);
+  }
+});
 app.post('/api/v2/problems/:id/testdata/files', requireTestdataWriter, (req, res, next) => testdataFilesMiddleware(req, res, error => {
   if (!error) return next();
   const tooLarge = error.code === 'LIMIT_FILE_SIZE';
@@ -374,6 +593,9 @@ app.post('/api/v2/problems/:id/testdata/files', requireTestdataWriter, (req, res
       actor: user,
       payload: { filenames: uploaded, audit_event_id: auditEventId }
     });
+    if (snapshot && syzoj.utils.contestV2 && syzoj.utils.contestV2.syncProblemSnapshotsForProblem) {
+      await syzoj.utils.contestV2.syncProblemSnapshotsForProblem(problem.id, user, req);
+    }
     return api().send(res, { problem_id: Number(problem.id), filenames: uploaded, testdata: summary, snapshot_id: snapshot && snapshot.snapshot_id || null, audit_event_id: auditEventId, event_id: String(event.id) }, 201);
   } catch (error) {
     return api().fail(res, error.statusCode || 500, error.code || 'CONTENT_WRITE_FAILED', error.message || 'Testdata upload failed.', error.fields || {});
@@ -474,10 +696,17 @@ app.delete('/api/v2/problems/:id/testdata/files/:filename', requireTestdataWrite
 app.post('/api/v2/problems/bulk-actions', async (req, res) => {
   const user = res.locals.user;
   if (!user) return api().fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.');
-  if (!syzoj.utils.authorizationV2.recentLoginSatisfied(req)) return api().fail(res, 403, 'RECENT_LOGIN_REQUIRED', 'Please sign in again before archiving problems.');
   try {
     const queued = await queueBulkArchive(req, user, req.body);
     return api().send(res, { id: queued.id, kind: 'problem_bulk_action', subtype: queued.input.action, state: 'queued', progress: 0, impact: { problem_ids: queued.input.problem_ids }, audit_event_id: queued.auditEventId }, 202);
+  } catch (error) { return contentFailure(res, error); }
+});
+app.post('/api/v2/problems/bulk-tags', async (req, res) => {
+  const user = await requireTagManager(req, res);
+  if (!user) return;
+  try {
+    const result = await applyBulkTag(req, user, req.body);
+    return api().send(res, result, 201);
   } catch (error) { return contentFailure(res, error); }
 });
 app.patch('/api/v2/problems/:id/solution-settings', async (req, res) => {
@@ -584,7 +813,7 @@ app.get('/api/v2/tags/:id', async (req, res) => {
 });
 app.put('/api/v2/tags/:id', async (req, res) => {
   const user = await requireTagManager(req, res); if (!user) return;
-  if (!req.get('If-Match')) return api().fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when editing a tag.', { if_match: 'required' });
+  if (!(req.get('If-Match') || req.body && req.body.if_match)) return api().fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when editing a tag.', { if_match: 'required' });
   try {
     const tag = await TypeORM.getConnection().transaction(async manager => {
       const current = await loadTag(manager, Number(req.params.id), true);
@@ -604,7 +833,7 @@ app.put('/api/v2/tags/:id', async (req, res) => {
 });
 app.delete('/api/v2/tags/:id', async (req, res) => {
   const user = await requireTagManager(req, res); if (!user) return;
-  if (!req.get('If-Match')) return api().fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when deleting a tag.', { if_match: 'required' });
+  if (!(req.get('If-Match') || req.body && req.body.if_match)) return api().fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when deleting a tag.', { if_match: 'required' });
   try {
     const tag = await TypeORM.getConnection().transaction(async manager => {
       const current = await loadTag(manager, Number(req.params.id), true);
@@ -619,7 +848,7 @@ app.delete('/api/v2/tags/:id', async (req, res) => {
   } catch (error) { return contentFailure(res, error); }
 });
 app.get('/api/v2/problems/:id/tags', async (req, res) => { const problem = await Problem.findById(Number(req.params.id)); if (!problem) return api().fail(res, 404, 'PROBLEM_NOT_FOUND', 'Problem was not found.'); const canRead = !!problem.is_public || await can(res.locals.user, 'problem:edit', problem); if (!canRead) return api().fail(res, 404, 'PROBLEM_NOT_FOUND', 'Problem was not found.'); const rows = await TypeORM.getConnection().query('SELECT tag_id FROM problem_tag_map WHERE problem_id=? ORDER BY tag_id ASC', [problem.id]); return api().send(res, { problem_id: Number(problem.id), tag_ids: rows.map(row => Number(row.tag_id)) }); });
-app.put('/api/v2/problems/:id/tags', async (req, res) => { const user = res.locals.user; if (!user) return api().fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.'); const problem = await Problem.findById(Number(req.params.id)); if (!problem) return api().fail(res, 404, 'PROBLEM_NOT_FOUND', 'Problem was not found.'); if (!await can(user, 'problem:edit', problem)) return api().fail(res, 403, 'CAPABILITY_REQUIRED', 'Capability required: problem:edit.'); if (!req.get('If-Match')) return api().fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when replacing problem tags.', { if_match: 'required' }); const rawIds = req.body && req.body.tag_ids; if (!Array.isArray(rawIds) || rawIds.length > 20) return api().fail(res, 422, 'VALIDATION_FAILED', 'Tag IDs must contain at most 20 unique positive integers.', { tag_ids: '1-20 unique positive integers required' }); const ids = rawIds.map(Number); if (ids.some(id => !Number.isSafeInteger(id) || id <= 0) || new Set(ids).size !== ids.length) return api().fail(res, 422, 'VALIDATION_FAILED', 'Tag IDs must contain at most 20 unique positive integers.', { tag_ids: '1-20 unique positive integers required' }); try { await TypeORM.getConnection().transaction(async manager => { const currentRows = await manager.query('SELECT tag_id FROM problem_tag_map WHERE problem_id=? ORDER BY tag_id ASC FOR UPDATE', [problem.id]); const current = { problem_id: Number(problem.id), tag_ids: currentRows.map(row => Number(row.tag_id)) }; if (!api().ifMatch(req, current)) throw tagError('Problem tags changed. Refresh them and try again.', 'ETAG_MISMATCH', 412); if (ids.length) { const placeholders = ids.map(() => '?').join(','); const existing = await manager.query(`SELECT id FROM problem_tag WHERE id IN (${placeholders}) FOR UPDATE`, ids); if (existing.length !== ids.length) throw tagError('One or more tags were not found.', 'TAG_NOT_FOUND', 404, { tag_ids: 'contains an unknown tag' }); } await manager.query('DELETE FROM problem_tag_map WHERE problem_id=?', [problem.id]); for (const tagId of ids) await manager.query('INSERT INTO problem_tag_map (problem_id,tag_id) VALUES (?,?)', [problem.id, tagId]); }); return api().send(res, { problem_id: Number(problem.id), tag_ids: ids }); } catch (error) { return contentFailure(res, error); } });
+app.put('/api/v2/problems/:id/tags', async (req, res) => { const user = res.locals.user; if (!user) return api().fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.'); const problem = await Problem.findById(Number(req.params.id)); if (!problem) return api().fail(res, 404, 'PROBLEM_NOT_FOUND', 'Problem was not found.'); if (!await can(user, 'problem:edit', problem)) return api().fail(res, 403, 'CAPABILITY_REQUIRED', 'Capability required: problem:edit.'); if (!(req.get('If-Match') || req.body && req.body.if_match)) return api().fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when replacing problem tags.', { if_match: 'required' }); const rawIds = req.body && req.body.tag_ids; if (!Array.isArray(rawIds) || rawIds.length > 20) return api().fail(res, 422, 'VALIDATION_FAILED', 'Tag IDs must contain at most 20 unique positive integers.', { tag_ids: '1-20 unique positive integers required' }); const ids = rawIds.map(Number); if (ids.some(id => !Number.isSafeInteger(id) || id <= 0) || new Set(ids).size !== ids.length) return api().fail(res, 422, 'VALIDATION_FAILED', 'Tag IDs must contain at most 20 unique positive integers.', { tag_ids: '1-20 unique positive integers required' }); try { await TypeORM.getConnection().transaction(async manager => { const currentRows = await manager.query('SELECT tag_id FROM problem_tag_map WHERE problem_id=? ORDER BY tag_id ASC FOR UPDATE', [problem.id]); const current = { problem_id: Number(problem.id), tag_ids: currentRows.map(row => Number(row.tag_id)) }; if (!api().ifMatch(req, current)) throw tagError('Problem tags changed. Refresh them and try again.', 'ETAG_MISMATCH', 412); if (ids.length) { const placeholders = ids.map(() => '?').join(','); const existing = await manager.query(`SELECT id FROM problem_tag WHERE id IN (${placeholders}) FOR UPDATE`, ids); if (existing.length !== ids.length) throw tagError('One or more tags were not found.', 'TAG_NOT_FOUND', 404, { tag_ids: 'contains an unknown tag' }); } await manager.query('DELETE FROM problem_tag_map WHERE problem_id=?', [problem.id]); for (const tagId of ids) await manager.query('INSERT INTO problem_tag_map (problem_id,tag_id) VALUES (?,?)', [problem.id, tagId]); }); return api().send(res, { problem_id: Number(problem.id), tag_ids: ids }); } catch (error) { return contentFailure(res, error); } });
 
 app.get('/api/v2/problems/:id/solutions', async (req, res) => {
   const problem = await Problem.findById(Number(req.params.id));
@@ -685,7 +914,7 @@ app.get('/api/v2/solutions/:id', async (req, res) => {
 app.patch('/api/v2/solutions/:id', async (req, res) => {
   const user = res.locals.user;
   if (!user) return api().fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.');
-  if (!req.get('If-Match')) return api().fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when editing a solution.', { if_match: 'required' });
+  if (!(req.get('If-Match') || req.body && req.body.if_match)) return api().fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when editing a solution.', { if_match: 'required' });
   const isModerator = await can(user, 'solution:moderate');
   try {
     const result = await contentTransaction(manager => contentDomain.updateSolution(manager, {

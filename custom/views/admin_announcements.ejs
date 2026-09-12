@@ -18,7 +18,7 @@ async function detail(id) {
     var response = await fetch('/api/v2/admin/announcements/' + encodeURIComponent(id), { credentials: 'same-origin', cache: 'no-store' });
     var body = await response.json();
     if (!response.ok) throw Object.assign(new Error(message(body, '公告读取失败。')), { code: body && body.error && body.error.code });
-    return { etag: response.headers.get('ETag'), data: body.data };
+    return { etag: response.headers.get('ETag') || body && body.meta && body.meta.etag || '', data: body.data };
   }
   document.querySelectorAll('form[data-announcement-v2]').forEach(function (form) {
     form.addEventListener('submit', async function (event) {
@@ -35,7 +35,8 @@ async function detail(id) {
           credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestKey(), 'If-Match': current.etag || '' }
         };
-        if (action === 'toggle') options.body = JSON.stringify({ active: form.dataset.announcementActive !== 'true' });
+        if (action === 'toggle') options.body = JSON.stringify({ active: form.dataset.announcementActive !== 'true', if_match: current.etag });
+        else if (action === 'delete') options.body = JSON.stringify({ if_match: current.etag });
         var response = await fetch('/api/v2/admin/announcements/' + encodeURIComponent(id), options);
         var body = await response.json();
         if (!response.ok) throw new Error(message(body, '公告操作失败。'));

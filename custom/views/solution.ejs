@@ -114,13 +114,14 @@ async function currentSolution() {
       if (action === 'review') {
         var current = await currentSolution();
         if (!current.response.ok) throw new Error(failureMessage(current.body, '暂时无法读取题解状态。'));
-        var etag = current.response.headers.get('ETag');
+        var etag = current.response.headers.get('ETag') || current.body && current.body.meta && current.body.meta.etag;
         if (!etag) throw new Error('题解版本信息缺失，请刷新后重试。');
         endpoint = '/api/v2/solutions/' + encodeURIComponent(solutionId) + '/review';
         headers['If-Match'] = etag;
         payload = {
           decision: form.dataset.solutionDecision,
-          reason: form.elements.reason ? form.elements.reason.value : undefined
+          reason: form.elements.reason ? form.elements.reason.value : undefined,
+          if_match: etag
         };
       }
       var result = await readResponse(await fetch(endpoint, {

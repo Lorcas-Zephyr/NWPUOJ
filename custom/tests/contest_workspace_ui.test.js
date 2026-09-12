@@ -63,6 +63,22 @@ test('contest list provides instant state filtering with v2-first registration w
   assert.match(view, /include app_pagination/);
 });
 
+test('contest list and home render the same status and start-time ordering', () => {
+  const route = read('custom/modules/_contest_registration.js');
+  const order = read('custom/libs/contest-order.js');
+  const home = read('custom/views/index.ejs');
+  const list = read('custom/views/contests.ejs');
+
+  assert.match(order, /upcoming:\s*0/);
+  assert.match(order, /running:\s*1/);
+  assert.match(order, /ended:\s*2/);
+  assert.match(order, /Number\(a\.start_time \|\| 0\) - Number\(b\.start_time \|\| 0\)/);
+  assert.equal((route.match(/options\.contests = sortContests\(options\.contests, syzoj\.utils\.getCurrentDate\(\)\)/g) || []).length, 2);
+  assert.match(route, /view === 'index' && options && Array\.isArray\(options\.contests\)/);
+  assert.match(home, /for \(const contest of contests\)/);
+  assert.match(list, /for \(const item of contestRows\)/);
+});
+
 test('contest overview, standings, and public participants share the new context', () => {
   const context = read('custom/views/contest_context.ejs');
   const problems = read('custom/views/contest.ejs');
@@ -82,6 +98,8 @@ test('contest overview, standings, and public participants share the new context
   assert.match(context, /\['contest', appContest\.id, 'participants'\]/);
   assert.match(context, /data-contest-registration-v2="register"/);
   assert.match(context, /data-contest-registration-v2="unregister"/);
+  assert.match(context, /!appContestRegistration\.allowRegistration/);
+  assert.match(context, /仅限比赛账号/);
   assert.match(context, /include contest_registration_v2_script/);
   assert.doesNotMatch(context, /\['contest', appContest\.id, 'registrations'\]/);
   assert.match(problems, /app-contest-workspace/);
@@ -91,7 +109,7 @@ test('contest overview, standings, and public participants share the new context
   assert.match(problems, /app-contest-problem-row <%= appProblemClass %>/);
   assert.doesNotMatch(problems, /app-contest-problems-table|<table\b/);
   assert.match(ranklist, /app-contest-rank-summary/);
-  assert.match(ranklist, /syzoj\.utils\.renderUsername\(item\.user\)/);
+  assert.match(ranklist, /syzoj\.utils\.renderUsername\(appDisplayUser\)/);
   assert.match(participants, /syzoj\.utils\.renderUsername\(participantUser\)/);
   assert.match(css, /\.app-contest-list-row\s*\{/);
   assert.match(css, /\.app-contest-workspace\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 250px/s);
@@ -104,11 +122,16 @@ test('contest details own information and announcements without duplicating cont
   const details = read('custom/views/contest_details.ejs');
   const problems = read('custom/views/contest.ejs');
   const interactions = read('custom/modules/_contest_interactions.js');
+  const mentions = read('custom/libs/user-mentions.js');
   const loader = read('custom/modules/_user_privilege_loader.js');
   const css = read('custom/app-features.css');
 
   assert.match(interactions, /app\.get\('\/contest\/:id\/details'/);
   assert.match(interactions, /syzoj\.utils\.markdown\(content, \['subtitle', 'information'\]\)/);
+  assert.match(interactions, /const \{ linkUserMentions \} = require\('\.\.\/libs\/user-mentions'\)/);
+  assert.match(interactions, /content\.information = await linkUserMentions\(content\.information\)/);
+  assert.match(mentions, /MENTION_SKIP_SELECTOR = 'a,code,pre,script,style'/);
+  assert.match(mentions, /app-user-mention username-tier-/);
   assert.match(loader, /details\|ranklist\|submissions\|participants\|registrations/);
   assert.match(details, /比赛信息/);
   assert.match(details, /比赛公告/);
@@ -137,16 +160,66 @@ test('contest workspaces render the current problem version instead of the origi
   assert.match(interactions, /applyCurrentProblemVersions\(options\.problems\.map\(item => item\.problem\)\)/);
   assert.match(interactions, /await applyCurrentProblemVersions\(\[problem\]\)/);
   assert.match(search, /loadCurrentVersionContent\(problem\.id\)/);
+  assert.match(search, /COALESCE\(JSON_UNQUOTE\(JSON_EXTRACT\(current_version\.content_json, '\$\.title'\)\), problem\.title\) LIKE :title/);
+  assert.doesNotMatch(search, /result\.length >= syzoj\.config\.page\.edit_contest_problem_list/);
+});
+
+test('contest problem statements render known user mentions after Markdown', () => {
+  const interactions = read('custom/modules/_contest_interactions.js');
+  const presentation = interactions.slice(
+    interactions.indexOf('async function loadContestProblemPresentation'),
+    interactions.indexOf('async function applyCurrentProblemVersions')
+  );
+
+  assert.match(presentation, /syzoj\.utils\.markdown\(rendered, fields\)/);
+  assert.match(presentation, /fields\.map\(async field => \{/);
+  assert.match(presentation, /rendered\[field\] = await linkUserMentions\(rendered\[field\]\)/);
+  assert.ok(
+    presentation.indexOf('syzoj.utils.markdown(rendered, fields)') <
+      presentation.indexOf('linkUserMentions(rendered[field])')
+  );
 });
 
 test('contest rankings and submissions start directly with their working content', () => {
   const ranklist = read('custom/views/contest_ranklist.ejs');
+  const interactions = read('custom/modules/_contest_interactions.js');
+  const css = read('custom/app-features.css');
   const submissions = read('custom/views/submissions.ejs');
 
   assert.doesNotMatch(ranklist, /STANDINGS|<h2>排行榜<\/h2>/);
+  assert.match(ranklist, /\['all', '全部'\], \['contest', '比赛账户'\], \['ordinary', '普通账户'\], \['ai', 'AI账户'\]/);
+  assert.match(ranklist, /appRankAccountUrl\(option\[0\]\)/);
+  assert.match(ranklist, /appRankExportUrl\(\)/);
+  assert.match(ranklist, /导出排行榜/);
+  assert.match(ranklist, /canManageRanklist/);
+  assert.match(ranklist, /data-rank-identity-toggle/);
+  assert.match(ranklist, /显示真实信息/);
+  assert.match(ranklist, /appRankDisplayUser\(item\)/);
+  assert.match(ranklist, /String\(profile\.real_name\) \+ '-' \+ String\(profile\.student_id\)/);
+  assert.match(ranklist, /searchParams\.set\('identity', 'real'\)/);
+  assert.match(ranklist, /searchParams\.delete\('identity'\)/);
+  assert.match(ranklist, /（<%= appOverallRank %>）/);
+  assert.match(interactions, /normalizeRanklistAccountFilter\(req\.query\.account\)/);
+  assert.match(interactions, /LEFT JOIN temporary_contest_account temporary_account/);
+  assert.match(interactions, /overall_standing_rank = item\.player\.standing_rank/);
+  assert.match(interactions, /tie: item\.tie/);
+  assert.equal((interactions.match(/assignStandingRanks\(rankedItems, contest\.type\)/g) || []).length, 1);
+  assert.match(interactions, /paginate\(rankedItems\.length, req\.query\.page, 100\)/);
+  assert.match(interactions, /app\.get\('\/contest\/:id\/ranklist\/export'/);
+  assert.match(interactions, /contest:standings\.export/);
+  assert.match(interactions, /buildContestRanklistCsv/);
+  assert.match(interactions, /loadRanklistProfiles\(items\)/);
+  assert.match(interactions, /const canManageRanklist = await canExportContestRanklist/);
+  assert.match(interactions, /canManageRanklist && String\(req\.query\.identity \|\| ''\) === 'real'/);
+  assert.match(interactions, /showRanklistIdentities \? await loadRanklistProfiles\(ranklist\) : new Map\(\)/);
+  assert.match(css, /\.app-rank-overall\s*\{[^}]*display:\s*inline;[^}]*white-space:\s*nowrap/s);
+  assert.match(css, /\.app-rank-class-filter > summary\.app-button[\s\S]*color:\s*var\(--app-text\) !important/);
+  assert.match(css, /\.app-rank-class-options label > span strong \{ color: var\(--app-text\); \}/);
+  assert.match(css, /\.app-rank-class-actions > button\.app-button-primary[\s\S]*background:\s*var\(--app-accent\) !important/);
+  assert.match(css, /\.app-rank-class-actions > button\.app-button-primary:hover[\s\S]*background:\s*var\(--app-accent-hover\) !important/);
   assert.doesNotMatch(submissions, /当前可查看参赛者提交|当前仅可查看自己的提交/);
-  assert.match(submissions, /&& !displayConfig\.inContest/);
-  assert.match(submissions, /&& !displayConfig\.inContest\) \{ %><header[\s\S]*?JUDGE ACTIVITY[\s\S]*?<\/header><% \} else if/s);
+  assert.match(submissions, /&& !displayConfig\.inContest && !displayConfig\.inProblemSet/);
+  assert.match(submissions, /&& !displayConfig\.inContest && !displayConfig\.inProblemSet\) \{ %><header[\s\S]*?JUDGE ACTIVITY[\s\S]*?<\/header><% \} else if/s);
 });
 
 test('all public contest subpages use one title convention and expose the active section', () => {
@@ -175,6 +248,8 @@ test('public participants and administrator registration management are separate
   const participants = read('custom/views/contest_participants.ejs');
   const registrations = read('custom/views/contest_registrations.ejs');
   const temporaryAccounts = read('custom/modules/_contest_temp_accounts.js');
+  const search = read('custom/modules/_api_v2_search.js');
+  const featureCss = read('custom/app-features.css');
   const publicRoute = route.slice(
     route.indexOf("app.get('/contest/:id/participants'"),
     route.indexOf("app.get('/contest/:id/registrations'")
@@ -212,6 +287,16 @@ test('public participants and administrator registration management are separate
   assert.doesNotMatch(registrations, /rebuild-standings/);
   assert.match(registrations, /data-contest-participant-v2="remove"/);
   assert.match(registrations, /data-contest-participant-v2="restore"/);
+  assert.match(registrations, /canManageRegistrations && !contest\.isEnded\(\)[\s\S]*添加普通账户/);
+  assert.match(registrations, /id="contest-participant-add-dialog"/);
+  assert.match(registrations, /\/api\/v2\/search\/users\/.*\?ordinary=1/);
+  assert.match(registrations, /updateParticipant\(addDialog\.dataset\.contestId, 'add', userId\)/);
+  assert.match(registrations, /data-ordinary-registration-v2/);
+  assert.match(registrations, /name="student_ids_csv"/);
+  assert.match(registrations, /\/api\/v2\/contests\/.*\/participants\/import/);
+  assert.match(search, /req\.query\.ordinary === '1'/);
+  assert.match(search, /FROM temporary_contest_account WHERE user_id IN \(\?\)/);
+  assert.match(featureCss, /\.app-contest-account-results\s*\{[^}]*grid-auto-rows:\s*48px;[^}]*max-height:\s*480px;[^}]*overflow-y:\s*auto;/s);
   assert.match(registrations, /\/api\/v2\/contests\/.*\/participants\/bulk-action/);
   assert.match(registrations, /data-contest-standings-v2/);
   assert.match(registrations, /\/standings\/rebuilds\//);
@@ -221,6 +306,11 @@ test('public participants and administrator registration management are separate
   const temporaryAccountsV2 = read('custom/modules/_api_v2_contest_temp_accounts.js');
   assert.match(temporaryAccountsV2, /app\.post\('\/api\/v2\/admin\/contest-temp-accounts\/import'/);
   assert.match(temporaryAccounts, /contestMutation\.acquireContestLock\(contestId\)/);
+  assert.match(route, /return syzoj\.utils\.authorizationV2\.authorize\(user, capability, resource/);
+  assert.doesNotMatch(route, /String\(contest\.admins \|\| ''\)\.split\('\|'\)/);
+  assert.match(route, /contestId === 0[\s\S]*authorizationV2\.authorize\([\s\S]*'contest:create'[\s\S]*editorUser\.is_admin = true/);
+  assert.match(read('custom/modules/_user_privilege_loader.js'), /Contest\.prototype\.isSupervisior/);
+  assert.doesNotMatch(read('custom/modules/_user_privilege_loader.js'), /elevatedUser\.is_admin = true/);
 });
 
 test('all contest-mode labels shown to users use ACM while compatibility identifiers stay lowercase', () => {

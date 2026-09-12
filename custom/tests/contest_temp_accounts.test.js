@@ -7,6 +7,7 @@ const {
   csvCell,
   isLoginAllowed,
   normalizeRows,
+  normalizeStudentIdRows,
   parseCsv,
   uniqueUsername,
   usernamePart
@@ -27,6 +28,12 @@ test('parses BOM, CRLF, quoted commas and escaped quotes', () => {
 test('normalizes accepted header aliases and trims values', () => {
   const rows = normalizeRows(Buffer.from(' real name ,student_id,college\n 张三 ,2026000001, 计算机学院 \n'));
   assert.deepEqual(rows, [{ name: '张三', studentId: '2026000001', college: '计算机学院' }]);
+});
+
+test('normalizes ordinary-account student ID CSVs with or without a header', () => {
+  assert.deepEqual(normalizeStudentIdRows(Buffer.from('\uFEFF学号\r\n2026000001\r\n2026000002\r\n')), ['2026000001', '2026000002']);
+  assert.deepEqual(normalizeStudentIdRows(Buffer.from('2026000001\n2026000002\n')), ['2026000001', '2026000002']);
+  assert.throws(() => normalizeStudentIdRows(Buffer.from('学号\n2026000001\n2026000001\n')), /学号在文件中重复/);
 });
 
 test('rejects malformed, duplicate and oversized imports', () => {
@@ -55,6 +62,12 @@ test('normalizes username parts and resolves database collisions', async () => {
   const reserved = new Set();
   assert.equal(await uniqueUsername(manager, '计算机学院-张三', '2026000001', reserved), '计算机学院-张三-0001');
   assert.ok(reserved.has('计算机学院-张三-0001'));
+});
+
+test('limits generated temporary-account usernames to twenty characters', async () => {
+  const manager = { async query() { return []; } };
+  const username = await uniqueUsername(manager, '超长学院名称超长学院名称-超长姓名', '2026000001', new Set());
+  assert.ok(username.length <= 20);
 });
 
 test('preserves existing ranklist order while appending imported players', () => {
@@ -110,4 +123,48 @@ test('v2 temporary-account import is transactional, audited, evented, and one-ti
   assert.match(view, /fetch\('\/api\/v2\/admin\/contest-temp-accounts\/import'/);
   assert.doesNotMatch(view, /API_DOMAIN_DISABLED|legacySubmit|HTMLFormElement\.prototype\.submit/);
   assert.match(view, /URL\.createObjectURL\(new Blob/);
+});
+
+test('generated contest accounts remain registered and submission-eligible when self registration is disabled', () => {
+  const temporaryImport = fs.readFileSync(path.join(__dirname, '../modules/_contest_temp_accounts.js'), 'utf8');
+  const registration = fs.readFileSync(path.join(__dirname, '../modules/_contest_registration.js'), 'utf8');
+  const mutation = fs.readFileSync(path.join(__dirname, '../libs/contest-mutation.js'), 'utf8');
+  const submission = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_submission_domain.js'), 'utf8');
+
+  assert.match(registration, /allow_registration TINYINT\(1\) NOT NULL DEFAULT 1/);
+  assert.match(mutation, /if \(!options\.managed && Number\(context\.setting\.allow_registration\) === 0\)[\s\S]*请使用比赛账号参赛/);
+  assert.match(temporaryImport, /INSERT INTO temporary_contest_account[\s\S]*INSERT INTO contest_player/);
+  assert.doesNotMatch(temporaryImport, /contestMutation\.registerUser/);
+  assert.match(registration, /async function canParticipateInContest[\s\S]*findRegistration\(contest\.id, user\.id\)/);
+  assert.match(submission, /async function registeredForContest[\s\S]*FROM contest_player WHERE contest_id=\? AND user_id=\?/);
+});
+
+test('global rankings exclude temporary accounts while contest standings keep every participant', () => {
+  const globalRanklist = fs.readFileSync(path.join(__dirname, '../modules/_ranklist.js'), 'utf8');
+  const webConfig = JSON.parse(fs.readFileSync(path.join(__dirname, '../web.json'), 'utf8'));
+  const contestInteractions = fs.readFileSync(path.join(__dirname, '../modules/_contest_interactions.js'), 'utf8');
+  const contestApi = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_contest_domain.js'), 'utf8');
+  const contestRating = fs.readFileSync(path.join(__dirname, '../libs/contest-rating.js'), 'utf8');
+  const classicStandingSource = contestInteractions.slice(
+    contestInteractions.indexOf('async function loadContestRanklist'),
+    contestInteractions.indexOf('async function loadContestProblemPresentation')
+  );
+  const v2StandingSource = contestApi.slice(
+    contestApi.indexOf('async function standingSource'),
+    contestApi.indexOf('async function insertStandingRows')
+  );
+  const ratingStandingSource = contestRating.slice(
+    contestRating.indexOf('async function canonicalStandings'),
+    contestRating.indexOf('async function finalizeContestInTransaction')
+  );
+
+  assert.equal(webConfig.page.ranklist, 100);
+  assert.match(globalRanklist, /leftJoin\('temporary_contest_account', 'temporary_account'/);
+  assert.match(globalRanklist, /andWhere\('temporary_account\.user_id IS NULL'\)/);
+  assert.match(globalRanklist, /let total = await ordinaryUsers\(\)\.getCount\(\)/);
+  assert.doesNotMatch(globalRanklist, /User\.queryPage/);
+  assert.match(classicStandingSource, /LEFT JOIN temporary_contest_account temporary_account/);
+  assert.doesNotMatch(classicStandingSource, /temporary_account\.user_id IS NULL/);
+  assert.doesNotMatch(v2StandingSource, /temporary_contest_account/);
+  assert.doesNotMatch(ratingStandingSource, /temporary_contest_account/);
 });

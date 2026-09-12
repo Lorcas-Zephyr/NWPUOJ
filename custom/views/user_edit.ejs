@@ -1,15 +1,20 @@
 <% this.title = '修改资料' %>
 <%
-const appCanManagePrivileges = !!(user && typeof appHasCapability === 'function' && appHasCapability('admin:permission.grant'));
-const appCurrentUserIsSiteOwner = typeof isSiteOwner !== 'undefined' && isSiteOwner;
-const appEditedUserIsSiteOwner = !!(syzoj.siteOwnerUserId && edited_user.id === syzoj.siteOwnerUserId);
+const appCanManagePrivileges = typeof actorCanGrant !== 'undefined'
+  ? !!actorCanGrant
+  : !!(user && typeof appHasCapability === 'function' && appHasCapability('admin:permission.grant'));
+const appCurrentUserIsSiteOwner = typeof actorIsOwner !== 'undefined'
+  ? !!actorIsOwner
+  : !!(typeof isSiteOwner !== 'undefined' && isSiteOwner);
+const appCanManageUsers = typeof actorCanManage !== 'undefined' ? !!actorCanManage : !!(user && user.allowedManage);
+const appEditedUserIsSiteOwner = !!(syzoj.siteOwnerUserId && Number(edited_user.id) === Number(syzoj.siteOwnerUserId));
 const appCanManageSiteAdmin = appCurrentUserIsSiteOwner && !appEditedUserIsSiteOwner;
 const appIdentity = typeof registrationProfile !== 'undefined' && registrationProfile ? registrationProfile : {};
 const appColleges = typeof registrationColleges !== 'undefined' ? registrationColleges : [];
 const appStudentId = appIdentity.student_id || '';
 const appRealName = appIdentity.real_name || '';
 const appCollege = appIdentity.college || '';
-const appCanManageIdentity = !!(user && user.allowedManage);
+const appCanManageIdentity = appCanManageUsers;
 const appRequiresIdentity = typeof identityProfileComplete !== 'undefined' && !identityProfileComplete && edited_user.id === user.id;
 const appTagState = typeof myTagState !== 'undefined' ? myTagState : null;
 const appTagCheater = typeof myTagIsCheater !== 'undefined' ? myTagIsCheater : false;
@@ -30,18 +35,20 @@ if (appEditMessage === '') appEditMessage = '修改成功。';
 
   <section class="app-settings-section" id="avatar"><div class="app-settings-copy"><span class="app-kicker">AVATAR</span><h2>头像</h2><p>支持 JPG、PNG、WebP，文件大小不超过 2 MB。</p></div><div class="app-avatar-setting"><img src="<%= syzoj.utils.avatar(edited_user, 160) %>" alt="当前头像"><div><form class="app-form" method="post" enctype="multipart/form-data" data-avatar-v2 data-avatar-user-id="<%= edited_user.id %>"><input type="hidden" name="avatar_csrf_token" value="<%= avatarCsrfToken %>"><label class="app-file-field"><input type="file" name="avatar" accept="image/jpeg,image/png,image/webp" required><span><i data-lucide="image-plus"></i><strong>选择图片</strong><small>点击浏览本地文件</small></span></label><button class="app-button app-button-primary" type="submit"><i data-lucide="upload"></i>上传头像</button></form><% if (syzoj.utils.hasCustomAvatar(edited_user)) { %><form class="app-inline-form" method="post" data-avatar-delete-v2 data-avatar-user-id="<%= edited_user.id %>" data-confirm="确定恢复默认头像吗？"><input type="hidden" name="avatar_csrf_token" value="<%= avatarCsrfToken %>"><button class="app-button app-button-quiet" type="submit"><i data-lucide="undo"></i>恢复默认头像</button></form><% } %></div></div></section>
 
-  <form id="account-form" class="app-form" method="post" data-account-workflow-v2<% if (edited_user.id === user.id && !user.allowedManage && !appCanManagePrivileges && !appCanManageSiteAdmin) { %> data-account-v2<% } else if (user.allowedManage) { %> data-account-admin-v2 data-user-id="<%= edited_user.id %>" data-can-grant="<%= appCanManagePrivileges ? '1' : '0' %>"<% } %>>
+  <form id="account-form" class="app-form" method="post" data-account-workflow-v2<% if (edited_user.id === user.id && !appCanManageUsers && !appCanManagePrivileges && !appCanManageSiteAdmin) { %> data-account-v2<% } else if (appCanManageUsers) { %> data-account-admin-v2 data-user-id="<%= edited_user.id %>" data-can-grant="<%= appCanManagePrivileges ? '1' : '0' %>"<% } %>>
     <% if (appCanManageSiteAdmin) { %><input type="hidden" name="site_admin_control" value="1"><input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>"><% } %>
-    <section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">IDENTITY</span><h2>基本资料</h2><p>实名资料用于校内比赛、报名和账号核验。</p></div><div class="app-settings-fields app-identity-fields"><label class="app-field"><span class="app-label">用户名</span><input class="app-input" type="text" name="username" value="<%= edited_user.username %>"<%= !user.allowedManage || appEditedUserIsSiteOwner ? ' readonly' : '' %>></label><div class="app-form-grid"><label class="app-field app-field-half"><span class="app-label">性别</span><select class="app-select" name="sex"><option value="0"<%= edited_user.sex == 0 ? ' selected' : '' %>>其它</option><option value="1"<%= edited_user.sex == 1 ? ' selected' : '' %>>男</option><option value="-1"<%= edited_user.sex == -1 ? ' selected' : '' %>>女</option></select></label><label class="app-field app-field-half"><span class="app-label">Email</span><input class="app-input" type="email" name="email" value="<%= edited_user.email %>" required<%= edited_user.id !== user.id && !user.allowedManage ? ' readonly' : '' %>></label></div><div class="app-form-grid"><label class="app-field app-field-third"><span class="app-label">学号</span><input class="app-input" type="text" name="student_id" inputmode="numeric" pattern="\d{10}" minlength="10" maxlength="10" value="<%= appStudentId %>" required<%= appStudentId && !appCanManageIdentity ? ' readonly' : '' %>></label><label class="app-field app-field-third"><span class="app-label">姓名</span><input class="app-input" type="text" name="real_name" maxlength="64" value="<%= appRealName %>" required<%= appRealName && !appCanManageIdentity ? ' readonly' : '' %>></label><label class="app-field app-field-third"><span class="app-label">学院</span><% if (appCollege && !appCanManageIdentity) { %><input class="app-input" type="text" value="<%= appCollege %>" readonly><% } else { %><select class="app-select" name="college" required><option value="">请选择学院</option><% for (const college of appColleges) { %><option value="<%= college %>"<%= college === appCollege ? ' selected' : '' %>><%= college %></option><% } %></select><% } %></label></div><label class="app-field"><span class="app-label">个性签名</span><textarea class="app-textarea" name="information" rows="5"><%= edited_user.information %></textarea></label></div></section>
+    <section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">IDENTITY</span><h2>基本资料</h2><p>实名资料用于校内比赛、报名和账号核验。</p></div><div class="app-settings-fields app-identity-fields"><label class="app-field"><span class="app-label">用户名</span><input class="app-input" type="text" name="username" value="<%= edited_user.username %>"<%= (edited_user.id !== user.id && !appCanManageUsers) || appEditedUserIsSiteOwner ? ' readonly' : '' %>><small class="app-help">允许使用字母、数字、连字符和下划线。</small></label><div class="app-form-grid"><label class="app-field app-field-half"><span class="app-label">性别</span><select class="app-select" name="sex"><option value="0"<%= edited_user.sex == 0 ? ' selected' : '' %>>其它</option><option value="1"<%= edited_user.sex == 1 ? ' selected' : '' %>>男</option><option value="-1"<%= edited_user.sex == -1 ? ' selected' : '' %>>女</option></select></label><label class="app-field app-field-half"><span class="app-label">Email</span><input class="app-input" type="email" name="email" value="<%= edited_user.email %>" autocomplete="email" required<%= edited_user.id !== user.id && !appCanManageUsers ? ' readonly' : '' %>><small class="app-help"><%= edited_user.id === user.id ? '修改邮箱时会弹出密码确认，修改后需要重新激活。' : '修改邮箱后需要重新激活。' %></small></label></div><div class="app-form-grid"><label class="app-field app-field-third"><span class="app-label">学号</span><input class="app-input" type="text" name="student_id" inputmode="numeric" pattern="\d{10}" minlength="10" maxlength="10" value="<%= appStudentId %>" required<%= appStudentId && !appCanManageIdentity ? ' readonly' : '' %>></label><label class="app-field app-field-third"><span class="app-label">姓名</span><input class="app-input" type="text" name="real_name" maxlength="64" value="<%= appRealName %>" required<%= appRealName && !appCanManageIdentity ? ' readonly' : '' %>></label><label class="app-field app-field-third"><span class="app-label">学院</span><% if (appCollege && !appCanManageIdentity) { %><input class="app-input" type="text" value="<%= appCollege %>" readonly><% } else { %><select class="app-select" name="college" required><option value="">请选择学院</option><% for (const college of appColleges) { %><option value="<%= college %>"<%= college === appCollege ? ' selected' : '' %>><%= college %></option><% } %></select><% } %></label></div><label class="app-field"><span class="app-label">个性签名</span><textarea class="app-textarea" name="information" rows="5"><%= edited_user.information %></textarea></label></div></section>
 
     <% if (edited_user.id === user.id) { %><section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">PREFERENCES</span><h2>偏好设置</h2><p>这些选项只影响当前账号的显示与公开范围。</p></div><div class="app-settings-fields"><div class="app-setting-row"><span><strong>Email 验证</strong><small><%= user.is_email_verified || (syzoj.verifiedUserIds && syzoj.verifiedUserIds.has(user.id)) ? '邮箱已经完成验证。' : '未验证账号无法使用部分社区功能。' %></small></span><% if (user.is_email_verified || (syzoj.verifiedUserIds && syzoj.verifiedUserIds.has(user.id))) { %><span class="app-status app-status-accepted">已验证</span><% } else { %><button class="app-button app-button-secondary" type="button" data-email-verification-v2><i data-lucide="mail"></i>发送验证邮件</button><% } %></div><label class="app-setting-row"><span><strong>公开 Email</strong><small>允许其他用户在你的主页查看邮箱。</small></span><input class="app-switch" type="checkbox" name="public_email"<%= edited_user.public_email ? ' checked' : '' %>></label><label class="app-setting-row"><span><strong>优先显示格式化代码</strong><small>提交详情存在格式化版本时默认展示。</small></span><input class="app-switch" type="checkbox" name="prefer_formatted_code"<%= edited_user.prefer_formatted_code ? ' checked' : '' %>></label></div></section><% } %>
 
-    <section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">SECURITY</span><h2>修改密码</h2><p>不修改密码时，将以下输入框全部留空。</p></div><div class="app-settings-fields"><label class="app-field"><span class="app-label">当前密码</span><span class="app-input-with-action"><input class="app-input" type="password" name="old_password" id="account-old-password" maxlength="128" autocomplete="current-password"><button class="app-icon-button" type="button" data-password-toggle="account-old-password" aria-label="显示密码"><i data-lucide="eye"></i></button></span></label><div class="app-form-grid"><label class="app-field app-field-half"><span class="app-label">新密码</span><input class="app-input" type="password" name="new_password" id="account-new-password" minlength="10" maxlength="128" autocomplete="new-password"></label><label class="app-field app-field-half"><span class="app-label">确认新密码</span><input class="app-input" type="password" id="account-confirm-password" minlength="10" maxlength="128" autocomplete="new-password"></label></div></div></section>
+    <section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">SECURITY</span><h2>修改密码</h2><p>不修改密码时，将以下输入框全部留空。</p></div><div class="app-settings-fields"><label class="app-field"><span class="app-label">当前密码</span><span class="app-input-with-action"><input class="app-input" type="password" name="old_password" id="account-old-password" maxlength="128" autocomplete="current-password"><button class="app-icon-button" type="button" data-password-toggle="account-old-password" aria-label="显示密码"><i data-lucide="eye"></i></button></span><small class="app-help">仅用于修改密码；修改邮箱会单独弹出确认框。</small></label><div class="app-form-grid"><label class="app-field app-field-half"><span class="app-label">新密码</span><input class="app-input" type="password" name="new_password" id="account-new-password" minlength="10" maxlength="128" autocomplete="new-password"></label><label class="app-field app-field-half"><span class="app-label">确认新密码</span><input class="app-input" type="password" id="account-confirm-password" minlength="10" maxlength="128" autocomplete="new-password"></label></div></div></section>
 
-    <% if (appCanManagePrivileges || appCanManageSiteAdmin) { %><section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">ACCESS</span><h2>权限</h2><p>权限变更保存后立即生效。</p></div><div class="app-settings-fields"><label class="app-setting-row"><span><strong><%= appEditedUserIsSiteOwner ? '站长' : '全站管理员' %></strong><small>拥有所有管理能力。</small></span><input class="app-switch" type="checkbox"<%= appCanManageSiteAdmin ? ' name="is_admin"' : ' disabled' %><%= edited_user.is_admin ? ' checked' : '' %>></label><% for (const privilege of [['manage_problem', '管理题目'], ['manage_problem_tag', '管理题目标签'], ['manage_contest', '管理比赛'], ['manage_user', '管理用户']]) { %><label class="app-setting-row"><span><strong><%= privilege[1] %></strong></span><input class="app-switch" type="checkbox" name="privileges" value="<%= privilege[0] %>"<%= edited_user.privileges.includes(privilege[0]) ? ' checked' : '' %><%= !appCanManagePrivileges ? ' disabled' : '' %>></label><% } %></div></section><% } %>
+    <% if (appCanManagePrivileges || appCanManageSiteAdmin) { %><section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">ACCESS</span><h2>权限</h2><p>权限变更保存后立即生效。</p></div><div class="app-settings-fields"><label class="app-setting-row"><span><strong><%= appEditedUserIsSiteOwner ? '站长' : '全站管理员' %></strong><small>拥有所有管理能力。</small></span><input class="app-switch" type="checkbox"<%- appCanManageSiteAdmin ? ' name="is_admin"' : ' disabled' %><%= edited_user.is_admin ? ' checked' : '' %>></label><% for (const privilege of [['manage_problem', '管理题目'], ['manage_problem_tag', '管理题目标签'], ['manage_contest', '管理比赛'], ['manage_problemset', '管理题单'], ['manage_user', '管理用户']]) { %><label class="app-setting-row"><span><strong><%= privilege[1] %></strong></span><input class="app-switch" type="checkbox" name="privileges" value="<%= privilege[0] %>"<%= edited_user.privileges.includes(privilege[0]) ? ' checked' : '' %><%= !appCanManagePrivileges ? ' disabled' : '' %>></label><% } %></div></section><% } %>
 
     <div class="app-settings-submit"><a class="app-button app-button-quiet" href="<%= syzoj.utils.makeUrl(['user', edited_user.id]) %>">取消</a><button id="submit_button" class="app-button app-button-primary" type="submit"><i data-lucide="save"></i>保存资料</button></div>
   </form>
+
+  <% if (edited_user.id === user.id) { %><dialog class="app-dialog app-email-password-dialog" data-email-password-dialog aria-labelledby="email-password-dialog-title" aria-describedby="email-password-dialog-copy"><form data-email-password-form><div class="app-dialog-header"><h2 id="email-password-dialog-title">确认修改邮箱</h2><button class="app-icon-button" type="button" data-email-password-cancel aria-label="关闭"><i data-lucide="x"></i></button></div><div class="app-dialog-body"><p id="email-password-dialog-copy">为保护账号安全，请输入当前密码以确认修改邮箱。</p><label class="app-field app-field-full"><span class="app-label">新邮箱</span><strong class="app-email-confirm-address" data-email-password-address></strong></label><label class="app-field app-field-full"><span class="app-label">当前密码</span><span class="app-input-with-action"><input class="app-input" type="password" id="email-confirm-password" maxlength="128" autocomplete="current-password" required><button class="app-icon-button" type="button" data-password-toggle="email-confirm-password" aria-label="显示密码"><i data-lucide="eye"></i></button></span></label></div><div class="app-dialog-actions"><button class="app-button app-button-secondary" type="button" data-email-password-cancel>取消</button><button class="app-button app-button-primary" type="submit"><i data-lucide="shield-check"></i>确认并保存</button></div></form></dialog><% } %>
 
   <% if (appTagState && appTagState.hasPermission) { %><section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">NAME TAG</span><h2>用户名牌子</h2><p>牌子显示在用户名右侧，最多 12 个字符。<% if (appTagState.isAutoFromAdmin) { %>你的管理权限已自动授予此功能。<% } %></p></div><form class="app-form app-settings-fields" id="my-tag-form"><% if (appTagCheater) { %><div class="app-notice app-notice-warning"><i data-lucide="triangle-alert"></i><span>当前牌子被“作弊者”身份覆盖，标记撤销后会恢复显示。</span></div><% } %><label class="app-field"><span class="app-label">牌子文字 <small><span id="my-tag-char-count">0</span> / 12</small></span><input class="app-input" type="text" id="my-tag-text-input" maxlength="12" value="<%= appTagState.record ? appTagState.record.tag_text || '' : (appEditedUserIsSiteOwner ? '站长' : '管理员') %>" placeholder="请输入牌子文字"></label><label class="app-setting-row"><span><strong>展示牌子</strong><small>关闭后站内不再显示。</small></span><input class="app-switch" type="checkbox" id="my-tag-visible-input"<%= !appTagState.record || appTagState.record.is_visible !== false ? ' checked' : '' %>></label><div class="app-form-actions"><button class="app-button app-button-primary" type="button" id="my-tag-save-btn"><i data-lucide="save"></i>保存牌子</button><span class="app-form-status" id="my-tag-status" aria-live="polite"></span></div></form></section><% } else if (edited_user.id === user.id && appTagState && appTagState.isDisabled) { %><section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">NAME TAG</span><h2>用户名牌子</h2></div><div class="app-notice app-notice-danger"><i data-lucide="ban"></i><span>牌子使用权限已被撤销<% if (appTagState.record && appTagState.record.disabled_reason) { %><small>原因：<%= appTagState.record.disabled_reason %></small><% } %></span></div></section><% } %>
 
@@ -70,11 +77,54 @@ if (appEditMessage === '') appEditMessage = '修改成功。';
     try { body = await response.json(); } catch (error) {}
     return { response: response, body: body };
   }
+  function resourceEtag(result) {
+    var header = result && result.response && result.response.headers ? result.response.headers.get('ETag') : '';
+    var meta = result && result.body && result.body.meta;
+    return header || (meta && meta.etag) || '';
+  }
+  var emailPasswordDialog = document.querySelector('[data-email-password-dialog]');
+  var emailPasswordForm = emailPasswordDialog && emailPasswordDialog.querySelector('[data-email-password-form]');
+  var emailPasswordInput = document.getElementById('email-confirm-password');
+  var pendingEmailPassword = null;
+  function finishEmailPassword(value) {
+    var resolve = pendingEmailPassword;
+    pendingEmailPassword = null;
+    if (emailPasswordDialog && emailPasswordDialog.open) {
+      if (typeof emailPasswordDialog.close === 'function') emailPasswordDialog.close();
+      else emailPasswordDialog.removeAttribute('open');
+    }
+    if (resolve) resolve(value);
+  }
+  function requestEmailPassword(email) {
+    if (!emailPasswordDialog || !emailPasswordForm || !emailPasswordInput) return Promise.reject(new Error('无法打开邮箱密码确认框，请刷新页面后重试。'));
+    return new Promise(function (resolve) {
+      pendingEmailPassword = resolve;
+      emailPasswordInput.value = '';
+      var address = emailPasswordDialog.querySelector('[data-email-password-address]');
+      if (address) address.textContent = email;
+      if (typeof emailPasswordDialog.showModal === 'function') emailPasswordDialog.showModal();
+      else emailPasswordDialog.setAttribute('open', '');
+      window.setTimeout(function () { emailPasswordInput.focus(); }, 0);
+    });
+  }
+  if (emailPasswordForm) emailPasswordForm.addEventListener('submit', function (event) {
+    event.preventDefault();
+    if (!emailPasswordInput.value) { emailPasswordInput.reportValidity(); return; }
+    finishEmailPassword(emailPasswordInput.value);
+  });
+  if (emailPasswordDialog) {
+    emailPasswordDialog.querySelectorAll('[data-email-password-cancel]').forEach(function (button) { button.addEventListener('click', function () { finishEmailPassword(null); }); });
+    emailPasswordDialog.addEventListener('cancel', function (event) { event.preventDefault(); finishEmailPassword(null); });
+    emailPasswordDialog.addEventListener('close', function () {
+      emailPasswordInput.value = '';
+      if (pendingEmailPassword) { var resolve = pendingEmailPassword; pendingEmailPassword = null; resolve(null); }
+    });
+  }
 form.addEventListener('submit', async function (event) {
-    var current = document.getElementById('account-old-password').value;
+    var passwordCurrent = document.getElementById('account-old-password').value;
     var next = document.getElementById('account-new-password').value;
     var confirmValue = document.getElementById('account-confirm-password').value;
-    if ((current || next || confirmValue) && next !== confirmValue) {
+    if ((passwordCurrent || next || confirmValue) && next !== confirmValue) {
       event.preventDefault();
       showMessage('两次输入的新密码不一致。');
       return;
@@ -87,18 +137,28 @@ form.addEventListener('submit', async function (event) {
     button.disabled = true;
     try {
       var endpoint = adminFlow ? '/api/v2/admin/users/' + encodeURIComponent(form.dataset.userId) : '/api/v2/me';
-      var currentResult = await jsonResponse(await fetch(endpoint, { credentials: 'same-origin' }));
+      var currentResult = await jsonResponse(await fetch(endpoint, { credentials: 'same-origin', cache: 'no-store' }));
       if (!currentResult.response.ok || !currentResult.body || !currentResult.body.data) throw new Error(currentResult.body && currentResult.body.error ? currentResult.body.error.message : '无法读取最新资料。');
+      var currentEtag = resourceEtag(currentResult);
+      if (!currentEtag) throw new Error('无法读取资料版本，请刷新页面后重试。');
+      var currentPassword = passwordCurrent;
+      var editingOwnAccount = <%= edited_user.id === user.id ? 'true' : 'false' %>;
+      var emailChanged = editingOwnAccount && String(form.elements.email.value || '').trim().toLowerCase() !== String(currentResult.body.data.email || '').trim().toLowerCase();
+      if (emailChanged) {
+        currentPassword = await requestEmailPassword(form.elements.email.value);
+        if (currentPassword === null) { button.disabled = false; return; }
+      }
       var payload = {
         email: form.elements.email.value,
         information: form.elements.information.value,
         sex: form.elements.sex.value,
-        current_password: current,
-        new_password: next
+        current_password: currentPassword,
+        new_password: next,
+        if_match: currentEtag
       };
       if (form.elements.public_email) payload.public_email = !!form.elements.public_email.checked;
       if (form.elements.prefer_formatted_code) payload.prefer_formatted_code = !!form.elements.prefer_formatted_code.checked;
-      if (adminFlow) payload.username = form.elements.username.value;
+      if (adminFlow || selfFlow) payload.username = form.elements.username.value;
       ['student_id', 'real_name', 'college'].forEach(function (name) {
         var field = form.elements.namedItem(name);
         if (field && !field.disabled && (adminFlow || !field.readOnly)) payload[name] = field.value;
@@ -108,14 +168,15 @@ form.addEventListener('submit', async function (event) {
         var currentPrivileges = (currentResult.body.data.privileges || []).slice().sort();
         if (JSON.stringify(selectedPrivileges) !== JSON.stringify(currentPrivileges)) payload.privileges = selectedPrivileges;
       }
-      if (adminFlow && form.elements.is_admin && !!form.elements.is_admin.checked !== !!currentResult.body.data.is_admin) payload.is_admin = !!form.elements.is_admin.checked;
+      var siteAdminField = adminFlow ? form.querySelector('input[name="is_admin"]') : null;
+      if (siteAdminField && !!siteAdminField.checked !== !!currentResult.body.data.is_admin) payload.is_admin = !!siteAdminField.checked;
       var result = await jsonResponse(await fetch(endpoint, {
         method: 'PATCH',
         credentials: 'same-origin',
         headers: {
           'Content-Type': 'application/json',
           'Idempotency-Key': operationKey(),
-          'If-Match': currentResult.response.headers.get('ETag') || ''
+          'If-Match': currentEtag
         },
         body: JSON.stringify(payload)
       }));
@@ -176,14 +237,23 @@ function showError(error) { if (window.NWPUOJApp) window.NWPUOJApp.showToast(err
           headers: {
             'Content-Type': 'application/json',
             'Idempotency-Key': operationKey(),
-            'If-Match': current.response.headers.get('ETag') || ''
+            'If-Match': resourceEtag(current)
           },
-          body: JSON.stringify({ hide_hit: !!form.elements.hide_hit.checked })
+          body: JSON.stringify({ hide_hit: !!form.elements.hide_hit.checked, if_match: resourceEtag(current) })
         }));
         if (!result.response.ok) throw new Error(result.body && result.body.error ? result.body.error.message : 'Hit 设置保存失败。');
         window.location.assign(window.location.pathname + '?hit=saved#hit');
       } catch (error) { showError(error); if (button) button.disabled = false; }
     });
+  });
+})();
+</script>
+<script>
+(function () {
+  document.querySelectorAll('input[name="username"]').forEach(function (input) {
+    input.maxLength = 20;
+    var help = input.parentElement && input.parentElement.querySelector('.app-help');
+    if (help) help.textContent = '允许使用字母、数字、连字符和下划线，最多 20 个字符。';
   });
 })();
 </script>

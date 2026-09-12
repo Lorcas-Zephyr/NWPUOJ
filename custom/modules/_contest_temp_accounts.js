@@ -97,10 +97,8 @@ async function canManageContestRegistrations(contest, user) {
   if (!contest || !user) return false;
   const scope = `contest:${contest.id}`;
   const resource = { ownerId: Number(contest.holder_id), scope };
-  const scoped = await contest.isSupervisior(user) &&
-    await syzoj.utils.authorizationV2.authorize(user, 'contest:registration.manage', resource, { scope });
-  const global = await syzoj.utils.authorizationV2.authorize(user, 'contest:registration.manage', null, { scope: 'global' });
-  return !!(scoped || global);
+  const scoped = await syzoj.utils.authorizationV2.authorize(user, 'contest:registration.manage', resource, { scope });
+  return !!scoped;
 }
 
 async function importTemporaryAccounts({ contestId, actor, rows, req }) {
@@ -252,7 +250,7 @@ app.get('/contest/:id/temporary-accounts/template', async (req, res) => {
     const contestId = Number(req.params.id);
     const contest = Number.isSafeInteger(contestId) && contestId > 0 ? await Contest.findById(contestId) : null;
     if (!contest) throw inputError('无此比赛。', 404);
-    if (!res.locals.user || !await contest.isSupervisior(res.locals.user)) throw inputError('您没有权限管理该比赛。', 403);
+    if (!await canManageContestRegistrations(contest, res.locals.user)) throw inputError('您没有权限管理该比赛。', 403);
     const csv = '\uFEFF姓名,学号,学院\r\n张三,2026000001,计算机学院\r\n';
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="contest-${contestId}-temporary-accounts-template.csv"`);

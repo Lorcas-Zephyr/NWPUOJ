@@ -7,6 +7,7 @@
   <div class="app-section-header app-contest-participant-header">
     <div><h2 class="app-section-title">参赛者管理</h2><p class="app-section-description"><%= registrations.length %> 名有效报名用户</p></div>
     <div class="app-page-actions">
+      <% if (canManageRegistrations && !contest.isEnded()) { %><button class="app-button app-button-primary" type="button" data-dialog-open="contest-participant-add-dialog"><i data-lucide="user-plus"></i>添加普通账户</button><% } %>
       <a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'registrations', 'export']) %>"><i data-lucide="download"></i>导出报名信息</a>
       <form method="post" data-contest-standings-v2 data-contest-id="<%= contest.id %>" data-confirm="将根据有效比赛提交重建分数和排行榜，确定继续吗？"><input type="hidden" name="csrf_token" value="<%= registrationManagementCsrfToken %>"><button class="app-button app-button-secondary" type="submit"><i data-lucide="refresh-cw"></i>重建排行榜</button></form>
     </div>
@@ -21,6 +22,16 @@
         <div class="app-form-actions app-form-actions-split"><a class="app-button app-button-quiet" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'temporary-accounts', 'template']) %>" data-temporary-accounts-template><i data-lucide="download"></i>下载模板</a><button class="app-button app-button-primary" type="submit"><i data-lucide="upload"></i>批量创建并下载密码</button></div>
       </form>
     </section>
+    <section class="app-temp-account-section app-ordinary-account-section">
+      <div><span class="app-kicker">ORDINARY ACCOUNTS</span><h2>按学号批量添加普通参赛用户</h2><p>上传仅包含“学号”列的 UTF-8 CSV。系统会匹配已注册的普通账户，并加入本场比赛报名名单；比赛是否开放自行报名不影响此操作。</p><small>学号必须是唯一的 10 位数字，未找到的学号会在结果中列出。</small></div>
+      <form class="app-form" method="post" enctype="multipart/form-data" data-ordinary-registration-v2 data-contest-id="<%= contest.id %>">
+        <input type="hidden" name="csrf_token" value="<%= registrationManagementCsrfToken %>">
+        <label class="app-file-field"><input type="file" name="student_ids_csv" accept=".csv,text/csv" required><span><i data-lucide="file-spreadsheet"></i><strong>选择学号 CSV</strong><small>UTF-8 编码</small></span></label>
+        <div class="app-form-actions app-form-actions-split"><a class="app-button app-button-quiet" href="#" data-ordinary-student-template><i data-lucide="download"></i>下载模板</a><button class="app-button app-button-primary" type="submit"><i data-lucide="user-plus"></i>批量添加并报名</button></div>
+        <div class="app-contest-account-state" data-ordinary-registration-state role="status" hidden></div>
+      </form>
+    </section>
+    <% if (typeof registrationClassOptions !== 'undefined' && registrationClassOptions.length) { %><section class="app-temp-account-section app-class-registration-section"><div><span class="app-kicker">CLASS IMPORT</span><h2>按班级添加普通参赛用户</h2><p>先搜索班级，再选择一个或多个班级，将其中已注册的普通账户加入本场比赛。</p><small>班级成员按当前实时名单读取，已报名用户不会重复添加。</small></div><form class="app-form" data-contest-class-import data-contest-id="<%= contest.id %>"><div class="app-entity-picker app-class-picker" data-class-picker><span class="app-input-wrap"><i data-lucide="search"></i><input class="app-input" type="search" data-class-search placeholder="搜索班级名称" autocomplete="off"></span><div class="app-entity-results" data-class-results hidden></div><div class="app-entity-selected" data-class-selected></div></div><div class="app-form-actions"><button class="app-button app-button-primary" type="submit"><i data-lucide="users-round"></i>按班级添加并报名</button></div></form></section><% } %>
   <% } else { %><div class="app-notice"><i data-lucide="lock-keyhole"></i><span><strong>参赛资格已锁定</strong><small>比赛结束后不能再创建临时参赛用户、删除或恢复参赛者。</small></span></div><% } %>
 
   <section class="app-section">
@@ -44,7 +55,98 @@
       </tbody></table></div>
     </section>
   <% } %>
+
+  <% if (canManageRegistrations && !contest.isEnded()) { %>
+    <dialog class="app-dialog app-contest-participant-add-dialog" id="contest-participant-add-dialog" aria-modal="true" aria-labelledby="contest-participant-add-title" data-contest-id="<%= contest.id %>">
+      <div class="app-dialog-header"><h2 id="contest-participant-add-title">添加普通账户</h2><button class="app-icon-button" type="button" data-dialog-close aria-label="关闭"><i data-lucide="x"></i></button></div>
+      <div class="app-dialog-body">
+        <label class="app-field"><span class="app-label">用户名、UID、学号或姓名</span><span class="app-input-wrap"><i data-lucide="search"></i><input class="app-input" type="search" data-participant-account-search autocomplete="off" placeholder="输入用户名、UID、学号或姓名"></span></label>
+        <div class="app-contest-account-results" data-participant-account-results role="listbox" aria-label="普通账户搜索结果" hidden></div>
+        <div class="app-contest-account-state" data-participant-account-state>输入用户名、UID、学号或姓名进行搜索。</div>
+      </div>
+      <div class="app-dialog-actions"><button class="app-button app-button-secondary" type="button" data-dialog-close>取消</button></div>
+    </dialog>
+  <% } %>
 </div>
+
+<script>
+(function () {
+  var form = document.querySelector('[data-contest-class-import]');
+  if (!form) return;
+  var picker = form.querySelector('[data-class-picker]');
+  var input = picker.querySelector('[data-class-search]');
+  var results = picker.querySelector('[data-class-results]');
+  var selected = picker.querySelector('[data-class-selected]');
+  var options = <%- JSON.stringify((registrationClassOptions || []).map(function (group) { return { id: Number(group.id), name: group.name, member_count: Number(group.member_count || 0), tag_text: group.tag_text || '' }; })) %>;
+  var selectedIds = new Set();
+  function render() {
+    var query = input.value.trim().toLowerCase();
+    results.innerHTML = '';
+    options.filter(function (group) { return group.name.toLowerCase().includes(query) && !selectedIds.has(group.id); }).forEach(function (group) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = group.name + ' · ' + group.member_count + ' 人';
+      button.title = group.name + ' · ' + group.tag_text;
+      button.addEventListener('click', function () {
+        selectedIds.add(group.id);
+        var chip = document.createElement('span');
+        chip.dataset.classValue = String(group.id);
+        var hiddenClass = document.createElement('input');
+        hiddenClass.type = 'hidden';
+        hiddenClass.name = 'class_ids';
+        hiddenClass.value = String(group.id);
+        var classLabel = document.createElement('em');
+        classLabel.textContent = group.name;
+        var removeClass = document.createElement('button');
+        removeClass.type = 'button';
+        removeClass.dataset.classRemove = '';
+        removeClass.setAttribute('aria-label', '移除班级');
+        removeClass.innerHTML = '<i data-lucide="x"></i>';
+        chip.appendChild(hiddenClass);
+        chip.appendChild(classLabel);
+        chip.appendChild(removeClass);
+        selected.appendChild(chip);
+        input.value = '';
+        results.hidden = true;
+        if (window.NWPUOJApp) window.NWPUOJApp.refreshIcons(chip);
+      });
+      results.appendChild(button);
+    });
+    if (!results.children.length) {
+      var empty = document.createElement('span');
+      empty.textContent = query ? '没有匹配的班级' : '输入名称搜索班级';
+      results.appendChild(empty);
+    }
+    results.hidden = false;
+  }
+  input.addEventListener('input', render);
+  picker.addEventListener('click', function (event) {
+    var remove = event.target.closest('[data-class-remove]');
+    if (!remove) return;
+    var chip = remove.closest('[data-class-value]');
+    selectedIds.delete(Number(chip.dataset.classValue));
+    chip.remove();
+  });
+  document.addEventListener('click', function (event) { if (!picker.contains(event.target)) results.hidden = true; });
+  form.addEventListener('submit', async function (event) {
+    event.preventDefault();
+    var classIds = Array.from(selectedIds);
+    if (!classIds.length) { if (window.NWPUOJApp) window.NWPUOJApp.showToast('请至少选择一个班级。', 'danger'); return; }
+    var button = form.querySelector('[type="submit"]');
+    button.disabled = true;
+    try {
+      var response = await fetch('/api/v2/contests/' + encodeURIComponent(form.dataset.contestId) + '/participants/import-class', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ class_ids: classIds }) });
+      var body = await response.json().catch(function () { return null; });
+      if (!response.ok) throw new Error(body && body.error && body.error.message || '班级导入失败。');
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast('已添加 ' + Number(body.data.added_count || 0) + ' 人。', 'success');
+      window.setTimeout(function () { window.location.reload(); }, 500);
+    } catch (error) {
+      button.disabled = false;
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message, 'danger');
+    }
+  });
+})();
+</script>
 
 <script>
 (function () {
@@ -65,6 +167,21 @@ function message(result, fallback) {
     if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '操作失败。', 'danger');
     else window.alert(error.message || '操作失败。');
   }
+
+  async function updateParticipant(contestId, action, userId) {
+    var result = await readResponse(await fetch('/api/v2/contests/' + encodeURIComponent(contestId) + '/participants/bulk-action', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operationKey() },
+      body: JSON.stringify({ action: action, user_ids: [Number(userId)] })
+    }));
+    if (!result.response.ok) throw new Error(message(result, '参赛者资格更新失败。'));
+    if (result.body && result.body.data && result.body.data.failed && result.body.data.failed.length) {
+      throw new Error(result.body.data.failed[0].message || '参赛者资格更新失败。');
+    }
+    return result.body && result.body.data;
+  }
+
 document.querySelectorAll('form[data-contest-participant-v2]').forEach(function (form) {
     form.addEventListener('submit', async function (event) {
       if (event.defaultPrevented) return;
@@ -72,14 +189,7 @@ document.querySelectorAll('form[data-contest-participant-v2]').forEach(function 
       var button = form.querySelector('[type="submit"]');
       if (button) button.disabled = true;
       try {
-        var result = await readResponse(await fetch('/api/v2/contests/' + encodeURIComponent(form.dataset.contestId) + '/participants/bulk-action', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operationKey() },
-          body: JSON.stringify({ action: form.dataset.contestParticipantV2, user_ids: [Number(form.dataset.userId)] })
-        }));
-        if (!result.response.ok) throw new Error(message(result, '参赛者资格更新失败。'));
-        if (result.body && result.body.data && result.body.data.failed && result.body.data.failed.length) throw new Error(result.body.data.failed[0].message || '参赛者资格更新失败。');
+        await updateParticipant(form.dataset.contestId, form.dataset.contestParticipantV2, form.dataset.userId);
         window.location.reload();
       } catch (error) {
         showError(error);
@@ -87,6 +197,112 @@ document.querySelectorAll('form[data-contest-participant-v2]').forEach(function 
       }
     });
   });
+
+  var addDialog = document.getElementById('contest-participant-add-dialog');
+  if (addDialog) {
+    var accountSearch = addDialog.querySelector('[data-participant-account-search]');
+    var accountResults = addDialog.querySelector('[data-participant-account-results]');
+    var accountState = addDialog.querySelector('[data-participant-account-state]');
+    var existingUserIds = new Set(<%- JSON.stringify(registrations.map(function (registration) { return Number(registration.user_id); })) %>);
+    var removedUserIds = new Set(<%- JSON.stringify((removedRegistrations || []).map(function (registration) { return Number(registration.user_id); })) %>);
+    var searchTimer = null;
+    var searchVersion = 0;
+
+    function setAccountState(text, isError) {
+      accountState.textContent = text;
+      accountState.hidden = false;
+      accountState.classList.toggle('is-error', !!isError);
+    }
+
+    async function searchAccounts() {
+      var keyword = accountSearch.value.trim();
+      var version = ++searchVersion;
+      accountResults.innerHTML = '';
+      accountResults.hidden = true;
+      if (!/^\d+$/.test(keyword) && keyword.length < 2) {
+        setAccountState('输入用户名、UID、学号或姓名进行搜索。', false);
+        return;
+      }
+      setAccountState('正在搜索...', false);
+      accountSearch.setAttribute('aria-busy', 'true');
+      try {
+        var response = await readResponse(await fetch('/api/v2/search/users/' + encodeURIComponent(keyword) + '?ordinary=1', {
+          credentials: 'same-origin', cache: 'no-store'
+        }));
+        if (version !== searchVersion) return;
+        if (!response.response.ok) throw new Error(message(response, '普通账户搜索失败。'));
+        var accounts = response.body && Array.isArray(response.body.data) ? response.body.data : [];
+        accounts = accounts.filter(function (account) {
+          var userId = Number(account.value);
+          return Number.isSafeInteger(userId) && userId > 0 && !existingUserIds.has(userId) && !removedUserIds.has(userId);
+        });
+        if (!accounts.length) {
+          setAccountState('没有可添加的普通账户。', false);
+          return;
+        }
+        accountState.hidden = true;
+        accountResults.hidden = false;
+        accounts.forEach(function (account) {
+          var userId = Number(account.value);
+          var button = document.createElement('button');
+          button.className = 'app-contest-account-result';
+          button.type = 'button';
+          button.setAttribute('role', 'option');
+          button.setAttribute('aria-label', '添加 ' + account.name);
+          var copy = document.createElement('span');
+          var name = document.createElement('strong');
+          var details = document.createElement('small');
+          name.textContent = account.name || account.username || ('#' + userId);
+          details.textContent = ['#' + userId, account.real_name, account.student_id].filter(Boolean).join(' · ');
+          copy.appendChild(name);
+          copy.appendChild(details);
+          var icon = document.createElement('i');
+          icon.setAttribute('data-lucide', 'user-plus');
+          button.appendChild(copy);
+          button.appendChild(icon);
+          button.addEventListener('click', async function () {
+            if (addDialog.hasAttribute('aria-busy')) return;
+            Array.prototype.forEach.call(accountResults.querySelectorAll('button'), function (item) { item.disabled = true; });
+            addDialog.setAttribute('aria-busy', 'true');
+            try {
+              await updateParticipant(addDialog.dataset.contestId, 'add', userId);
+              if (window.NWPUOJApp) window.NWPUOJApp.showToast('已将 ' + account.name + ' 加入参赛名单。', 'success');
+              window.setTimeout(function () { window.location.reload(); }, 300);
+            } catch (error) {
+              showError(error);
+              Array.prototype.forEach.call(accountResults.querySelectorAll('button'), function (item) { item.disabled = false; });
+              addDialog.removeAttribute('aria-busy');
+            }
+          });
+          accountResults.appendChild(button);
+        });
+        if (window.NWPUOJApp) window.NWPUOJApp.refreshIcons(accountResults);
+      } catch (error) {
+        if (version === searchVersion) setAccountState(error.message || '普通账户搜索失败。', true);
+      } finally {
+        if (version === searchVersion) accountSearch.removeAttribute('aria-busy');
+      }
+    }
+
+    accountSearch.addEventListener('input', function () {
+      window.clearTimeout(searchTimer);
+      searchTimer = window.setTimeout(searchAccounts, 250);
+    });
+    var addOpener = document.querySelector('[data-dialog-open="contest-participant-add-dialog"]');
+    if (addOpener) addOpener.addEventListener('click', function () {
+      window.setTimeout(function () { accountSearch.focus(); }, 0);
+    });
+    addDialog.addEventListener('close', function () {
+      window.clearTimeout(searchTimer);
+      searchVersion += 1;
+      accountSearch.value = '';
+      accountSearch.removeAttribute('aria-busy');
+      addDialog.removeAttribute('aria-busy');
+      accountResults.innerHTML = '';
+      accountResults.hidden = true;
+      setAccountState('输入用户名、UID、学号或姓名进行搜索。', false);
+    });
+  }
 
   var standingsForm = document.querySelector('form[data-contest-standings-v2]');
   if (standingsForm) standingsForm.addEventListener('submit', async function (event) {
@@ -200,6 +416,67 @@ function showError(message) {
       window.setTimeout(function () { window.location.reload(); }, 500);
     } catch (error) {
       showError(error.message || '临时账户导入失败。');
+      if (submit) submit.disabled = false;
+      form.removeAttribute('aria-busy');
+    }
+  });
+})();
+</script>
+
+<script>
+(function () {
+  var form = document.querySelector('[data-ordinary-registration-v2]');
+  if (!form) return;
+
+  function showState(text, isError) {
+    var state = form.querySelector('[data-ordinary-registration-state]');
+    state.textContent = text;
+    state.hidden = false;
+    state.classList.toggle('is-error', !!isError);
+  }
+
+  function downloadTemplate(event) {
+    event.preventDefault();
+    var csv = '\uFEFF学号\r\n2026000001\r\n';
+    var url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    var link = document.createElement('a');
+    link.href = url;
+    link.download = 'contest-' + form.dataset.contestId + '-student-ids-template.csv';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+
+  var template = form.querySelector('[data-ordinary-student-template]');
+  if (template) template.addEventListener('click', downloadTemplate);
+
+  form.addEventListener('submit', async function (event) {
+    if (event.defaultPrevented) return;
+    event.preventDefault();
+    var submit = form.querySelector('[type="submit"]');
+    if (submit) submit.disabled = true;
+    form.setAttribute('aria-busy', 'true');
+    showState('正在匹配学号并添加报名…', false);
+    try {
+      var response = await fetch('/api/v2/contests/' + encodeURIComponent(form.dataset.contestId) + '/participants/import', {
+        method: 'POST', credentials: 'same-origin', body: new FormData(form)
+      });
+      var body = null;
+      try { body = await response.json(); } catch (error) {}
+      if (!response.ok) throw new Error(body && body.error && body.error.message || '普通账户导入失败。');
+      var result = body && body.data || {};
+      var missing = Array.isArray(result.missing_student_ids) ? result.missing_student_ids : [];
+      var failed = Array.isArray(result.failed) ? result.failed : [];
+      var message = '已添加 ' + Number(result.added_count || 0) + ' 人。';
+      if (missing.length) message += ' 未找到 ' + missing.length + ' 个学号。';
+      if (failed.length) message += ' 失败 ' + failed.length + ' 个。';
+      showState(message, !Number(result.added_count || 0) && (missing.length || failed.length));
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(message, Number(result.added_count || 0) ? 'success' : 'danger');
+      window.setTimeout(function () { window.location.reload(); }, 800);
+    } catch (error) {
+      showState(error.message || '普通账户导入失败。', true);
+      if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '普通账户导入失败。', 'danger');
       if (submit) submit.disabled = false;
       form.removeAttribute('aria-busy');
     }

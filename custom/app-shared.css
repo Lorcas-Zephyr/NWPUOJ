@@ -288,6 +288,12 @@
   padding: 0 11px;
 }
 
+.app-datetime-input {
+  letter-spacing: 0;
+  word-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
 .app-textarea {
   min-height: 120px;
   padding: 10px 11px;

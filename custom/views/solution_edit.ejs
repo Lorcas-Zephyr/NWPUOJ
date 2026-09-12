@@ -71,7 +71,7 @@ function preserveDraft() {
           cache: 'no-store'
         }));
         if (!current.response.ok) throw new Error(apiMessage(current.body, '暂时无法读取题解状态。'));
-        var etag = current.response.headers.get('ETag');
+        var etag = current.response.headers.get('ETag') || current.body && current.body.meta && current.body.meta.etag;
         if (!etag) throw new Error('题解版本信息缺失，请刷新后重试。');
         endpoint = '/api/v2/solutions/' + encodeURIComponent(solutionId);
         method = 'PATCH';
@@ -85,7 +85,8 @@ function preserveDraft() {
           problem_id: problemId,
           title: form.elements.title.value,
           content: form.elements.content.value,
-          allow_comment: !!form.elements.allow_comment.checked
+          allow_comment: !!form.elements.allow_comment.checked,
+          if_match: headers['If-Match'] || ''
         })
       }));
       if (!result.response.ok) throw new Error(apiMessage(result.body, solutionId > 0 ? '题解保存失败。' : '题解投稿失败。'));

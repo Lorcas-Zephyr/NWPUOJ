@@ -42,12 +42,17 @@ function publicMe(user) {
     email: user.email || null,
     email_verified: !!user.is_email_verified,
     information: user.information || '',
-    sex: user.sex || '',
+    sex: normalizeSex(user.sex, '0') || '0',
     public_email: !!user.public_email,
     prefer_formatted_code: !!user.prefer_formatted_code,
     rating: Number(user.rating || 1500),
     registered_at: user.register_time ? new Date(Number(user.register_time) * 1000).toISOString() : null
   };
+}
+function normalizeSex(value, fallback) {
+  const raw = String(value == null ? '' : value).trim();
+  if (raw === '') return String(fallback == null ? '0' : fallback);
+  return ['-1', '0', '1'].includes(raw) ? raw : null;
 }
 async function publicMeWithIdentity(user) {
   const identity = syzoj.utils.registrationIdentityV2;
@@ -62,14 +67,19 @@ function booleanInput(value, fallback) {
 }
 function profileFailure(res, error) {
   const registrationCode = Number(error && error.registrationCode);
+  if (error && error.code === 'USERNAME_INVALID') return api().fail(res, 422, error.code, error.message, error.fields);
+  if (error && error.code === 'OWNER_ACCOUNT_PROTECTED') return api().fail(res, 403, error.code, error.message, error.fields);
   if (registrationCode === 2011) return api().fail(res, 422, 'VALIDATION_FAILED', error.message, { student_id: 'invalid' });
   if (registrationCode === 2012) return api().fail(res, 422, 'VALIDATION_FAILED', error.message, { real_name: 'invalid' });
   if (registrationCode === 2013) return api().fail(res, 422, 'VALIDATION_FAILED', error.message, { college: 'invalid' });
   if (registrationCode === 2014) return api().fail(res, 409, 'STUDENT_ID_ALREADY_USED', error.message, { student_id: 'already used' });
   if (registrationCode === 2017) return api().fail(res, 409, 'IDENTITY_PROFILE_LOCKED', error.message);
   if (error && error.code === 'ER_DUP_ENTRY') {
-    const field = /student/i.test(String(error.message || '')) ? 'student_id' : 'email';
-    return api().fail(res, 409, field === 'student_id' ? 'STUDENT_ID_ALREADY_USED' : 'EMAIL_ALREADY_USED', field === 'student_id' ? 'This student ID is already in use.' : 'This email address is already in use.', { [field]: 'already used' });
+    const message = String(error.message || '');
+    const field = /student/i.test(message) ? 'student_id' : /username/i.test(message) ? 'username' : 'email';
+    const code = field === 'student_id' ? 'STUDENT_ID_ALREADY_USED' : field === 'username' ? 'USERNAME_ALREADY_USED' : 'EMAIL_ALREADY_USED';
+    const text = field === 'student_id' ? 'This student ID is already in use.' : field === 'username' ? 'This username is already in use.' : 'This email address is already in use.';
+    return api().fail(res, 409, code, text, { [field]: 'already used' });
   }
   if (error && error.code === 'ETAG_MISMATCH') return api().fail(res, 412, error.code, error.message);
   syzoj.log('[identity-v2] profile update failed: ' + (error && (error.stack || error.message) || error));
@@ -236,9 +246,13 @@ app.patch('/api/v2/me', async (req, res) => {
   if (!user) return api().fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.');
   if (!await syzoj.utils.authorizationV2.authorize(user, 'profile:edit', { ownerId: user.id, scope: `user:${user.id}` }, { scope: `user:${user.id}` })) return api().fail(res, 403, 'CAPABILITY_REQUIRED', 'Capability required: profile:edit.');
   const current = await publicMeWithIdentity(user);
-  if (!req.get('If-Match')) return api().fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when editing a profile.', { if_match: 'required' });
-  if (!api().ifMatch(req, current)) return api().fail(res, 412, 'ETAG_MISMATCH', 'The profile changed. Refresh it and try again.');
   const body = req.body || {};
+  if (!(req.get('If-Match') || body.if_match)) return api().fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when editing a profile.', { if_match: 'required' });
+  if (!api().ifMatch(req, current)) return api().fail(res, 412, 'ETAG_MISMATCH', 'The profile changed. Refresh it and try again.');
+  const requestedUsername = body.username == null ? String(user.username || '') : String(body.username).trim();
+  if (!syzoj.utils.isValidUsername(requestedUsername)) return api().fail(res, 422, 'USERNAME_INVALID', '用户名仅允许字母、数字、连字符和下划线，且不能超过 20 个字符。', { username: 'invalid' });
+  const usernameChanged = requestedUsername !== String(user.username || '');
+  if (usernameChanged && Number(user.id) === Number(syzoj.siteOwnerUserId || 0)) return api().fail(res, 403, 'OWNER_ACCOUNT_PROTECTED', 'The site owner username cannot be changed.');
   const nextEmail = body.email == null ? String(user.email || '') : String(body.email).trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail)) return api().fail(res, 422, 'VALIDATION_FAILED', 'A valid email address is required.', { email: 'invalid' });
   const emailChanged = nextEmail !== String(user.email || '').trim().toLowerCase();
@@ -255,7 +269,8 @@ app.patch('/api/v2/me', async (req, res) => {
     return api().fail(res, 422, 'VALIDATION_FAILED', error.message, { new_password: 'invalid' });
   }
   const information = body.information == null ? String(user.information || '') : String(body.information).slice(0, 10000);
-  const sex = body.sex == null ? String(user.sex || '') : String(body.sex).slice(0, 20);
+  const sex = normalizeSex(body.sex, normalizeSex(user.sex, '0') || '0');
+  if (sex === null) return api().fail(res, 422, 'VALIDATION_FAILED', 'Sex must be -1, 0, or 1.', { sex: 'invalid' });
   const publicEmail = booleanInput(body.public_email, !!user.public_email);
   const formattedCode = booleanInput(body.prefer_formatted_code, !!user.prefer_formatted_code);
   const identitySubmitted = ['student_id', 'real_name', 'college'].some(field => Object.prototype.hasOwnProperty.call(body, field));
@@ -285,23 +300,31 @@ app.patch('/api/v2/me', async (req, res) => {
           throw conflict;
         }
       }
+      if (usernameChanged) {
+        const owners = await manager.query('SELECT id FROM user WHERE username=? AND id<>? LIMIT 1 FOR UPDATE', [requestedUsername, user.id]);
+        if (owners.length) {
+          const conflict = new Error('Duplicate username');
+          conflict.code = 'ER_DUP_ENTRY';
+          throw conflict;
+        }
+      }
       const identity = identitySubmitted
         ? await syzoj.utils.registrationIdentityV2.saveProfileFields(manager, user.id, body, canManageIdentity)
         : lockedIdentity;
-      await manager.query('UPDATE user SET email=?,information=?,sex=?,public_email=?,prefer_formatted_code=?' + (passwordHash ? ',password=?' : '') + ' WHERE id=?', passwordHash
-        ? [nextEmail, information, sex, publicEmail ? 1 : 0, formattedCode ? 1 : 0, passwordHash, user.id]
-        : [nextEmail, information, sex, publicEmail ? 1 : 0, formattedCode ? 1 : 0, user.id]);
+      await manager.query('UPDATE user SET username=?,email=?,information=?,sex=?,public_email=?,prefer_formatted_code=?' + (passwordHash ? ',password=?' : '') + ' WHERE id=?', passwordHash
+        ? [requestedUsername, nextEmail, information, sex, publicEmail ? 1 : 0, formattedCode ? 1 : 0, passwordHash, user.id]
+        : [requestedUsername, nextEmail, information, sex, publicEmail ? 1 : 0, formattedCode ? 1 : 0, user.id]);
       if (emailChanged) {
         await manager.query('UPDATE user_email_status SET is_email_verified=0,verified_email=NULL,verified_at=NULL,last_send_at=NULL WHERE user_id=?', [user.id]);
         await manager.query("UPDATE email_verification_token SET used=1 WHERE user_id=? AND purpose='verify_email' AND used=0", [user.id]);
       }
       const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, {
         action: 'profile:update', resourceType: 'user', resourceId: user.id,
-        details: { email_changed: emailChanged, password_changed: passwordChanged, identity_changed: identitySubmitted }
+        details: { username_changed: usernameChanged, email_changed: emailChanged, password_changed: passwordChanged, identity_changed: identitySubmitted }
       }, manager);
       const eventId = await contentDomain.appendEvent(manager, {
         stream: `user:${user.id}`, type: 'profile.updated', aggregateId: user.id, actorId: user.id,
-        payload: { email_changed: emailChanged, password_changed: passwordChanged, identity_changed: identitySubmitted, audit_event_id: auditEventId }
+        payload: { username_changed: usernameChanged, email_changed: emailChanged, password_changed: passwordChanged, identity_changed: identitySubmitted, audit_event_id: auditEventId }
       });
       return { identity, auditEventId, eventId };
     });

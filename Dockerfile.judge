@@ -1,0 +1,81 @@
+ARG JUDGE_BASE=menci/syzoj-judge@sha256:818e60bc33c9542c8119ff57445ea6e059e62462580450a14af75334dc9eb513
+
+FROM ${JUDGE_BASE} AS python-builder
+
+ARG PYTHON310_VERSION=3.10.20
+ARG PYTHON310_SHA256=de6517421601e39a9a3bc3e1bc4c7b2f239297423ee05e282598c83ec0647505
+ARG PYTHON311_VERSION=3.11.15
+ARG PYTHON311_SHA256=272179ddd9a2e41a0fc8e42e33dfbdca0b3711aa5abf372d3f2d51543d09b625
+
+RUN set -eux; \
+    cp /etc/resolv.conf /rootfs/etc/resolv.conf; \
+    find /rootfs/etc/apt/sources.list.d -maxdepth 1 -type f -name '*.list' -exec mv '{}' '{}.disabled' \;; \
+    chroot /rootfs apt-get update; \
+    DEBIAN_FRONTEND=noninteractive chroot /rootfs apt-get install -y --no-install-recommends \
+        build-essential \
+        libbz2-dev \
+        libffi-dev \
+        libgdbm-dev \
+        liblzma-dev \
+        libncursesw5-dev \
+        libreadline-dev \
+        libsqlite3-dev \
+        libssl-dev \
+        uuid-dev \
+        zlib1g-dev; \
+    curl -fsSL "https://www.python.org/ftp/python/${PYTHON310_VERSION}/Python-${PYTHON310_VERSION}.tar.xz" -o "/rootfs/tmp/Python-${PYTHON310_VERSION}.tar.xz"; \
+    echo "${PYTHON310_SHA256}  /rootfs/tmp/Python-${PYTHON310_VERSION}.tar.xz" | sha256sum -c -; \
+    tar -xJf "/rootfs/tmp/Python-${PYTHON310_VERSION}.tar.xz" -C /rootfs/tmp; \
+    chroot /rootfs sh -c "cd /tmp/Python-${PYTHON310_VERSION} && ./configure --prefix=/opt/python/${PYTHON310_VERSION} --with-ensurepip=no && make -j4 && make install"; \
+    curl -fsSL "https://www.python.org/ftp/python/${PYTHON311_VERSION}/Python-${PYTHON311_VERSION}.tar.xz" -o "/rootfs/tmp/Python-${PYTHON311_VERSION}.tar.xz"; \
+    echo "${PYTHON311_SHA256}  /rootfs/tmp/Python-${PYTHON311_VERSION}.tar.xz" | sha256sum -c -; \
+    tar -xJf "/rootfs/tmp/Python-${PYTHON311_VERSION}.tar.xz" -C /rootfs/tmp; \
+    chroot /rootfs sh -c "cd /tmp/Python-${PYTHON311_VERSION} && ./configure --prefix=/opt/python/${PYTHON311_VERSION} --with-ensurepip=no && make -j4 && make install"
+
+FROM ${JUDGE_BASE}
+
+ARG TOOLCHAIN_KEY=C8EC952E2A0E1FBDC5090F6A2C277A0A352154E5
+ARG PYTHON310_VERSION=3.10.20
+ARG PYTHON311_VERSION=3.11.15
+ARG PYPY_PYTHON_VERSION=3.11
+ARG PYPY_VERSION=7.3.23
+ARG PYPY_SHA256=16f9f56e82d1f4ec95a324c1a8cacfd78afc7f0656c0a809a18725ef4391453a
+
+RUN set -eux; \
+    mkdir -p /rootfs/usr/share/keyrings; \
+    curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x${TOOLCHAIN_KEY}" \
+        | gpg --batch --dearmor -o /rootfs/usr/share/keyrings/nwpu-toolchain.gpg; \
+    echo "deb [signed-by=/usr/share/keyrings/nwpu-toolchain.gpg] https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test/ubuntu focal main" \
+        > /rootfs/etc/apt/sources.list.d/nwpu-toolchain.list; \
+    cp /etc/resolv.conf /rootfs/etc/resolv.conf; \
+    chroot /rootfs apt-get update \
+        -o Dir::Etc::sourcelist=sources.list.d/nwpu-toolchain.list \
+        -o Dir::Etc::sourceparts=-; \
+    DEBIAN_FRONTEND=noninteractive chroot /rootfs apt-get install -y --no-install-recommends g++-13 g++-14; \
+    chroot /rootfs apt-get clean; \
+    rm -rf /rootfs/var/lib/apt/lists/* /rootfs/var/cache/apt/archives/*.deb
+
+COPY --from=python-builder /rootfs/opt/python /rootfs/opt/python
+
+RUN set -eux; \
+    mkdir -p /rootfs/opt/pypy; \
+    curl -fsSL "https://downloads.python.org/pypy/pypy${PYPY_PYTHON_VERSION}-v${PYPY_VERSION}-linux64.tar.bz2" -o /tmp/pypy.tar.bz2; \
+    echo "${PYPY_SHA256}  /tmp/pypy.tar.bz2" | sha256sum -c -; \
+    tar -xjf /tmp/pypy.tar.bz2 -C /rootfs/opt/pypy --strip-components=1; \
+    rm /tmp/pypy.tar.bz2; \
+    echo /opt/pypy/bin > /rootfs/etc/ld.so.conf.d/pypy.conf; \
+    chroot /rootfs ldconfig; \
+    ln -s "/opt/python/${PYTHON310_VERSION}/bin/python3.10" /rootfs/usr/bin/python3.10; \
+    ln -s "/opt/python/${PYTHON311_VERSION}/bin/python3.11" /rootfs/usr/bin/python3.11; \
+    chroot /rootfs /usr/bin/g++-13 --version; \
+    chroot /rootfs /usr/bin/g++-14 --version; \
+    chroot /rootfs /usr/bin/python3.10 --version; \
+    chroot /rootfs /usr/bin/python3.11 --version; \
+    chroot /rootfs /opt/pypy/bin/pypy3 --version
+
+COPY custom/judge/languages/ /app/src/languages/
+COPY custom/judge/languages/ /tmp/nwpu-judge-languages/
+
+RUN set -eux; \
+    cp /tmp/nwpu-judge-languages/*.js /app/lib/languages/; \
+    rm -rf /tmp/nwpu-judge-languages

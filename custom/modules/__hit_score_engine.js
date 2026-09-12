@@ -426,7 +426,7 @@ app.patch('/api/v2/me/hit-settings', async (req, res) => {
   if (!await syzoj.utils.authorizationV2.authorize(user, 'profile:edit', { ownerId: user.id, scope: `user:${user.id}` }, { scope: `user:${user.id}` })) {
     return api.fail(res, 403, 'CAPABILITY_REQUIRED', 'Capability required: profile:edit.');
   }
-  if (!req.get('If-Match')) return api.fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when editing Hit settings.', { if_match: 'required' });
+  if (!(req.get('If-Match') || req.body && req.body.if_match)) return api.fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when editing Hit settings.', { if_match: 'required' });
   const hideHit = req.body && (req.body.hide_hit === true || req.body.hide_hit === 1 || req.body.hide_hit === '1' || req.body.hide_hit === 'true' || req.body.hide_hit === 'on');
   try {
     await api.ensureFoundationSchema();

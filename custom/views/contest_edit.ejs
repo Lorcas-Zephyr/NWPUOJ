@@ -9,8 +9,18 @@
   <form id="contest-editor-form" class="app-form app-contest-editor-form" method="post" data-contest-editor-v2 data-contest-id="<%= contest.id %>"><input type="hidden" name="contest_revision" value="<%= typeof contestRegistration !== 'undefined' && contestRegistration ? contestRegistration.revision : 0 %>">
     <section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">BASICS</span><h2>基本信息</h2><p>比赛名称和描述会显示在比赛列表与详情页。</p></div><div class="app-settings-fields"><label class="app-field"><span class="app-label">比赛名称</span><input class="app-input" type="text" name="title" value="<%= contest.title %>" required></label><label class="app-field"><span class="app-label">简短描述</span><input class="app-input" type="text" name="subtitle" value="<%= contest.subtitle %>"></label><label class="app-field"><span class="app-label">比赛公告</span><textarea class="app-textarea" rows="6" name="information"><%= contest.information %></textarea><span class="app-help">支持 Markdown。</span></label></div></section>
     <section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">CONTENT</span><h2>题目与管理员</h2><p>搜索后直接加入，已选条目可以单独移除。</p></div><div class="app-settings-fields"><div class="app-field"><span class="app-label">试题列表</span><input type="hidden" name="problems" value="" data-empty-contest-problems><div class="app-entity-picker" data-entity-picker data-endpoint="/api/v2/search/problems/__QUERY__?contest=1" data-name="problems" data-placeholder="输入题号或标题"><div class="app-entity-selected" data-picker-selected><% for (const problem of problems) { %><span data-picker-value="<%= problem.id %>" class="<%= appUnavailableProblems.includes(problem) ? 'is-warning' : '' %>"><input type="hidden" name="problems" value="<%= problem.id %>"><em><%= problem.getDisplayId() %>. <%= problem.title %><%= appUnavailableProblems.includes(problem) ? '（比赛不可用）' : '' %></em><button type="button" data-picker-remove aria-label="移除题目"><i data-lucide="x"></i></button></span><% } %></div><span class="app-input-wrap"><i data-lucide="search"></i><input class="app-input" type="search" data-picker-search placeholder="输入题号或标题添加试题" autocomplete="off"></span><div class="app-entity-results" data-picker-results hidden></div></div><span class="app-help">可以先保存空题目草稿；发布或开始比赛前需要至少添加一道题。</span><% if (appUnavailableProblems.length) { %><div class="app-notice app-notice-warning"><i data-lucide="triangle-alert"></i><span>包含 <%= appUnavailableProblems.length %> 道未启用比赛提交的 VJudge 题目，请移除后再保存。</span></div><% } %></div><div class="app-field"><span class="app-label">比赛管理员</span><div class="app-entity-picker" data-entity-picker data-endpoint="/api/v2/search/users/__QUERY__" data-name="admins" data-placeholder="输入用户名"><div class="app-entity-selected" data-picker-selected><% for (const admin of admins) { %><span data-picker-value="<%= admin.id %>"><input type="hidden" name="admins" value="<%= admin.id %>"><em><%= admin.username %></em><button type="button" data-picker-remove aria-label="移除管理员"><i data-lucide="x"></i></button></span><% } %></div><span class="app-input-wrap"><i data-lucide="search"></i><input class="app-input" type="search" data-picker-search placeholder="输入用户名添加比赛管理员" autocomplete="off"></span><div class="app-entity-results" data-picker-results hidden></div></div></div></div></section>
-    <section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">SCHEDULE</span><h2>赛程与赛制</h2><p>已创建比赛不能更换赛制。</p></div><div class="app-settings-fields"><fieldset class="app-field"><legend class="app-label">赛制</legend><div class="app-choice-row"><% for (const type of [['noi', 'NOI', '提交后仅显示有限反馈'], ['ioi', 'IOI', '按子任务累计得分'], ['acm', 'ACM', '罚时与通过数排名']]) { %><label class="app-choice"><input type="radio" name="type" value="<%= type[0] %>"<%= contest.type === type[0] ? ' checked' : '' %><%= contest.id ? ' disabled' : '' %>><span><i data-lucide="<%= type[0] === 'acm' ? 'timer' : type[0] === 'ioi' ? 'chart-no-axes-column' : 'shield-check' %>"></i><strong><%= type[1] %></strong><small><%= type[2] %></small></span></label><% } %></div></fieldset><div class="app-form-grid"><label class="app-field app-field-half"><span class="app-label">开始时间</span><input class="app-input" type="text" name="start_time" value="<%= syzoj.utils.formatDate(contest.start_time || syzoj.utils.getCurrentDate(), 'YYYY-MM-DD HH:mm:ss') %>" required></label><label class="app-field app-field-half"><span class="app-label">结束时间</span><input class="app-input" type="text" name="end_time" value="<%= syzoj.utils.formatDate(contest.end_time || syzoj.utils.getCurrentDate(), 'YYYY-MM-DD HH:mm:ss') %>" required></label></div><label class="app-field"><span class="app-label">排行参数</span><input class="app-input app-monospace-input" type="text" name="ranking_params" value="<%= contest.ranklist ? JSON.stringify(contest.ranklist.ranking_params) : '' %>" placeholder='{ "题目 ID": 分值倍数 }'></label></div></section>
-    <section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">VISIBILITY</span><h2>访问与计分</h2><p>控制比赛在前台的显示方式和报名范围。</p></div><div class="app-settings-fields"><label class="app-setting-row"><span><strong>隐藏统计信息</strong><small>参赛者无法查看实时统计。</small></span><input class="app-switch" type="checkbox" name="hide_statistics"<%= contest.hide_statistics ? ' checked' : '' %>></label><label class="app-setting-row"><span><strong>隐藏比赛</strong><small>从公开列表隐藏，仅比赛管理员可访问。</small></span><input class="app-switch" type="checkbox" name="hide_contest"<%= contest.id && !contest.is_public ? ' checked' : '' %>></label><label class="app-setting-row"><span><strong>允许开赛后报名</strong><small>比赛开始后仍可加入。</small></span><input class="app-switch" type="checkbox" name="allow_late_registration"<%= typeof contestRegistration !== 'undefined' && contestRegistration && contestRegistration.allowLateRegistration ? ' checked' : '' %>></label><label class="app-setting-row"><span><strong>Rated 比赛</strong><small><%= typeof contestRatingLocked !== 'undefined' && contestRatingLocked ? '比赛开始后不能修改 Rated 状态。' : '比赛结束并处理无效提交后，由管理员统一计算。' %></small></span><input class="app-switch" type="checkbox" name="is_rated"<%= typeof contestRated !== 'undefined' && contestRated ? ' checked' : '' %><%= typeof contestRatingLocked !== 'undefined' && contestRatingLocked ? ' disabled' : '' %>></label><% if (typeof contestRatingLocked !== 'undefined' && contestRatingLocked && typeof contestRated !== 'undefined' && contestRated) { %><input type="hidden" name="is_rated" value="on"><% } %></div></section>
+    <section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">SCHEDULE</span><h2>赛程与赛制</h2><p>已创建比赛不能更换赛制。</p></div><div class="app-settings-fields"><fieldset class="app-field"><legend class="app-label">赛制</legend><div class="app-choice-row"><% for (const type of [['noi', 'NOI', '提交后仅显示有限反馈'], ['ioi', 'IOI', '按子任务累计得分'], ['acm', 'ACM', '罚时与通过数排名']]) { %><label class="app-choice"><input type="radio" name="type" value="<%= type[0] %>"<%= contest.type === type[0] ? ' checked' : '' %><%= contest.id ? ' disabled' : '' %>><span><i data-lucide="<%= type[0] === 'acm' ? 'timer' : type[0] === 'ioi' ? 'chart-no-axes-column' : 'shield-check' %>"></i><strong><%= type[1] %></strong><small><%= type[2] %></small></span></label><% } %></div></fieldset><div class="app-form-grid"><label class="app-field app-field-half"><span class="app-label">开始时间</span><input class="app-input app-datetime-input" type="datetime-local" step="60" data-app-datetime-picker name="start_time" value="<%= syzoj.utils.formatDate(contest.start_time || syzoj.utils.getCurrentDate(), 'YYYY-MM-DDTHH:mm') %>" required></label><label class="app-field app-field-half"><span class="app-label">结束时间</span><input class="app-input app-datetime-input" type="datetime-local" step="60" data-app-datetime-picker name="end_time" value="<%= syzoj.utils.formatDate(contest.end_time || syzoj.utils.getCurrentDate(), 'YYYY-MM-DDTHH:mm') %>" required></label></div><label class="app-field"><span class="app-label">排行参数</span><input class="app-input app-monospace-input" type="text" name="ranking_params" value="<%= contest.ranklist ? JSON.stringify(contest.ranklist.ranking_params) : '' %>" placeholder='{ "题目 ID": 分值倍数 }'></label></div></section>
+    <section class="app-settings-section">
+      <div class="app-settings-copy"><span class="app-kicker">VISIBILITY</span><h2>访问与计分</h2><p>控制比赛在前台的显示方式和报名范围。</p></div>
+      <div class="app-settings-fields">
+        <label class="app-setting-row"><span><strong>隐藏统计信息</strong><small>参赛者无法查看实时统计。</small></span><input class="app-switch" type="checkbox" name="hide_statistics"<%= contest.hide_statistics ? ' checked' : '' %>></label>
+        <label class="app-setting-row"><span><strong>隐藏比赛</strong><small>从公开列表隐藏，仅比赛管理员可访问。</small></span><input class="app-switch" type="checkbox" name="hide_contest"<%= contest.id && !contest.is_public ? ' checked' : '' %>></label>
+        <label class="app-setting-row"><span><strong>允许用户报名</strong><small>关闭后仅可通过管理员生成的比赛账号参赛。</small></span><input class="app-switch" type="checkbox" name="allow_registration"<%= !contest.id || (typeof contestRegistration !== 'undefined' && contestRegistration && contestRegistration.allowRegistration) ? ' checked' : '' %>></label>
+        <label class="app-setting-row"><span><strong>允许开赛后报名</strong><small>比赛开始后仍可加入。</small></span><input class="app-switch" type="checkbox" name="allow_late_registration"<%= typeof contestRegistration !== 'undefined' && contestRegistration && contestRegistration.allowLateRegistration ? ' checked' : '' %>></label>
+        <label class="app-setting-row"><span><strong>Rated 比赛</strong><small><%= typeof contestRatingLocked !== 'undefined' && contestRatingLocked ? '比赛开始后不能修改 Rated 状态。' : '比赛结束并处理无效提交后，由管理员统一计算。' %></small></span><input class="app-switch" type="checkbox" name="is_rated"<%= typeof contestRated !== 'undefined' && contestRated ? ' checked' : '' %><%= typeof contestRatingLocked !== 'undefined' && contestRatingLocked ? ' disabled' : '' %>></label>
+        <% if (typeof contestRatingLocked !== 'undefined' && contestRatingLocked && typeof contestRated !== 'undefined' && contestRated) { %><input type="hidden" name="is_rated" value="on"><% } %>
+      </div>
+    </section>
     <div class="app-settings-submit"><a class="app-button app-button-quiet" href="<%= contest.id ? syzoj.utils.makeUrl(['contest', contest.id]) : syzoj.utils.makeUrl(['contests']) %>">取消</a><button id="submit_button" class="app-button app-button-primary" type="submit"><i data-lucide="save"></i><%= contest.id ? '保存比赛' : '创建比赛' %></button></div>
   </form>
   <% if (contest.id) { %><section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">RATING</span><h2>Rating 状态</h2><p>赛后先处理作弊、取消等无效提交，再到 Rating 页面统一计算。</p></div><div class="app-settings-fields"><div class="app-setting-row"><span><strong><%= typeof contestRated !== 'undefined' && contestRated ? 'Rated 比赛' : 'Unrated 比赛' %></strong><small><%= typeof contestRated !== 'undefined' && contestRated ? (contestRatingFinalizationStatus === 'completed' ? 'Rating 已计算' : contestRatingFinalizationStatus === 'skipped' ? '无需 Rating 变更' : contest.isEnded() ? '等待管理员计算' : '比赛结束后可计算') : '不参与 Rating 计算' %></small></span><% if (typeof appHasCapability === 'function' && appHasCapability('rating:read')) { %><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['admin', 'rating']) %>"><i data-lucide="calculator"></i>查看计算状态</a><% } %></div></div></section><section class="app-settings-section app-danger-section"><div class="app-settings-copy"><span class="app-kicker">DELETE</span><h2>删除比赛</h2><p>删除比赛、报名、提交和排行榜；若已有 Rating，系统会按时间顺序重算后续 Rated 比赛。</p></div><div class="app-settings-fields"><form class="app-inline-form" method="post" data-contest-delete-v2 data-contest-id="<%= contest.id %>" data-confirm="确定永久删除比赛“<%= contest.title %>”吗？相关提交与报名会一并删除，后续 Rating 将自动重算。"><input type="hidden" name="csrf_token" value="<%= adminCsrfToken %>"><button class="app-button app-button-danger" type="submit"><i data-lucide="trash-2"></i>删除比赛</button></form></div></section><% } %>
@@ -115,6 +125,8 @@
       else visibility.push('公开比赛');
       if (editorForm.elements.is_rated && editorForm.elements.is_rated.checked) visibility.push('Rated');
       else visibility.push('Unrated');
+      if (editorForm.elements.allow_registration && editorForm.elements.allow_registration.checked) visibility.push('允许用户报名');
+      else visibility.push('仅限比赛账号');
       if (editorForm.elements.allow_late_registration && editorForm.elements.allow_late_registration.checked) visibility.push('允许开赛后报名');
       setReview('[data-review-title]', fieldValue('title') || '未填写');
       setReview('[data-review-problems]', problems.length ? problems.length + ' 道 · ' + problems.slice(0, 3).join('、') + (problems.length > 3 ? ' 等' : '') : '暂未添加');
@@ -293,7 +305,7 @@
           var items = payload.results || payload.data || payload || [];
           if (!Array.isArray(items)) items = [];
           results.innerHTML = '';
-          items.slice(0, 10).forEach(function (item) {
+          items.forEach(function (item) {
             var value = normalizeValue(item.value != null ? item.value : item.id);
             var label = String(item.name || item.title || item.text || '').trim();
             if (!value || values().includes(value)) return;
@@ -301,6 +313,7 @@
             var button = document.createElement('button');
             button.type = 'button';
             button.textContent = label;
+            button.title = label;
             button.addEventListener('click', function () { add(value, label); });
             results.appendChild(button);
           });
@@ -369,8 +382,9 @@ function apiMessage(result, fallback) {
 
   function dateValue(name) {
     var value = String(editorForm.elements[name].value || '').trim();
-    var date = new Date(value.replace(' ', 'T'));
+    var date = new Date(value);
     if (!value || Number.isNaN(date.getTime())) throw new Error('比赛时间格式不正确。');
+    date.setSeconds(0, 0);
     return date.toISOString();
   }
 
@@ -395,10 +409,10 @@ editorForm.addEventListener('submit', async function (event) {
       if (contestId > 0) {
         var current = await readResponse(await fetch('/api/v2/contests/' + encodeURIComponent(contestId), { credentials: 'same-origin', cache: 'no-store' }));
         if (!current.response.ok) throw new Error(apiMessage(current, '暂时无法读取比赛状态。'));
-        var etag = current.response.headers.get('ETag');
+        var etag = current.response.headers.get('ETag') || current.body && current.body.meta && current.body.meta.etag;
         if (!etag) throw new Error('比赛版本信息缺失，请刷新后重试。');
-        endpoint += '/' + encodeURIComponent(contestId);
-        method = 'PATCH';
+        endpoint += '/' + encodeURIComponent(contestId) + '/update';
+        method = 'POST';
         headers['If-Match'] = etag;
       }
       var selectedType = editorForm.querySelector('[name="type"]:checked');
@@ -409,8 +423,9 @@ editorForm.addEventListener('submit', async function (event) {
         body: JSON.stringify({
           title: editorForm.elements.title.value,
           subtitle: editorForm.elements.subtitle.value,
-          information: editorForm.elements.information.value,
-          problem_ids: pickerValues('problems'),
+              information: editorForm.elements.information.value,
+              if_match: headers['If-Match'] || '',
+              problem_ids: pickerValues('problems'),
           admins: pickerValues('admins'),
           type: selectedType ? selectedType.value : 'acm',
           start_at: dateValue('start_time'),
@@ -418,6 +433,7 @@ editorForm.addEventListener('submit', async function (event) {
           ranking_params: rankingValue(),
           hide_statistics: !!editorForm.querySelector('[name="hide_statistics"]:checked'),
           visibility: editorForm.querySelector('[name="hide_contest"]:checked') ? 'private' : 'public',
+          allow_registration: !!editorForm.querySelector('[name="allow_registration"]:checked'),
           allow_late_registration: !!editorForm.querySelector('[name="allow_late_registration"]:checked'),
           is_rated: !!editorForm.querySelector('[name="is_rated"]:checked')
         })
@@ -440,8 +456,8 @@ editorForm.addEventListener('submit', async function (event) {
     var button = deleteForm.querySelector('[type="submit"]');
     if (button) button.disabled = true;
     try {
-      var result = await readResponse(await fetch('/api/v2/contests/' + encodeURIComponent(deleteForm.dataset.contestId), {
-        method: 'DELETE', credentials: 'same-origin', headers: { 'Idempotency-Key': operationKey() }
+      var result = await readResponse(await fetch('/api/v2/contests/' + encodeURIComponent(deleteForm.dataset.contestId) + '/delete', {
+        method: 'POST', credentials: 'same-origin', headers: { 'Idempotency-Key': operationKey() }
       }));
       if (!result.response.ok) throw new Error(apiMessage(result, '比赛删除失败。'));
       var data = result.body.data || {};

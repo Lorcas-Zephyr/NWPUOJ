@@ -21,7 +21,7 @@ test('administrative writes are registered only under v2 contracts', () => {
   assert.equal(inventory.summary.v1_write_forms, 0);
 });
 
-test('configuration and privilege changes require capability, recent login, ETag, and audit', () => {
+test('configuration and privilege changes require capability, an authenticated management session, ETag, and audit', () => {
   const source = read('custom/modules/_api_v2_admin_domain.js');
   assert.match(source, /app\.patch\('\/api\/v2\/admin\/config', requireCapability\('admin:config\.write', \{ recent: true \}\)/);
   assert.match(source, /app\.patch\('\/api\/v2\/admin\/users\/:id', requireCapability\('admin:user\.manage'\)/);

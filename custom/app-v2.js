@@ -404,6 +404,17 @@
     });
   }
 
+  function setupDateTimePickers() {
+    document.querySelectorAll('[data-app-datetime-picker]').forEach(function (input) {
+      function openPicker() {
+        if (typeof input.showPicker !== 'function' || input.disabled || input.readOnly) return;
+        try { input.showPicker(); } catch (error) {}
+      }
+      input.addEventListener('focus', openPicker);
+      input.addEventListener('click', openPicker);
+    });
+  }
+
   function refreshUsernameTiers(scope) {
     var tiers = window.__SYZOJ_USER_TIERS || {};
     var target = scope && typeof scope.querySelectorAll === 'function' ? scope : document;
@@ -509,9 +520,19 @@
       var requestOptions = Object.assign({}, options || {});
       var url = typeof input === 'string' ? input : input.url;
       var method = String(requestOptions.method || (typeof input !== 'string' && input.method) || 'GET').toUpperCase();
+      var methodTunnel = /^(PATCH|PUT|DELETE)$/.test(method);
+      if (methodTunnel && sameOrigin(url)) {
+        var tunnelHeaders = new Headers(requestOptions.headers || (typeof input !== 'string' ? input.headers : undefined));
+        tunnelHeaders.set('X-HTTP-Method-Override', method);
+        requestOptions.method = 'POST';
+        requestOptions.headers = tunnelHeaders;
+      }
       if (app.csrfToken && sameOrigin(url) && !/^(GET|HEAD|OPTIONS)$/.test(method)) {
         var headers = new Headers(requestOptions.headers || (typeof input !== 'string' ? input.headers : undefined));
         headers.set('X-CSRF-Token', app.csrfToken);
+        if (!headers.has('Idempotency-Key')) {
+          headers.set('Idempotency-Key', window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random());
+        }
         requestOptions.headers = headers;
       }
       return nativeFetch.call(window, input, requestOptions).catch(function (error) {
@@ -538,6 +559,7 @@
     setupSelectionGroups();
     setupCopies();
     setupPasswordToggles();
+    setupDateTimePickers();
     refreshUsernameTiers();
     setupReveals();
     setupGlobalEvents();

@@ -22,6 +22,36 @@
       window.addEventListener('load', scheduleIconRender);
     })();
   </script>
-  <script src="/self/app-v2.js?v=<%= encodeURIComponent(syzoj.config.nwpuoj_version || '2.0.1') %>&amp;rev=20260731-3"></script>
+  <script>
+    (function () {
+      if (!window.fetch || window.fetch.__nwpuojWriteHeaders) return;
+      var nativeFetch = window.fetch;
+      var csrf = document.querySelector('meta[name="csrf-token"]');
+      var csrfToken = csrf && csrf.getAttribute('content');
+      function isSameOrigin(input) {
+        try { return new URL(typeof input === 'string' ? input : input.url, window.location.href).origin === window.location.origin; } catch (_) { return false; }
+      }
+      window.fetch = function (input, options) {
+        var next = Object.assign({}, options || {});
+        var method = String(next.method || (typeof input !== 'string' && input.method) || 'GET').toUpperCase();
+        var methodTunnel = /^(PATCH|PUT|DELETE)$/.test(method);
+        if (isSameOrigin(input) && methodTunnel) {
+          var tunnelHeaders = new Headers(next.headers || (typeof input !== 'string' ? input.headers : undefined));
+          tunnelHeaders.set('X-HTTP-Method-Override', method);
+          next.method = 'POST';
+          next.headers = tunnelHeaders;
+        }
+        if (csrfToken && isSameOrigin(input) && !/^(GET|HEAD|OPTIONS)$/.test(method)) {
+          var headers = new Headers(next.headers || (typeof input !== 'string' ? input.headers : undefined));
+          headers.set('X-CSRF-Token', csrfToken);
+          if (!headers.has('Idempotency-Key')) headers.set('Idempotency-Key', window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random());
+          next.headers = headers;
+        }
+        return nativeFetch.call(window, input, next);
+      };
+      window.fetch.__nwpuojWriteHeaders = true;
+    })();
+  </script>
+  <script src="/self/app-v2.js?v=<%= encodeURIComponent(syzoj.config.nwpuoj_version || '2.1.0') %>&amp;rev=20260912-1"></script>
 </body>
 </html>

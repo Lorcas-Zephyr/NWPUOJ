@@ -21,10 +21,11 @@
       var current = await fetch('/api/v2/admin/config-metadata', { credentials: 'same-origin', cache: 'no-store' });
       var metadata = await current.json();
       if (!current.ok) throw new Error(metadata && metadata.error && metadata.error.message || '配置读取失败。');
+      var etag = current.headers.get('ETag') || metadata && metadata.meta && metadata.meta.etag || '';
       var response = await fetch('/api/v2/admin/config', {
         method: 'PATCH', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', 'If-Match': current.headers.get('ETag') || '' },
-        body: JSON.stringify({ changes: { site_title: form.elements.site_title.value.trim(), default_user_rating: Number(form.elements.default_user_rating.value) } })
+        headers: { 'Content-Type': 'application/json', 'If-Match': etag },
+        body: JSON.stringify({ if_match: etag, changes: { site_title: form.elements.site_title.value.trim(), default_user_rating: Number(form.elements.default_user_rating.value) } })
       });
       var body = await response.json();
       if (!response.ok) throw new Error(body && body.error && body.error.message || '配置保存失败。');

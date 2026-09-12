@@ -1,0 +1,53 @@
+<% this.adminPage = 'ai'; %>
+<% include admin_header %>
+
+<div class="app-admin-toolbar"><div><h3>AI 参赛</h3><p>仅接入 DeepSeek 与 GPT。AI 只读取比赛题面和公开样例，按一次一题、等待评测、失败后修复的顺序参赛。</p></div></div>
+
+<section class="app-admin-section">
+  <div class="app-section-header"><div><h3 class="app-section-title">AI 账户</h3><p class="app-section-description">账户由系统创建，密码不会展示或用于人工登录。</p></div></div>
+  <div class="app-table-region"><table class="app-table"><thead><tr><th>账户</th><th>Provider</th><th>模型</th><th>密钥状态</th></tr></thead><tbody>
+    <% agents.forEach(function (agent) { %><tr><td class="app-cell-primary"><strong><%= agent.username %></strong></td><td><%= agent.provider %></td><td><%= agent.model %></td><td><span class="app-status <%= agent.configured ? 'app-status-accepted' : 'app-status-rejected' %>"><%= agent.configured ? '已配置' : '未配置' %></span></td></tr><% }); %>
+  </tbody></table></div>
+</section>
+
+<section class="app-admin-section" data-ai-control>
+  <div class="app-section-header"><div><h3 class="app-section-title">启动比赛</h3><p class="app-section-description">已完成的账户不会重复运行；失败、停止或取消的账户再次启动后从已有进度继续。</p></div></div>
+  <form class="app-form-grid" data-ai-form>
+    <label class="app-field"><span>比赛</span><select name="contest_id" required><option value="">请选择比赛</option><% contests.forEach(function (contest) { %><option value="<%= contest.id %>">#<%= contest.id %> · <%= contest.title %></option><% }); %></select></label>
+    <label class="app-field"><span>最大尝试次数（每题）</span><input name="max_attempts" type="number" min="1" max="20" value="20"></label>
+    <fieldset class="app-field"><legend>模型</legend><label><input type="checkbox" name="provider" value="deepseek" checked> DeepSeek</label><label><input type="checkbox" name="provider" value="gpt" checked> GPT</label></fieldset>
+    <div class="app-form-actions"><button class="app-button app-button-primary" type="submit">启动 AI 参赛</button><span class="app-form-message" data-ai-message role="status" aria-live="polite"></span></div>
+  </form>
+</section>
+
+<section class="app-admin-section" data-ai-runs><div class="app-section-header"><div><h3 class="app-section-title">运行记录</h3><p class="app-section-description">保留最近 200 条记录，包括已完成、已停止、失败和已取消的运行。</p></div><button class="app-button app-button-secondary" type="button" data-ai-refresh>刷新</button></div><div class="app-table-region"><table class="app-table"><thead><tr><th>比赛</th><th>账户</th><th>状态</th><th>题目</th><th>尝试</th><th>更新时间</th><th>操作</th></tr></thead><tbody data-ai-run-rows></tbody></table></div></section>
+
+<script>
+(function () {
+  var form = document.querySelector('[data-ai-form]');
+  var message = document.querySelector('[data-ai-message]');
+  var runs = document.querySelector('[data-ai-runs]');
+  var rows = document.querySelector('[data-ai-run-rows]');
+  var refresh = document.querySelector('[data-ai-refresh]');
+  if (!form || !message || !runs || !rows) return;
+  function show(text, ok) { message.textContent = text; message.className = 'app-form-message ' + (ok ? 'is-success' : 'is-error'); }
+  function contestId() { return form.elements.contest_id.value; }
+  function stateText(state) { return ({ queued: '等待开始', planning: '选择题目', solving: '思考并生成代码', submitting: '提交中', waiting_result: '等待评测', repairing: '思考并修正代码', completed: '已完成', stopped: '已停止', failed: '失败', cancelled: '已取消' })[state] || state || '-'; }
+  function timeText(timestamp) { return timestamp ? new Date(Number(timestamp) * 1000).toLocaleString('zh-CN', { hour12: false }) : '-'; }
+  function render(items) {
+    rows.innerHTML = '';
+    (items || []).forEach(function (run) {
+      var row = document.createElement('tr');
+      var contest = '#' + run.contest_id + ' · ' + (run.contest_title || '比赛已删除');
+      [contest, run.username || run.provider || '-', stateText(run.state), run.current_problem_id == null ? '-' : '#' + run.current_problem_id, (run.current_attempt || 0) + ' / ' + (run.max_attempts || 20), timeText(run.finished_at || run.updated_at)].forEach(function (value, index) { var cell = document.createElement('td'); if (index < 2) cell.className = 'app-cell-primary'; cell.textContent = value; if (index === 2 && run.last_error) cell.title = run.last_error; row.appendChild(cell); });
+      var action = document.createElement('td'); if (!['completed','stopped','failed','cancelled'].includes(run.state)) { var button = document.createElement('button'); button.type = 'button'; button.className = 'app-button app-button-quiet app-button-small'; button.textContent = '停止'; button.addEventListener('click', async function () { button.disabled = true; await fetch('/api/v2/contests/' + encodeURIComponent(run.contest_id) + '/ai-runs/' + encodeURIComponent(run.id) + '/cancel', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}' }); load(); }); action.appendChild(button); } else action.textContent = '-'; row.appendChild(action); rows.appendChild(row);
+    });
+    if (!(items && items.length)) { var empty = document.createElement('tr'); var cell = document.createElement('td'); cell.colSpan = 7; cell.textContent = '暂无 AI 参赛记录。'; empty.appendChild(cell); rows.appendChild(empty); }
+  }
+  async function load() { var response = await fetch('/api/v2/admin/ai/runs', { credentials: 'same-origin', cache: 'no-store' }); var body = await response.json().catch(function () { return {}; }); if (!response.ok) throw new Error(body.error && body.error.message || '运行记录读取失败。'); render(body.data || []); }
+  form.addEventListener('submit', async function (event) { event.preventDefault(); var providers = Array.prototype.slice.call(form.querySelectorAll('input[name="provider"]:checked')).map(function (input) { return input.value; }); if (!providers.length) return show('至少选择一个模型。', false); var body = { providers: providers, max_attempts: Number(form.elements.max_attempts.value || 20) }; try { var response = await fetch('/api/v2/contests/' + encodeURIComponent(contestId()) + '/ai-runs', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); var result = await response.json().catch(function () { return {}; }); if (!response.ok) throw new Error(result.error && result.error.message || '启动失败。'); show('已启动 AI 参赛。', true); await load(); } catch (error) { show(error.message || '启动失败。', false); } });
+  refresh.addEventListener('click', function () { load().catch(function (error) { show(error.message, false); }); });
+  load().catch(function (error) { show(error.message, false); });
+})();
+</script>
+<% include admin_footer %>

@@ -2,7 +2,7 @@
 
 NWPUOJ 是面向高校程序设计教学、训练和竞赛的在线评测与社区平台。项目以 SYZOJ 作为底层 Web、数据模型和 Judge 协议框架，在其上提供现代化题库、比赛、评测、管理和社区能力。
 
-当前发行版：**v2.0.1**
+当前发行版：**v2.1.0**
 
 > 项目沿革：NWPUOJ 由 AlgoBeat Online Judge 现有代码与功能继续改版而来。自 NWPUOJ 起重新采用独立版本序列，并保留 SYZOJ 作为后台框架及相关技术标识。
 
@@ -126,6 +126,10 @@ openssl rand -hex 32
 - `SYZOJ_WEB_SECRET_EMAIL`
 
 `env-app` 包含密钥和外部 OJ 账号，已被 Git 忽略，不得提交。
+
+Compose 还要求仓库根目录的 `.env` 提供独立的 `SYZOJ_DB_PASSWORD` 和
+`SYZOJ_DB_ROOT_PASSWORD`（同样不要提交）；HTTPS 部署示例可直接参考
+`deploy/https.env.example`。数据库账号更换后请执行 `docker compose up -d --force-recreate`。
 
 ### 3. 安装自定义依赖
 
@@ -267,7 +271,7 @@ VJudge 导入和提交队列位于单个 Web 进程内。启用 VJudge 时不要
 确认没有 pending 评测且 RabbitMQ 队列为空：
 
 ```bash
-docker compose exec -T mariadb mariadb -N -B -usyzoj -psyzoj syzoj \
+docker compose exec -T mariadb mariadb -N -B -usyzoj -p syzoj \
   -e "SELECT COUNT(*) FROM judge_state WHERE pending=1;"
 docker compose exec -T rabbitmq \
   rabbitmqctl list_queues name messages_ready messages_unacknowledged consumers
@@ -342,7 +346,7 @@ docker compose ps
 curl -f http://127.0.0.1/help
 
 docker compose exec -T mariadb \
-  mariadb -N -B -usyzoj -psyzoj syzoj \
+  mariadb -N -B -usyzoj -p syzoj \
   -e "SELECT COUNT(*) FROM judge_state WHERE pending=1;"
 
 docker compose exec -T rabbitmq \
@@ -373,7 +377,7 @@ docker compose exec mariadb mariadb -uroot syzoj
 
 ## 版本与发布
 
-NWPUOJ 使用独立语义化版本。当前发行版为 `v2.0.1`。
+NWPUOJ 使用独立语义化版本。当前发行版为 `v2.1.0`。
 
 版本号同时保存在：
 
@@ -387,7 +391,7 @@ NWPUOJ 使用独立语义化版本。当前发行版为 `v2.0.1`。
 
 ```bash
 node custom/tests/version_consistency.test.js
-git tag -a v2.0.1 -m "NWPUOJ v2.0.1"
+git tag -a v2.1.0 -m "NWPUOJ v2.1.0"
 ```
 
 发布检查和回滚流程见 [RELEASE.md](RELEASE.md)，变更记录见 [CHANGELOG.md](CHANGELOG.md)。

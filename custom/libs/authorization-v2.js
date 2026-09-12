@@ -3,12 +3,13 @@
 const net = require('node:net');
 
 const BUILT_IN_ROLES = Object.freeze({
-  guest: Object.freeze(['problem:read', 'contest:read', 'ranking:read', 'discussion:read', 'announcement:read', 'banner:read']),
-  member: Object.freeze(['submission:create', 'contest:register', 'contest:submit', 'solution:create', 'discussion:create', 'message:own', 'notification:read', 'clipboard:own', 'ticket:create', 'profile:edit']),
+  guest: Object.freeze(['problem:read', 'problemset:read', 'contest:read', 'ranking:read', 'discussion:read', 'announcement:read', 'banner:read']),
+  member: Object.freeze(['submission:create', 'problemset:register', 'problemset:submit', 'contest:register', 'contest:submit', 'solution:create', 'discussion:create', 'message:own', 'notification:read', 'clipboard:own', 'ticket:create', 'profile:edit']),
   participant: Object.freeze(['contest:read', 'contest:submit', 'submission:own.read', 'ranking:read']),
-  problem_editor: Object.freeze(['problem:read', 'problem:create', 'problem:edit', 'problem:testdata.write', 'problem:tag.manage']),
-  problem_reviewer: Object.freeze(['problem:read', 'problem:edit', 'problem:publish', 'problem:archive', 'problem:testdata.write', 'problem:tag.manage']),
-  contest_manager: Object.freeze(['contest:read', 'contest:create', 'contest:edit', 'contest:publish', 'contest:registration.manage', 'contest:standings.rebuild']),
+  problem_editor: Object.freeze(['problem:read', 'problem:create', 'problem:edit', 'problem:delete', 'problem:testdata.write', 'problem:tag.manage']),
+  problem_reviewer: Object.freeze(['problem:read', 'problem:edit', 'problem:delete', 'problem:publish', 'problem:archive', 'problem:testdata.write', 'problem:tag.manage']),
+  contest_manager: Object.freeze(['contest:read', 'contest:create', 'contest:edit', 'contest:delete', 'contest:publish', 'contest:registration.manage', 'contest:standings.rebuild', 'contest:standings.export']),
+  problemset_manager: Object.freeze(['problemset:read', 'problemset:create', 'problemset:edit', 'problemset:delete', 'problemset:publish', 'problemset:archive', 'problemset:registration.manage', 'problemset:standings.export']),
   judge_operator: Object.freeze(['judge:read', 'judge:worker.restart', 'submission:rejudge']),
   content_moderator: Object.freeze(['discussion:moderate', 'solution:moderate', 'announcement:manage', 'ticket:manage', 'ticket:create']),
   rating_manager: Object.freeze(['rating:read', 'rating:preview', 'rating:publish', 'rating:recalculate']),
@@ -17,8 +18,10 @@ const BUILT_IN_ROLES = Object.freeze({
     'admin:health.read', 'admin:audit.read', 'admin:user.manage', 'admin:permission.grant',
     'admin:config.read', 'admin:config.write', 'admin:job.manage', 'admin:content.manage',
     'problem:read', 'problem:create', 'problem:edit', 'problem:publish', 'problem:archive',
-    'problem:testdata.write', 'problem:tag.manage', 'contest:read', 'contest:create',
-    'contest:edit', 'contest:publish', 'contest:registration.manage', 'contest:standings.rebuild',
+    'problem:testdata.write', 'problem:tag.manage', 'problem:delete', 'contest:read', 'contest:create',
+    'contest:edit', 'contest:delete', 'contest:publish', 'contest:registration.manage', 'contest:standings.rebuild', 'contest:standings.export',
+    'problemset:read', 'problemset:create', 'problemset:edit', 'problemset:delete', 'problemset:publish',
+    'problemset:archive', 'problemset:registration.manage', 'problemset:standings.export',
     'judge:read', 'judge:worker.restart', 'submission:rejudge',
     'vjudge:source.manage', 'vjudge:import.create', 'vjudge:submission.create',
     'discussion:moderate', 'solution:moderate', 'announcement:manage',
@@ -31,6 +34,7 @@ const LEGACY_ROLE_MAP = Object.freeze({
   manage_problem: 'problem_editor',
   manage_problem_tag: 'problem_editor',
   manage_contest: 'contest_manager',
+  manage_problemset: 'problemset_manager',
   manage_solution: 'content_moderator',
   manage_ticket: 'content_moderator'
 });
@@ -46,7 +50,15 @@ const HIGH_RISK_CAPABILITIES = new Set([
 ]);
 const RESOURCE_OWNER_CAPABILITIES = new Set([
   'problem:read', 'problem:edit',
-  'contest:edit', 'contest:publish', 'contest:start', 'contest:freeze', 'contest:end'
+  'contest:edit', 'contest:publish', 'contest:start', 'contest:freeze', 'contest:end',
+  'problemset:edit', 'problemset:publish'
+]);
+const RESOURCE_OWNER_RESTRICTED_CAPABILITIES = new Set([
+  'problem:edit', 'problem:delete', 'problem:publish', 'problem:archive', 'problem:testdata.write', 'problem:tag.manage',
+  'contest:edit', 'contest:delete', 'contest:publish', 'contest:registration.manage',
+  'contest:standings.rebuild', 'contest:standings.export', 'contest:start', 'contest:freeze', 'contest:end',
+  'problemset:edit', 'problemset:delete', 'problemset:publish', 'problemset:archive',
+  'problemset:registration.manage', 'problemset:standings.export'
 ]);
 
 const AUTHENTICATION_WINDOW_MS = 15 * 60 * 1000;
@@ -115,7 +127,7 @@ function resourceOwnerAllows(subject, capability, resource) {
   return !!(
     subject && resource &&
     Number(resource.ownerId) === Number(subject.id) &&
-    RESOURCE_OWNER_CAPABILITIES.has(capability)
+    (RESOURCE_OWNER_CAPABILITIES.has(capability) || RESOURCE_OWNER_RESTRICTED_CAPABILITIES.has(capability))
   );
 }
 
@@ -341,6 +353,7 @@ module.exports = {
   policyConditionsMatch,
   recentAuthentication,
   resourceOwnerAllows,
+  RESOURCE_OWNER_RESTRICTED_CAPABILITIES,
   roleAllows,
   scopeMatches
 };

@@ -144,6 +144,7 @@ contest:edit
 contest:publish
 contest:registration.manage
 contest:standings.rebuild
+contest:standings.export
 rating:publish
 rating:recalculate
 vjudge:source.manage
@@ -161,7 +162,7 @@ audit:read
 3. 比赛管理员只拥有该场比赛的权限，不能借此修改全局题库或其他比赛。
 4. 题目管理员只能修改被授权题目，发布题目需要 `problem:publish`。
 5. `site_admin` 默认不能执行 Rating 发布、密钥读取和所有权转移，必须单独授予。
-6. 高危操作要求近期登录或 MFA：删除题目、重算 Rating、重启 Worker、批量导入、修改站点管理员。
+6. 高危操作仍要求对应能力、资源范围、CSRF、ETag 和审计；已登录的全站管理员、站长或对应管理角色无需再次登录或完成 MFA。
 7. 所有权限判断必须经过统一 `authorize(subject, action, resource, context)`，页面不能自行判断角色。
 8. 权限变化立即生效；已有会话不会永久缓存授权结果。
 9. 拒绝响应必须返回稳定错误码，前端根据错误码展示可操作的下一步。
@@ -563,7 +564,7 @@ draft -> review -> scheduled -> running -> frozen -> ended -> rated -> archived
 - 比赛开始后题目快照、计分规则和 Rated 状态不可被普通管理员修改。
 - VJudge 单题、批量导入、失败重试和远程提交可恢复。
 - Rating 重算可预览差异、批准、发布和回滚投影。
-- 所有危险操作具备 MFA/近期登录、CSRF、幂等和审计保护。
+- 所有危险操作具备能力授权、资源范围、CSRF、幂等和审计保护，已授权管理会话无需二次登录。
 - 桌面端、平板端和移动端完成关键流程，键盘和屏幕阅读器可操作。
 
 ## 13. 当前确认项
@@ -602,7 +603,7 @@ draft -> review -> scheduled -> running -> frozen -> ended -> rated -> archived
 | 用户和授权 | - | - | - | - | - | - | R/W/O |
 | 站点配置与密钥 | - | - | - | - | - | - | 独立高危授权 |
 
-任何 `O` 操作都必须产生审计事件，并在必要时要求 MFA 或近期登录。
+任何 `O` 操作都必须产生审计事件并通过对应能力校验；已登录的授权管理账号无需二次登录。
 
 ### A.2 社区、个人内容与运营内容
 
@@ -667,3 +668,21 @@ GET    /api/v2/admin/rejudge/jobs/:id
 ```
 
 配置和批量任务接口只返回字段元数据、脱敏值和变更差异，永远不返回外部平台密码、会话密钥或完整环境变量。
+
+### A.3 AI 比赛参赛（首期）
+
+首期只接入 DeepSeek 与 GPT，每个模型对应一个名为 `DeepSeek` 或 `GPT` 的普通用户账户，
+并在独立的 `ai_agent_account` 表中标记为 AI 账户。只有全站管理员可以打开 AI 参赛后台和
+启动/停止运行；比赛排行榜提供“AI 账户”筛选。API Key 仅通过 Web 容器运行时环境变量读取，
+不写入数据库、提交源码、评测容器或日志。
+
+```text
+GET    /api/v2/admin/ai/agents
+GET    /api/v2/contests/:id/ai-runs
+POST   /api/v2/contests/:id/ai-runs
+POST   /api/v2/contests/:id/ai-runs/:runId/cancel
+```
+
+运行器在比赛开始前等待，开始后为每个 AI 串行执行“阅读公开题面 → 选择一题 → 提交一次 →
+等待评测 → 非 Accepted 时根据评测结果修复并再次提交”，比赛结束时自动停止。每题最多 20 次
+尝试；提示词明确禁止读取隐藏测试数据、标准答案、题解和其他选手代码。

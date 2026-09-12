@@ -1,0 +1,163 @@
+<% this.adminPage = 'jobs'; %>
+<% include admin_header %>
+
+<div class="app-admin-toolbar"><div><h3>后台任务</h3><p>查看任务进度、评测状态和失败原因。</p></div><button class="app-icon-button" type="button" data-job-refresh title="刷新任务" aria-label="刷新任务"><i data-lucide="refresh-cw"></i></button></div>
+
+<div class="app-notice" data-job-notice role="status" aria-live="polite"><i data-lucide="loader-circle"></i><span>正在读取任务...</span></div>
+
+<section class="app-admin-section" data-admin-jobs data-initial-job-id="<%= initialJobId %>" hidden>
+  <div class="app-table-region">
+    <table class="app-table app-admin-jobs-table">
+      <thead><tr><th>任务</th><th>状态</th><th>进度</th><th>当前对象</th><th>更新时间</th><th aria-label="操作"></th></tr></thead>
+      <tbody data-job-rows></tbody>
+    </table>
+  </div>
+</section>
+
+<script>
+(function () {
+  var root = document.querySelector('[data-admin-jobs]');
+  var notice = document.querySelector('[data-job-notice]');
+  var rows = root && root.querySelector('[data-job-rows]');
+  var refresh = document.querySelector('[data-job-refresh]');
+  if (!root || !notice || !rows) return;
+
+  var selectedId = root.dataset.initialJobId || '';
+  var pollTimer = null;
+  var terminalStates = ['completed', 'failed', 'cancelled'];
+  var kindLabels = {
+    submission_bulk_rejudge: '批量重测', submission_rejudge: '单条重测',
+    submission_projection_rebuild: '提交投影重建', problem_testdata: '评测数据处理',
+    problem_bulk_action: '题目批量操作', vjudge_import: '远程题目导入',
+    rating_recalculation: 'Rating 重算', standings_rebuild: '排行榜重建',
+    migration: '数据迁移', maintenance: '维护任务'
+  };
+  var stateLabels = { queued: '等待中', running: '处理中', paused: '已暂停', cancelling: '取消中', completed: '完成', failed: '失败', cancelled: '已取消' };
+  var stateClasses = { queued: 'app-status-pending', running: 'app-status-running', paused: 'app-status-info', cancelling: 'app-status-pending', completed: 'app-status-accepted', failed: 'app-status-rejected', cancelled: 'app-status-muted' };
+
+  function text(value) { return value == null || value === '' ? '-' : String(value); }
+  function formatTime(value) { if (!value) return '-'; var date = new Date(value); return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString('zh-CN', { hour12: false }); }
+  function clearPolling() { if (pollTimer) window.clearTimeout(pollTimer); pollTimer = null; }
+  function schedulePolling(callback) { clearPolling(); pollTimer = window.setTimeout(callback, 1200); }
+  function setNotice(message, type) {
+    notice.hidden = false;
+    notice.className = 'app-notice' + (type ? ' app-notice-' + type : '');
+    notice.innerHTML = '<i data-lucide="' + (type === 'danger' ? 'circle-alert' : type === 'warning' ? 'triangle-alert' : type === 'success' ? 'circle-check' : 'loader-circle') + '"></i><span></span>';
+    notice.querySelector('span').textContent = message;
+    if (window.NWPUOJApp) window.NWPUOJApp.refreshIcons(notice);
+  }
+  function responseMessage(body, fallback) { return body && body.error && body.error.message || fallback; }
+  async function requestJson(url) {
+    var response = await fetch(url, { credentials: 'same-origin' });
+    var body = await response.json().catch(function () { return null; });
+    return { response: response, body: body };
+  }
+  async function loadDetail(id) {
+    var specialized = await requestJson('/api/v2/admin/rejudge/jobs/' + encodeURIComponent(id));
+    if (specialized.response.ok) return specialized.body.data;
+    if (specialized.response.status !== 403 && specialized.response.status !== 404) throw new Error(responseMessage(specialized.body, '任务状态读取失败。'));
+    var unified = await requestJson('/api/v2/admin/jobs/' + encodeURIComponent(id));
+    if (!unified.response.ok) throw new Error(responseMessage(unified.body, '任务状态读取失败。'));
+    return unified.body.data;
+  }
+  async function loadList() {
+    var unified = await requestJson('/api/v2/admin/jobs?limit=50');
+    if (unified.response.ok) return unified.body.data || [];
+    if (unified.response.status !== 403) throw new Error(responseMessage(unified.body, '任务列表读取失败。'));
+    var rejudge = await requestJson('/api/v2/admin/rejudge/jobs?limit=50');
+    if (!rejudge.response.ok) throw new Error(responseMessage(rejudge.body, '任务列表读取失败。'));
+    return rejudge.body.data || [];
+  }
+  function progressOf(job) { return job.progress || { processed: 0, total: 0, failed: 0 }; }
+  function actualState(job) {
+    if (job.kind === 'submission_bulk_rejudge' && job.state === 'completed' && job.judging && Number(job.judging.pending) > 0) return 'running';
+    if (job.state === 'completed' && Number(progressOf(job).failed || 0) > 0) return 'failed';
+    return job.state;
+  }
+  function actualStateLabel(job) {
+    if (job.kind === 'submission_bulk_rejudge' && job.state === 'completed' && job.judging && Number(job.judging.pending) > 0) return '评测中';
+    if (job.state === 'completed' && Number(progressOf(job).failed || 0) > 0) return '部分失败';
+    return stateLabels[job.state] || text(job.state);
+  }
+  function addCell(row, className) { var cell = document.createElement('td'); if (className) cell.className = className; row.appendChild(cell); return cell; }
+  function appendFacts(cell, job) {
+    var facts = document.createElement('div'); facts.className = 'app-admin-job-facts';
+    var values = [
+      ['任务 ID', job.id], ['创建者 UID', job.actor_id], ['任务阶段', job.stage || job.subtype],
+      ['失败数量', Number(progressOf(job).failed || 0)]
+    ];
+    values.forEach(function (entry) { var item = document.createElement('div'); var label = document.createElement('span'); label.textContent = entry[0]; var value = document.createElement('strong'); value.textContent = text(entry[1]); item.appendChild(label); item.appendChild(value); facts.appendChild(item); });
+    cell.appendChild(facts);
+  }
+  function appendFailures(cell, job) {
+    var failures = Array.isArray(job.failures) ? job.failures.slice() : [];
+    if (job.error && !failures.length) failures.push(job.error);
+    if (!failures.length) return;
+    var list = document.createElement('div'); list.className = 'app-admin-job-failures';
+    failures.slice(0, 50).forEach(function (failure) { var item = document.createElement('div'); item.innerHTML = '<i data-lucide="circle-alert"></i><span></span>'; item.querySelector('span').textContent = text(failure.message || failure.code || failure); list.appendChild(item); });
+    cell.appendChild(list);
+  }
+  function appendRejudgeItems(cell, job) {
+    if (!Array.isArray(job.items)) return;
+    var region = document.createElement('div'); region.className = 'app-table-region app-admin-job-items';
+    var table = document.createElement('table'); table.className = 'app-table';
+    table.innerHTML = '<thead><tr><th>序号</th><th>提交</th><th>入队状态</th><th>当前评测结果</th><th>更新时间</th></tr></thead><tbody></tbody>';
+    var body = table.querySelector('tbody');
+    job.items.forEach(function (item) {
+      var row = document.createElement('tr');
+      addCell(row, 'app-cell-number').textContent = text(item.sequence);
+      var submissionCell = addCell(row, 'app-cell-primary'); var link = document.createElement('a'); link.href = '/submission/' + encodeURIComponent(item.submission_id); link.textContent = '#' + item.submission_id; submissionCell.appendChild(link);
+      var queueCell = addCell(row); var queueBadge = document.createElement('span'); queueBadge.className = 'app-status ' + (item.state === 'failed' ? 'app-status-rejected' : item.state === 'cancelled' ? 'app-status-muted' : 'app-status-accepted'); queueBadge.textContent = item.state === 'failed' ? '失败' : item.state === 'cancelled' ? '已取消' : item.state === 'completed' ? '已入队' : '处理中'; queueCell.appendChild(queueBadge);
+      var resultCell = addCell(row); var resultBadge = document.createElement('span'); resultBadge.className = 'app-status ' + (item.submission_pending ? 'app-status-running' : 'app-status-muted'); resultBadge.textContent = item.submission_pending ? '评测中 · ' + text(item.submission_status) : text(item.submission_status); resultCell.appendChild(resultBadge);
+      addCell(row, 'app-cell-number').textContent = formatTime(item.updated_at);
+      body.appendChild(row);
+      if (item.error) { var errorRow = document.createElement('tr'); var errorCell = document.createElement('td'); errorCell.colSpan = 5; errorCell.className = 'is-error'; errorCell.textContent = text(item.error.message || item.error.code); errorRow.appendChild(errorCell); body.appendChild(errorRow); }
+    });
+    region.appendChild(table); cell.appendChild(region);
+  }
+  function appendDetail(job) {
+    var row = document.createElement('tr'); row.className = 'app-admin-job-detail-row';
+    var cell = document.createElement('td'); cell.colSpan = 6;
+    appendFacts(cell, job); appendFailures(cell, job); appendRejudgeItems(cell, job);
+    row.appendChild(cell); rows.appendChild(row);
+  }
+  function renderJobs(jobs, expanded) {
+    rows.innerHTML = '';
+    jobs.forEach(function (job) {
+      var row = document.createElement('tr');
+      var nameCell = addCell(row, 'app-cell-primary'); var strong = document.createElement('strong'); strong.textContent = kindLabels[job.kind] || text(job.kind); var id = document.createElement('small'); id.className = 'app-row-description'; id.textContent = text(job.id).slice(0, 12); nameCell.appendChild(strong); nameCell.appendChild(id);
+      var stateCell = addCell(row); var state = actualState(job); var badge = document.createElement('span'); badge.className = 'app-status ' + (stateClasses[state] || 'app-status-muted'); badge.textContent = actualStateLabel(job); stateCell.appendChild(badge);
+      var progress = progressOf(job); var total = Number(progress.total || 0); var processed = Number(progress.processed || 0); var progressCell = addCell(row, 'app-admin-job-progress'); var progressText = document.createElement('span'); progressText.textContent = processed + ' / ' + total + (Number(progress.failed || 0) ? ' · 失败 ' + Number(progress.failed) : ''); var track = document.createElement('div'); track.className = 'app-progress-track'; var fill = document.createElement('span'); fill.style.width = (total ? Math.min(100, Math.round(processed / total * 100)) : 0) + '%'; track.appendChild(fill); progressCell.appendChild(progressText); progressCell.appendChild(track);
+      var currentCell = addCell(row); currentCell.textContent = job.current_object ? job.current_object.type + ' #' + job.current_object.id : '-';
+      addCell(row, 'app-cell-number').textContent = formatTime(job.updated_at);
+      var actionCell = addCell(row); var button = document.createElement('button'); button.type = 'button'; button.className = 'app-icon-button'; button.title = expanded ? '收起详情' : '查看详情'; button.setAttribute('aria-label', button.title); button.innerHTML = '<i data-lucide="' + (expanded ? 'chevron-up' : 'chevron-down') + '"></i>'; button.addEventListener('click', function () { window.location.assign(expanded ? '/admin/jobs' : '/admin/jobs?job=' + encodeURIComponent(job.id)); }); actionCell.appendChild(button);
+      rows.appendChild(row);
+      if (expanded) appendDetail(job);
+    });
+    root.hidden = false; notice.hidden = true;
+    if (window.NWPUOJApp) window.NWPUOJApp.refreshIcons(root);
+  }
+  async function refreshPage() {
+    clearPolling();
+    try {
+      if (selectedId) {
+        var job = await loadDetail(selectedId); renderJobs([job], true);
+        var pendingJudgements = job.judging && Number(job.judging.pending || 0);
+        if (!terminalStates.includes(job.state) || pendingJudgements > 0) schedulePolling(refreshPage);
+        else if (job.state === 'failed') setNotice('任务执行失败，请查看下方失败原因。', 'danger');
+        else if (job.state === 'cancelled') setNotice('任务已取消。', 'warning');
+        else if (Number(progressOf(job).failed || 0) > 0) setNotice('任务已完成，但有 ' + Number(progressOf(job).failed) + ' 条未能进入重测，请查看失败原因。', 'warning');
+        else setNotice('任务已完成。重测后的 Accepted、Wrong Answer、Compile Error 等属于评测结果，不是任务失败。', 'success');
+      } else {
+        var jobs = await loadList();
+        if (jobs.length) renderJobs(jobs, false); else { root.hidden = true; setNotice('暂无后台任务。'); }
+      }
+    } catch (error) { root.hidden = true; setNotice(error.message || '任务状态读取失败。', 'danger'); }
+  }
+  refresh.addEventListener('click', refreshPage);
+  window.addEventListener('beforeunload', clearPolling);
+  refreshPage();
+})();
+</script>
+
+<% include admin_footer %>

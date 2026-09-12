@@ -5,6 +5,7 @@ const path = require('path');
 const { pipeline } = require('stream');
 const { promisify } = require('util');
 const yauzl = require('yauzl');
+const yaml = require('js-yaml');
 
 const pipe = promisify(pipeline);
 const DEFAULT_LIMITS = Object.freeze({ maxEntries: 2000, maxTotalSize: 200 * 1024 * 1024, maxFileSize: 50 * 1024 * 1024 });
@@ -67,6 +68,77 @@ async function extractTestdataArchive(filename, destination, customLimits) {
   return { entries, total_size: totalSize };
 }
 
+const TESTDATA_WRAPPER_NAMES = new Set(['data', 'testdata', 'tests', 'testcases', 'cases']);
+
+function rewriteDataYamlPaths(root, prefix) {
+  const filename = path.join(root, 'data.yml');
+  if (!fs.pathExistsSync(filename)) return;
+  const text = fs.readFileSync(filename, 'utf8');
+  let config;
+  try { config = yaml.load(text); } catch (_) { return; }
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return;
+  const stripPrefix = value => {
+    if (typeof value !== 'string') return value;
+    const normalized = value.replace(/\\/g, '/');
+    const marker = `${prefix}/`;
+    return normalized.startsWith(marker) ? normalized.slice(marker.length) : value;
+  };
+  for (const field of ['inputFile', 'outputFile', 'userOutput']) config[field] = stripPrefix(config[field]);
+  for (const field of ['interactor', 'specialJudge']) {
+    if (config[field] && typeof config[field] === 'object') config[field].fileName = stripPrefix(config[field].fileName);
+  }
+  fs.writeFileSync(filename, yaml.dump(config, { noRefs: true }));
+}
+
+async function flattenTestdataDirectory(root, name) {
+  const nested = path.join(root, name);
+  const children = await fs.readdir(nested);
+  for (const child of children) await fs.move(path.join(nested, child), path.join(root, child), { overwrite: false });
+  await fs.remove(nested);
+  rewriteDataYamlPaths(root, name);
+}
+
+// Archives made by selecting a containing folder often have extra levels
+// (for example `problem/testdata/1.in`). Flatten only a short chain of sole
+// top-level directories, plus one conventional data directory alongside
+// metadata such as `data.yml`, so arbitrary nested paths remain rejected.
+async function normalizeTestdataDirectory(root) {
+  let flattened = false;
+  // Unwrap a short chain such as `problem/testdata/1.in`, but never guess
+  // through mixed top-level files or an arbitrary deep directory tree.
+  for (let depth = 0; depth < 3; depth++) {
+    const entries = await fs.readdir(root);
+    const directories = [];
+    for (const name of entries) {
+      const stat = await fs.lstat(path.join(root, name));
+      if (stat.isDirectory()) directories.push(name);
+      else break;
+    }
+    if (directories.length !== 1 || directories.length !== entries.length) break;
+    await flattenTestdataDirectory(root, directories[0]);
+    flattened = true;
+  }
+  // A data.yml/interactor at the root with files under `data/` is also a
+  // supported layout. Only unwrap one known directory and leave unrelated
+  // nested trees untouched.
+  const entries = await fs.readdir(root);
+  const wrappers = [];
+  for (const name of entries) {
+    const stat = await fs.lstat(path.join(root, name));
+    if (stat.isDirectory() && TESTDATA_WRAPPER_NAMES.has(name.toLowerCase())) wrappers.push(name);
+    else if (stat.isDirectory()) wrappers.push(null);
+  }
+  const known = wrappers.filter(Boolean);
+  if (known.length === 1 && wrappers.every(name => name === known[0] || name === null)) {
+    const nonWrapperDirectories = wrappers.filter(name => name === null).length;
+    if (!nonWrapperDirectories) {
+      await flattenTestdataDirectory(root, known[0]);
+      flattened = true;
+    }
+  }
+  return flattened;
+}
+
 async function replaceDirectory(current, staging, backup) {
   const currentExists = await fs.pathExists(current);
   await fs.remove(backup);
@@ -80,4 +152,4 @@ async function replaceDirectory(current, staging, backup) {
   }
 }
 
-module.exports = { DEFAULT_LIMITS, extractTestdataArchive, replaceDirectory, uploadError };
+module.exports = { DEFAULT_LIMITS, extractTestdataArchive, normalizeTestdataDirectory, replaceDirectory, uploadError };

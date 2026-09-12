@@ -5,6 +5,10 @@ const problemDomain = require('../libs/problem-domain');
 const Contest = syzoj.model('contest');
 const ContestRanklist = syzoj.model('contest_ranklist');
 const Problem = syzoj.model('problem');
+const User = syzoj.model('user');
+const { linkUserMentions } = require('../libs/user-mentions');
+const { buildContestRanklistCsv } = require('../libs/contest-ranklist-export');
+const classGroups = require('../libs/class-groups');
 
 const contestOverviewContext = new AsyncLocalStorage();
 const contestStatisticsCache = new Map();
@@ -24,6 +28,79 @@ app.use('/contest/:id', (req, res, next) => {
 function parseJson(value, fallback) {
   if (value && typeof value === 'object') return value;
   try { return JSON.parse(value || ''); } catch (error) { return fallback; }
+}
+
+function normalizeRanklistAccountFilter(value) {
+  const filter = String(value || 'all').trim().toLowerCase();
+  return filter === 'contest' || filter === 'ordinary' || filter === 'ai' ? filter : 'all';
+}
+
+function accountMatchesFilter(item, accountFilter) {
+  if (accountFilter === 'all') return true;
+  if (accountFilter === 'contest') return !!item.user.isTemporaryContestAccount;
+  if (accountFilter === 'ai') return !!item.user.isAiAccount;
+  return !item.user.isTemporaryContestAccount && !item.user.isAiAccount;
+}
+
+function assignStandingRanks(items, contestType) {
+  let rank = 0;
+  let previous = null;
+  items.forEach((item, index) => {
+    const key = contestType === 'acm'
+      ? `${item.player.score}:${item.tie}`
+      : String(item.player.score);
+    if (key !== previous) rank = index + 1;
+    item.player.standing_rank = rank;
+    previous = key;
+  });
+}
+
+function ranklistItemsForAccountFilter(allItems, accountFilter, contest) {
+  const filteredItems = allItems.filter(item => accountMatchesFilter(item, accountFilter));
+  const rankedItems = filteredItems.map(cloneRanklistItem);
+  if (accountFilter !== 'all') {
+    rankedItems.forEach(item => {
+      item.player.overall_standing_rank = item.player.standing_rank;
+    });
+    assignStandingRanks(rankedItems, contest.type);
+  }
+  return rankedItems;
+}
+
+function ranklistItemsForFilters(allItems, accountFilter, classIds, membership, contest) {
+  const selected = new Set(classGroups.normalizeClassIds(classIds));
+  const filtered = allItems.filter(item => {
+    const accountMatches = accountMatchesFilter(item, accountFilter);
+    const classMatches = !selected.size || (membership.byUser.get(Number(item.user.id)) || [])
+      .some(group => selected.has(Number(group.id)));
+    return accountMatches && classMatches;
+  });
+  const items = filtered.map(cloneRanklistItem);
+  if (accountFilter !== 'all' || selected.size) {
+    items.forEach(item => { item.player.overall_standing_rank = item.player.standing_rank; });
+    assignStandingRanks(items, contest.type);
+  }
+  return items;
+}
+
+async function canExportContestRanklist(contest, user) {
+  if (!contest || !user) return false;
+  const resource = {
+    id: Number(contest.id),
+    ownerId: Number(contest.holder_id),
+    scope: `contest:${contest.id}`
+  };
+  return syzoj.utils.authorizationV2.authorize(user, 'contest:standings.export', resource, { scope: resource.scope });
+}
+
+async function loadRanklistProfiles(items) {
+  const userIds = Array.from(new Set(items.map(item => Number(item.user.id)).filter(Boolean)));
+  if (!userIds.length) return new Map();
+  const rows = await TypeORM.getConnection().query(
+    'SELECT user_id,student_id,real_name,college FROM user_registration_profile WHERE user_id IN (?)',
+    [userIds]
+  );
+  return new Map(rows.map(row => [Number(row.user_id), row]));
 }
 
 function cached(cache, key, ttl, loader) {
@@ -87,13 +164,19 @@ async function loadContestStatistics(contestId, problemIds) {
 
 async function loadContestRanklist(contest) {
   return cached(contestRanklistCache, Number(contest.id), 1000, async () => {
+    if (syzoj.utils.aiContest && syzoj.utils.aiContest.ensureSchema) await syzoj.utils.aiContest.ensureSchema();
     const rows = await TypeORM.getConnection().query(
       `SELECT cp.id AS player_id,cp.user_id,cp.score,cp.score_details,cp.time_spent,
-              u.username,u.is_admin,u.nameplate,u.rating
+              u.username,u.is_admin,u.nameplate,u.rating,
+              temporary_account.user_id AS temporary_account_user_id,
+              ai_agent.user_id AS ai_agent_user_id
        FROM contest_player cp
        INNER JOIN user u ON u.id=cp.user_id
+       LEFT JOIN temporary_contest_account temporary_account
+         ON temporary_account.contest_id=cp.contest_id AND temporary_account.user_id=cp.user_id
        LEFT JOIN contest_registration_removal removal
          ON removal.contest_id=cp.contest_id AND removal.user_id=cp.user_id
+       LEFT JOIN ai_agent_account ai_agent ON ai_agent.user_id=cp.user_id AND ai_agent.enabled=1
        WHERE cp.contest_id=? AND removal.user_id IS NULL`,
       [contest.id]
     );
@@ -110,7 +193,9 @@ async function loadContestRanklist(contest) {
           username: row.username,
           is_admin: !!row.is_admin,
           nameplate: row.nameplate || '',
-          rating: Number(row.rating || syzoj.config.default.user.rating)
+          rating: Number(row.rating || syzoj.config.default.user.rating),
+          isTemporaryContestAccount: row.temporary_account_user_id != null,
+          isAiAccount: row.ai_agent_user_id != null
         },
         player: {
           id: Number(row.player_id),
@@ -154,29 +239,37 @@ async function loadContestRanklist(contest) {
     items.sort((left, right) =>
       right.player.score - left.player.score || left.tie - right.tie || left.player.id - right.player.id
     );
-    let rank = 0;
-    let previous = null;
-    items.forEach((item, index) => {
-      const key = contest.type === 'acm' ? `${item.player.score}:${item.tie}` : String(item.player.score);
-      if (key !== previous) rank = index + 1;
-      item.player.standing_rank = rank;
-      previous = key;
-    });
+    assignStandingRanks(items, contest.type);
     return items;
   });
 }
 
-async function loadContestProblemPresentation(problem) {
-  const cacheKey = `${Number(problem.id)}:${problem.contestVersionId || 'legacy'}`;
+async function loadContestProblemPresentation(problem, contestId) {
+  let contestSnapshot = null;
+  let testdataPath = problem.getTestdataPath();
+  if (contestId && syzoj.utils.contestV2 && syzoj.utils.contestV2.getProblemSnapshot) {
+    contestSnapshot = await syzoj.utils.contestV2.getProblemSnapshot(contestId, problem.id);
+    if (contestSnapshot && contestSnapshot.problem_snapshot_id) {
+      const rows = await TypeORM.getConnection().query(
+        'SELECT testdata_path FROM problem_v2_snapshot WHERE id=? AND problem_id=? LIMIT 1',
+        [String(contestSnapshot.problem_snapshot_id), Number(problem.id)]
+      );
+      if (rows[0] && rows[0].testdata_path) testdataPath = rows[0].testdata_path;
+    }
+  }
+  const cacheKey = `${Number(problem.id)}:${problem.contestVersionId || 'legacy'}:${contestSnapshot && contestSnapshot.problem_snapshot_id || 'live'}`;
   return cached(contestProblemCache, cacheKey, 5000, async () => {
     const fields = ['description', 'input_format', 'output_format', 'example', 'limit_and_hint'];
     const rendered = {};
     for (const field of fields) rendered[field] = problem[field] || '';
     const [specialJudge, testcases] = await Promise.all([
       problem.hasSpecialJudge(),
-      syzoj.utils.parseTestdata(problem.getTestdataPath(), problem.type === 'submit-answer'),
+      syzoj.utils.parseTestdata(testdataPath, problem.type === 'submit-answer'),
       syzoj.utils.markdown(rendered, fields)
     ]);
+    await Promise.all(fields.map(async field => {
+      rendered[field] = await linkUserMentions(rendered[field]);
+    }));
     return { rendered, specialJudge, testcases };
   });
 }
@@ -211,12 +304,17 @@ function cloneRanklistItem(item) {
   }
   return {
     user: Object.assign({}, item.user),
-    player: Object.assign({}, item.player, { score_details: details })
+    player: Object.assign({}, item.player, { score_details: details }),
+    tie: item.tie
   };
 }
 
 app.get('/contest/:id', (req, res, next) => {
-  if (req.query.view === 'problems') return contestOverviewContext.run(true, next);
+  if (req.query.view === 'problems') {
+    const state = res.locals.contestRegistration;
+    if (state && state.submitted && !state.ended && !state.isSupervisior) return res.redirect(syzoj.utils.makeUrl(['contest', req.params.id, 'details']));
+    return contestOverviewContext.run(true, next);
+  }
   return res.redirect(302, syzoj.utils.makeUrl(['contest', req.params.id, 'details']));
 });
 
@@ -246,6 +344,11 @@ app.get('/contest/:id/details', async (req, res) => {
       information: String(contest.information || '')
     };
     await syzoj.utils.markdown(content, ['subtitle', 'information']);
+    try {
+      content.information = await linkUserMentions(content.information);
+    } catch (error) {
+      syzoj.log('[contest-details] mention rendering failed: ' + error.message);
+    }
     res.render('contest_details', {
       contest,
       contestDetails: content
@@ -288,32 +391,88 @@ app.get('/contest/:id/ranklist', async (req, res, next) => {
     const contestId = Number(req.params.id);
     const contest = Number.isSafeInteger(contestId) && contestId > 0 ? await Contest.findById(contestId) : null;
     if (!contest) throw new ErrorMessage('无此比赛。');
-    if (!contest.is_public && (!res.locals.user ||
-        (!res.locals.user.is_admin && !String(contest.admins || '').split('|').includes(String(res.locals.user.id))))) {
+    const supervisor = await contest.isSupervisior(res.locals.user);
+    if (!contest.is_public && (!res.locals.user || (!res.locals.user.is_admin && !supervisor && !String(contest.admins || '').split('|').includes(String(res.locals.user.id))))) {
       throw new ErrorMessage('比赛未公开，请耐心等待。');
     }
-    if (![contest.allowedSeeingResult() && contest.allowedSeeingOthers(), contest.isEnded(),
-      await contest.isSupervisior(res.locals.user)].some(Boolean)) {
+    const submitted = !!(res.locals.contestRegistration && res.locals.contestRegistration.submitted);
+    const publicReadOnly = !!contest.is_public && !supervisor && !(res.locals.contestRegistration && res.locals.contestRegistration.registered);
+    if ([publicReadOnly, contest.allowedSeeingResult() && contest.allowedSeeingOthers(), contest.isEnded(), supervisor, submitted].every(value => !value)) {
       throw new ErrorMessage('您没有权限进行此操作。');
     }
     await contest.loadRelationships();
+    if (typeof syzoj.utils.ensureTemporaryContestAccountSchema === 'function') {
+      await syzoj.utils.ensureTemporaryContestAccountSchema();
+    }
     const allItems = await loadContestRanklist(contest);
-    const paginate = syzoj.utils.paginate(allItems.length, req.query.page, 25);
+    const accountFilter = normalizeRanklistAccountFilter(req.query.account);
+    const classMembership = await classGroups.membershipForUsers(allItems.map(item => item.user.id));
+    const requestedClassIds = classGroups.normalizeClassIds(req.query.classes);
+    const availableClassIds = new Set(classMembership.classes.map(group => group.id));
+    const selectedClassIds = requestedClassIds.filter(id => availableClassIds.has(id));
+    const rankedItems = ranklistItemsForFilters(allItems, accountFilter, selectedClassIds, classMembership, contest);
+    const paginate = syzoj.utils.paginate(rankedItems.length, req.query.page, 100);
     const offset = (paginate.currPage - 1) * paginate.perPage;
-    const ranklist = allItems.slice(offset, offset + paginate.perPage).map(cloneRanklistItem);
+    const ranklist = rankedItems.slice(offset, offset + paginate.perPage);
     const problemIds = await contest.getProblems();
     const problems = (await Promise.all(problemIds.map(id => Problem.findById(id)))).filter(Boolean);
+    const canManageRanklist = await canExportContestRanklist(contest, res.locals.user);
+    const showRanklistIdentities = canManageRanklist && String(req.query.identity || '') === 'real';
+    const ranklistProfiles = showRanklistIdentities ? await loadRanklistProfiles(ranklist) : new Map();
     await applyCurrentProblemVersions(problems);
     res.render('contest_ranklist', {
       contest,
       ranklist,
       problems,
       paginate,
-      rankOffset: offset
+      rankOffset: offset,
+      ranklistAccountFilter: accountFilter,
+      ranklistClassOptions: classMembership.classes,
+      ranklistSelectedClassIds: selectedClassIds,
+      ranklistClassMembership: classMembership.byUser,
+      ranklistTotal: rankedItems.length,
+      canManageRanklist,
+      canExportRanklist: canManageRanklist,
+      showRanklistIdentities,
+      ranklistProfiles
     });
   } catch (error) {
     syzoj.log(error);
     res.status(error.statusCode || 400).render('error', { err: error });
+  }
+});
+
+app.get('/contest/:id/ranklist/export', async (req, res) => {
+  try {
+    const contestId = Number(req.params.id);
+    const contest = Number.isSafeInteger(contestId) && contestId > 0 ? await Contest.findById(contestId) : null;
+    if (!contest) throw new ErrorMessage('无此比赛。');
+    if (!await canExportContestRanklist(contest, res.locals.user)) {
+      return res.status(res.locals.user ? 403 : 401).render('error', {
+        err: new ErrorMessage(res.locals.user ? '您没有权限导出该比赛的排行榜。' : '请登录后导出排行榜。')
+      });
+    }
+    await contest.loadRelationships();
+    if (typeof syzoj.utils.ensureTemporaryContestAccountSchema === 'function') {
+      await syzoj.utils.ensureTemporaryContestAccountSchema();
+    }
+    const accountFilter = normalizeRanklistAccountFilter(req.query.account);
+    const allItems = await loadContestRanklist(contest);
+    const classMembership = await classGroups.membershipForUsers(allItems.map(item => item.user.id));
+    const availableClassIds = new Set(classMembership.classes.map(group => group.id));
+    const selectedClassIds = classGroups.normalizeClassIds(req.query.classes).filter(id => availableClassIds.has(id));
+    const items = ranklistItemsForFilters(allItems, accountFilter, selectedClassIds, classMembership, contest);
+    const problemIds = (await contest.getProblems()).map(Number).filter(Boolean);
+    const profiles = await loadRanklistProfiles(items);
+    const csv = buildContestRanklistCsv({ contest, items, problemIds, profiles, accountFilter, selectedClassIds, classMembership: classMembership.byUser });
+    const suffix = [accountFilter === 'all' ? '' : accountFilter, selectedClassIds.length ? 'classes' : ''].filter(Boolean).map(value => '-' + value).join('');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="contest-${contest.id}-ranklist${suffix}.csv"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    return res.send(csv);
+  } catch (error) {
+    syzoj.log(error);
+    return res.status(error.statusCode || 500).render('error', { err: error });
   }
 });
 
@@ -329,6 +488,9 @@ app.get('/contest/:id/problem/:pid', async (req, res, next) => {
     }
     const problem = await Problem.findById(problemIds[problemIndex - 1]);
     if (!problem) throw new ErrorMessage('无此题目。');
+    if (syzoj.utils.contestV2 && syzoj.utils.contestV2.syncProblemSnapshotsForProblem) {
+      await syzoj.utils.contestV2.syncProblemSnapshotsForProblem(problem.id, res.locals.user, req);
+    }
     await applyCurrentProblemVersions([problem]);
     const supervisor = await contest.isSupervisior(res.locals.user);
     contest.ended = contest.isEnded();
@@ -338,7 +500,7 @@ app.get('/contest/:id/problem/:pid', async (req, res, next) => {
       }
       throw new ErrorMessage('比赛尚未开始。');
     }
-    const presentation = await loadContestProblemPresentation(problem);
+    const presentation = await loadContestProblemPresentation(problem, contest.id);
     Object.assign(problem, presentation.rendered);
     problem.specialJudge = presentation.specialJudge;
     await problem.loadRelationships();

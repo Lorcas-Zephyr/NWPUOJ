@@ -13,6 +13,17 @@ function read(relativePath) {
   return fs.readFileSync(path.join(root, relativePath), 'utf8');
 }
 
+test('problem pages use the current database visibility after lifecycle mutations', () => {
+  const page = read('custom/views/problem.ejs');
+  const guard = read('custom/modules/_problem_lifecycle_guard.js');
+  const domain = read('custom/modules/_api_v2_problem_domain.js');
+  const workflows = read('custom/modules/_api_v2_problem_workflows.js');
+  assert.match(guard, /isPublic: !!row\.is_public/);
+  assert.match(page, /problem\.is_public = problemV2View\.isPublic/);
+  assert.ok((domain.match(/deleteFromCache\(problem\.id\)/g) || []).length >= 4);
+  assert.ok((workflows.match(/Problem\.deleteFromCache\(problem\.id\)/g) || []).length >= 2);
+});
+
 test('problem pages share one accessible context navigation', () => {
   const context = read('custom/views/problem_context.ejs');
   const requiredViews = [
@@ -38,6 +49,11 @@ test('problem pages share one accessible context navigation', () => {
   assert.doesNotMatch(context, /class="[^"]*\bui\b/);
   assert.doesNotMatch(context, /\sstyle=/);
   assert.doesNotMatch(context, /\$\s*\(/);
+});
+
+test('closed solution and discussion modules are removed from problem navigation', () => {
+  const context = read('custom/views/problem_context.ejs');
+  assert.doesNotMatch(context, /discussion|solutions|讨论|题解/);
 });
 
 test('problem statement and submission history do not render duplicate context UI', () => {
@@ -98,6 +114,10 @@ test('problem editing loads the current version and only redirects after an effe
   assert.match(editor, /\/review-request'/);
   assert.match(editor, /destination \+= '\?version=' \+ encodeURIComponent\(versionId\)/);
   assert.match(editor, /window\.location\.replace\(destination\)/);
+  assert.match(editor, /var saveUrl = id \? url \+ '\/update' : url/);
+  assert.match(editor, /fetch\(saveUrl, \{ method: 'POST'/);
+  assert.match(editor, /if_match: ''/);
+  assert.match(editor, /payload\.if_match = headers\['If-Match'\]/);
   assert.ok(editor.indexOf("'/publish'") < editor.indexOf('window.location.replace(destination)'));
   assert.match(lifecycle, /app\.use\('\/problem\/:id'/);
   assert.match(lifecycle, /private, no-store, must-revalidate/);
@@ -114,6 +134,17 @@ test('problem detail reads the effective v2 version instead of a stale legacy mo
   assert.match(problem, /Object\.assign\(problem, problemV2View\.content\)/);
   assert.match(problem, /data-problem-version=/);
   assert.match(problem, /当前显示刚保存的题面草稿/);
+});
+
+test('problem statements render known user mentions for every viewer', () => {
+  const lifecycle = read('custom/modules/_problem_lifecycle_guard.js');
+
+  assert.match(lifecycle, /const \{ linkUserMentions \} = require\('\.\.\/libs\/user-mentions'\)/);
+  assert.match(lifecycle, /await syzoj\.utils\.markdown\(rendered, STATEMENT_FIELDS\)/);
+  assert.match(lifecycle, /STATEMENT_FIELDS\.map\(async field => \{/);
+  assert.match(lifecycle, /rendered\[field\] = await linkUserMentions\(rendered\[field\]\)/);
+  assert.match(lifecycle, /if \(req\.method !== 'GET' \|\| !route\) return next\(\)/);
+  assert.match(lifecycle, /const canEdit = !!res\.locals\.user && await/);
 });
 
 test('problem context has stable desktop and mobile layout rules', () => {

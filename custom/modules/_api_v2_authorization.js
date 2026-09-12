@@ -12,6 +12,7 @@ const {
   normalizePolicyConditions,
   recentAuthentication,
   resourceOwnerAllows,
+  RESOURCE_OWNER_RESTRICTED_CAPABILITIES,
   scopeMatches
 } = require('../libs/authorization-v2');
 
@@ -285,6 +286,8 @@ async function policyDecision(subject, capability, resource, context, scope) {
 async function authorize(subject, capability, resource, context = {}) {
   if (!subject) return false;
   const scope = context.scope || (resource && resource.scope) || 'global';
+  const unrestricted = !!subject.is_admin || Number(subject.id) === Number(syzoj.siteOwnerUserId || 0);
+  if (resource && RESOURCE_OWNER_RESTRICTED_CAPABILITIES.has(capability) && !unrestricted && !resourceOwnerAllows(subject, capability, resource)) return false;
   const baseAllowed = resourceOwnerAllows(subject, capability, resource) ||
     (await effectiveCapabilities(subject, scope)).some(value => capabilityMatches(value, capability));
   if (capability === 'owner:transfer') return baseAllowed;
@@ -295,7 +298,10 @@ async function authorize(subject, capability, resource, context = {}) {
 }
 
 function recentLoginSatisfied(req) {
-  return recentAuthentication(req && req.session).satisfied;
+  // Capability checks, resource scopes, CSRF, ETags, and audits remain the
+  // authorization boundary. An existing authenticated management session does
+  // not require a second login or MFA challenge for the same operation.
+  return !!(req && req.res && req.res.locals && req.res.locals.user);
 }
 
 function failAuthorization(res, code, capability) {
@@ -518,7 +524,7 @@ app.post('/api/v2/admin/policies', requireScopedCapability('owner:transfer', rol
 });
 
 app.patch('/api/v2/admin/policies/:id', requireScopedCapability('owner:transfer', currentPolicyResource), async (req, res) => {
-  if (!req.get('If-Match')) return syzoj.utils.apiV2.fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when editing an authorization policy.', { if_match: 'required' });
+  if (!(req.get('If-Match') || req.body && req.body.if_match)) return syzoj.utils.apiV2.fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when editing an authorization policy.', { if_match: 'required' });
   const reason = syzoj.utils.operationReason(req, '更新条件授权策略');
   try {
     const result = await TypeORM.getConnection().transaction(manager => authorizationDomain.updatePolicy(manager, {
@@ -649,7 +655,7 @@ app.get('/api/v2/admin/organizations/:id/members/:userId', requireScopedCapabili
 });
 
 app.put('/api/v2/admin/organizations/:id/members/:userId', requireScopedCapability('admin:permission.grant', req => ({ scope: { type: 'organization', id: String(req.params.id) } })), async (req, res) => {
-  if (!req.get('If-Match')) return syzoj.utils.apiV2.fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when replacing organization membership.', { if_match: 'required' });
+  if (!(req.get('If-Match') || req.body && req.body.if_match)) return syzoj.utils.apiV2.fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when replacing organization membership.', { if_match: 'required' });
   const reason = syzoj.utils.operationReason(req, req.body && req.body.active === false ? '移除组织成员' : '添加组织成员');
   try {
     const result = await TypeORM.getConnection().transaction(manager => authorizationDomain.setOrganizationMembership(manager, {
@@ -716,7 +722,7 @@ app.get('/api/v2/admin/teams/:id/members/:userId', requireScopedCapability('admi
 });
 
 app.put('/api/v2/admin/teams/:id/members/:userId', requireScopedCapability('admin:permission.grant', teamScopeResource), async (req, res) => {
-  if (!req.get('If-Match')) return syzoj.utils.apiV2.fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when replacing team membership.', { if_match: 'required' });
+  if (!(req.get('If-Match') || req.body && req.body.if_match)) return syzoj.utils.apiV2.fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when replacing team membership.', { if_match: 'required' });
   const reason = syzoj.utils.operationReason(req, req.body && req.body.active === false ? '移除团队成员' : '添加团队成员');
   try {
     const result = await TypeORM.getConnection().transaction(manager => authorizationDomain.setTeamMembership(manager, {

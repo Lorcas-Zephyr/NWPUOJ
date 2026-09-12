@@ -1,6 +1,7 @@
 'use strict';
 
 const MAX_IMPORT_ROWS = 1000;
+const MAX_USERNAME_LENGTH = 20;
 
 function inputError(message, statusCode) {
   const error = new Error(message);
@@ -77,6 +78,28 @@ function normalizeRows(buffer) {
   });
 }
 
+function normalizeStudentIdRows(buffer) {
+  const rows = parseCsv(buffer.toString('utf8'));
+  if (!rows.length) throw inputError('CSV 文件为空。');
+  const header = rows[0].map(value => value.replace(/\s+/g, '').toLowerCase());
+  const aliases = ['学号', 'studentid', 'student_id', 'student id'];
+  const headerIndex = header.findIndex(value => aliases.includes(value));
+  const hasHeader = headerIndex >= 0;
+  const studentIdIndex = hasHeader ? headerIndex : 0;
+  const dataRows = hasHeader ? rows.slice(1) : rows;
+  if (!dataRows.length) throw inputError('CSV 中没有学号数据。');
+  if (dataRows.length > MAX_IMPORT_ROWS) throw inputError(`一次最多导入 ${MAX_IMPORT_ROWS} 个学号。`);
+  const studentIds = new Set();
+  return dataRows.map((values, index) => {
+    const studentId = String(values[studentIdIndex] || '').trim();
+    const line = hasHeader ? index + 2 : index + 1;
+    if (!/^\d{10}$/.test(studentId)) throw inputError(`第 ${line} 行学号必须为 10 位数字。`);
+    if (studentIds.has(studentId)) throw inputError(`第 ${line} 行学号在文件中重复。`);
+    studentIds.add(studentId);
+    return studentId;
+  });
+}
+
 function csvCell(value) {
   let text = String(value == null ? '' : value);
   if (/^[=+\-@\t\r]/.test(text)) text = "'" + text;
@@ -88,11 +111,11 @@ function usernamePart(value) {
 }
 
 async function uniqueUsername(manager, base, studentId, reserved) {
-  const safeBase = base.slice(0, 68);
-  const candidates = [safeBase, `${safeBase}-${studentId.slice(-4)}`];
-  for (let suffix = 2; suffix <= 999; suffix++) candidates.push(`${safeBase}-${studentId.slice(-4)}-${suffix}`);
+  const suffixes = ['', `-${studentId.slice(-4)}`];
+  for (let suffix = 2; suffix <= 999; suffix++) suffixes.push(`-${studentId.slice(-4)}-${suffix}`);
+  const candidates = suffixes.map(suffix => `${String(base || '').slice(0, Math.max(1, MAX_USERNAME_LENGTH - suffix.length))}${suffix}`);
   for (const candidate of candidates) {
-    if (candidate.length > 80 || reserved.has(candidate) || !/^[a-zA-Z0-9_\-\u4e00-\u9fff]+$/.test(candidate)) continue;
+    if (candidate.length > MAX_USERNAME_LENGTH || reserved.has(candidate) || !/^[a-zA-Z0-9_\-\u4e00-\u9fff]+$/.test(candidate)) continue;
     const rows = await manager.query('SELECT id FROM user WHERE username=? LIMIT 1', [candidate]);
     if (!rows.length) {
       reserved.add(candidate);
@@ -126,6 +149,7 @@ module.exports = {
   inputError,
   isLoginAllowed,
   normalizeRows,
+  normalizeStudentIdRows,
   parseCsv,
   uniqueUsername,
   usernamePart

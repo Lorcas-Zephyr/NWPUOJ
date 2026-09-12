@@ -1,4 +1,5 @@
 env-app
+env-ai
 .env
 *.log
 docker.log

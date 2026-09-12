@@ -1,0 +1,178 @@
+{
+  "cpp": {
+    "show": "C++ 03",
+    "highlight": "cpp",
+    "version": "GCC 10.2.0",
+    "editor": "cpp",
+    "format": "cpp"
+  },
+  "cpp11": {
+    "show": "C++ 11",
+    "highlight": "cpp",
+    "version": "GCC 10.2.0",
+    "editor": "cpp",
+    "format": "cpp"
+  },
+  "cpp17": {
+    "show": "C++ 17",
+    "highlight": "cpp",
+    "version": "GCC 10.2.0",
+    "editor": "cpp",
+    "format": "cpp"
+  },
+  "cpp20": {
+    "show": "C++ 20",
+    "highlight": "cpp",
+    "version": "GCC 13.1.0",
+    "editor": "cpp",
+    "format": "cpp"
+  },
+  "cpp23": {
+    "show": "C++ 23",
+    "highlight": "cpp",
+    "version": "GCC 14.3.0",
+    "editor": "cpp",
+    "format": "cpp"
+  },
+  "cpp-noilinux": {
+    "show": "C++ 03 (NOI)",
+    "highlight": "cpp",
+    "version": "GCC 4.8.4 (NOILinux 1.4.1)",
+    "editor": "cpp",
+    "format": "cpp"
+  },
+  "cpp11-noilinux": {
+    "show": "C++ 11 (NOI)",
+    "highlight": "cpp",
+    "version": "GCC 4.8.4 (NOILinux 1.4.1)",
+    "editor": "cpp",
+    "format": "cpp"
+  },
+  "cpp11-clang": {
+    "show": "C++ 11 (Clang)",
+    "highlight": "cpp",
+    "version": "Clang 12.0.1",
+    "editor": "cpp",
+    "format": "cpp"
+  },
+  "cpp17-clang": {
+    "show": "C++ 17 (Clang)",
+    "highlight": "cpp",
+    "version": "Clang 12.0.1",
+    "editor": "cpp",
+    "format": "cpp"
+  },
+  "c": {
+    "show": "C",
+    "highlight": "c",
+    "version": "Clang 12.0.1",
+    "editor": "c",
+    "format": "c"
+  },
+  "c-noilinux": {
+    "show": "C (NOI)",
+    "highlight": "c",
+    "version": "GCC 4.8.4 (NOILinux 1.4.1)",
+    "editor": "c",
+    "format": "c"
+  },
+  "csharp": {
+    "show": "C# (Mono 6.12)",
+    "highlight": "csharp",
+    "version": "Mono 6.12.0.122",
+    "editor": "csharp"
+  },
+  "vala": {
+    "show": "Vala 0.40",
+    "highlight": "vala",
+    "version": "Vala 0.40.8, Clang 7.0.1",
+    "editor": "vala"
+  },
+  "java": {
+    "show": "Java 11",
+    "highlight": "java",
+    "version": "OpenJDK 11.0.11",
+    "editor": "java",
+    "format": "java"
+  },
+  "pascal": {
+    "show": "Pascal (FPC 3.0)",
+    "highlight": "pascal",
+    "version": "Free Pascal 3.0.4",
+    "editor": "pascal",
+    "format": "pas"
+  },
+  "lua": {
+    "show": "Lua 5.3",
+    "highlight": "lua",
+    "version": "Lua 5.3.3",
+    "editor": "lua"
+  },
+  "luajit": {
+    "show": "LuaJIT 2.1",
+    "highlight": "lua",
+    "version": "LuaJIT 2.1.0",
+    "editor": "lua"
+  },
+  "python2": {
+    "show": "Python 2.7",
+    "highlight": "python",
+    "version": "CPython 2.7.18",
+    "editor": "python"
+  },
+  "python3": {
+    "show": "Python 3.8",
+    "highlight": "python",
+    "version": "CPython 3.8.5",
+    "editor": "python"
+  },
+  "python310": {
+    "show": "Python 3.10",
+    "highlight": "python",
+    "version": "CPython 3.10.20",
+    "editor": "python"
+  },
+  "python311": {
+    "show": "Python 3.11",
+    "highlight": "python",
+    "version": "CPython 3.11.15",
+    "editor": "python"
+  },
+  "pypy3": {
+    "show": "PyPy 3.11",
+    "highlight": "python",
+    "version": "PyPy 7.3.23",
+    "editor": "python"
+  },
+  "nodejs": {
+    "show": "Node.js 16",
+    "highlight": "js",
+    "version": "16.1.0",
+    "editor": "javascript",
+    "format": "js"
+  },
+  "ruby": {
+    "show": "Ruby 2.7",
+    "highlight": "ruby",
+    "version": "2.7.0",
+    "editor": "ruby"
+  },
+  "haskell": {
+    "show": "Haskell (GHC 8.10)",
+    "highlight": "haskell",
+    "version": "GHC 8.10.4",
+    "editor": "haskell"
+  },
+  "ocaml": {
+    "show": "OCaml 4.05",
+    "highlight": "ocaml",
+    "version": "OCaml 4.05.0",
+    "editor": "ocaml"
+  },
+  "vbnet": {
+    "show": "Visual Basic (Mono 4.7)",
+    "highlight": "vbnet",
+    "version": "Mono 4.7",
+    "editor": "vbscript"
+  }
+}

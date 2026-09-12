@@ -9,6 +9,7 @@ const { TRANSITIONS, contestConfigurationLocked, resolveContestStatus, snapshotR
 const contestMutationSource = fs.readFileSync(path.join(__dirname, '../libs/contest-mutation.js'), 'utf8');
 const contestRouteSource = fs.readFileSync(path.join(__dirname, '../modules/_contest_registration.js'), 'utf8');
 const contestApiSource = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_contest_domain.js'), 'utf8');
+const contestSubmissionSource = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_submission_domain.js'), 'utf8');
 
 test('contest lifecycle contains every designed state and only explicit transitions', () => {
   assert.deepEqual(Object.keys(TRANSITIONS), ['draft', 'review', 'scheduled', 'running', 'frozen', 'ended', 'rated', 'archived']);
@@ -69,9 +70,68 @@ test('v2 contest writes retain legacy validation and shared deletion behavior', 
   assert.match(contestApiSource, /CONTEST_RANKING_INVALID/);
   assert.match(contestApiSource, /User\.findById\(adminId\)/);
   assert.match(contestApiSource, /app\.delete\('\/api\/v2\/contests\/:id'/);
+  assert.match(contestApiSource, /app\.post\('\/api\/v2\/contests\/:id\/update'/);
+  assert.match(contestApiSource, /app\.post\('\/api\/v2\/contests\/:id\/delete', deleteContestV2\)/);
   assert.match(contestApiSource, /contestDeletion\.deleteContest\(req, contest, res\.locals\.user\)/);
   assert.match(deletion, /action: 'contest:delete'/);
   assert.match(deletion, /contest\.deleted/);
+  assert.match(contestApiSource, /authorize\(user, action, \{ id: Number\(contest\.id\), ownerId: Number\(contest\.holder_id\), scope \}, \{ scope \}\)/);
+  assert.doesNotMatch(contestApiSource, /\(await contest\.isSupervisior\(user\)\) && await syzoj\.utils\.authorizationV2\.authorize/);
+});
+
+test('registration mutations invalidate cached page state before returning success', () => {
+  assert.match(contestRouteSource, /syzoj\.utils\.invalidateContestRegistrationCache = invalidateRegistrationCache/);
+  assert.match(contestApiSource, /function invalidateRegistrationReadState\(contestId, userId\)/);
+  assert.match(contestApiSource, /await contestMutation\.registerUser\(contest\.id, user\.id\);\s+invalidateRegistrationReadState\(contest\.id, user\.id\);\s+await syzoj\.utils\.apiV2\.appendEvent/);
+  assert.match(contestApiSource, /await contestMutation\.unregisterUser\(contest\.id, user\.id\);\s+invalidateRegistrationReadState\(contest\.id, user\.id\);\s+await syzoj\.utils\.apiV2\.appendEvent/);
+  assert.match(contestApiSource, /else await contestMutation\.restoreUser\(contest\.id, userId\);\s+invalidateRegistrationReadState\(contest\.id, userId\);\s+succeeded\.push\(userId\)/);
+});
+
+test('contest hand-in locks an active participant to details and ranking views', () => {
+  assert.match(contestRouteSource, /ALTER TABLE contest_player ADD COLUMN IF NOT EXISTS submitted_at INT NULL/);
+  assert.match(contestRouteSource, /app\.post\('\/api\/v2\/contests\/:id\/submit'/);
+  assert.match(contestRouteSource, /UPDATE contest_player SET submitted_at=COALESCE\(submitted_at, \?\)/);
+  assert.match(contestRouteSource, /autoSubmitEndedContest/);
+  assert.match(contestRouteSource, /participant\.submitted_at=contest_row\.end_time/);
+  assert.match(contestRouteSource, /invalidateRegistrationCache\(contest\.id, user\.id\)/);
+  assert.match(contestRouteSource, /submitted/);
+  assert.match(contestRouteSource, /relativePath === '\/details' \|\| relativePath === '\/ranklist'/);
+  assert.match(contestRouteSource, /if \(contest\.isEnded\(\)\) return !!registration/);
+  assert.match(contestSubmissionSource, /CONTEST_ALREADY_SUBMITTED/);
+  const context = fs.readFileSync(path.join(__dirname, '../views/contest_context.ejs'), 'utf8');
+  const registration = fs.readFileSync(path.join(__dirname, '../views/contest_registration_v2_script.ejs'), 'utf8');
+  assert.match(context, /data-contest-finish-v2/);
+  assert.match(context, /data-contest-finish-confirm/);
+  assert.doesNotMatch(context, /data-contest-finish-v2[^>]*data-confirm=/);
+  assert.match(context, /appContestRegistration\.submitted/);
+  assert.match(registration, /\/api\/v2\/contests\/.*\/submit/);
+  assert.match(registration, /contestFinishBound/);
+  assert.match(registration, /window\.location\.reload\(\)/);
+});
+
+test('unregistered contest visitors are limited to public details and ranking views', () => {
+  const interactions = fs.readFileSync(path.join(__dirname, '../modules/_contest_interactions.js'), 'utf8');
+  const privilegeLoader = fs.readFileSync(path.join(__dirname, '../modules/_user_privilege_loader.js'), 'utf8');
+  const context = fs.readFileSync(path.join(__dirname, '../views/contest_context.ejs'), 'utf8');
+  assert.match(contestRouteSource, /state\.ended \|\| state\.registered \|\| state\.isSupervisior \|\| state\.canViewProblems/);
+  assert.match(contestRouteSource, /relativePath === '\/details' \|\| relativePath === '\/ranklist'/);
+  assert.match(contestRouteSource, /req\.query\.view !== 'problems'/);
+  assert.match(contestRouteSource, /const publicRanklist = isRanklist && !!contest\.is_public/);
+  assert.match(interactions, /const publicReadOnly = !!contest\.is_public/);
+  assert.match(privilegeLoader, /seeRanklist: !!contest\.is_public/);
+  assert.match(context, /const appContestReadOnly =/);
+  assert.match(context, /!appContestReadOnly && user/);
+});
+
+test('self registration can be disabled without removing generated contest accounts', () => {
+  assert.match(contestRouteSource, /registrationOpen = setting\.allowRegistration && !ended/);
+  assert.match(contestRouteSource, /canCancel: !!user && setting\.allowRegistration/);
+  assert.match(contestMutationSource, /enabled: !!input\.allowRegistration/);
+  assert.match(contestMutationSource, /if \(!options\.managed && Number\(context\.setting\.allow_registration\) === 0\)/);
+  assert.match(contestApiSource, /allowRegistration = body\.allow_registration === undefined/);
+  assert.match(contestApiSource, /allow_registration,allow_late_registration,revision,updated_at/);
+  assert.match(contestApiSource, /registerUser\(contest\.id, userId, \{ managed: true \}\)/);
+  assert.match(contestApiSource, /LEFT JOIN temporary_contest_account account[\s\S]*account\.user_id IS NULL/);
 });
 
 test('contest deletion removes every rebuildable v2 projection in the legacy transaction', () => {

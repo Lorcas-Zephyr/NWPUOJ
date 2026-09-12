@@ -22,10 +22,18 @@ test('etag and if-match use strong validators', () => {
   const etag = api.etagFor({ revision: 3 });
   assert.match(etag, /^"[a-f0-9]{32}"$/);
   assert.equal(api.ifMatchSatisfied({ headers: { 'if-match': etag } }, etag), true);
+  assert.equal(api.ifMatchSatisfied({ body: { if_match: etag } }, etag, { required: true }), true);
   assert.equal(api.ifMatchSatisfied({ headers: { 'if-match': '"stale"' } }, etag), false);
   assert.equal(api.ifMatchSatisfied({ headers: {} }, etag), true);
   assert.equal(api.ifMatchSatisfied({ headers: {} }, etag, { required: true }), false);
   assert.equal(api.ifMatchSatisfied({ headers: { 'if-match': '*' } }, etag, { required: true }), true);
+});
+
+test('no-store API resources do not answer stale conditional reads with 304', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_foundation.js'), 'utf8');
+  assert.match(source, /const cacheControl = String\(res\.get\('Cache-Control'\) \|\| ''\)\.toLowerCase\(\)/);
+  assert.match(source, /!cacheControl\.includes\('no-store'\) && req\.get\('If-None-Match'\)/);
+  assert.match(source, /if \(req\.method === 'GET'\) delete req\.headers\['if-none-match'\]/);
 });
 
 test('catalog errors carry stable codes and field details', () => {
@@ -105,15 +113,19 @@ test('request body sizing and fixed-window limits are deterministic', () => {
   const limits = {
     defaultBytes: mib,
     multipartOverheadBytes: mib,
+    problemImportArchiveBytes: 100 * mib,
     testdataArchiveBytes: 200 * mib,
     testdataFilesBytes: 20 * mib,
-    additionalFileBytes: 30 * mib
+    additionalFileBytes: 30 * mib,
+    imageHostBytes: 10 * mib
   };
   assert.equal(api.requestBodyLimit('/api/v2/problems/7/judge-configuration', 'application/json', limits), mib);
   assert.equal(api.requestBodyLimit('/api/v2/unknown/upload', 'multipart/form-data; boundary=x', limits), mib);
+  assert.equal(api.requestBodyLimit('/api/v2/problems/import', 'multipart/form-data; boundary=x', limits), 101 * mib);
   assert.equal(api.requestBodyLimit('/api/v2/problems/7/testdata/upload', 'multipart/form-data; boundary=x', limits), 201 * mib);
   assert.equal(api.requestBodyLimit('/api/v2/problems/7/testdata/files?replace=1', 'multipart/form-data; boundary=x', limits), 21 * mib);
   assert.equal(api.requestBodyLimit('/api/v2/problems/7/additional-file', 'multipart/form-data; boundary=x', limits), 31 * mib);
+  assert.equal(api.requestBodyLimit('/api/v2/image-host', 'multipart/form-data; boundary=x', limits), 11 * mib);
   const buckets = new Map();
   assert.deepEqual(api.consumeFixedWindow(buckets, 'member:write', 1000, 60000, 2), { allowed: true, remaining: 1, resetAt: 61000 });
   assert.equal(api.consumeFixedWindow(buckets, 'member:write', 1001, 60000, 2).allowed, true);
@@ -123,12 +135,17 @@ test('request body sizing and fixed-window limits are deterministic', () => {
 
 test('gateway keeps the JSON limit while delegating known multipart uploads to route limits', () => {
   const source = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_foundation.js'), 'utf8');
-  assert.match(source, /apiHelpers\.requestBodyLimit\(req\.originalUrl, req\.get\('content-type'\)/);
+  assert.match(source, /const requestPath = `\$\{req\.baseUrl \|\| ''\}\$\{req\.path \|\| ''\}` \|\| req\.originalUrl/);
+  assert.match(source, /apiHelpers\.requestBodyLimit\(requestPath, req\.get\('content-type'\)/);
+  assert.match(source, /problemImportArchiveBytes: 100 \* 1024 \* 1024/);
   assert.match(source, /testdataArchiveBytes: 200 \* 1024 \* 1024/);
   assert.match(source, /testdataFilesBytes: Number\(syzoj\.config\.limit/);
   assert.match(source, /additionalFileBytes: Number\(syzoj\.config\.limit/);
+  assert.match(source, /imageHostBytes: 10 \* 1024 \* 1024/);
   assert.match(source, /contentLength > bodyLimit \|\| bodyBytes > bodyLimit/);
   assert.match(source, /maximum_bytes: bodyLimit/);
+  assert.match(source, /isTestdataChunk/);
+  assert.match(source, /isTestdataChunk \? 1200/);
 });
 
 test('anonymous write allowlist contains only public identity and markdown operations', () => {

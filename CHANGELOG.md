@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.1.0 - 2026-09-12
+
+### Added
+
+- Contest workspaces and judging now synchronize to the latest published problem statement and
+  testdata snapshot while the contest is still running.
+- External-proxy-safe ETag writes accept both the `If-Match` header and JSON `if_match` value across
+  problem, contest, content, administration, tag, and profile workflows.
+- Added durable AI contest run records, problem-set/class/tag/image-host workflows, and bulk upload
+  recovery paths already present in the 2.0 development line.
+
+### Security
+
+- Added production deployment guidance for private Web binding, rotated application secrets, and
+  restricted judge-control access.
+
 ## 2.0.1 - 2026-08-02
 
 ### Fixed

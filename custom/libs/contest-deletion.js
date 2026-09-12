@@ -7,8 +7,7 @@ const Contest = syzoj.model('contest');
 async function canDeleteContest(user, contest) {
   if (!user || !contest) return false;
   const resource = { id: contest.id, ownerId: contest.holder_id, scope: `contest:${contest.id}` };
-  if (await syzoj.utils.authorizationV2.authorize(user, 'contest:publish', resource, { scope: resource.scope })) return true;
-  return syzoj.utils.authorizationV2.authorize(user, 'contest:publish', null, { scope: 'global' });
+  return syzoj.utils.authorizationV2.authorize(user, 'contest:delete', resource, { scope: resource.scope });
 }
 
 async function deleteContest(req, contest, actor) {

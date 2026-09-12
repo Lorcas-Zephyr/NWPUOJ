@@ -110,7 +110,7 @@ async function ensureSiteOwner() {
 async function isSiteOwner(user) {
   if (!user) return false;
   const owner = await ensureSiteOwner();
-  return !!owner && user.id === owner.id;
+  return !!owner && Number(user.id) === Number(owner.id);
 }
 
 async function claimSiteOwner(manager, userId) {
@@ -136,9 +136,33 @@ syzoj.utils.claimSiteOwner = claimSiteOwner;
 
 const originalIsContestSupervisior = Contest.prototype.isSupervisior;
 Contest.prototype.isSupervisior = async function isSupervisior(user) {
-  if (user && Array.isArray(user.privileges) && user.privileges.includes('manage_contest')) return true;
-  if (user && !Array.isArray(user.privileges) && await user.hasPrivilege('manage_contest')) return true;
+  if (!user) return originalIsContestSupervisior.call(this, user);
+  if (user.is_admin || Number(user.id) === Number(syzoj.siteOwnerUserId || 0)) return true;
+  if (await user.hasPrivilege('manage_contest')) return Number(this.holder_id) === Number(user.id);
   return originalIsContestSupervisior.call(this, user);
+};
+
+const originalProblemEdit = Problem.prototype.isAllowedEditBy;
+Problem.prototype.isAllowedEditBy = async function isAllowedEditBy(user) {
+  if (!user) return false;
+  if (user.is_admin || Number(user.id) === Number(syzoj.siteOwnerUserId || 0)) return true;
+  if (await user.hasPrivilege('manage_problem')) return Number(this.user_id) === Number(user.id);
+  return originalProblemEdit.call(this, user);
+};
+const originalProblemUse = Problem.prototype.isAllowedUseBy;
+Problem.prototype.isAllowedUseBy = async function isAllowedUseBy(user) {
+  if (this.is_public) return true;
+  if (!user) return false;
+  if (user.is_admin || Number(user.id) === Number(syzoj.siteOwnerUserId || 0)) return true;
+  if (await user.hasPrivilege('manage_problem')) return Number(this.user_id) === Number(user.id);
+  return originalProblemUse.call(this, user);
+};
+const originalProblemManage = Problem.prototype.isAllowedManageBy;
+Problem.prototype.isAllowedManageBy = async function isAllowedManageBy(user) {
+  if (!user) return false;
+  if (user.is_admin || Number(user.id) === Number(syzoj.siteOwnerUserId || 0)) return true;
+  if (await user.hasPrivilege('manage_problem')) return Number(this.user_id) === Number(user.id);
+  return originalProblemManage.call(this, user);
 };
 
 ensureSiteOwner()
@@ -443,14 +467,24 @@ app.use(async (req, res, next) => {
         let isSupervisior = await contest.isSupervisior(user);
         contest.running = contest.isRunning();
         contest.ended = contest.isEnded();
-        let seeResult = isSupervisior || contest.ended;
+        // The contest header middleware runs before the registration middleware, so
+        // read the persisted hand-in marker directly when request state is absent.
+        let submitted = !!(res.locals.contestRegistration && res.locals.contestRegistration.submitted);
+        if (!submitted && user && syzoj.utils.isContestSubmitted) {
+          submitted = await syzoj.utils.isContestSubmitted(contest.id, user.id);
+        }
+        let seeResult = isSupervisior || contest.ended || submitted;
         res.locals.contestHeader = {
           contest: contest,
           section: contestSection,
           timerOnly: !!contestProblemRoute,
           subtitle: await syzoj.utils.markdown(contest.subtitle || ''),
           isSupervisior: isSupervisior,
-          seeRanklist: seeResult || (contest.allowedSeeingResult() && contest.allowedSeeingOthers()),
+          submitted: submitted,
+          // Public contests expose their details and ranking to visitors even
+          // before registration; the ranklist route still enforces hidden
+          // contest and management permissions server-side.
+          seeRanklist: !!contest.is_public || seeResult || (contest.allowedSeeingResult() && contest.allowedSeeingOthers()),
           submissionsUrl: syzoj.utils.makeUrl(['contest', contest.id, 'submissions'])
         };
       }
@@ -544,37 +578,6 @@ app.get('/user/:id/edit', async (req, res, next) => {
   } catch (e) {
     syzoj.log(e);
     res.status(403).render('error', { err: e });
-  }
-});
-
-
-app.use(async (req, res, next) => {
-  try {
-    const user = res.locals.user;
-    if (!user || user.is_admin || !/^\/contests?(?:\/|$)/.test(req.path)) return next();
-    if (!await user.hasPrivilege('manage_contest')) return next();
-
-    const elevatedUser = Object.create(user);
-    elevatedUser.is_admin = true;
-    res.locals.user = elevatedUser;
-
-    const originalRender = res.render;
-    let restored = false;
-    const restoreUser = () => {
-      if (restored) return;
-      restored = true;
-      res.locals.user = user;
-      res.render = originalRender;
-    };
-    res.render = function renderWithOriginalUser() {
-      restoreUser();
-      return originalRender.apply(res, arguments);
-    };
-    res.once('finish', restoreUser);
-    res.once('close', restoreUser);
-    next();
-  } catch (e) {
-    next(e);
   }
 });
 

@@ -13,8 +13,8 @@ function validationError(message, fields) {
 function normalize(input) {
   const source = input && typeof input === 'object' ? input : {};
   const action = String(source.action || '').trim().toLowerCase();
-  if (action !== 'archive') {
-    throw validationError('The bulk problem action is not supported.', { action: 'must be archive' });
+  if (!['publish', 'unpublish', 'archive'].includes(action)) {
+    throw validationError('The bulk problem action is not supported.', { action: 'must be publish, unpublish, or archive' });
   }
   if (!Array.isArray(source.problem_ids)) {
     throw validationError('Problem IDs are required.', { problem_ids: `array with 1-${MAX_PROBLEMS} items required` });

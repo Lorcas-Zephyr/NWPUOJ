@@ -232,7 +232,7 @@ function setResourceEtag(res, value) {
 }
 
 function ifMatch(req, currentValue) {
-  if (!req.get('If-Match')) {
+  if (!(req.get('If-Match') || req.body && req.body.if_match)) {
     const error = new Error('If-Match is required for this editable resource.');
     error.code = 'PRECONDITION_REQUIRED';
     error.statusCode = 428;
@@ -374,7 +374,9 @@ function apiMeta(req) {
 function apiSend(res, payload, status = 200) {
   const body = { data: payload, meta: res.locals.apiMeta || {}, error: null };
   if (res.locals.apiOperationId) body.meta.operation_id = res.locals.apiOperationId;
-  setResourceEtag(res, payload);
+  // Keep the resource version in the JSON envelope as well as the ETag header.
+  // Public gateways may strip conditional response headers before they reach the browser.
+  body.meta.etag = setResourceEtag(res, payload);
   if (res.req && res.req.method !== 'GET' && !res.req.apiV2SkipOperationCompletion) completeOperation(res.req, status, body).catch(() => {});
   return res.status(status).json(body);
 }
@@ -426,7 +428,8 @@ function pageFrom(items, req, getCursorValue = item => item && item.id) {
 
 function apiNotModified(req, res, value) {
   const tag = setResourceEtag(res, value);
-  if (req.get('If-None-Match') === tag) {
+  const cacheControl = String(res.get('Cache-Control') || '').toLowerCase();
+  if (!cacheControl.includes('no-store') && req.get('If-None-Match') === tag) {
     res.status(304).end();
     return true;
   }
@@ -455,21 +458,35 @@ const RATE_WINDOW_MS = 60 * 1000;
 const MAX_BODY_BYTES = 1024 * 1024;
 
 function gatewayLimits(req, res) {
-  const bodyLimit = apiHelpers.requestBodyLimit(req.originalUrl, req.get('content-type'), {
+  // Express removes a mounted router's prefix from `req.path`; restore it
+  // with `baseUrl` so upload-specific limits still match `/api/v2/...`.
+  // `originalUrl` may contain a proxy prefix or query string, so avoid using
+  // it for route classification when the mounted path is available.
+  const requestPath = `${req.baseUrl || ''}${req.path || ''}` || req.originalUrl;
+  const bodyLimit = apiHelpers.requestBodyLimit(requestPath, req.get('content-type'), {
     defaultBytes: MAX_BODY_BYTES,
     multipartOverheadBytes: MAX_BODY_BYTES,
+    problemImportArchiveBytes: 100 * 1024 * 1024,
     testdataArchiveBytes: 200 * 1024 * 1024,
     testdataFilesBytes: Number(syzoj.config.limit && syzoj.config.limit.testdata || 200 * 1024 * 1024),
-    additionalFileBytes: Number(syzoj.config.limit && syzoj.config.limit.data_size || 200 * 1024 * 1024)
+    additionalFileBytes: Number(syzoj.config.limit && syzoj.config.limit.data_size || 200 * 1024 * 1024),
+    imageHostBytes: 10 * 1024 * 1024
   });
   const contentLength = Number(req.get('content-length') || 0);
   const bodyBytes = apiHelpers.bodySize(req.body);
   if (contentLength > bodyLimit || bodyBytes > bodyLimit) {
-    apiFail(res, 413, 'REQUEST_BODY_TOO_LARGE', 'The request body exceeds the API limit.', { maximum_bytes: bodyLimit });
+    apiFail(res, 413, 'REQUEST_BODY_TOO_LARGE', 'The request body exceeds the API limit.', {
+      maximum_bytes: bodyLimit,
+      received_bytes: contentLength || bodyBytes,
+      path: requestPath
+    });
     return false;
   }
   const isWrite = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
-  const limit = isWrite ? 60 : 180;
+  const isTestdataChunk = /^\/api\/v2\/problems\/\d+\/testdata\/upload\/chunk$/.test(requestPath);
+  // A 200 MiB archive can require hundreds of small requests. Keep normal
+  // write protection while allowing one active chunk upload to finish.
+  const limit = isTestdataChunk ? 1200 : (isWrite ? 60 : 180);
   const actor = res.locals.user ? `user:${res.locals.user.id}` : `ip:${req.ip || 'unknown'}`;
   const key = `${actor}:${isWrite ? 'write' : 'read'}`;
   if (rateBuckets.size > 10000) {
@@ -545,7 +562,10 @@ app.use('/api/v2', (req, res, next) => {
   req.id = requestId(req);
   res.set('X-Request-ID', req.id);
   res.locals.apiMeta = apiMeta(req);
-  res.set('Cache-Control', req.method === 'GET' ? 'private, max-age=0' : 'no-store');
+  // API resources include live identity, permissions, and ETags; never let a
+  // public gateway revalidate them from a stale representation.
+  res.set('Cache-Control', req.method === 'GET' ? 'private, no-store, max-age=0, must-revalidate' : 'no-store');
+  if (req.method === 'GET') delete req.headers['if-none-match'];
   if (!gatewayLimits(req, res)) return;
   return operationMiddleware(req, res, next);
 });

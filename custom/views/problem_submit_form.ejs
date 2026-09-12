@@ -1,10 +1,20 @@
 <%
 const formUrl = syzoj.utils.makeUrl(['problem', problem.id, 'submit'], { contest_id: contest ? contest.id : undefined });
-const apiSubmitEndpoint = contest
+const appProblemSet = typeof problemSet !== 'undefined' ? problemSet : null;
+const apiSubmitEndpoint = appProblemSet
+  ? '/api/v2/problem-sets/' + appProblemSet.id + '/problems/' + problem.id + (problem.type === 'submit-answer' ? '/submit-answer' : '/submissions')
+  : contest
   ? '/api/v2/contests/' + contest.id + '/problems/' + problem.id + (problem.type === 'submit-answer' ? '/submit-answer' : '/submissions')
   : (String(problem.type || '').startsWith('vjudge:')
     ? '/api/v2/vjudge/problems/' + problem.id + '/submissions'
     : '/api/v2/problems/' + problem.id + (problem.type === 'submit-answer' ? '/submit-answer' : '/submissions'));
+const submissionDetailBase = contest ? '/contest/submission/' : '/submission/';
+const contestSubmissionListUrl = contest && user
+  ? syzoj.utils.makeUrl(['contest', contest.id, 'submissions'], { submitter: user.username })
+  : '';
+const problemSetSubmissionListUrl = appProblemSet && user
+  ? syzoj.utils.makeUrl(['problem-set', appProblemSet.id, 'submissions'], { submitter: user.username })
+  : '';
 const submitIcons = {
   alert: '<svg class="app-static-icon app-static-icon-circle-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"></circle><line x1="12" x2="12" y1="8" y2="12"></line><line x1="12" x2="12.01" y1="16" y2="16"></line></svg>',
   archive: '<svg class="app-static-icon app-static-icon-file-archive" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M13.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v11.5"></path><path d="M14 2v5a1 1 0 0 0 1 1h5"></path><path d="M8 12v-1"></path><path d="M8 18v-2"></path><path d="M8 7V6"></path><circle cx="8" cy="20" r="2"></circle></svg>',
@@ -85,7 +95,7 @@ const submitIcons = {
         <div class="app-submit-languages-head"><span>编程语言</span><strong><%= languageList.length %></strong></div>
         <div class="app-submit-language-list" data-language-list>
           <% for (const lang of languageList) { %>
-            <button type="button" class="app-submit-language<%= lang === selectedLanguage ? ' is-active' : '' %>" data-language="<%= lang %>" data-mode="<%= languageMap[lang].editor %>" aria-pressed="<%= lang === selectedLanguage ? 'true' : 'false' %>"><%- submitIcons.code %><span><%= languageMap[lang].show %></span><% if (languageMap[lang].version) { %><small><%= languageMap[lang].version %></small><% } %></button>
+            <button type="button" class="app-submit-language<%= lang === selectedLanguage ? ' is-active' : '' %>" data-language="<%= lang %>" data-mode="<%= languageMap[lang].editor %>" aria-pressed="<%= lang === selectedLanguage ? 'true' : 'false' %>"><%- submitIcons.code %><span class="app-submit-language-name"><%= languageMap[lang].show %></span><% if (languageMap[lang].version) { %><small class="app-submit-language-version" title="<%= languageMap[lang].version %>"><%= languageMap[lang].version %></small><% } %></button>
           <% } %>
         </div>
       </aside>
@@ -192,7 +202,11 @@ function unlockSubmitButton() {
       if (!response.ok || !payload || !payload.data || !payload.data.submission) {
         throw new Error(payload && payload.error && payload.error.message || '提交失败，请稍后重试。');
       }
-      window.location.assign('/submission/' + encodeURIComponent(payload.data.submission.id));
+          if (<%- serializejs(!!appProblemSet) %>) {
+            window.location.assign(<%- serializejs(problemSetSubmissionListUrl) %> || (<%- serializejs(submissionDetailBase) %> + encodeURIComponent(payload.data.submission.id)));
+          } else {
+            window.location.assign(<%- serializejs(contestSubmissionListUrl) %> || (<%- serializejs(submissionDetailBase) %> + encodeURIComponent(payload.data.submission.id)));
+          }
     } catch (error) {
       unlockSubmitButton();
       showSubmitError(error && error.message ? error.message : '提交失败，请稍后重试。');

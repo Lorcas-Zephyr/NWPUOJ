@@ -1,4 +1,4 @@
-# NWPUOJ v2.0.1 部署与维护手册
+# NWPUOJ v2.1.0 部署与维护手册
 
 本文面向站点管理员和服务器运维人员，覆盖生产部署、日常巡检、备份恢复、升级回滚、
 Judge/VJudge 运维、安全和故障处理。发布操作还需同时遵循
@@ -17,6 +17,24 @@ NWPUOJ 以 Docker Compose 项目 `nwpuoj` 运行：
 | `judge-daemon` | 接收和编排评测 | 默认 16 个实例 |
 | `judge-runner-1` | 在特权沙箱中执行程序 | 默认 16 个实例，要求 cgroup v1 |
 | `judge-control` | 查询和重启单个 Judge 实例 | 仅内部网络可达，令牌保存在命名卷 |
+
+### 生产密钥与网络边界
+
+生产环境的 `.env` 与 `env-app` 均被 `.gitignore` 忽略，必须由部署者单独保存。Compose
+现在要求 `SYZOJ_DB_PASSWORD`、`SYZOJ_DB_ROOT_PASSWORD`，Web 默认只绑定
+`127.0.0.1:80`，由 HTTPS 反向代理对外提供服务；启用 `SYZOJ_SECURE_COOKIES=true`
+后不要直接用明文公网地址访问。升级后应执行 `docker compose config --quiet`，确认变量
+已解析，再执行 `docker compose up -d`。
+
+Redis 和 RabbitMQ 使用命名卷，数据库、上传文件、题面图片和队列状态都不会因容器重建
+而丢失。Judge runner 仍使用当前版本所需的隔离权限（`privileged`/cgroup），不得将其
+端口暴露到公网；需要更强隔离时应迁移到独立 Judge 主机并限制 Docker socket 的访问。
+
+### 比赛题面与数据同步
+
+比赛运行期间，题目发布新版本或上传新的评测数据后，系统会将活动比赛的题目链接更新到
+新的不可变快照。进入比赛题面、提交和重测都会读取同一份快照，避免题面与测试数据不一致。
+比赛结束后的快照不再被后台同步覆盖。
 
 业务接口只允许 `/api/v2`。`/api/*` v1 及旧页面写入路由已从 Web 镜像物理删除；
 `/judge` 是 Judge Daemon 使用签名调用的内部回调，不是公开 v1 接口。
@@ -116,7 +134,7 @@ docker compose logs --tail 100 web
 ### 3.2 数据库、评测和队列
 
 ```bash
-docker compose exec -T mariadb mariadb -N -B -usyzoj -psyzoj syzoj \
+docker compose exec -T mariadb mariadb -N -B -usyzoj -p syzoj \
   -e "SELECT COUNT(*) FROM judge_state WHERE pending=1;"
 docker compose exec -T rabbitmq \
   rabbitmqctl list_queues name messages_ready messages_unacknowledged consumers

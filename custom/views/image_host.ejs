@@ -1,0 +1,83 @@
+<%
+this.title = '图床';
+this.active = 'image-host';
+%>
+<% include app_header %>
+<main class="app-page app-image-host-page">
+  <header class="app-page-header">
+    <div class="app-page-heading">
+      <span class="app-kicker">PROBLEM TOOLS</span>
+      <h1 class="app-page-title">图床</h1>
+      <p class="app-page-description">上传图片后可直接复制外网链接，用于题面 Markdown。</p>
+    </div>
+    <div class="app-page-actions"><a class="app-button app-button-secondary" href="/problems"><i data-lucide="list-tree"></i>返回题库</a></div>
+  </header>
+  <section class="app-section">
+    <div class="app-section-header"><div><h2 class="app-section-title">上传图片</h2><p class="app-section-description">JPG、PNG、WebP、GIF，单个文件不超过 10 MiB。</p></div></div>
+    <form class="app-form app-image-host-upload" data-image-host-upload enctype="multipart/form-data">
+      <label class="app-file-field"><input type="file" name="image" accept="image/jpeg,image/png,image/webp,image/gif" required><span><i data-lucide="image-up"></i><strong>选择图片</strong><small data-image-host-file-name>未选择文件</small></span></label>
+      <button class="app-button app-button-primary" type="submit"><i data-lucide="upload"></i><span>上传</span></button>
+      <span class="app-form-status" data-image-host-status role="status" aria-live="polite"></span>
+    </form>
+  </section>
+  <section class="app-section">
+    <div class="app-section-header"><div><h2 class="app-section-title">我的图片</h2><p class="app-section-description" data-image-host-count><%= assets.length %> 个文件</p></div></div>
+    <div class="app-table-region" data-image-host-list>
+      <% if (!assets.length) { %><div class="app-empty app-empty-compact" data-image-host-empty><div class="app-empty-inner"><i data-lucide="images"></i><strong>暂无图片</strong></div></div><% } %>
+      <% for (const asset of assets) { %>
+      <div class="app-image-host-row" data-image-host-id="<%= asset.id %>">
+        <img src="<%= asset.url %>" alt="<%= asset.original_name %>" loading="lazy">
+        <div class="app-image-host-meta"><strong title="<%= asset.original_name %>"><%= asset.original_name %></strong><small><%= asset.mime_type %> · <%= syzoj.utils.formatSize(asset.file_size) %></small><div class="app-image-host-link"><input type="text" value="<%= asset.url %>" readonly aria-label="外网链接"><button class="app-icon-button" type="button" data-image-host-copy="<%= asset.url %>" title="复制外网链接" aria-label="复制外网链接"><i data-lucide="copy"></i></button><a class="app-icon-button" href="<%= asset.url %>" target="_blank" rel="noopener" title="在新窗口打开" aria-label="在新窗口打开"><i data-lucide="external-link"></i></a></div></div>
+        <button class="app-icon-button app-icon-danger" type="button" data-image-host-delete="<%= asset.id %>" title="删除图片" aria-label="删除图片"><i data-lucide="trash-2"></i></button>
+      </div>
+      <% } %>
+    </div>
+  </section>
+</main>
+<style>
+.app-image-host-upload { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.app-image-host-upload .app-file-field { flex:1 1 360px; }
+.app-image-host-row { display:grid; grid-template-columns:72px minmax(0,1fr) auto; align-items:center; gap:14px; padding:14px 0; border-bottom:1px solid var(--app-border, #d9dde5); }
+.app-image-host-row:last-child { border-bottom:0; }
+.app-image-host-row > img { width:72px; height:72px; object-fit:cover; border-radius:6px; background:var(--app-surface-muted, #f3f4f6); }
+.app-image-host-meta { min-width:0; display:grid; gap:5px; }
+.app-image-host-meta strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.app-image-host-meta small { color:var(--app-text-muted, #697386); }
+.app-image-host-link { display:flex; gap:6px; min-width:0; }
+.app-image-host-link input { min-width:0; flex:1; }
+@media (max-width:640px) { .app-image-host-row { grid-template-columns:56px minmax(0,1fr) auto; gap:10px; } .app-image-host-row > img { width:56px; height:56px; } }
+</style>
+<script>
+(function () {
+  var form = document.querySelector('[data-image-host-upload]');
+  var list = document.querySelector('[data-image-host-list]');
+  var status = document.querySelector('[data-image-host-status]');
+  var count = document.querySelector('[data-image-host-count]');
+  var input = form && form.elements.image;
+  var formatSize = function (bytes) { var value = Number(bytes || 0); if (value < 1024) return value + ' B'; if (value < 1024 * 1024) return (value / 1024).toFixed(1) + ' KiB'; return (value / 1024 / 1024).toFixed(1) + ' MiB'; };
+  function setStatus(message, kind) { if (!status) return; status.textContent = message || ''; status.className = 'app-form-status' + (kind ? ' app-form-status-' + kind : ''); }
+  function showToast(message, kind) { if (window.NWPUOJApp) window.NWPUOJApp.showToast(message, kind || 'success'); else setStatus(message, kind); }
+  function renderAsset(asset) {
+    var row = document.createElement('div'); row.className = 'app-image-host-row'; row.dataset.imageHostId = String(asset.id);
+    row.innerHTML = '<img loading="lazy"><div class="app-image-host-meta"><strong></strong><small></small><div class="app-image-host-link"><input type="text" readonly aria-label="外网链接"><button class="app-icon-button" type="button" data-image-host-copy title="复制外网链接" aria-label="复制外网链接"><i data-lucide="copy"></i></button><a class="app-icon-button" target="_blank" rel="noopener" title="在新窗口打开" aria-label="在新窗口打开"><i data-lucide="external-link"></i></a></div></div><button class="app-icon-button app-icon-danger" type="button" data-image-host-delete title="删除图片" aria-label="删除图片"><i data-lucide="trash-2"></i></button>';
+    row.querySelector('img').src = asset.url; row.querySelector('img').alt = asset.original_name || 'image'; row.querySelector('strong').textContent = asset.original_name || 'image'; row.querySelector('small').textContent = asset.mime_type + ' · ' + formatSize(asset.file_size); row.querySelector('input').value = asset.url; row.querySelector('[data-image-host-copy]').dataset.imageHostCopy = asset.url; row.querySelector('.app-image-host-link a').href = asset.url; row.querySelector('[data-image-host-delete]').dataset.imageHostDelete = asset.id;
+    if (window.__NWPUOJ_RENDER_ICONS) window.__NWPUOJ_RENDER_ICONS(row); return row;
+  }
+  if (input) input.addEventListener('change', function () { var file = input.files && input.files[0]; var label = form.querySelector('[data-image-host-file-name]'); if (label) label.textContent = file ? file.name : '未选择文件'; });
+  if (form) form.addEventListener('submit', async function (event) {
+    event.preventDefault(); var file = input && input.files && input.files[0]; if (!file) return;
+    var button = form.querySelector('button[type="submit"]'); button.disabled = true; button.classList.add('is-loading'); setStatus('正在上传…');
+    try { var payload = new FormData(); payload.append('image', file, file.name); var response = await fetch('/api/v2/image-host', { method: 'POST', credentials: 'same-origin', body: payload }); var body = await response.json(); if (!response.ok) throw new Error(body && body.error && body.error.message || '图片上传失败。'); var asset = body.data; var empty = list.querySelector('[data-image-host-empty]'); if (empty) empty.remove(); list.prepend(renderAsset(asset)); count.textContent = (list.querySelectorAll('[data-image-host-id]').length) + ' 个文件'; form.reset(); form.querySelector('[data-image-host-file-name]').textContent = '未选择文件'; setStatus('上传成功', 'success'); showToast('图片已上传', 'success'); } catch (error) { setStatus(error.message || '图片上传失败。', 'error'); showToast(error.message || '图片上传失败。', 'danger'); } finally { button.disabled = false; button.classList.remove('is-loading'); }
+  });
+  document.addEventListener('click', async function (event) {
+    var copy = event.target.closest('[data-image-host-copy]');
+    if (copy) { var value = copy.dataset.imageHostCopy || ''; try { await navigator.clipboard.writeText(value); showToast('外网链接已复制', 'success'); } catch (_) { var field = copy.parentNode.querySelector('input'); field.focus(); field.select(); document.execCommand('copy'); showToast('外网链接已复制', 'success'); } return; }
+    var remove = event.target.closest('[data-image-host-delete]');
+    if (!remove || remove.disabled) return;
+    if (!window.confirm('确定删除这张图片吗？已有题面中的链接将无法访问。')) return;
+    remove.disabled = true;
+    try { var response = await fetch('/api/v2/image-host/' + encodeURIComponent(remove.dataset.imageHostDelete), { method: 'DELETE', credentials: 'same-origin' }); var body = await response.json(); if (!response.ok) throw new Error(body && body.error && body.error.message || '图片删除失败。'); var row = remove.closest('[data-image-host-id]'); if (row) row.remove(); var remaining = list.querySelectorAll('[data-image-host-id]').length; count.textContent = remaining + ' 个文件'; if (!remaining) { var empty = document.createElement('div'); empty.className = 'app-empty app-empty-compact'; empty.dataset.imageHostEmpty = ''; empty.innerHTML = '<div class="app-empty-inner"><i data-lucide="images"></i><strong>暂无图片</strong></div>'; list.appendChild(empty); if (window.__NWPUOJ_RENDER_ICONS) window.__NWPUOJ_RENDER_ICONS(empty); } showToast('图片已删除', 'success'); } catch (error) { remove.disabled = false; showToast(error.message || '图片删除失败。', 'danger'); }
+  });
+})();
+</script>
+<% include app_footer %>

@@ -2053,6 +2053,7 @@ test('content API routes use transactions and stable permission/error handling',
   assert.match(admin, /contentDomain\.updateBanner/);
   assert.match(admin, /contentDomain\.deleteBanner/);
   assert.match(admin, /current => api\(\)\.ifMatch\(req, announcementResource\(current\)\)/);
+  assert.match(admin, /req\.get\('If-Match'\) \|\| req\.body && req\.body\.if_match/);
   assert.match(admin, /current => api\(\)\.ifMatch\(req, bannerResource\(current\)\)/);
   assert.doesNotMatch(admin, /await api\(\)\.appendEvent\(\{ stream: `content:(?:announcement|banner)/);
   assert.match(authorization, /async function recordAudit\(req, event, manager = null\)/);

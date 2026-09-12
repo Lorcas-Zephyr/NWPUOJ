@@ -1,0 +1,85 @@
+<% this.title='提交记录 - '+problemSet.title; const problemSetActiveSection='submissions'; const problemSetAccess={manager:canManageProblemSet}; %>
+<% include app_header %><% include problem_set_context %>
+<div class="app-page app-problem-set-submissions-page">
+  <div class="app-section-header">
+    <div><h2 class="app-section-title">题单提交记录</h2><p class="app-section-description"><%= canManageProblemSet ? '全部参与者的题单提交' : '仅显示自己的题单提交' %></p></div>
+  </div>
+  <% if (submissions.length) { %>
+    <div class="app-table-region">
+      <table class="app-table">
+        <thead><tr><th>编号</th><th>题目</th><% if (canManageProblemSet) { %><th>提交者</th><% } %><th>状态</th><th>得分</th><th>语言</th><th>时间</th></tr></thead>
+        <tbody>
+          <% submissions.forEach(function (item) { const running = item.pending || ['Waiting', 'Judging', 'Compiling', 'Running', 'Unknown'].includes(item.status); %>
+            <tr data-submission-id="<%= item.submission_id %>">
+              <td><a href="/submission/<%= item.submission_id %>">#<%= item.submission_id %></a></td>
+              <td class="app-cell-primary"><a href="/problem-set/<%= problemSet.id %>/problem/<%= item.problem_ordinal %>"><%= item.problem_title %></a></td>
+              <% if (canManageProblemSet) { %><td><%- syzoj.utils.renderUsername({ id: item.user_id, username: item.username }) %></td><% } %>
+              <td><% if (canManageProblemSet) { %><a class="app-status <%= running ? 'app-status-running' : item.status === 'Accepted' ? 'app-status-accepted' : 'app-status-muted' %>" href="/submission/<%= item.submission_id %>?problem_set=<%= problemSet.id %>" data-submission-status><%= running ? 'Running' : item.status %></a><% } else { %><span class="app-status <%= running ? 'app-status-running' : item.status === 'Accepted' ? 'app-status-accepted' : 'app-status-muted' %>" data-submission-status><%= running ? 'Running' : item.status %></span><% } %></td>
+              <td><span data-submission-score><%= item.score == null ? '-' : Math.round(Number(item.score)) %></span></td>
+              <td><% if (item.language_display) { %><strong><%= item.language_display %></strong><% } else { %>-<% } %></td>
+              <td><%= syzoj.utils.formatDate(item.submitted_at) %></td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+    <% include app_pagination %>
+  <% } else { %>
+    <div class="app-empty"><div class="app-empty-inner"><i data-lucide="activity"></i><strong>暂无提交</strong><p>从题单题目页提交后会显示在这里。</p></div></div>
+  <% } %>
+</div>
+
+<script>
+(function () {
+  var items = <%- serializejs(submissions.map(function (item) { return { submissionId: Number(item.submission_id), taskId: item.task_id, token: item.statusToken }; })) %>;
+  var pendingTasks = new Set(items.filter(function (item) { return item.token && item.taskId; }).map(function (item) { return item.taskId; }));
+  if (!pendingTasks.size) return;
+  var retryDelay = 1000;
+
+  function statusClass(status) {
+    var value = String(status || '').toLowerCase();
+    if (value === 'accepted') return 'app-status-accepted';
+    if (value === 'waiting' || value === 'judging' || value === 'compiling' || value === 'running' || value.startsWith('running ')) return 'app-status-running';
+    return 'app-status-muted';
+  }
+
+  function applyStatus(update) {
+    var row = document.querySelector('[data-submission-id="' + update.submissionId + '"]');
+    if (!row) return;
+    var label = update.pending ? 'Running' : (update.result && update.result.result) || 'Unknown';
+    var status = row.querySelector('[data-submission-status]');
+    if (status) { status.textContent = label; status.className = 'app-status ' + statusClass(label); }
+    var score = row.querySelector('[data-submission-score]');
+    if (score && !update.pending) score.textContent = update.result && update.result.score != null ? Math.round(Number(update.result.score)) : '-';
+    if (!update.pending) pendingTasks.delete(String(update.taskId));
+  }
+
+  async function connect() {
+    var pendingItems = items.filter(function (item) { return pendingTasks.has(item.taskId) && item.token; });
+    if (!pendingItems.length) return;
+    var body = new URLSearchParams({ tokens: JSON.stringify(pendingItems.map(function (item) { return item.token; })) });
+    var received = false;
+    try {
+      var csrfToken = window.__NWPUOJ_APP && window.__NWPUOJ_APP.csrfToken;
+      var response = await fetch('/api/v2/submissions/events', { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': csrfToken || '' }, body: body });
+      if (response.status === 403) { window.setTimeout(connect, 30000); return; }
+      if (!response.ok || !response.body) throw new Error('stream unavailable');
+      var reader = response.body.getReader(); var decoder = new TextDecoder(); var buffer = '';
+      while (true) {
+        var chunk = await reader.read(); if (chunk.done) break;
+        buffer += decoder.decode(chunk.value, { stream: true }).replace(/\r\n/g, '\n');
+        var boundary;
+        while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+          var message = buffer.slice(0, boundary); buffer = buffer.slice(boundary + 2); var event = 'message'; var data = '';
+          message.split('\n').forEach(function (line) { if (line.startsWith('event:')) event = line.slice(6).trim(); if (line.startsWith('data:')) data += line.slice(5).trim(); });
+          if (event === 'refresh-required') { window.setTimeout(connect, 30000); return; }
+          if (event === 'status' && data) { received = true; applyStatus(JSON.parse(data)); }
+        }
+      }
+    } catch (error) {}
+    if (pendingTasks.size) { var delay = retryDelay; retryDelay = received ? 1000 : Math.min(retryDelay * 2, 30000); window.setTimeout(connect, delay); }
+  }
+  connect();
+})();
+</script>
+<% include app_footer %>

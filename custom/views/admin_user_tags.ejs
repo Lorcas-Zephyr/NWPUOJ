@@ -121,7 +121,7 @@
       var response = await fetch('/api/v2/admin/user-tags/settings', { credentials: 'same-origin' });
       var body = await response.json();
       if (!response.ok) throw new Error(body.error && body.error.message || '读取全局设置失败');
-      settingsEtag = response.headers.get('ETag');
+      settingsEtag = response.headers.get('ETag') || body && body.meta && body.meta.etag || '';
       showGlobalState(body.data.enabled);
     } catch (error) {
       if (!globalToggle.disabled) notify(error.message || '读取全局设置失败', 'error');
@@ -137,11 +137,11 @@
           method: 'PATCH',
           credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestKey(), 'If-Match': settingsEtag || '' },
-          body: JSON.stringify({ enabled: desired })
+          body: JSON.stringify({ enabled: desired, if_match: settingsEtag || '' })
         });
         var body = await response.json();
         if (!response.ok) throw new Error(body.error && body.error.message || '更新全局设置失败');
-        settingsEtag = response.headers.get('ETag');
+        settingsEtag = response.headers.get('ETag') || body && body.meta && body.meta.etag || '';
         showGlobalState(body.data.enabled);
         notify(body.data.enabled ? '已开启全局名牌展示' : '已关闭全局名牌展示', 'success');
       } catch (error) {

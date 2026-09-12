@@ -1,6 +1,7 @@
 {
   "title": "NWPU Online Judge",
-  "nwpuoj_version": "2.0.1",
+  "nwpuoj_version": "2.1.0",
+  "username_regex": "^[a-zA-Z0-9\\-_]{1,20}$",
   "gravatar_url": "/self/logo.png",
   "links": [
     {
@@ -17,6 +18,8 @@
       "memory_limit": 512
     }
   },
+  "enabled_languages": ["cpp", "cpp11", "cpp17", "cpp20", "cpp23", "cpp-noilinux", "cpp11-noilinux", "cpp11-clang", "cpp17-clang", "c", "c-noilinux", "csharp", "java", "pascal", "python2", "python3", "python310", "python311", "pypy3", "nodejs", "ruby", "haskell"],
+  "filter_enabled_languages": ["cpp", "cpp11", "cpp17", "cpp20", "cpp23", "cpp-noilinux", "cpp11-noilinux", "cpp11-clang", "cpp17-clang", "c", "c-noilinux", "csharp", "java", "pascal", "python2", "python3", "python310", "python311", "pypy3", "nodejs", "ruby", "haskell"],
   "page": {
     "problem": 50,
     "judge_state": 50,

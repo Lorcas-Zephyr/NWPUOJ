@@ -15,11 +15,44 @@
     var messages = {
       AUTHENTICATION_REQUIRED: '请先登录后继续。',
       CAPABILITY_REQUIRED: '当前账户不能参加该比赛。',
+      CONTEST_ALREADY_SUBMITTED: '本场比赛已经交卷，不能再次提交。',
+      CONTEST_NOT_RUNNING: '只能在比赛进行中交卷。',
+      CONTEST_PARTICIPATION_REQUIRED: '请先报名后交卷。',
       REGISTRATION_FAILED: '暂时无法报名该比赛。',
-      UNREGISTRATION_FAILED: '暂时无法取消报名。'
+      UNREGISTRATION_FAILED: '暂时无法取消报名。',
+      CONTEST_SUBMIT_FAILED: '暂时无法完成交卷。'
     };
     return messages[body.error.code] || body.error.message || fallback;
   }
+  document.querySelectorAll('form[data-contest-finish-v2]').forEach(function (form) {
+    if (form.dataset.contestFinishBound === '1') return;
+    form.dataset.contestFinishBound = '1';
+    form.addEventListener('submit', async function (event) {
+      event.preventDefault();
+      if (form.dataset.contestFinishConfirm && !window.confirm(form.dataset.contestFinishConfirm)) return;
+      var contestId = form.dataset.contestId;
+      var button = form.querySelector('[type="submit"]');
+      if (button) button.disabled = true;
+      try {
+        var result = await readResponse(await fetch('/api/v2/contests/' + encodeURIComponent(contestId) + '/submit', {
+          method: 'POST', credentials: 'same-origin', headers: { 'Idempotency-Key': operationKey() }
+        }));
+        if (!result.response.ok) {
+          var errorCode = result.body && result.body.error && result.body.error.code;
+          if (errorCode === 'CONTEST_SUBMIT_FAILED' || errorCode === 'CONTEST_ALREADY_SUBMITTED') {
+            window.location.reload();
+            return;
+          }
+          throw new Error(apiMessage(result.body, '交卷失败。'));
+        }
+        window.location.reload();
+      } catch (error) {
+        if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message || '交卷失败。', 'danger');
+        else window.alert(error.message || '交卷失败。');
+        if (button) button.disabled = false;
+      }
+    });
+  });
 document.querySelectorAll('form[data-contest-registration-v2]').forEach(function (form) {
     form.addEventListener('submit', async function (event) {
       if (event.defaultPrevented) return;

@@ -3,6 +3,14 @@
 const appHitScores = syzoj.userHitScores && syzoj.userHitScores.get(show_user.id);
 const appHitHidden = !!(syzoj.userHitHidden && syzoj.userHitHidden.has(show_user.id));
 const appCanViewHit = !appHitHidden || !!(user && user.id === show_user.id);
+const appCanViewEmailActivation = !!(user && (
+  Number(user.id) === Number(show_user.id) ||
+  (typeof appHasCapability === 'function' && appHasCapability('admin:user.manage')) ||
+  (typeof isSiteOwner !== 'undefined' && isSiteOwner)
+));
+const appEmailActivated = Number(user && user.id) === Number(show_user.id)
+  ? !!(user.is_email_verified || (syzoj.verifiedUserIds && syzoj.verifiedUserIds.has(Number(show_user.id))))
+  : !!(syzoj.verifiedUserIds && syzoj.verifiedUserIds.has(Number(show_user.id)));
 const appIsManager = show_user.is_admin || !!(syzoj.adminUserIds && syzoj.adminUserIds.has(show_user.id));
 const appHitTotal = appHitScores ? appHitScores.total : 0;
 const appHitTier = appIsManager ? 'admin' : (appHitTotal >= 350 ? 'red' : (appHitTotal >= 280 ? 'orange' : (appHitTotal >= 200 ? 'green' : (appHitTotal >= 100 ? 'blue' : 'default'))));
@@ -31,7 +39,7 @@ const appRatingSeriesJson = JSON.stringify(appRatingSeries.map(item => ({ name: 
   <div class="app-profile-grid">
     <section class="app-profile-section"><div class="app-section-heading"><div><span class="app-kicker">OVERVIEW</span><h2>提交构成</h2></div><span class="app-section-count"><%= appSubmissionTotal %> 次</span></div><div class="app-distribution"><% for (const item of appSubmissionStats) { const appPercent = appSubmissionTotal ? Math.round(item[1] / appSubmissionTotal * 100) : 0; %><div><span><i class="<%= item[2] %>"></i><%= item[0] %></span><strong><%= item[1] %></strong><div><span class="<%= item[2] %>" style="width:<%= appPercent %>%"></span></div></div><% } %></div></section>
 
-    <section class="app-profile-section"><div class="app-section-heading"><div><span class="app-kicker">PROFILE</span><h2>公开资料</h2></div></div><dl class="app-profile-data"><div><dt>用户名</dt><dd><%= show_user.username %></dd></div><% if (show_user.emailVisible) { %><div><dt>Email</dt><dd><a href="mailto:<%= show_user.email %>"><%= show_user.email %></a></dd></div><% } %><div><dt>身份</dt><dd><%= syzoj.siteOwnerUserId === show_user.id ? '站长' : (show_user.is_admin ? '管理员' : '普通用户') %></dd></div><div><dt>注册时间</dt><dd><%= syzoj.utils.formatDate(show_user.register_time) %></dd></div></dl></section>
+    <section class="app-profile-section"><div class="app-section-heading"><div><span class="app-kicker">PROFILE</span><h2>公开资料</h2></div></div><dl class="app-profile-data"><div><dt>用户名</dt><dd><%= show_user.username %></dd></div><% if (show_user.emailVisible) { %><div><dt>Email</dt><dd><a href="mailto:<%= show_user.email %>"><%= show_user.email %></a></dd></div><% } %><% if (appCanViewEmailActivation) { %><div><dt>邮箱状态</dt><dd><span class="app-status <%= appEmailActivated ? 'app-status-accepted' : 'app-status-pending' %>"><%= appEmailActivated ? '已激活' : '未激活' %></span></dd></div><% } %><div><dt>身份</dt><dd><%= syzoj.siteOwnerUserId === show_user.id ? '站长' : (show_user.is_admin ? '管理员' : '普通用户') %></dd></div><div><dt>注册时间</dt><dd><%= syzoj.utils.formatDate(show_user.register_time) %></dd></div></dl></section>
   </div>
 
   <section class="app-profile-section app-rating-history-section">
@@ -52,7 +60,6 @@ const appRatingSeriesJson = JSON.stringify(appRatingSeries.map(item => ({ name: 
   <section class="app-profile-section"><div class="app-section-heading"><div><span class="app-kicker">SOLVED</span><h2>通过的题目</h2></div><span class="app-section-count"><%= show_user.ac_problems.length %> 题</span></div><% if (show_user.ac_problems.length) { %><div class="app-solved-list"><% for (const problem of show_user.ac_problems) { %><a href="<%= syzoj.utils.makeUrl(['problem', problem.id]) %>"><%= problem.displayId %></a><% } %></div><% } else { %><p class="app-profile-placeholder">尚未通过公开题目。</p><% } %></section>
 
   <div class="app-profile-grid app-profile-activity">
-    <section class="app-profile-section"><div class="app-section-heading"><div><span class="app-kicker">DISCUSSIONS</span><h2>最近帖子</h2></div></div><% if (show_user.articles.length) { %><div class="app-compact-list"><% for (const article of show_user.articles) { %><a href="<%= syzoj.utils.makeUrl(['article', article.id]) %>"><strong><%= article.title %></strong><span><%= syzoj.utils.formatDate(article.public_time) %></span></a><% } %></div><% } else { %><p class="app-profile-placeholder">该用户尚未发表帖子。</p><% } %></section>
     <section class="app-profile-section"><div class="app-section-heading"><div><span class="app-kicker">CONTESTS</span><h2>比赛记录</h2></div></div><% if (appParticipatedContests.length) { %><div class="app-contest-link-list"><% for (const contest of appParticipatedContests) { %><a href="<%= syzoj.utils.makeUrl(['contest', contest.id]) %>"><%= contest.title %></a><% } %></div><% } else { %><p class="app-profile-placeholder">暂无参赛记录。</p><% } %></section>
   </div>
 </div>

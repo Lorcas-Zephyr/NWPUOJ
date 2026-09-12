@@ -23,10 +23,11 @@
       var current = await fetch('/api/v2/admin/help/pages/main', { credentials: 'same-origin', cache: 'no-store' });
       var currentBody = await current.json();
       if (!current.ok) throw new Error(currentBody && currentBody.error && currentBody.error.message || '帮助页读取失败。');
+      var etag = current.headers.get('ETag') || currentBody && currentBody.meta && currentBody.meta.etag || '';
       var response = await fetch('/api/v2/admin/help/pages/main', {
         method: 'PUT', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', 'If-Match': current.headers.get('ETag') || '' },
-        body: JSON.stringify({ content: form.elements.content.value })
+        headers: { 'Content-Type': 'application/json', 'If-Match': etag },
+        body: JSON.stringify({ content: form.elements.content.value, if_match: etag })
       });
       var body = await response.json();
       if (!response.ok) throw new Error(body && body.error && body.error.message || '帮助页保存失败。');

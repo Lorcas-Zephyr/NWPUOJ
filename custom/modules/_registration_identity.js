@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const TypeORM = require('typeorm');
+const contentDomain = require('../libs/content-domain');
 const {
   ORDINARY_STUDENT_ID_SCOPE,
   ensureRegistrationProfileSchema
@@ -7,6 +8,8 @@ const {
 
 const User = syzoj.model('user');
 const MANAGED_PRIVILEGES = ['manage_problem', 'manage_problem_tag', 'manage_contest', 'manage_user'];
+const USERNAME_MAX_LENGTH = 20;
+const LONG_USERNAME_NOTIFICATION_TYPE = 'username_length_limit';
 const COLLEGES = [
   '航空学院',
   '航天学院',
@@ -16,6 +19,8 @@ const COLLEGES = [
   '力学与交通运载工程学院',
   '动力与能源学院',
   '电子信息学院',
+  '人工智能学院',
+  '柔性电子学院',
   '自动化学院',
   '计算机学院',
   '软件学院',
@@ -53,7 +58,53 @@ function ensureRegistrationSchema() {
   return registrationSchemaPromise;
 }
 
-ensureRegistrationSchema().catch(error => {
+async function notifyLongUsernames() {
+  const connection = TypeORM.getConnection();
+  const now = Math.floor(Date.now() / 1000);
+  await connection.transaction(async manager => {
+    const users = await manager.query(
+      `SELECT id,username FROM user
+        WHERE CHAR_LENGTH(username)>?
+          AND NOT EXISTS (
+            SELECT 1 FROM notification existing
+             WHERE existing.recipient_id=user.id
+               AND existing.type=?
+               AND existing.source_id=user.id
+          )
+        FOR UPDATE`,
+      [USERNAME_MAX_LENGTH, LONG_USERNAME_NOTIFICATION_TYPE]
+    );
+    for (const user of users) {
+      const notification = await manager.query(
+        `INSERT INTO notification
+          (recipient_id,type,title,content,source_url,source_id,actor_id,is_read,created_at,read_at)
+         VALUES (?,?,?,?,?,?,NULL,0,?,NULL)`,
+        [
+          Number(user.id),
+          LONG_USERNAME_NOTIFICATION_TYPE,
+          '用户名长度限制调整',
+          `平台现已将用户名长度限制为 ${USERNAME_MAX_LENGTH} 个字符。你的当前用户名超过限制，请尽快在账号设置中修改。`,
+          `/user/${Number(user.id)}/edit`,
+          Number(user.id),
+          now
+        ]
+      );
+      try {
+        await contentDomain.appendEvent(manager, {
+          stream: `notifications:user:${Number(user.id)}`,
+          type: 'notification.created',
+          aggregateId: Number(notification.insertId),
+          actorId: null,
+          payload: { notification_id: Number(notification.insertId), source_type: LONG_USERNAME_NOTIFICATION_TYPE, source_id: Number(user.id) }
+        });
+      } catch (error) {
+        syzoj.log('[registration-schema] notification event skipped: ' + error.message);
+      }
+    }
+  });
+}
+
+ensureRegistrationSchema().then(notifyLongUsernames).catch(error => {
   syzoj.log('[registration-schema] ' + (error.stack || error));
   process.exit(1);
 });
@@ -283,7 +334,7 @@ function ensureRegistrationCsrf(req) {
 function registrationErrorText(error) {
   const messages = {
     2001: '服务器未收到注册数据。',
-    2002: '用户名仅允许字母、数字、连字符和下划线。',
+    2002: '用户名仅允许字母、数字、连字符和下划线，且不能超过 20 个字符。',
     2004: '请输入正确的邮箱。',
     2007: '密码不得为空。',
     2008: '该用户名已被使用。',
@@ -344,8 +395,10 @@ async function loadUserEditContext(req, res) {
   if (id === Number(syzoj.deletedAccountUserId || 0)) throw new ErrorMessage('系统保留账号不能修改。');
   const actor = res.locals.user;
   if (!actor) throw new ErrorMessage('请登录后继续。');
-  const actorIsOwner = await syzoj.utils.isSiteOwnerAccount(actor);
-  const targetIsOwner = await syzoj.utils.isSiteOwnerAccount(editedUser);
+  await syzoj.utils.ensureSiteOwner();
+  const siteOwnerId = Number(syzoj.siteOwnerUserId || 0);
+  const actorIsOwner = siteOwnerId > 0 && Number(actor.id) === siteOwnerId;
+  const targetIsOwner = siteOwnerId > 0 && Number(editedUser.id) === siteOwnerId;
   const actorCanManage = actorIsOwner || await syzoj.utils.authorizationV2.authorize(
     actor,
     'admin:user.manage',
@@ -383,11 +436,15 @@ function renderUserEdit(res, context, errorInfo) {
     edited_user: context.editedUser,
     registrationProfile: context.profile,
     registrationColleges: COLLEGES,
+    actorIsOwner: context.actorIsOwner,
+    actorCanManage: context.actorCanManage,
+    actorCanGrant: context.actorCanGrant,
     error_info: errorInfo
   });
 }
 
 app.get('/user/:id/edit', async (req, res) => {
+  res.setHeader('Cache-Control', 'private, no-store, max-age=0, must-revalidate');
   try {
     renderUserEdit(res, await loadUserEditContext(req, res), null);
   } catch (error) {

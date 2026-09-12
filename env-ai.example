@@ -1,0 +1,7 @@
+# AI 比赛账户（仅供 web 服务使用；密钥不要提交到仓库）
+SYZOJ_AI_DEEPSEEK_API_KEY=
+SYZOJ_AI_DEEPSEEK_ENDPOINT=https://api.deepseek.com/v1
+SYZOJ_AI_DEEPSEEK_MODEL=deepseek-v4-pro
+SYZOJ_AI_GPT_API_KEY=
+SYZOJ_AI_GPT_ENDPOINT=https://apiaifirst.com/v1
+SYZOJ_AI_GPT_MODEL=gpt-5.6-sol

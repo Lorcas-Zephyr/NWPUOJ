@@ -47,6 +47,13 @@ const statisticsCodeOnly = ["fastest", "slowest", "min", "max"];
 export default class Problem extends Model {
   static cache = true;
 
+  // Tag mappings are cached separately from problem entities. Management
+  // operations that update problem_tag_map use this hook to invalidate the
+  // mapping without evicting the entire problem cache.
+  static invalidateTagCache(problemId: number) {
+    problemTagCache.del(Number(problemId));
+  }
+
   @TypeORM.PrimaryGeneratedColumn()
   id: number;
 
@@ -80,6 +87,9 @@ export default class Problem extends Model {
 
   @TypeORM.Column({ nullable: true, type: "integer" })
   time_limit: number;
+
+  @TypeORM.Column({ nullable: false, type: "double", default: 2 })
+  python_time_limit_multiplier: number;
 
   @TypeORM.Column({ nullable: true, type: "integer" })
   memory_limit: number;
@@ -132,21 +142,24 @@ export default class Problem extends Model {
 
   async isAllowedEditBy(user) {
     if (!user) return false;
-    if (await user.hasPrivilege('manage_problem')) return true;
-    return this.user_id === user.id;
+    if (user.is_admin || Number(user.id) === Number(syzoj.siteOwnerUserId || 0)) return true;
+    if (await user.hasPrivilege('manage_problem')) return Number(this.user_id) === Number(user.id);
+    return Number(this.user_id) === Number(user.id);
   }
 
   async isAllowedUseBy(user) {
     if (this.is_public) return true;
     if (!user) return false;
-    if (await user.hasPrivilege('manage_problem')) return true;
-    return this.user_id === user.id;
+    if (user.is_admin || Number(user.id) === Number(syzoj.siteOwnerUserId || 0)) return true;
+    if (await user.hasPrivilege('manage_problem')) return Number(this.user_id) === Number(user.id);
+    return Number(this.user_id) === Number(user.id);
   }
 
   async isAllowedManageBy(user) {
     if (!user) return false;
-    if (await user.hasPrivilege('manage_problem')) return true;
-    return user.is_admin;
+    if (user.is_admin || Number(user.id) === Number(syzoj.siteOwnerUserId || 0)) return true;
+    if (await user.hasPrivilege('manage_problem')) return Number(this.user_id) === Number(user.id);
+    return false;
   }
 
   getTestdataPath() {

@@ -17,6 +17,11 @@ const appJs = fs.readFileSync(path.join(root, 'custom/app-v2.js'), 'utf8');
 const editorJs = fs.readFileSync(path.join(root, 'custom/modern-editor.js'), 'utf8');
 const submission = fs.readFileSync(path.join(root, 'custom/views/submission.ejs'), 'utf8');
 const submissions = fs.readFileSync(path.join(root, 'custom/views/submissions.ejs'), 'utf8');
+const problemSets = fs.readFileSync(path.join(root, 'custom/modules/_problem_sets.js'), 'utf8');
+const submissionProcess = fs.readFileSync(path.join(root, 'custom/libs-built/submissions_process.js'), 'utf8');
+const submissionRoutes = fs.readFileSync(path.join(root, 'custom/modules/_submission_routes.js'), 'utf8');
+const submissionVisibility = fs.readFileSync(path.join(root, 'custom/modules/_submission_visibility.js'), 'utf8');
+const compilerMessage = require(path.join(root, 'custom/libs/compiler-message.js'));
 const user = fs.readFileSync(path.join(root, 'custom/views/user.ejs'), 'utf8');
 const icons = require(path.join(root, 'custom/lucide-1.27.0.min.js'));
 
@@ -32,11 +37,27 @@ test('submit button keeps a visible loading icon after locking', () => {
   assert.match(css, /\.app-submit-bottom \.app-button\.is-loading svg\s*\{[^}]*animation: app-spin/s);
 });
 
+test('contest submissions redirect to the contest list filtered to the current user', () => {
+  assert.match(form, /const contestSubmissionListUrl = contest && user/);
+  assert.match(form, /\['contest', contest\.id, 'submissions'\], \{ submitter: user\.username \}/);
+  assert.match(form, /const submissionDetailBase = contest \? '\/contest\/submission\/' : '\/submission\/';/);
+  assert.match(form, /window\.location\.assign\(<%- serializejs\(contestSubmissionListUrl\) %> \|\| \(<%- serializejs\(submissionDetailBase\) %> \+ encodeURIComponent\(payload\.data\.submission\.id\)\)\);/);
+  assert.doesNotMatch(form, /window\.location\.assign\('\/submission\/' \+/);
+});
+
 test('submit workspace avoids excessive empty editor space on desktop and mobile', () => {
   assert.match(css, /\.app-submit-workspace\s*\{[^}]*min-height:\s*clamp\(300px, 38vh, 380px\)/s);
   assert.match(css, /\.app-submit-editor-stack\s*\{[^}]*min-height:\s*clamp\(300px, 38vh, 380px\)/s);
   assert.match(css, /@media \(max-width: 760px\)\s*\{[\s\S]*?\.app-submit-workspace\s*\{[^}]*min-height:\s*380px/s);
   assert.match(css, /@media \(max-width: 760px\)\s*\{[\s\S]*?\.app-submit-editor-stack\s*\{[^}]*min-height:\s*280px/s);
+});
+
+test('language choices preserve the full language name and truncate only compiler details', () => {
+  assert.match(form, /class="app-submit-language-name"><%= languageMap\[lang\]\.show %><\/span>/);
+  assert.match(form, /class="app-submit-language-version" title="<%= languageMap\[lang\]\.version %>"/);
+  assert.match(css, /\.app-submit-language\[data-language\]\s*\{[^}]*grid-template-columns:\s*17px max-content minmax\(28px, 1fr\)/s);
+  assert.match(css, /\.app-submit-language \.app-submit-language-name\s*\{[^}]*overflow:\s*visible[^}]*text-overflow:\s*clip/s);
+  assert.match(css, /\.app-submit-language-version\s*\{[^}]*min-width:\s*0[^}]*overflow:\s*hidden[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/s);
 });
 
 test('submit editor is white, minimap-free, and falls back to an accessible textarea', () => {
@@ -51,12 +72,87 @@ test('submit editor is white, minimap-free, and falls back to an accessible text
   assert.match(css, /\.app-submit-editor \.minimap,[\s\S]*display: none !important/);
 });
 
-test('submission detail streams live status with bounded reconnect fallback', () => {
-  assert.match(submission, /new EventSource\('\/api\/v2\/submissions\/<%= info\.submissionId %>\/events'\)/);
+test('submission lists and details show stable live judge progress', () => {
+  assert.ok(submissionProcess.indexOf('if (x.pending)') < submissionProcess.indexOf('if (displayConfig.showResult)'));
+  assert.match(submissionProcess, /const runningMatch = \/\^Running/);
+  assert.match(submissionProcess, /score: displayConfig\.showScore \? 0 : null/);
+  assert.match(submissionRoutes, /view: view \|\| 'list'/);
+  assert.match(submissionRoutes, /if \(options\.submissionPending\) options\.detailResult = null/);
+  assert.match(submission, /fetch\('\/api\/v2\/submissions\/events'/);
+  assert.doesNotMatch(submission, /new EventSource\(/);
   assert.match(submission, /data-detail-status/);
-  assert.match(submission, /!\['created', 'queued', 'compiling', 'judging'\]\.includes\(projected\)/);
+  assert.match(submission, /if \(!update\.pending\) return window\.location\.reload\(\)/);
+  assert.match(submissions, /if \(update\.pending\) return;\s+item\.result = update\.result/);
+  assert.match(submissions, /value\.startsWith\('running'\)/);
   assert.match(submission, /Math\.min\(retryDelay \* 2, 30000\)/);
   assert.doesNotMatch(submission, /\/api\/submission\//);
+});
+
+test('problem-set submissions reuse the complete submission list and accepted-source policy', () => {
+  assert.match(problemSets, /syzoj\.utils\.renderSubmissionList\(req, res, null/);
+  assert.match(submissionRoutes, /'problem_set_submission'/);
+  assert.match(submissionRoutes, /problem_set_link\.submission_id = js\.id/);
+  assert.match(submissionRoutes, /inProblemSet/);
+  assert.match(submissionRoutes, /problemSetProblemIndex/);
+  assert.match(submissionRoutes, /inProblemSet && canManageDetails/);
+  assert.match(submissionProcess, /s\.problemSetProblemIndex \|\| s\.contestProblemIndex/);
+  assert.match(submissions, /displayConfig\.inProblemSet/);
+  assert.match(submissions, /\['problem-set', problemSet\.id, 'submissions'\]/);
+  assert.match(submissions, /\['problem-set', problemSet\.id, 'problem', item\.info\.problemId\]/);
+  assert.match(submission, /appInProblemSet/);
+  assert.match(submissionVisibility, /hasValidAcceptedSubmission\(user\.id, this\.problem_id\)/);
+  assert.match(submissionVisibility, /hasAccessiblePublishedProblemSet\(user\.id, this\.problem_id\)/);
+  assert.match(submissionVisibility, /problemSetSubmissionContext/);
+});
+
+test('compiler diagnostics render their safe formatting without exposing HTML source', () => {
+  const message = [
+    '<b>/sandbox/1/a.cpp:</b> ',
+    '<b><span style="color:#A00">error: </span></b>',
+    '&apos;<b>stdin</b>&apos;',
+    '<script>alert(1)</script>',
+    '<span style="color:red" onclick="alert(2)">unsafe</span>'
+  ].join('');
+  const rendered = compilerMessage.sanitizeCompilerMessage(message);
+  assert.match(rendered, /<b>\/sandbox\/1\/a\.cpp:<\/b>/);
+  assert.match(rendered, /<span style="color:#A00">error: <\/span>/);
+  assert.match(rendered, /&apos;<b>stdin<\/b>&apos;/);
+  assert.match(rendered, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.match(rendered, /&lt;span style="color:red" onclick="alert\(2\)"&gt;/);
+  assert.doesNotMatch(rendered, /<script|<span style="color:red"/);
+  assert.match(submissionRoutes, /sanitizeCompilerMessage\(compile\.message\)/);
+  assert.match(submission, /<%- compileMessageHtml %>/);
+});
+
+test('pending result projection hides provisional verdicts and usage values', () => {
+  let cachedState = { result: 'Running 2/5', score: 40, time: 123, memory: 456 };
+  const loadSubmissionProcess = new Function(
+    'require',
+    'module',
+    'exports',
+    'syzoj',
+    submissionProcess + '\nreturn module.exports;'
+  );
+  const moduleState = { exports: {} };
+  const projected = loadSubmissionProcess(request => {
+    assert.equal(request, './judger');
+    return {
+      getCachedJudgeState: () => cachedState,
+      getCachedJudgeDetail: () => null
+    };
+  }, moduleState, moduleState.exports, {});
+  const displayConfig = { showResult: true, showUsage: true, showScore: true };
+
+  let result = projected.getRoughResult({ pending: true, task_id: 'task-1' }, displayConfig, false);
+  assert.equal(result.result, 'Running 2/5');
+  assert.deepEqual({ score: result.score, time: result.time, memory: result.memory }, { score: 0, time: 0, memory: 0 });
+
+  cachedState = { result: 'Wrong Answer', score: 0, time: 124, memory: 457 };
+  result = projected.getRoughResult({ pending: true, task_id: 'task-1' }, displayConfig, false);
+  assert.equal(result.result, 'Waiting');
+
+  result = projected.getRoughResult({ pending: false, status: 'Accepted', score: 100, total_time: 12, max_memory: 34 }, displayConfig, false);
+  assert.deepEqual({ result: result.result, score: result.score, time: result.time, memory: result.memory }, { result: 'Accepted', score: 100, time: 12, memory: 34 });
 });
 
 test('submission code copy falls back when the Clipboard API is unavailable', () => {

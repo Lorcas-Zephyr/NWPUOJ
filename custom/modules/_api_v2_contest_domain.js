@@ -1,14 +1,25 @@
 const crypto = require('crypto');
+const multer = require('multer');
 const TypeORM = require('typeorm');
 const Contest = syzoj.model('contest');
 const User = syzoj.model('user');
 const Problem = syzoj.model('problem');
 const contestMutation = require('../libs/contest-mutation');
 const contestDeletion = require('../libs/contest-deletion');
+const { normalizeStudentIdRows } = require('../libs/contest-temp-accounts');
+const { ensureRegistrationProfileSchema, ORDINARY_STUDENT_ID_SCOPE } = require('../libs/registration-profile-schema');
 const { contestConfigurationLocked, resolveContestStatus, snapshotRefreshAllowed, standingsVisibility, transitionAllowed } = require('../libs/contest-lifecycle');
 const { advanceStandingsPointers, calculateStandingRows, serializeStandingRow } = require('../libs/contest-standings');
 
 let schemaPromise = null;
+const ordinaryRegistrationUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, callback) => {
+    const isCsv = /\.csv$/i.test(String(file.originalname || ''));
+    callback(isCsv ? null : Object.assign(new Error('仅支持 .csv 文件。'), { code: 'CONTEST_PARTICIPANT_IMPORT_INVALID' }), isCsv);
+  }
+}).single('student_ids_csv');
 const STATUS_ORDER = ['draft', 'review', 'scheduled', 'running', 'frozen', 'ended', 'rated', 'archived'];
 
 async function addColumnIfMissing(connection, table, column, definition) {
@@ -97,6 +108,11 @@ function instant(value, fallbackSeconds) {
   return Date.parse(value);
 }
 function parseJson(value, fallback) { try { return typeof value === 'object' ? value : JSON.parse(value || ''); } catch (_) { return fallback; } }
+function invalidateRegistrationReadState(contestId, userId) {
+  if (typeof syzoj.utils.invalidateContestRegistrationCache === 'function') {
+    syzoj.utils.invalidateContestRegistrationCache(contestId, userId);
+  }
+}
 function lifecycleFor(contest, state) {
   return resolveContestStatus(contest, state);
 }
@@ -152,10 +168,12 @@ async function loadContestConfig(contest) {
   const problemIds = (await contest.getProblems()).map(Number);
   const ranklists = await connection.query('SELECT ranking_params FROM contest_ranklist WHERE id=? LIMIT 1', [contest.ranklist_id]);
   const weights = parseJson(ranklists[0] && ranklists[0].ranking_params, {});
+  let allowRegistration = true;
   let allowLate = false;
   let isRated = false;
   try {
-    const registration = await connection.query('SELECT allow_late_registration FROM contest_registration_setting WHERE contest_id=? LIMIT 1', [contest.id]);
+    const registration = await connection.query('SELECT allow_registration,allow_late_registration FROM contest_registration_setting WHERE contest_id=? LIMIT 1', [contest.id]);
+    allowRegistration = !registration[0] || Number(registration[0].allow_registration) !== 0;
     allowLate = !!(registration[0] && registration[0].allow_late_registration);
     const rating = await connection.query('SELECT is_rated FROM contest_rating_config WHERE contest_id=? LIMIT 1', [contest.id]);
     isRated = !!(rating[0] && rating[0].is_rated);
@@ -168,7 +186,7 @@ async function loadContestConfig(contest) {
     problems: problemIds.map((problemId, index) => ({ problem_id: problemId, alias: String.fromCharCode(65 + index), score: Number(weights[problemId] == null ? 1 : weights[problemId]), penalty: 20 }))
   };
   const security = { result_visibility: 'public_after_end', submission_visibility: 'own_during_contest', allow_vjudge: false };
-  const registration = { enabled: true, allow_late_registration: allowLate, approval_required: false };
+  const registration = { enabled: allowRegistration, allow_late_registration: allowLate, approval_required: false };
   const teams = { enabled: false, minimum_size: 1, maximum_size: 1 };
   await connection.query(`INSERT IGNORE INTO contest_v2_config
     (contest_id,timezone,rules_json,scoring_json,visibility,security_json,registration_json,teams_json,rated_profile,revision,updated_by,updated_at)
@@ -223,16 +241,17 @@ function normalizedContestConfig(body, current, problemIds) {
 }
 async function requireManager(contest, user, action, res) {
   if (!user) { syzoj.utils.apiV2.fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.'); return false; }
-  const scoped = user && (await contest.isSupervisior(user)) && await syzoj.utils.authorizationV2.authorize(user, action, { ownerId: contest.holder_id, scope: `contest:${contest.id}` }, { scope: `contest:${contest.id}` });
-  const global = user && await syzoj.utils.authorizationV2.authorize(user, action, null, { scope: 'global' });
-  const allowed = !!(scoped || global);
+  const scope = `contest:${contest.id}`;
+  const scoped = await syzoj.utils.authorizationV2.authorize(user, action, { id: Number(contest.id), ownerId: Number(contest.holder_id), scope }, { scope });
+  const allowed = !!scoped;
   if (!allowed) { syzoj.utils.apiV2.fail(res, 403, 'CAPABILITY_REQUIRED', `Capability required: ${action}.`); return false; }
   return true;
 }
 async function canManageContest(contest, user, action) {
   if (!user) return false;
-  const scoped = (await contest.isSupervisior(user)) && await syzoj.utils.authorizationV2.authorize(user, action, { ownerId: contest.holder_id, scope: `contest:${contest.id}` }, { scope: `contest:${contest.id}` });
-  return !!(scoped || await syzoj.utils.authorizationV2.authorize(user, action, null, { scope: 'global' }));
+  const scope = `contest:${contest.id}`;
+  const scoped = await syzoj.utils.authorizationV2.authorize(user, action, { id: Number(contest.id), ownerId: Number(contest.holder_id), scope }, { scope });
+  return !!scoped;
 }
 async function isActiveParticipant(contestId, user) {
   if (!user) return false;
@@ -282,7 +301,6 @@ async function snapshotProblems(contest, user, req, options) {
   for (let index = 0; index < ids.length; index++) {
     const problemId = Number(ids[index]);
     const existingSnapshot = existingByProblem.get(problemId);
-    if (existingSnapshot && existingSnapshot.problem_snapshot_id) continue;
     const problem = await syzoj.model('problem').findById(problemId);
     if (!problem) continue;
     const scoring = scoringByProblem.get(problemId) || { alias: String.fromCharCode(65 + index), score: 1, penalty: 20 };
@@ -291,6 +309,7 @@ async function snapshotProblems(contest, user, req, options) {
       activate: !problem.is_public
     });
     const problemSnapshotId = materialized.snapshot_id;
+    if (existingSnapshot && String(existingSnapshot.problem_snapshot_id || '') === String(problemSnapshotId)) continue;
     const snapshots = await connection.query('SELECT id,content_hash FROM problem_v2_snapshot WHERE id=? AND problem_id=? LIMIT 1', [problemSnapshotId, problemId]);
     if (!snapshots.length) throw Object.assign(new Error('The immutable problem snapshot could not be loaded.'), { code: 'PROBLEM_SNAPSHOT_REQUIRED', statusCode: 409 });
     const sourceSnapshot = snapshots[0];
@@ -301,6 +320,26 @@ async function snapshotProblems(contest, user, req, options) {
     await connection.query('INSERT INTO contest_v2_problem_snapshot (id,contest_id,problem_id,ordinal,alias,score,penalty,problem_snapshot_id,snapshot_hash,created_at) VALUES (?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(3))', [snapshotId, contest.id, problemId, index, scoring.alias, scoring.score, scoring.penalty, sourceSnapshot.id, sourceSnapshot.content_hash]);
   }
   await syzoj.utils.authorizationV2.recordAudit(req, { action: 'contest:snapshot', resourceType: 'contest', resourceId: contest.id, reason: 'Lock contest problem set', details: { actor_id: user && user.id, count: ids.length, immutable_problem_snapshots: true } });
+}
+
+async function syncProblemSnapshotsForProblem(problemId, user = null, req = null) {
+  await ensureContestV2Schema();
+  const rows = await TypeORM.getConnection().query(
+    `SELECT id,problems FROM contest
+       WHERE CONCAT('|',problems,'|') LIKE ?
+         AND end_time>UNIX_TIMESTAMP()
+       ORDER BY id ASC`,
+    [`%|${Number(problemId)}|%`]
+  );
+  for (const row of rows) {
+    const contest = await Contest.findById(Number(row.id));
+    if (!contest) continue;
+    try {
+      await snapshotProblems(contest, user, req, { refresh: false });
+    } catch (error) {
+      syzoj.log(`[contest-v2] live problem snapshot sync failed for contest ${row.id}, problem ${problemId}: ${error.stack || error.message || error}`);
+    }
+  }
 }
 
 async function loadContestProblemSnapshot(contestId, problemId) {
@@ -547,6 +586,8 @@ syzoj.utils.contestStandingsV2 = {
 syzoj.utils.contestV2 = {
   ensureSchema: ensureContestV2Schema,
   ensureConfig: loadContestConfig,
+  snapshotProblems,
+  syncProblemSnapshotsForProblem,
   getProblemSnapshot: loadContestProblemSnapshot,
   trackProblemSnapshot: trackContestProblemSnapshot,
   status: lifecycleFor,
@@ -643,7 +684,7 @@ app.put('/api/v2/contests/:id/config', async (req, res) => {
   const reason = syzoj.utils.operationReason(req, '更新比赛配置');
   try {
     const current = await loadContestConfig(contest);
-    if (!req.get('If-Match')) return api.fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when editing contest configuration.', { if_match: 'required' });
+    if (!(req.get('If-Match') || req.body && req.body.if_match)) return api.fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when editing contest configuration.', { if_match: 'required' });
     if (!api.ifMatch(req, current)) return api.fail(res, 412, 'ETAG_MISMATCH', 'The contest configuration changed. Refresh it and try again.');
     const problemIds = (await contest.getProblems()).map(Number);
     const next = normalizedContestConfig(req.body || {}, current, problemIds);
@@ -665,8 +706,8 @@ app.put('/api/v2/contests/:id/config', async (req, res) => {
       await manager.query('UPDATE contest SET type=?,is_public=? WHERE id=?', [legacyMode, next.visibility === 'public' ? 1 : 0, contest.id]);
       const weights = Object.fromEntries(next.scoring.problems.map(item => [item.problem_id, item.score]));
       await manager.query('UPDATE contest_ranklist SET ranking_params=? WHERE id=?', [JSON.stringify(weights), contestRows[0].ranklist_id]);
-      await manager.query(`INSERT INTO contest_registration_setting (contest_id,allow_late_registration,revision,updated_at)
-        VALUES (?,?,1,UNIX_TIMESTAMP()) ON DUPLICATE KEY UPDATE allow_late_registration=VALUES(allow_late_registration),revision=revision+1,updated_at=VALUES(updated_at)`, [contest.id, next.registration.allow_late_registration ? 1 : 0]);
+      await manager.query(`INSERT INTO contest_registration_setting (contest_id,allow_registration,allow_late_registration,revision,updated_at)
+        VALUES (?,?,?,1,UNIX_TIMESTAMP()) ON DUPLICATE KEY UPDATE allow_registration=VALUES(allow_registration),allow_late_registration=VALUES(allow_late_registration),revision=revision+1,updated_at=VALUES(updated_at)`, [contest.id, next.registration.enabled ? 1 : 0, next.registration.allow_late_registration ? 1 : 0]);
       await manager.query(`INSERT INTO contest_rating_config (contest_id,is_rated,updated_at,updated_by)
         VALUES (?,?,UNIX_TIMESTAMP(),?) ON DUPLICATE KEY UPDATE is_rated=VALUES(is_rated),updated_at=VALUES(updated_at),updated_by=VALUES(updated_by)`, [contest.id, next.rated_profile ? 1 : 0, res.locals.user.id]);
       if (!contestConfigurationLocked(status)) {
@@ -679,6 +720,7 @@ app.put('/api/v2/contests/:id/config', async (req, res) => {
       const fresh = await manager.query('SELECT * FROM contest_v2_config WHERE contest_id=? LIMIT 1', [contest.id]);
       return configResource(fresh[0]);
     }));
+    invalidateRegistrationReadState(contest.id, res.locals.user.id);
     const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, { action: 'contest:config.update', resourceType: 'contest', resourceId: contest.id, reason, details: { from_revision: current.revision, to_revision: updated.revision } });
     await api.appendEvent({ stream: `contest:${contest.id}`, type: 'contest.config.updated', aggregateId: contest.id, actor: res.locals.user, payload: { revision: updated.revision, audit_event_id: auditEventId } });
     res.set('X-Audit-Event-ID', String(auditEventId));
@@ -695,7 +737,7 @@ async function saveContestV2(req, res, contestId) {
   if (!existing && !await syzoj.utils.authorizationV2.authorize(user, 'contest:create', null, {})) return api.fail(res, 403, 'CAPABILITY_REQUIRED', 'Capability required: contest:create.');
   const currentState = existing ? await stateFor(existing.id) : null;
   const current = existing ? serializeContest(existing, currentState, true) : null;
-  if (current && !req.get('If-Match')) return api.fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when editing a contest.', { if_match: 'required' });
+  if (current && !(req.get('If-Match') || req.body && req.body.if_match)) return api.fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when editing a contest.', { if_match: 'required' });
   if (current && !api.ifMatch(req, current)) return api.fail(res, 412, 'ETAG_MISMATCH', 'The contest changed. Refresh it and try again.');
   const body = req.body || {};
   const existingConfig = existing ? await loadContestConfig(existing) : null;
@@ -714,6 +756,7 @@ async function saveContestV2(req, res, contestId) {
   }
   const type = body.type == null && existing ? existing.type : (['noi', 'ioi', 'acm'].includes(body.type) ? body.type : 'acm');
   const visibility = body.visibility == null && existing ? (existing.is_public ? 'public' : 'private') : (body.visibility === 'private' ? 'private' : 'public');
+  const allowRegistration = body.allow_registration === undefined ? !(existingConfig && existingConfig.registration.enabled === false) : !!body.allow_registration;
   const allowLateRegistration = body.allow_late_registration === undefined ? !!(existingConfig && existingConfig.registration.allow_late_registration) : !!body.allow_late_registration;
   const isRated = body.is_rated === undefined ? !!(existingConfig && existingConfig.rated_profile) : !!body.is_rated;
   const priorWeights = existingConfig ? Object.fromEntries((existingConfig.scoring.problems || []).map(item => [item.problem_id, item.score])) : {};
@@ -742,7 +785,8 @@ async function saveContestV2(req, res, contestId) {
   if (body.admins !== undefined && (!Array.isArray(body.admins) || admins.length !== body.admins.length)) return api.fail(res, 422, 'VALIDATION_FAILED', 'Administrator IDs must be unique positive integers.', { admins: 'unique positive integers' });
   for (const adminId of admins) if (!await User.findById(adminId)) return api.fail(res, 422, 'CONTEST_ADMIN_INVALID', `Administrator #${adminId} does not exist.`, { admins: String(adminId) });
   await Promise.all([ensureContestV2Schema(), api.ensureFoundationSchema()]);
-  const id = await contestMutation.saveContest({ id: contestId || 0, actorId: user.id, title, subtitle: String(body.subtitle == null && existing ? existing.subtitle || '' : body.subtitle || ''), information: String(body.information == null && existing ? existing.information || '' : body.information || ''), problems: problemIds.join('|'), admins: admins.join('|'), type, rankingParams: normalizedRankingParams, startTime: Math.floor(start / 1000), endTime: Math.floor(end / 1000), hideStatistics: body.hide_statistics === undefined && existing ? !!existing.hide_statistics : !!body.hide_statistics, isPublic: visibility === 'public', allowLateRegistration, isRated, revision: mutationRevision });
+  const id = await contestMutation.saveContest({ id: contestId || 0, actorId: user.id, title, subtitle: String(body.subtitle == null && existing ? existing.subtitle || '' : body.subtitle || ''), information: String(body.information == null && existing ? existing.information || '' : body.information || ''), problems: problemIds.join('|'), admins: admins.join('|'), type, rankingParams: normalizedRankingParams, startTime: Math.floor(start / 1000), endTime: Math.floor(end / 1000), hideStatistics: body.hide_statistics === undefined && existing ? !!existing.hide_statistics : !!body.hide_statistics, isPublic: visibility === 'public', allowRegistration, allowLateRegistration, isRated, revision: mutationRevision });
+  invalidateRegistrationReadState(id, user.id);
   const saved = await Contest.findById(id);
   let state = await stateFor(id);
   if (lifecycleFor(saved, state) === 'scheduled') {
@@ -753,11 +797,12 @@ async function saveContestV2(req, res, contestId) {
 }
 app.post('/api/v2/contests', (req, res) => saveContestV2(req, res, 0));
 app.patch('/api/v2/contests/:id', (req, res) => saveContestV2(req, res, Number(req.params.id)));
-app.delete('/api/v2/contests/:id', async (req, res) => {
+app.post('/api/v2/contests/:id/update', (req, res) => saveContestV2(req, res, Number(req.params.id)));
+async function deleteContestV2(req, res) {
   const api = syzoj.utils.apiV2;
   const contest = await Contest.findById(Number(req.params.id));
   if (!contest) return api.fail(res, 404, 'CONTEST_NOT_FOUND', 'Contest was not found.');
-  if (!await contestDeletion.canDeleteContest(res.locals.user, contest)) return api.fail(res, res.locals.user ? 403 : 401, res.locals.user ? 'CAPABILITY_REQUIRED' : 'AUTHENTICATION_REQUIRED', res.locals.user ? 'Capability required: contest:publish.' : 'Authentication is required.');
+  if (!await contestDeletion.canDeleteContest(res.locals.user, contest)) return api.fail(res, res.locals.user ? 403 : 401, res.locals.user ? 'CAPABILITY_REQUIRED' : 'AUTHENTICATION_REQUIRED', res.locals.user ? 'Capability required: contest:delete.' : 'Authentication is required.');
   if (!syzoj.utils.authorizationV2.recentLoginSatisfied(req)) return api.fail(res, 403, 'RECENT_LOGIN_REQUIRED', 'Please sign in again before deleting a contest.');
   try {
     const result = await contestDeletion.deleteContest(req, contest, res.locals.user);
@@ -766,7 +811,9 @@ app.delete('/api/v2/contests/:id', async (req, res) => {
   } catch (error) {
     return api.fail(res, error.statusCode || 409, error.code || 'CONTEST_DELETE_FAILED', error.message);
   }
-});
+}
+app.delete('/api/v2/contests/:id', deleteContestV2);
+app.post('/api/v2/contests/:id/delete', deleteContestV2);
 
 app.post([
   '/api/v2/contests/:id/review', '/api/v2/contests/:id/publish', '/api/v2/contests/:id/start',
@@ -808,11 +855,21 @@ app.post(['/api/v2/contests/:id/registration', '/api/v2/contests/:id/register'],
   const manager = await canManageContest(contest, user, 'contest:registration.manage');
   if (!contest.is_public && !manager) return api.fail(res, 404, 'CONTEST_NOT_FOUND', 'Contest was not found.');
   if (!await syzoj.utils.authorizationV2.authorize(user, 'contest:register', { scope: `contest:${contest.id}` }, { scope: `contest:${contest.id}` })) return api.fail(res, 403, 'CAPABILITY_REQUIRED', 'Capability required: contest:register.');
-  try { await contestMutation.registerUser(contest.id, user.id); await syzoj.utils.apiV2.appendEvent({ stream: `contest:${contest.id}`, type: 'contest.registration.created', aggregateId: contest.id, actor: user, payload: { user_id: user.id } }); return api.send(res, { contest_id: Number(contest.id), user_id: Number(user.id), registered: true }, 201); } catch (error) { return api.fail(res, error.statusCode || 409, 'REGISTRATION_FAILED', error.message); }
+  try {
+    await contestMutation.registerUser(contest.id, user.id);
+    invalidateRegistrationReadState(contest.id, user.id);
+    await syzoj.utils.apiV2.appendEvent({ stream: `contest:${contest.id}`, type: 'contest.registration.created', aggregateId: contest.id, actor: user, payload: { user_id: user.id } });
+    return api.send(res, { contest_id: Number(contest.id), user_id: Number(user.id), registered: true }, 201);
+  } catch (error) { return api.fail(res, error.statusCode || 409, 'REGISTRATION_FAILED', error.message); }
 });
 app.delete(['/api/v2/contests/:id/registration', '/api/v2/contests/:id/register'], async (req, res) => {
   const api = syzoj.utils.apiV2; const user = res.locals.user; if (!user) return api.fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.'); const contest = await Contest.findById(Number(req.params.id)); if (!contest) return api.fail(res, 404, 'CONTEST_NOT_FOUND', 'Contest was not found.');
-  try { await contestMutation.unregisterUser(contest.id, user.id); await syzoj.utils.apiV2.appendEvent({ stream: `contest:${contest.id}`, type: 'contest.registration.removed', aggregateId: contest.id, actor: user, payload: { user_id: user.id } }); return api.send(res, { contest_id: Number(contest.id), user_id: Number(user.id), registered: false }); } catch (error) { return api.fail(res, error.statusCode || 409, 'UNREGISTRATION_FAILED', error.message); }
+  try {
+    await contestMutation.unregisterUser(contest.id, user.id);
+    invalidateRegistrationReadState(contest.id, user.id);
+    await syzoj.utils.apiV2.appendEvent({ stream: `contest:${contest.id}`, type: 'contest.registration.removed', aggregateId: contest.id, actor: user, payload: { user_id: user.id } });
+    return api.send(res, { contest_id: Number(contest.id), user_id: Number(user.id), registered: false });
+  } catch (error) { return api.fail(res, error.statusCode || 409, 'UNREGISTRATION_FAILED', error.message); }
 });
 
 app.get('/api/v2/contests/:id/participants', async (req, res) => {
@@ -850,11 +907,26 @@ app.post('/api/v2/contests/:id/participants/bulk-action', async (req, res) => {
   }
   const succeeded = [];
   const failed = [];
+  let eligibleAddUserIds = null;
+  if (action === 'add') {
+    const eligibleRows = await TypeORM.getConnection().query(
+      `SELECT ordinary_user.id
+       FROM user ordinary_user
+       LEFT JOIN temporary_contest_account account ON account.user_id=ordinary_user.id
+       WHERE ordinary_user.id IN (?) AND account.user_id IS NULL`,
+      [userIds]
+    );
+    eligibleAddUserIds = new Set(eligibleRows.map(row => Number(row.id)));
+  }
   for (const userId of userIds) {
     try {
-      if (action === 'add') await contestMutation.registerUser(contest.id, userId);
+      if (action === 'add') {
+        if (!eligibleAddUserIds.has(userId)) throw contestMutation.mutationError('普通账户不存在或该账户属于临时比赛账户。', 422);
+        await contestMutation.registerUser(contest.id, userId, { managed: true });
+      }
       else if (action === 'remove') await contestMutation.removeUser(contest.id, userId, res.locals.user.id);
       else await contestMutation.restoreUser(contest.id, userId);
+      invalidateRegistrationReadState(contest.id, userId);
       succeeded.push(userId);
     } catch (error) {
       failed.push({ user_id: userId, code: error.code || 'PARTICIPANT_ACTION_FAILED', message: error.message });
@@ -869,6 +941,61 @@ app.post('/api/v2/contests/:id/participants/bulk-action', async (req, res) => {
   res.set('X-Audit-Event-ID', String(auditEventId));
   return api.send(res, { contest_id: Number(contest.id), action, succeeded_user_ids: succeeded, failed, audit_event_id: auditEventId });
 });
+app.post('/api/v2/contests/:id/participants/import', (req, res) => ordinaryRegistrationUpload(req, res, async uploadError => {
+  const api = syzoj.utils.apiV2;
+  try {
+    if (uploadError) return api.fail(res, uploadError.code === 'LIMIT_FILE_SIZE' ? 413 : 422, uploadError.code || 'CONTEST_PARTICIPANT_IMPORT_INVALID', uploadError.code === 'LIMIT_FILE_SIZE' ? 'CSV 文件不能超过 1 MiB。' : uploadError.message);
+    const contestId = Number(req.params.id);
+    const contest = Number.isSafeInteger(contestId) && contestId > 0 ? await Contest.findById(contestId) : null;
+    if (!contest) return api.fail(res, 404, 'CONTEST_NOT_FOUND', 'Contest was not found.');
+    if (!(await requireManager(contest, res.locals.user, 'contest:registration.manage', res))) return null;
+    if (!syzoj.utils.authorizationV2.recentLoginSatisfied(req)) return api.fail(res, 403, 'RECENT_LOGIN_REQUIRED', 'Please sign in again before importing contest participants.');
+    if (!req.file) return api.fail(res, 422, 'CONTEST_PARTICIPANT_IMPORT_INVALID', '请上传学号 CSV 文件。');
+    const studentIds = normalizeStudentIdRows(req.file.buffer);
+    await ensureRegistrationProfileSchema();
+    const rows = await TypeORM.getConnection().query(
+      `SELECT profile.student_id,profile.user_id,user.username,profile.real_name,profile.college
+       FROM user_registration_profile profile
+       INNER JOIN user ON user.id=profile.user_id
+       LEFT JOIN temporary_contest_account temporary_account ON temporary_account.user_id=profile.user_id
+       WHERE profile.student_id_scope=? AND profile.student_id IN (?) AND temporary_account.user_id IS NULL`,
+      [ORDINARY_STUDENT_ID_SCOPE, studentIds]
+    );
+    const accounts = new Map(rows.map(row => [String(row.student_id), row]));
+    const missingStudentIds = studentIds.filter(studentId => !accounts.has(studentId));
+    const succeeded = [];
+    const failed = [];
+    for (const studentId of studentIds) {
+      const account = accounts.get(studentId);
+      if (!account) continue;
+      try {
+        const playerId = await contestMutation.registerUser(contest.id, Number(account.user_id), { managed: true });
+        invalidateRegistrationReadState(contest.id, Number(account.user_id));
+        succeeded.push({ student_id: studentId, user_id: Number(account.user_id), username: account.username, real_name: account.real_name, college: account.college, player_id: playerId });
+      } catch (error) {
+        failed.push({ student_id: studentId, user_id: Number(account.user_id), code: error.code || 'REGISTRATION_FAILED', message: error.message });
+      }
+    }
+    const reason = syzoj.utils.operationReason(req, '按学号批量添加普通参赛用户');
+    const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, {
+      action: 'contest:participants.import', resourceType: 'contest', resourceId: contest.id, scope: `contest:${contest.id}`, reason,
+      details: { requested_student_ids: studentIds, missing_student_ids: missingStudentIds, succeeded_user_ids: succeeded.map(item => item.user_id), failed }
+    });
+    const eventId = await api.appendEvent({
+      stream: `contest:${contest.id}`, type: 'contest.participants.imported', aggregateId: contest.id, actor: res.locals.user,
+      payload: { requested_student_ids: studentIds, missing_student_ids: missingStudentIds, succeeded_user_ids: succeeded.map(item => item.user_id), failed, audit_event_id: auditEventId }
+    });
+    if (syzoj.utils.contestStandingsV2) syzoj.utils.contestStandingsV2.schedule(contest.id, { kind: 'realtime', actor: res.locals.user, reason });
+    res.set('X-Audit-Event-ID', String(auditEventId));
+    return api.send(res, {
+      contest_id: contest.id, requested_count: studentIds.length, matched_count: accounts.size,
+      added_count: succeeded.length, missing_student_ids: missingStudentIds, failed, accounts: succeeded,
+      audit_event_id: auditEventId, event_id: eventId
+    });
+  } catch (error) {
+    return api.fail(res, error.statusCode || 422, error.code || 'CONTEST_PARTICIPANT_IMPORT_INVALID', error.message);
+  }
+}));
 app.get('/api/v2/contests/:id/standings', async (req, res) => {
   const api = syzoj.utils.apiV2;
   const contest = await Contest.findById(Number(req.params.id));

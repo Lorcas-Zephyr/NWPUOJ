@@ -47,7 +47,7 @@ Status: `[x]` complete, `[~]` partial/in progress, `[ ]` not started.
 - [x] Replace `is_admin` checks in write paths with capability authorization.
 - [x] Enforce resource ownership and contest/problem scope boundaries.
 - [x] Make permission changes immediately effective without permanent session caches.
-- [x] Add recent-login and MFA gates for high-risk operations.
+- [x] Keep high-risk operations capability-gated and audited without requiring an authenticated manager to sign in again.
 - [x] Add immutable authorization and high-risk `AuditEvent` records.
 - [x] Return stable authorization error codes with actionable messages.
 - [x] Add automated permission matrix tests for every built-in role.
@@ -254,7 +254,7 @@ Status: `[x]` complete, `[~]` partial/in progress, `[ ]` not started.
   only on publish/start transitions and preserve a clear empty-problem summary in the creation flow.
 - [x] Fix the administration migration controls so migration creation, compatibility observation,
   rollback rehearsal, progress refresh, and actionable API errors all work from the rendered UI.
-- [x] Remove the problem-library ZIP bulk-import entry point and make the `添加题目` action navigate
+- [x] Keep the problem-library ZIP bulk-import entry point available from the `添加题目` menu
   directly to the new-problem editor without a menu or intermediate choice screen; retain VJudge
   remote batch import in its dedicated administration workspace.
 
@@ -485,13 +485,13 @@ Status: `[x]` complete, `[~]` partial/in progress, `[ ]` not started.
   operator replies and status transitions atomically update state, notify the creator, and append
   notification and ticket events; assignment, withdrawal, and closure also add visible timeline
   records. Internal notes remain manager-only, resource-scoped managers must own the assignment
-  before replying or changing status, administrator closure requires a recent login, all terminal
+  before replying or changing status, administrator closure requires manager capability, all terminal
   states reject replies, and member ticket reads filter internal notes.
 - Admin content now includes capability-gated, audited, ETag-protected announcement, banner,
   help, link, and allowlisted configuration workflows. Announcement, banner, and link writes use
-  capability checks, recent-login protection where required, audit records, and v2 contracts.
+  capability checks, authenticated management sessions, audit records, and v2 contracts.
 - Problem list/detail/version reads now honor public, owner, and persistent problem-scoped grants;
-  version history is cursor-paginated. ZIP bulk import has been removed; bulk removal archives
+  version history is cursor-paginated. ZIP bulk import is available to authorized managers; bulk removal archives
   problems without deleting submissions, snapshots, discussions, or data.
 - Clipboard, tags, problem solutions, solution review queues, discussion replies, ticket replies,
   Rating history, contest Rating overrides, contest snapshots/participants/standings, submission
@@ -500,7 +500,7 @@ Status: `[x]` complete, `[~]` partial/in progress, `[ ]` not started.
 - Administrative writes for users, contests, community moderation, cross-user settings,
   message-policy overrides, and account tags authorize through the shared capability service.
   Remaining `is_admin` references represent stored account state or read-only presentation.
-- Submission cheat/cancel/revoke/restore actions now use scoped capabilities, require recent login,
+- Submission cheat/cancel/revoke/restore actions now use scoped capabilities without a second login,
   generate audit descriptions automatically, and emit immutable audit/domain events. Their controls are driven by the same server
   authorization decision on both practice and contest submission pages.
 - The deployment is explicitly scoped to a small group of trusted campus administrators. System
@@ -524,4 +524,4 @@ Status: `[x]` complete, `[~]` partial/in progress, `[ ]` not started.
   templates compile with the running Web container's EJS engine.
 - Web and Judge Control now use the same pinned SYZOJ Web repository digest, guarded by
   release-version tests so upstream image drift cannot silently change the UI.
-- The current automated suite passes 389 unit and profile tests plus UOJ/HDU/POJ adapter and protocol tests.
+- The current automated suite passes 426 unit and profile tests plus UOJ/HDU/POJ adapter and protocol tests.

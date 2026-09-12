@@ -12,7 +12,7 @@ function appStatusClass(status) {
   const value = String(status || '').toLowerCase();
   if (value === 'accepted') return 'app-verdict app-verdict-accepted';
   if (value === 'waiting') return 'app-status-waiting';
-  if (value === 'running' || value === 'judging' || value === 'compiling') return 'app-status-judging';
+  if (value.startsWith('running') || value === 'judging' || value === 'compiling') return 'app-status-judging';
   if (value === 'partially correct') return 'app-status-partial';
   if (value === 'skipped' || value === '已取消') return '';
   if (value === '作弊' || value === 'cheated' || value === 'wrong answer') return 'app-verdict app-verdict-wrong';
@@ -46,7 +46,10 @@ function appFormatSize(bytes) {
 }
 const appStatus = appIsCheated ? '作弊' : (appIsCancelled ? '已取消' : (roughResult ? roughResult.result : (submissionPending ? 'Judging' : 'Waiting')));
 const appScore = appIsMarked ? 0 : (roughResult ? Math.floor(roughResult.score || 0) : 0);
-const appProblemUrl = displayConfig.inContest && typeof contest !== 'undefined' && contest
+const appInProblemSet = !!(displayConfig.inProblemSet && typeof problemSet !== 'undefined' && problemSet);
+const appProblemUrl = appInProblemSet
+  ? syzoj.utils.makeUrl(['problem-set', problemSet.id, 'problem', info.problemId])
+  : displayConfig.inContest && typeof contest !== 'undefined' && contest
   ? syzoj.utils.makeUrl(['contest', contest.id, 'problem', info.problemId])
   : syzoj.utils.makeUrl(['problem', info.sourceProblemId || info.problemId]);
 const appPreferredFormatted = !!(preferFormattedCode && formattedCode !== null);
@@ -54,18 +57,18 @@ const appCodeHtml = appPreferredFormatted ? formattedCode : code;
 const appSubtasks = detailResult && detailResult.judge && Array.isArray(detailResult.judge.subtasks) ? detailResult.judge.subtasks : [];
 %>
 <% include app_header %>
-<% if (typeof contestHeader !== 'undefined' && contestHeader) { %><% include contest_context %><% } %>
+<% if (typeof contestHeader !== 'undefined' && contestHeader) { %><% include contest_context %><% } else if (appInProblemSet) { const problemSetActiveSection = 'submissions'; %><% include problem_set_context %><% } %>
 
 <div class="app-page app-submission-detail-page">
   <header class="app-page-header">
     <div class="app-page-heading">
       <span class="app-kicker">SUBMISSION <%= info.submissionId %></span>
-      <h1 class="app-page-title"><a href="<%= appProblemUrl %>"><%= displayConfig.inContest ? this.alpha(info.problemId) : info.problemDisplayId %>. <%= info.problemName %></a></h1>
+      <h1 class="app-page-title"><a href="<%= appProblemUrl %>"><%= displayConfig.inContest ? this.alpha(info.problemId) : appInProblemSet ? info.problemId : info.problemDisplayId %>. <%= info.problemName %></a></h1>
       <p class="app-page-description">由 <a href="<%= syzoj.utils.makeUrl(['user', info.userId]) %>"><%= info.user %></a> 于 <%= info.submitTime %> 提交</p>
     </div>
     <div class="app-page-actions">
       <% if (displayConfig.showRejudge && !submissionPending) { %><button class="app-button app-button-secondary" type="button" data-dialog-open="submission-rejudge-dialog"><i data-lucide="refresh-cw"></i>重新评测</button><% } %>
-      <a class="app-button app-button-quiet" href="<%= displayConfig.inContest && typeof contest !== 'undefined' && contest ? syzoj.utils.makeUrl(['contest', contest.id, 'submissions']) : syzoj.utils.makeUrl(['submissions']) %>"><i data-lucide="arrow-left"></i>返回列表</a>
+      <a class="app-button app-button-quiet" href="<%= appInProblemSet ? syzoj.utils.makeUrl(['problem-set', problemSet.id, 'submissions']) : displayConfig.inContest && typeof contest !== 'undefined' && contest ? syzoj.utils.makeUrl(['contest', contest.id, 'submissions']) : syzoj.utils.makeUrl(['submissions']) %>"><i data-lucide="arrow-left"></i>返回列表</a>
     </div>
   </header>
 
@@ -125,7 +128,7 @@ const appSubtasks = detailResult && detailResult.judge && Array.isArray(detailRe
     </section>
   <% } %>
 
-  <% if (detailResult && detailResult.compile && detailResult.compile.message) { %><details class="app-log-panel" open><summary><span><i data-lucide="square-terminal"></i>编译信息</span><i data-lucide="chevron-down"></i></summary><pre><code><%= detailResult.compile.message %></code></pre></details><% } %>
+  <% if (typeof compileMessageHtml !== 'undefined' && compileMessageHtml) { %><details class="app-log-panel" open><summary><span><i data-lucide="square-terminal"></i>编译信息</span><i data-lucide="chevron-down"></i></summary><pre><code><%- compileMessageHtml %></code></pre></details><% } %>
   <% if (detailResult && detailResult.systemMessage) { %><details class="app-log-panel"><summary><span><i data-lucide="server-cog"></i>系统信息</span><i data-lucide="chevron-down"></i></summary><pre><code><%= detailResult.systemMessage %></code></pre></details><% } %>
 
   <% if (appSubtasks.length) { %>
@@ -183,28 +186,38 @@ const appSubtasks = detailResult && detailResult.judge && Array.isArray(detailRe
     }
   });
   if (!<%- serializejs(!!submissionPending) %>) return;
+  var statusToken = <%- serializejs(typeof submissionStatusToken !== 'undefined' ? submissionStatusToken : null) %>;
+  if (!statusToken) return;
   var retryDelay = 1000;
-  var statusLabels = {
-    created: 'Waiting', queued: 'Waiting', compiling: 'Compiling', judging: 'Judging',
-    accepted: 'Accepted', wrong_answer: 'Wrong Answer', compile_error: 'Compile Error',
-    runtime_error: 'Runtime Error', time_limit: 'Time Limit Exceeded', memory_limit: 'Memory Limit Exceeded',
-    output_limit: 'Output Limit Exceeded', file_error: 'File Error', invalid_interaction: 'Invalid Interaction',
-    partially_correct: 'Partially Correct', system_error: 'System Error', cancelled: 'Cancelled'
-  };
-  function connect() {
+  async function connect() {
     var received = false;
-    var events = new EventSource('/api/v2/submissions/<%= info.submissionId %>/events');
-    events.onmessage = function (event) {
-      received = true;
-      var update = JSON.parse(event.data);
-      var projected = update && update.payload && update.payload.status;
-      if (!projected) return;
-      var label = statusLabels[projected] || projected;
-      var status = document.querySelector('[data-detail-status]');
-      if (status) { status.textContent = label; status.className = 'app-status ' + (<%- appStatusClass.toString() %>)(label); }
-      if (!['created', 'queued', 'compiling', 'judging'].includes(projected)) { events.close(); location.reload(); }
-    };
-    events.onerror = function () { events.close(); var delay = retryDelay; retryDelay = received ? 1000 : Math.min(retryDelay * 2, 30000); window.setTimeout(connect, delay); };
+    try {
+      var body = new URLSearchParams({ tokens: JSON.stringify([statusToken]) });
+      var response = await fetch('/api/v2/submissions/events', { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body });
+      if (response.status === 403) return window.location.reload();
+      if (!response.ok || !response.body) throw new Error('stream unavailable');
+      var reader = response.body.getReader(); var decoder = new TextDecoder(); var buffer = '';
+      while (true) {
+        var chunk = await reader.read(); if (chunk.done) break;
+        buffer += decoder.decode(chunk.value, { stream: true }).replace(/\r\n/g, '\n');
+        var boundary;
+        while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+          var message = buffer.slice(0, boundary); buffer = buffer.slice(boundary + 2); var event = 'message'; var data = '';
+          message.split('\n').forEach(function (line) { if (line.startsWith('event:')) event = line.slice(6).trim(); if (line.startsWith('data:')) data += line.slice(5).trim(); });
+          if (event === 'refresh-required') return window.location.reload();
+          if (event !== 'status' || !data) continue;
+          received = true;
+          var update = JSON.parse(data);
+          if (!update.pending) return window.location.reload();
+          var label = update.result ? update.result.result : 'Waiting';
+          var status = document.querySelector('[data-detail-status]');
+          if (status) { status.textContent = label; status.className = 'app-status ' + (<%- appStatusClass.toString() %>)(label); }
+        }
+      }
+    } catch (error) {}
+    var delay = retryDelay;
+    retryDelay = received ? 1000 : Math.min(retryDelay * 2, 30000);
+    window.setTimeout(connect, delay);
   }
   connect();
 })();

@@ -42,13 +42,13 @@ async function resolveRecipient(form) {
   async function updateSettings(form) {
     var current = await readResponse(await fetch('/api/v2/messages/settings', { credentials: 'same-origin', cache: 'no-store' }));
     if (!current.response.ok) throw new Error(apiMessage(current.body, '暂时无法读取站内信设置。'));
-    var etag = current.response.headers.get('ETag');
+    var etag = current.response.headers.get('ETag') || current.body && current.body.meta && current.body.meta.etag;
     if (!etag) throw new Error('设置版本信息缺失，请刷新后重试。');
     var result = await readResponse(await fetch('/api/v2/messages/settings', {
       method: 'PATCH',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operationKey(), 'If-Match': etag },
-      body: JSON.stringify({ disable_messages: !!form.elements.disable_messages.checked })
+      body: JSON.stringify({ disable_messages: !!form.elements.disable_messages.checked, if_match: etag })
     }));
     if (!result.response.ok) throw new Error(apiMessage(result.body, '设置保存失败。'));
     return { data: result.body.data };

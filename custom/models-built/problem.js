@@ -130,11 +130,13 @@ var Problem = /** @class */ (function (_super) {
                     case 0:
                         if (!user)
                             return [2 /*return*/, false];
+                        if (user.is_admin || Number(user.id) === Number(syzoj.siteOwnerUserId || 0))
+                            return [2 /*return*/, true];
                         return [4 /*yield*/, user.hasPrivilege('manage_problem')];
                     case 1:
                         if (_a.sent())
-                            return [2 /*return*/, true];
-                        return [2 /*return*/, this.user_id === user.id];
+                            return [2 /*return*/, Number(this.user_id) === Number(user.id)];
+                        return [2 /*return*/, Number(this.user_id) === Number(user.id)];
                 }
             });
         });
@@ -148,11 +150,13 @@ var Problem = /** @class */ (function (_super) {
                             return [2 /*return*/, true];
                         if (!user)
                             return [2 /*return*/, false];
+                        if (user.is_admin || Number(user.id) === Number(syzoj.siteOwnerUserId || 0))
+                            return [2 /*return*/, true];
                         return [4 /*yield*/, user.hasPrivilege('manage_problem')];
                     case 1:
                         if (_a.sent())
-                            return [2 /*return*/, true];
-                        return [2 /*return*/, this.user_id === user.id];
+                            return [2 /*return*/, Number(this.user_id) === Number(user.id)];
+                        return [2 /*return*/, Number(this.user_id) === Number(user.id)];
                 }
             });
         });
@@ -164,10 +168,12 @@ var Problem = /** @class */ (function (_super) {
                     case 0:
                         if (!user)
                             return [2 /*return*/, false];
+                        if (user.is_admin || Number(user.id) === Number(syzoj.siteOwnerUserId || 0))
+                            return [2 /*return*/, true];
                         return [4 /*yield*/, user.hasPrivilege('manage_problem')];
                     case 1:
                         if (_a.sent())
-                            return [2 /*return*/, true];
+                            return [2 /*return*/, Number(this.user_id) === Number(user.id)];
                         return [2 /*return*/, user.is_admin];
                 }
             });
@@ -1007,6 +1013,9 @@ var Problem = /** @class */ (function (_super) {
     };
     var Problem_1;
     Problem.cache = true;
+    Problem.invalidateTagCache = function (problemId) {
+        problemTagCache.del(Number(problemId));
+    };
     __decorate([
         TypeORM.PrimaryGeneratedColumn(),
         __metadata("design:type", Number)
@@ -1052,6 +1061,10 @@ var Problem = /** @class */ (function (_super) {
         TypeORM.Column({ nullable: true, type: "integer" }),
         __metadata("design:type", Number)
     ], Problem.prototype, "time_limit");
+    __decorate([
+        TypeORM.Column({ nullable: false, type: "double", default: 2 }),
+        __metadata("design:type", Number)
+    ], Problem.prototype, "python_time_limit_multiplier");
     __decorate([
         TypeORM.Column({ nullable: true, type: "integer" }),
         __metadata("design:type", Number)

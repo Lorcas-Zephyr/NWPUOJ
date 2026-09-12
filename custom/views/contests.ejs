@@ -51,6 +51,7 @@ const contestCounts = contestRows.reduce(function (counts, item) {
         <button type="button" data-contest-filter="upcoming" aria-pressed="false">未开始 <span><%= contestCounts.upcoming %></span></button>
         <button type="button" data-contest-filter="ended" aria-pressed="false">已结束 <span><%= contestCounts.ended %></span></button>
       </div>
+      <% if (user) { %><button class="app-button app-button-secondary" type="button" data-contest-owner-filter aria-pressed="false"><i data-lucide="user-round"></i>我创建的</button><button class="app-button app-button-secondary" type="button" data-contest-participant-filter aria-pressed="false"><i data-lucide="check-circle-2"></i>我参加的</button><% } %>
       <span class="app-contest-result-count" aria-live="polite">显示 <strong data-contest-visible-count><%= contestRows.length %></strong> 场</span>
     </div>
 
@@ -62,7 +63,7 @@ const contestCounts = contestRows.reduce(function (counts, item) {
         const registration = typeof contestRegistrations !== 'undefined' && contestRegistrations ? contestRegistrations[contest.id] : null;
         const isRated = typeof contestRatedById !== 'undefined' && !!contestRatedById[contest.id];
       %>
-        <article class="app-contest-list-row" data-contest-state="<%= state.key %>" data-reveal>
+        <article class="app-contest-list-row" data-contest-state="<%= state.key %>" data-contest-owner="<%= contest.holder_id %>" data-contest-registered="<%= registration && registration.registered ? '1' : '0' %>" data-reveal>
           <div class="app-contest-list-main">
             <span class="app-contest-state-marker is-<%= state.key %>" aria-hidden="true"></span>
             <span>
@@ -89,6 +90,7 @@ const contestCounts = contestRows.reduce(function (counts, item) {
             <% } else if (registration.canCancel) { %><form method="post" data-contest-registration-v2="unregister" data-contest-id="<%= contest.id %>" data-confirm="确定取消报名吗？"><input type="hidden" name="csrf_token" value="<%= registration.csrfToken %>"><input type="hidden" name="return_url" value="<%= req.originalUrl %>"><button class="app-button app-button-danger-outline" type="submit"><i data-lucide="user-minus"></i>取消报名</button></form>
             <% } else if (registration.registered) { %><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['contest', contest.id]) %>"><i data-lucide="check"></i>进入比赛</a>
             <% } else if (registration.removedByAdmin) { %><span class="app-status app-status-danger">已移出</span>
+            <% } else if (!registration.allowRegistration) { %><span class="app-status app-status-muted">仅限比赛账号</span>
             <% } else if (registration.registrationOpen && !user) { %><a class="app-button app-button-primary" href="<%= syzoj.utils.makeUrl(['login'], { url: req.originalUrl }) %>">登录后报名</a>
             <% } else { %><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['contest', contest.id]) %>">查看</a><% } %>
           </div>
@@ -110,10 +112,17 @@ const contestCounts = contestRows.reduce(function (counts, item) {
   var rows = Array.prototype.slice.call(list.querySelectorAll('[data-contest-state]'));
   var count = document.querySelector('[data-contest-visible-count]');
   var empty = document.querySelector('[data-contest-filter-empty]');
+  var ownerButton = document.querySelector('[data-contest-owner-filter]');
+  var participantButton = document.querySelector('[data-contest-participant-filter]');
+  var activeFilter = 'all';
+  var mineOnly = false;
+  var participatingOnly = false;
+  var currentUserId = <%= user ? Number(user.id) : 0 %>;
   function select(filter) {
+    activeFilter = filter;
     var visible = 0;
     rows.forEach(function (row) {
-      var matches = filter === 'all' || row.dataset.contestState === filter;
+      var matches = (filter === 'all' || row.dataset.contestState === filter) && (!mineOnly || Number(row.dataset.contestOwner) === currentUserId) && (!participatingOnly || row.dataset.contestRegistered === '1');
       row.hidden = !matches;
       if (matches) visible += 1;
     });
@@ -125,6 +134,18 @@ const contestCounts = contestRows.reduce(function (counts, item) {
   }
   buttons.forEach(function (button) {
     button.addEventListener('click', function () { select(button.dataset.contestFilter); });
+  });
+  if (ownerButton) ownerButton.addEventListener('click', function () {
+    mineOnly = !mineOnly;
+    ownerButton.setAttribute('aria-pressed', mineOnly ? 'true' : 'false');
+    ownerButton.classList.toggle('is-active', mineOnly);
+    select(activeFilter);
+  });
+  if (participantButton) participantButton.addEventListener('click', function () {
+    participatingOnly = !participatingOnly;
+    participantButton.setAttribute('aria-pressed', participatingOnly ? 'true' : 'false');
+    participantButton.classList.toggle('is-active', participatingOnly);
+    select(activeFilter);
   });
 })();
 </script>

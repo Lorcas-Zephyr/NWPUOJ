@@ -104,6 +104,23 @@ app.use((req, res, next) => {
   return res.status(410).render('error', { err: new ErrorMessage('当前写入路径不受支持，请使用 v2 页面。') });
 });
 
+const COMMUNITY_DISABLED_MESSAGE = '题解和讨论模块已关闭。';
+const communityDisabledRoute = /^(?:\/(?:discussion|article|solution)(?:\/|$)|\/problem\/\d+\/solutions?(?:\/|$)|\/problem\/\d+\/solution(?:\/|$)|\/admin\/solutions(?:\/|$)|\/api\/v2\/(?:discussions?|solutions?|admin\/solutions|problems\/\d+\/solution(?:s|-settings)?)(?:\/|$))/;
+
+app.use((req, res, next) => {
+  if (!communityDisabledRoute.test(req.path)) return next();
+  const requestId = req.id || apiV2Helpers.requestId(req);
+  res.set('X-Request-ID', requestId);
+  if (/^\/api(?:\/|$)/.test(req.path) || req.accepts(['html', 'json']) === 'json') {
+    return res.status(410).send({
+      data: null,
+      meta: { request_id: requestId, api_version: '2', timestamp: new Date().toISOString() },
+      error: { code: 'COMMUNITY_DISABLED', message: COMMUNITY_DISABLED_MESSAGE, fields: {} }
+    });
+  }
+  return res.status(410).render('error', { err: new ErrorMessage(COMMUNITY_DISABLED_MESSAGE) });
+});
+
 app.use((req, res, next) => {
   const expectedToken = ensureCsrfToken(req);
   res.locals.csrfToken = expectedToken;

@@ -87,11 +87,29 @@ function orderExpression(sort, repository) {
 
 async function hydrateProblems(problems, user) {
   for (const problem of problems) {
-    problem.allowedEdit = !!(user && await syzoj.utils.authorizationV2.authorize(user, 'problem:edit', {
+    const resource = {
       id: problem.id,
       ownerId: problem.user_id,
       scope: `problem:${problem.id}`
-    }, { scope: `problem:${problem.id}` }));
+    };
+    problem.allowedEdit = !!(user && await syzoj.utils.authorizationV2.authorize(
+      user,
+      'problem:edit',
+      resource,
+      { scope: resource.scope }
+    ));
+    problem.allowedArchive = !!(user && await syzoj.utils.authorizationV2.authorize(
+      user,
+      'problem:archive',
+      resource,
+      { scope: resource.scope }
+    ));
+    problem.allowedPublish = !!(user && await syzoj.utils.authorizationV2.authorize(
+      user,
+      'problem:publish',
+      resource,
+      { scope: resource.scope }
+    ));
     problem.judge_state = await problem.getJudgeState(user, true);
     problem.tags = await problem.getTags();
   }
@@ -204,13 +222,18 @@ async function renderProblems(req, res, query, repository, sortConfig, extra, pr
   });
 
   const authorization = syzoj.utils.authorizationV2;
-  const [allowedCreateProblem, allowedManageTag, canBulkArchive] = res.locals.user ? await Promise.all([
+  const [allowedCreateProblem, allowedManageTag] = res.locals.user ? await Promise.all([
     authorization.authorize(res.locals.user, 'problem:create', null, { scope: 'global' }),
-    authorization.authorize(res.locals.user, 'problem:tag.manage', null, { scope: 'global' }),
-    authorization.authorize(res.locals.user, 'problem:archive', null, { scope: 'global' })
-  ]) : [false, false, false];
+    authorization.authorize(res.locals.user, 'problem:tag.manage', null, { scope: 'global' })
+  ]) : [false, false];
+  problems.forEach(problem => {
+    problem.allowedTag = !!(allowedManageTag && problem.allowedEdit);
+  });
+  const canBulkArchive = problems.some(problem => problem.allowedArchive);
+  const canBulkPublish = problems.some(problem => problem.allowedPublish);
+  const canBulkTag = problems.some(problem => problem.allowedTag);
   let bulkDeleteCsrfToken = null;
-  if (canBulkArchive) {
+  if (canBulkArchive || canBulkPublish || canBulkTag) {
     if (!req.session.problemBulkDeleteCsrfToken) {
       req.session.problemBulkDeleteCsrfToken = crypto.randomBytes(32).toString('hex');
     }
@@ -221,6 +244,8 @@ async function renderProblems(req, res, query, repository, sortConfig, extra, pr
     allowedCreateProblem,
     allowedManageTag,
     canBulkArchive,
+    canBulkPublish,
+    canBulkTag,
     problems: problems,
     paginate: paginate,
     curSort: sortConfig.sort,

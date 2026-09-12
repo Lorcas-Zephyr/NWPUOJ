@@ -11,7 +11,7 @@
     <div class="app-announcement-list">
       <% for (const announcement of announcements) {
         const appLevelText = announcement.level === 'important' ? '重要' : (announcement.level === 'warning' ? '提醒' : '信息');
-        const appLevelClass = announcement.level === 'important' ? 'app-status-error' : (announcement.level === 'warning' ? 'app-status-waiting' : '');
+        const appLevelClass = announcement.level === 'important' ? 'app-status-error' : (announcement.level === 'warning' ? 'app-status-waiting' : 'app-status-info');
         const appAnnouncementState = announcement.start_time && now < announcement.start_time ? '未开始' : (announcement.end_time && now > announcement.end_time ? '已结束' : '生效中');
         const appAnnouncementStateClass = appAnnouncementState === '生效中' ? 'app-status-accepted' : (appAnnouncementState === '未开始' ? 'app-status-waiting' : '');
       %>

@@ -19,6 +19,29 @@ if (appCheaterSet && appCheaterSet.size && Array.isArray(ranklist)) {
   ranklist.sort((left, right) => right.player.score - left.player.score);
 }
 const appRankContestType = { acm: 'ACM', ioi: 'IOI', noi: 'NOI' }[contest.type] || String(contest.type || '').toUpperCase();
+const appRankAccountFilter = typeof ranklistAccountFilter === 'string' ? ranklistAccountFilter : 'all';
+function appRankAccountUrl(filter) {
+  const query = Object.assign({}, req.query, { page: 1 });
+  if (filter === 'all') delete query.account;
+  else query.account = filter;
+  return syzoj.utils.makeUrl(req, query);
+}
+function appRankExportUrl() {
+  const query = appRankAccountFilter === 'all' ? {} : { account: appRankAccountFilter };
+  if (typeof ranklistSelectedClassIds !== 'undefined' && ranklistSelectedClassIds.length) query.classes = ranklistSelectedClassIds.join(',');
+  return syzoj.utils.makeUrl(['contest', contest.id, 'ranklist', 'export'], query);
+}
+function appRankClassResetUrl() {
+  const query = Object.assign({}, req.query, { page: 1 });
+  delete query.classes;
+  return syzoj.utils.makeUrl(req, query);
+}
+function appRankDisplayUser(item) {
+  if (typeof showRanklistIdentities === 'undefined' || !showRanklistIdentities || !(ranklistProfiles instanceof Map)) return item.user;
+  const profile = ranklistProfiles.get(Number(item.user.id));
+  if (!profile || !profile.real_name || !profile.student_id) return item.user;
+  return Object.assign({}, item.user, { username: String(profile.real_name) + '-' + String(profile.student_id) });
+}
 function appAcmPenalty(item) {
   let total = 0;
   for (const problem of problems) {
@@ -43,7 +66,17 @@ for (const problem of problems) {
 <% if (typeof contestHeader !== 'undefined' && contestHeader) { %><% include contest_context %><% } %>
 
 <div class="app-page app-contest-rank-page">
-  <div class="app-contest-rank-summary" aria-label="排行榜概况"><span><strong><%= ranklist.length %></strong> 参赛者</span><span><strong><%= problems.length %></strong> 题</span><span><strong><%= appRankContestType %></strong> 赛制</span><span><strong><%= contest.isEnded() ? '最终榜' : '实时榜' %></strong> 当前视图</span></div>
+  <div class="app-contest-rank-summary" aria-label="排行榜概况"><span><strong><%= typeof ranklistTotal === 'number' ? ranklistTotal : ranklist.length %></strong> 参赛者</span><span><strong><%= problems.length %></strong> 题</span><span><strong><%= appRankContestType %></strong> 赛制</span><span><strong><%= contest.isEnded() ? '最终榜' : '实时榜' %></strong> 当前视图</span></div>
+
+  <div class="app-toolbar app-contest-rank-toolbar">
+    <div class="app-toolbar-start">
+      <nav class="app-segmented" aria-label="按账户类型筛选排行榜">
+        <% for (const option of [['all', '全部'], ['contest', '比赛账户'], ['ordinary', '普通账户'], ['ai', 'AI账户']]) { %><a class="<%= appRankAccountFilter === option[0] ? 'is-active' : '' %>" href="<%= appRankAccountUrl(option[0]) %>"<% if (appRankAccountFilter === option[0]) { %> aria-current="page"<% } %>><%= option[1] %></a><% } %>
+      </nav>
+      <% if (typeof ranklistClassOptions !== 'undefined' && ranklistClassOptions.length) { %><details class="app-action-menu app-rank-class-filter"><summary class="app-button app-button-secondary"><i data-lucide="graduation-cap"></i>班级<% if (ranklistSelectedClassIds.length) { %> <span><%= ranklistSelectedClassIds.length %></span><% } %><i data-lucide="chevron-down"></i></summary><form class="app-action-menu-list app-rank-class-filter-menu" method="get"><% if (appRankAccountFilter !== 'all') { %><input type="hidden" name="account" value="<%= appRankAccountFilter %>"><% } %><% if (typeof showRanklistIdentities !== 'undefined' && showRanklistIdentities) { %><input type="hidden" name="identity" value="real"><% } %><div class="app-rank-class-options"><% ranklistClassOptions.forEach(function(group){ %><label><input type="checkbox" name="classes" value="<%= group.id %>"<%= ranklistSelectedClassIds.includes(group.id) ? ' checked' : '' %>><span><strong><%= group.name %></strong><small><%= group.tag %></small></span></label><% }); %></div><div class="app-rank-class-actions"><a class="app-button app-button-quiet app-button-small" href="<%= appRankClassResetUrl() %>">清除</a><button class="app-button app-button-primary app-button-small" type="submit">应用</button></div></form></details><% } %>
+    </div>
+    <% if (typeof canManageRanklist !== 'undefined' && canManageRanklist) { %><div class="app-toolbar-actions"><label class="app-switch-control"><input type="checkbox" data-rank-identity-toggle<%= typeof showRanklistIdentities !== 'undefined' && showRanklistIdentities ? ' checked' : '' %>><span class="app-switch-track"></span><span>显示真实信息</span></label><a class="app-button app-button-secondary" href="<%= appRankExportUrl() %>" download><i data-lucide="download"></i>导出排行榜</a></div><% } %>
+  </div>
 
   <% if (contest.isEnded()) { %>
     <% if (typeof contestRated !== 'undefined' && !contestRated) { %><div class="app-notice"><i data-lucide="info"></i><span>该比赛为 Unrated，不计算参赛者 Rating。</span></div>
@@ -58,10 +91,10 @@ for (const problem of problems) {
       <table class="app-table app-contest-rank-table">
         <thead><tr><th>名次</th><th class="app-cell-primary">参赛者</th><% if (contest.type === 'acm') { %><th>通过</th><th>罚时</th><% } %><% for (let i = 0; i < problems.length; i += 1) { %><th class="app-rank-problem"><a href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'problem', i + 1]) %>" title="<%= syzoj.utils.removeTitleTag(problems[i].title) %>"><%= this.alpha(i + 1) %></a></th><% } %><% if (contest.type === 'noi' || contest.type === 'ioi') { %><th>总分</th><% } %><% if (typeof contestRatingFinalized !== 'undefined' && contestRatingFinalized) { %><th>Rating</th><% } %></tr></thead>
         <tbody>
-          <% let appRow = typeof rankOffset !== 'undefined' ? rankOffset : 0; for (const item of ranklist) { appRow += 1; const appRank = item.player.standing_rank || appRow; const appPenalty = contest.type === 'acm' ? appAcmPenalty(item) : 0; %>
+          <% let appRow = typeof rankOffset !== 'undefined' ? rankOffset : 0; for (const item of ranklist) { appRow += 1; const appRank = item.player.standing_rank || appRow; const appOverallRank = item.player.overall_standing_rank || null; const appPenalty = contest.type === 'acm' ? appAcmPenalty(item) : 0; const appDisplayUser = appRankDisplayUser(item); %>
             <tr class="<%= item.player.isCheater ? 'app-rank-cheater ' : '' %><%= user && user.id === item.user.id ? 'app-row-current' : '' %>">
-              <td><span class="app-rank-number<%= appRank <= 3 ? ' is-top' : '' %>"><%= appRank %></span></td>
-              <td class="app-cell-primary"><span class="app-rank-user"><%- syzoj.utils.renderUsername(item.user) %><% if (item.player.isCheater) { %><span class="app-status app-status-error">作弊</span><% } %></span></td>
+              <td><span class="app-rank-number<%= appRank <= 3 ? ' is-top' : '' %>"><%= appRank %></span><% if (appOverallRank) { %><small class="app-rank-overall">（<%= appOverallRank %>）</small><% } %></td>
+              <td class="app-cell-primary"><span class="app-rank-user"><%- syzoj.utils.renderUsername(appDisplayUser) %><% if (item.user.isAiAccount) { %><span class="app-status app-status-info">AI</span><% } %><% if (item.player.isCheater) { %><span class="app-status app-status-error">作弊</span><% } %></span></td>
               <% if (contest.type === 'acm') { %><td class="app-cell-number"><strong><%= Math.max(0, item.player.score) %></strong></td><td class="app-cell-number"><%= syzoj.utils.formatTime(appPenalty) %></td><% } %>
               <% for (const problem of problems) { const detail = item.player.score_details[problem.id]; const canOpen = !!(user && (appRankSupervisor || user.id === item.user.id)); %>
                 <td class="app-rank-result<%= problem.appFirstUserId === item.user.id ? ' is-first' : '' %>">
@@ -83,8 +116,21 @@ for (const problem of problems) {
       </table>
     </div>
     <% include app_pagination %>
-  <% } else { %><div class="app-empty"><div class="app-empty-inner"><i data-lucide="users-round"></i><strong>暂无排名数据</strong><p>参赛者提交后，成绩会显示在这里。</p></div></div><% } %>
+  <% } else { %><div class="app-empty"><div class="app-empty-inner"><i data-lucide="users-round"></i><strong>暂无排名数据</strong><p><%= appRankAccountFilter === 'all' ? '参赛者提交后，成绩会显示在这里。' : '当前账户类型下没有参赛者。' %></p></div></div><% } %>
 </div>
 
+<script>
+(function () {
+  var identityToggle = document.querySelector('[data-rank-identity-toggle]');
+  if (!identityToggle) return;
+  identityToggle.addEventListener('change', function () {
+    var next = new URL(window.location.href);
+    if (identityToggle.checked) next.searchParams.set('identity', 'real');
+    else next.searchParams.delete('identity');
+    next.searchParams.delete('page');
+    window.location.assign(next.pathname + next.search);
+  });
+})();
+</script>
 <% if (contest.isRunning()) { %><script>window.setTimeout(function () { location.reload(); }, 15000);</script><% } %>
 <% include app_footer %>

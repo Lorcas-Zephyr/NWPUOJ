@@ -365,6 +365,27 @@ test('publishing includes the immutable testdata hash and worker-relative path i
   assert.equal(snapshot.params[7], 'snapshots/ps_testdata_0001');
 });
 
+test('publishing legacy versions fills the non-null Python multiplier default', async () => {
+  const canonical = problemDomain.serializeContent(content());
+  const legacy = canonical.replace('"python_time_limit_multiplier":2', '"python_time_limit_multiplier":null');
+  const calls = [];
+  const manager = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (sql.startsWith('SELECT * FROM problem_v2_version')) {
+        return [{ id: 93, content_json: legacy, content_hash: 'legacy-null-multiplier' }];
+      }
+      return {};
+    }
+  };
+  await problemDomain.publishProblemAggregate(manager, { id: 9, vjudge_config: null }, 93, 5, () => 'ps_legacy_default');
+  const normalized = calls.find(call => call.sql.startsWith('UPDATE problem_v2_version SET content_json='));
+  assert.ok(normalized);
+  assert.equal(JSON.parse(normalized.params[0]).python_time_limit_multiplier, 2);
+  const snapshot = calls.find(call => call.sql.startsWith('INSERT INTO problem_v2_snapshot'));
+  assert.equal(JSON.parse(snapshot.params[4]).python_time_limit_multiplier, 2);
+});
+
 test('refreshing published testdata advances the snapshot without exposing a newer statement draft', async () => {
   const calls = [];
   const manager = {
@@ -514,10 +535,10 @@ test('publishing reuses an existing snapshot with the same content hash', async 
 
 test('problem ownership and grants remain scoped to the intended resource', () => {
   const owner = { id: 20 };
-  const ownProblem = problemDomain.problemResource({ id: 3, user_id: 20 });
+  const ownProblem = problemDomain.problemResource({ id: 3, user_id: '20' });
   assert.equal(resourceOwnerAllows(owner, 'problem:read', ownProblem), true);
   assert.equal(resourceOwnerAllows(owner, 'problem:edit', ownProblem), true);
-  assert.equal(resourceOwnerAllows(owner, 'problem:publish', ownProblem), false);
+  assert.equal(resourceOwnerAllows(owner, 'problem:publish', ownProblem), true);
   assert.equal(resourceOwnerAllows({ id: 21 }, 'problem:edit', ownProblem), false);
   assert.equal(scopeMatches('problem', '3', 'problem:3'), true);
   assert.equal(scopeMatches('problem', '3', 'problem:4'), false);
@@ -573,10 +594,14 @@ test('problem API routes use scoped capabilities and transaction-backed aggregat
   assert.match(workflowSource, /can\(user, 'problem:testdata\.write', problem\)/);
   assert.match(workflowSource, /testdataUpload\.extractTestdataArchive/);
   assert.match(workflowSource, /testdataUpload\.replaceDirectory/);
-  assert.match(workflowSource, /app\.patch\('\/api\/v2\/problems\/:id\/judge-configuration'[\s\S]*problemDomain\.updateJudgeConfigurationAggregate/);
+  assert.match(workflowSource, /app\.patch\('\/api\/v2\/problems\/:id\/judge-configuration', updateJudgeConfigurationV2\)/);
+  assert.match(workflowSource, /app\.post\('\/api\/v2\/problems\/:id\/judge-configuration\/update', updateJudgeConfigurationV2\)/);
+  assert.match(workflowSource, /async function updateJudgeConfigurationV2[\s\S]*problemDomain\.updateJudgeConfigurationAggregate/);
+  assert.match(domainSource, /app\.post\('\/api\/v2\/problems\/:id\/update', updateProblemV2\)/);
+  assert.match(workflowSource, /pythonMultiplierInput == null \|\| String\(pythonMultiplierInput\)\.trim\(\) === '' \? current\.python_time_limit_multiplier/);
   assert.match(workflowSource, /bulkAction\.normalize/);
   assert.match(workflowSource, /runBulkArchiveJob/);
-  assert.match(workflowSource, /recentLoginSatisfied\(req\)/);
+  assert.doesNotMatch(workflowSource, /app\.post\('\/api\/v2\/problems\/bulk-actions'[^]*?recentLoginSatisfied\(req\)/);
   assert.match(workflowSource, /TAG_IN_USE/);
   assert.match(workflowSource, /TAG_NAME_CONFLICT/);
   assert.match(domainSource, /transaction\(async manager =>[\s\S]*createProblemAggregate/);
