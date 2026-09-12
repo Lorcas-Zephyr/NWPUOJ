@@ -3,7 +3,9 @@
 const JAVA_LIBRARY_PATH = "/usr/lib/jvm/java-11-openjdk-amd64/lib/jli";
 
 function javaEnvironmentCommand(command) {
-    return `export LD_LIBRARY_PATH="${JAVA_LIBRARY_PATH}"; exec ${command}`;
+    // The caller may need to export additional variables before launching the
+    // generated runner. Do not put `exec` before the whole command string.
+    return `export LD_LIBRARY_PATH="${JAVA_LIBRARY_PATH}"; ${command}`;
 }
 
 // The judge host may expose many CPUs to a sandbox. Without an explicit
