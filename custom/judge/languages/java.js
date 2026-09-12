@@ -10,7 +10,10 @@ function javaEnvironmentCommand(command) {
 // processor count, HotSpot creates a large GC/compiler thread pool and can
 // fail with pthread_create(EAGAIN) even when the submitted program uses one
 // thread. Keep Java's runtime thread footprint bounded by the process limit.
-const JAVA_RUN_COMMAND = 'java -XX:ActiveProcessorCount=2 -XX:CICompilerCount=2 -XX:ParallelGCThreads=2 -XX:ConcGCThreads=1 "$1"';
+// `binaryDirectory/run` is a generated launcher script, not a Java class.
+// Keep executing that launcher and pass the limits through JAVA_TOOL_OPTIONS;
+// invoking `java ... "$1"` makes HotSpot treat `/sandbox/*/run` as a class.
+const JAVA_RUN_COMMAND = 'export JAVA_TOOL_OPTIONS="-XX:ActiveProcessorCount=2 -XX:CICompilerCount=2 -XX:ParallelGCThreads=2 -XX:ConcGCThreads=1"; exec "$1"';
 
 exports.lang = {
     name: "java",
