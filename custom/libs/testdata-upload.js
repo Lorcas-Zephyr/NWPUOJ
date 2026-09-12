@@ -139,13 +139,14 @@ async function normalizeTestdataDirectory(root) {
   return flattened;
 }
 
-async function replaceDirectory(current, staging, backup) {
+async function replaceDirectory(current, staging, backup, options = {}) {
   const currentExists = await fs.pathExists(current);
   await fs.remove(backup);
   try {
     if (currentExists) await fs.move(current, backup, { overwrite: false });
     await fs.move(staging, current, { overwrite: false });
-    await fs.remove(backup);
+    if (!options.keepBackup) await fs.remove(backup);
+    return { currentExists };
   } catch (error) {
     if (!await fs.pathExists(current) && await fs.pathExists(backup)) await fs.move(backup, current, { overwrite: false });
     throw error;

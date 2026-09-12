@@ -65,6 +65,16 @@ function uploadChunkMetadata(body) {
   }
   return { uploadId, index, total };
 }
+async function sha256File(filename) {
+  const hash = crypto.createHash('sha256');
+  await new Promise((resolve, reject) => {
+    const stream = fs.createReadStream(filename);
+    stream.on('data', chunk => hash.update(chunk));
+    stream.once('error', reject);
+    stream.once('end', resolve);
+  });
+  return hash.digest('hex');
+}
 function testdataFilename(value) {
   const filename = String(value || '');
   if (
@@ -89,6 +99,14 @@ async function ensureProblemWorkflowSchema() {
     cancel_requested TINYINT(1) NOT NULL DEFAULT 0, created_at DATETIME(3) NOT NULL,
     updated_at DATETIME(3) NOT NULL, KEY idx_problem_v2_job_problem(problem_id,created_at)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).then(async () => {
+    await TypeORM.getConnection().query(`CREATE TABLE IF NOT EXISTS problem_v2_upload (
+      id VARCHAR(128) NOT NULL PRIMARY KEY, problem_id INT NOT NULL, user_id INT NOT NULL,
+      total_chunks INT UNSIGNED NOT NULL, received_chunks INT UNSIGNED NOT NULL DEFAULT 0,
+      received_bytes BIGINT UNSIGNED NOT NULL DEFAULT 0, status VARCHAR(16) NOT NULL DEFAULT 'uploading',
+      sha256 CHAR(64) NULL, job_id CHAR(36) NULL, created_at DATETIME(3) NOT NULL,
+      updated_at DATETIME(3) NOT NULL, completed_at DATETIME(3) NULL,
+      KEY idx_problem_v2_upload_owner(problem_id,user_id,status), KEY idx_problem_v2_upload_expiry(status,updated_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
     const columns = await TypeORM.getConnection().query("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='problem_v2_job'");
     if (!columns.some(row => row.COLUMN_NAME === 'input_json')) await TypeORM.getConnection().query('ALTER TABLE problem_v2_job ADD COLUMN input_json LONGTEXT NULL AFTER progress');
     const tagColumns = await TypeORM.getConnection().query("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='problem_tag'");
@@ -104,6 +122,14 @@ async function ensureProblemWorkflowSchema() {
       WHERE category IS NULL OR category NOT IN ('source','category','algorithm','problem_type','difficulty')`);
   }).catch(error => { schemaPromise = null; throw error; });
   return schemaPromise;
+}
+async function cleanupExpiredChunkUploads() {
+  await ensureProblemWorkflowSchema();
+  const connection = TypeORM.getConnection();
+  const rows = await connection.query("SELECT id FROM problem_v2_upload WHERE status IN ('uploading','assembling') AND updated_at < UTC_TIMESTAMP() - INTERVAL 30 MINUTE LIMIT 100");
+  if (!rows.length) return;
+  for (const row of rows) await fs.remove(testdataChunkRoot(String(row.id))).catch(() => {});
+  await connection.query("DELETE FROM problem_v2_upload WHERE status IN ('uploading','assembling') AND updated_at < UTC_TIMESTAMP() - INTERVAL 30 MINUTE");
 }
 function api() { return syzoj.utils.apiV2; }
 async function can(user, capability, problem) { return !!(user && await syzoj.utils.authorizationV2.authorize(user, capability, problem ? { ownerId: problem.user_id, scope: `problem:${problem.id}` } : null, problem ? { scope: `problem:${problem.id}` } : {})); }
@@ -285,6 +311,10 @@ async function runUploadJob(jobId, problem) {
   const connection = TypeORM.getConnection();
   let archive = null;
   let staging = null;
+  let backup = null;
+  let archiveBackup = null;
+  let switched = false;
+  let snapshot = null;
   try {
     const rows = await connection.query('SELECT cancel_requested,input_json,actor_id FROM problem_v2_job WHERE id=? LIMIT 1', [jobId]);
     if (!rows.length || rows[0].cancel_requested) return connection.query("UPDATE problem_v2_job SET state='cancelled',updated_at=UTC_TIMESTAMP(3) WHERE id=?", [jobId]);
@@ -305,22 +335,45 @@ async function runUploadJob(jobId, problem) {
     const controls = await connection.query('SELECT cancel_requested FROM problem_v2_job WHERE id=? LIMIT 1', [jobId]);
     if (!controls.length || controls[0].cancel_requested) return connection.query("UPDATE problem_v2_job SET state='cancelled',updated_at=UTC_TIMESTAMP(3) WHERE id=?", [jobId]);
     await connection.query("UPDATE problem_v2_job SET progress=70,updated_at=UTC_TIMESTAMP(3) WHERE id=?", [jobId]);
-    await testdataUpload.replaceDirectory(problem.getTestdataPath(), staging, path.join(testdataUploadRoot(), `${jobId}.backup`));
-    await fs.move(archive, problem.getTestdataArchivePath(), { overwrite: true }); archive = null;
+    backup = path.join(testdataUploadRoot(), `${jobId}.backup`);
+    archiveBackup = path.join(testdataUploadRoot(), `${jobId}.archive.backup`);
+    snapshot = syzoj.utils.problemV2.refreshTestdataSnapshotFromDirectory
+      ? await syzoj.utils.problemV2.refreshTestdataSnapshotFromDirectory(problem, Number(rows[0].actor_id), staging)
+      : await syzoj.utils.problemV2.refreshCurrentTestdataSnapshot(problem, Number(rows[0].actor_id));
+    await testdataUpload.replaceDirectory(problem.getTestdataPath(), staging, backup, { keepBackup: true });
+    switched = true;
+    const archiveTarget = problem.getTestdataArchivePath();
+    if (await fs.pathExists(archiveTarget)) await fs.move(archiveTarget, archiveBackup, { overwrite: false });
+    await fs.move(archive, archiveTarget, { overwrite: true }); archive = null;
     const result = testdataSummary(parsed);
-    const snapshot = await syzoj.utils.problemV2.refreshCurrentTestdataSnapshot(problem, Number(rows[0].actor_id));
     result.snapshot_id = snapshot.snapshot_id;
+    result.testdata_hash = snapshot.testdata && snapshot.testdata.hash || null;
     await connection.query("UPDATE problem_v2_job SET state='completed',progress=100,result_json=?,updated_at=UTC_TIMESTAMP(3) WHERE id=?", [JSON.stringify(result), jobId]);
     await api().appendEvent({ stream: `problem-job:${jobId}`, type: 'problem.testdata.uploaded', aggregateId: jobId, payload: result });
+    await fs.remove(backup).catch(() => {});
+    await fs.remove(archiveBackup).catch(() => {});
     if (syzoj.utils.contestV2 && syzoj.utils.contestV2.syncProblemSnapshotsForProblem) {
-      await syzoj.utils.contestV2.syncProblemSnapshotsForProblem(problem.id, await User.findById(Number(rows[0].actor_id)), null);
+      await syzoj.utils.contestV2.syncProblemSnapshotsForProblem(problem.id, await User.findById(Number(rows[0].actor_id)), null)
+        .catch(error => syzoj.log(`[contest-v2] live snapshot sync after testdata upload failed: ${error.message || error}`));
     }
   } catch (error) {
+    if (switched) {
+      await fs.remove(problem.getTestdataPath()).catch(() => {});
+      if (backup && await fs.pathExists(backup)) await fs.move(backup, problem.getTestdataPath(), { overwrite: false }).catch(() => {});
+      if (archiveBackup && await fs.pathExists(archiveBackup)) {
+        await fs.remove(problem.getTestdataArchivePath()).catch(() => {});
+        await fs.move(archiveBackup, problem.getTestdataArchivePath(), { overwrite: false }).catch(() => {});
+      }
+    }
+    if (snapshot && snapshot.testdata && snapshot.testdata.created) await testdataSnapshots.remove(syzoj.config.upload_dir, snapshot.snapshot_id).catch(() => {});
+    if (snapshot && snapshot.previous_snapshot_id) await connection.query('UPDATE problem_v2_state SET current_snapshot_id=?,updated_at=UTC_TIMESTAMP(3) WHERE problem_id=?', [snapshot.previous_snapshot_id, problem.id]).catch(() => {});
     await connection.query("UPDATE problem_v2_job SET state='failed',error_json=?,updated_at=UTC_TIMESTAMP(3) WHERE id=?", [JSON.stringify({ code: error.code || 'TESTDATA_VALIDATION_FAILED', message: error.message }), jobId]);
     await api().appendEvent({ stream: `problem-job:${jobId}`, type: 'problem.testdata.failed', aggregateId: jobId, payload: { code: error.code || 'TESTDATA_VALIDATION_FAILED' } });
   } finally {
     if (archive) await fs.remove(archive).catch(() => {});
     if (staging) await fs.remove(staging).catch(() => {});
+    if (backup) await fs.remove(backup).catch(() => {});
+    if (archiveBackup) await fs.remove(archiveBackup).catch(() => {});
   }
 }
 
@@ -519,9 +572,37 @@ app.post('/api/v2/problems/:id/testdata/upload/chunk', requireTestdataWriter, (r
   if (!req.file) return api().fail(res, 422, 'TESTDATA_UPLOAD_INVALID', 'A ZIP upload chunk is required.', { chunk: 'required' });
   const destination = path.join(testdataChunkRoot(metadata.uploadId), `${metadata.index}.part`);
   try {
+    await cleanupExpiredChunkUploads();
+    const connection = TypeORM.getConnection();
+    const existing = await connection.query('SELECT * FROM problem_v2_upload WHERE id=? LIMIT 1', [metadata.uploadId]);
+    if (existing.length) {
+      const upload = existing[0];
+      if (Number(upload.problem_id) !== Number(res.locals.testdataUploadProblem.id) || Number(upload.user_id) !== Number(res.locals.user.id)) return api().fail(res, 403, 'TESTDATA_UPLOAD_FORBIDDEN', 'This upload belongs to another problem or account.');
+      if (Number(upload.total_chunks) !== metadata.total || !['uploading'].includes(upload.status)) return api().fail(res, 409, 'TESTDATA_UPLOAD_CONFLICT', 'This upload is no longer accepting chunks.');
+    } else {
+      try {
+        await connection.query("INSERT INTO problem_v2_upload (id,problem_id,user_id,total_chunks,created_at,updated_at) VALUES (?,?,?, ?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))", [metadata.uploadId, res.locals.testdataUploadProblem.id, res.locals.user.id, metadata.total]);
+      } catch (error) {
+        if (error.code !== 'ER_DUP_ENTRY') throw error;
+        const raced = await connection.query('SELECT * FROM problem_v2_upload WHERE id=? LIMIT 1', [metadata.uploadId]);
+        if (!raced.length || Number(raced[0].problem_id) !== Number(res.locals.testdataUploadProblem.id) || Number(raced[0].user_id) !== Number(res.locals.user.id)) return api().fail(res, 403, 'TESTDATA_UPLOAD_FORBIDDEN', 'This upload belongs to another problem or account.');
+      }
+    }
     await fs.ensureDir(path.dirname(destination));
-    await fs.move(req.file.path, destination, { overwrite: true });
+    const previous = await fs.stat(destination).catch(() => null);
+    if (previous) {
+      const incoming = await fs.stat(req.file.path);
+      if (Number(previous.size) !== Number(incoming.size)) return api().fail(res, 409, 'TESTDATA_UPLOAD_CONFLICT', 'This chunk was already uploaded with different content.');
+      await fs.remove(req.file.path);
+    } else await fs.move(req.file.path, destination, { overwrite: false });
     const stat = await fs.stat(destination);
+    // Filesystem metadata is authoritative; derive counters from the known part files.
+    let receivedChunks = 0; let receivedBytes = 0;
+    for (let index = 0; index < metadata.total; index++) {
+      const part = await fs.stat(path.join(testdataChunkRoot(metadata.uploadId), `${index}.part`)).catch(() => null);
+      if (part) { receivedChunks++; receivedBytes += Number(part.size); }
+    }
+    await connection.query('UPDATE problem_v2_upload SET received_chunks=?,received_bytes=?,updated_at=UTC_TIMESTAMP(3) WHERE id=?', [receivedChunks, receivedBytes, metadata.uploadId]);
     return api().send(res, { upload_id: metadata.uploadId, chunk_index: metadata.index, total_chunks: metadata.total, received_bytes: stat.size });
   } catch (error) {
     await fs.remove(req.file.path).catch(() => {});
@@ -535,6 +616,18 @@ app.post('/api/v2/problems/:id/testdata/upload/complete', requireTestdataWriter,
   const root = testdataChunkRoot(metadata.uploadId);
   const assembled = path.join(testdataUploadRoot(), `${metadata.uploadId}.assembled.zip`);
   try {
+    await cleanupExpiredChunkUploads();
+    const connection = TypeORM.getConnection();
+    const claimed = await connection.transaction(async manager => {
+      const rows = await manager.query('SELECT * FROM problem_v2_upload WHERE id=? LIMIT 1 FOR UPDATE', [metadata.uploadId]);
+      if (!rows.length || Number(rows[0].problem_id) !== Number(res.locals.testdataUploadProblem.id) || Number(rows[0].user_id) !== Number(res.locals.user.id)) throw Object.assign(new Error('This upload does not belong to the current account or problem.'), { code: 'TESTDATA_UPLOAD_FORBIDDEN', statusCode: 403 });
+      if (rows[0].status === 'completed') return rows[0];
+      if (rows[0].status !== 'uploading') throw Object.assign(new Error('This upload is already being completed.'), { code: 'TESTDATA_UPLOAD_CONFLICT', statusCode: 409 });
+      if (Number(rows[0].total_chunks) !== metadata.total || Number(rows[0].received_chunks) !== metadata.total) throw Object.assign(new Error('Some upload chunks are missing.'), { code: 'TESTDATA_UPLOAD_INVALID', statusCode: 422 });
+      await manager.query("UPDATE problem_v2_upload SET status='assembling',updated_at=UTC_TIMESTAMP(3) WHERE id=?", [metadata.uploadId]);
+      return rows[0];
+    });
+    if (claimed.status === 'completed') return api().send(res, { upload_id: metadata.uploadId, state: 'completed', job_id: claimed.job_id });
     let totalBytes = 0;
     await fs.writeFile(assembled, '');
     for (let index = 0; index < metadata.total; index++) {
@@ -545,10 +638,13 @@ app.post('/api/v2/problems/:id/testdata/upload/complete', requireTestdataWriter,
       if (totalBytes > 200 * 1024 * 1024) throw Object.assign(new Error('The uploaded ZIP exceeds the allowed size.'), { code: 'SOURCE_TOO_LARGE', statusCode: 413 });
       await fs.appendFile(assembled, await fs.readFile(part));
     }
+    const hash = await sha256File(assembled);
     const queued = await queueTestdataUpload(res.locals.testdataUploadProblem, res.locals.user, assembled);
+    await connection.query("UPDATE problem_v2_upload SET status='completed',sha256=?,job_id=?,completed_at=UTC_TIMESTAMP(3),updated_at=UTC_TIMESTAMP(3) WHERE id=?", [hash, queued.id, metadata.uploadId]);
     await fs.remove(root);
-    return api().send(res, queued, 202);
+    return api().send(res, Object.assign({}, queued, { upload_id: metadata.uploadId, sha256: hash }), 202);
   } catch (error) {
+    await TypeORM.getConnection().query("UPDATE problem_v2_upload SET status='failed',updated_at=UTC_TIMESTAMP(3) WHERE id=? AND status='assembling'", [metadata.uploadId]).catch(() => {});
     await fs.remove(assembled).catch(() => {});
     return api().fail(res, error.statusCode || 500, error.code || 'CONTENT_WRITE_FAILED', error.message);
   }
@@ -702,7 +798,7 @@ app.post('/api/v2/problems/bulk-actions', async (req, res) => {
   } catch (error) { return contentFailure(res, error); }
 });
 app.post('/api/v2/problems/bulk-tags', async (req, res) => {
-  const user = await requireTagManager(req, res);
+  const user = await requireTagAssigner(req, res);
   if (!user) return;
   try {
     const result = await applyBulkTag(req, user, req.body);
@@ -789,7 +885,8 @@ function tagInput(body, current) {
   if (Object.keys(fields).length) throw tagError('The tag is invalid.', 'VALIDATION_FAILED', 422, fields);
   return { name, category, color: TAG_TYPE_COLORS[category] };
 }
-async function requireTagManager(req, res) { const user = res.locals.user; if (!user) { api().fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.'); return null; } if (!await can(user, 'problem:tag.manage')) { api().fail(res, 403, 'CAPABILITY_REQUIRED', 'Capability required: problem:tag.manage.'); return null; } return user; }
+async function requireTagAssigner(req, res) { const user = res.locals.user; if (!user) { api().fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.'); return null; } if (!await can(user, 'problem:tag.assign')) { api().fail(res, 403, 'CAPABILITY_REQUIRED', 'Capability required: problem:tag.assign.'); return null; } return user; }
+async function requireTagManager(req, res) { const user = res.locals.user; if (!user) { api().fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.'); return null; } if (!await can(user, 'problem:tag.catalog.manage')) { api().fail(res, 403, 'CAPABILITY_REQUIRED', 'Capability required: problem:tag.catalog.manage.'); return null; } return user; }
 app.post('/api/v2/tags', async (req, res) => {
   const user = await requireTagManager(req, res); if (!user) return;
   let input; try { input = tagInput(req.body); } catch (error) { return contentFailure(res, error); }

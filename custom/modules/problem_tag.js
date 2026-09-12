@@ -3,7 +3,7 @@ const TypeORM = require('typeorm');
 app.get('/problems/tags/manage', async (req, res) => {
   try {
     const user = res.locals.user;
-    const allowed = user && await syzoj.utils.authorizationV2.authorize(user, 'problem:tag.manage', null, { scope: 'global' });
+    const allowed = user && await syzoj.utils.authorizationV2.authorize(user, 'problem:tag.catalog.manage', null, { scope: 'global' });
     if (!allowed) throw new ErrorMessage('您没有权限进行此操作。');
     if (syzoj.utils.problemWorkflowV2) await syzoj.utils.problemWorkflowV2.ensureSchema();
     const rows = await TypeORM.getConnection().query(
@@ -31,7 +31,7 @@ app.get('/problems/tags/manage', async (req, res) => {
 app.get('/problems/tag/:id/edit', async (req, res) => {
   try {
     const user = res.locals.user;
-    const allowed = user && await syzoj.utils.authorizationV2.authorize(user, 'problem:tag.manage', null, { scope: 'global' });
+    const allowed = user && await syzoj.utils.authorizationV2.authorize(user, 'problem:tag.catalog.manage', null, { scope: 'global' });
     if (!allowed) throw new ErrorMessage('您没有权限进行此操作。');
     if (syzoj.utils.problemWorkflowV2) await syzoj.utils.problemWorkflowV2.ensureSchema();
     const id = parseInt(req.params.id) || 0;

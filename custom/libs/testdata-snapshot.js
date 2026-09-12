@@ -85,8 +85,8 @@ async function manifest(directory, options = {}) {
   return { hash: hash.digest('hex'), files };
 }
 
-async function capture(uploadDirectory, problemId, snapshotId) {
-  const source = currentTestdataPath(uploadDirectory, problemId);
+async function captureFromDirectory(uploadDirectory, source, snapshotId) {
+  source = path.resolve(String(source));
   const destination = snapshotDirectory(uploadDirectory, snapshotId);
   const expected = await manifest(source, { allowMissing: true });
   if (await fs.pathExists(destination)) {
@@ -110,6 +110,10 @@ async function capture(uploadDirectory, problemId, snapshotId) {
   }
 }
 
+async function capture(uploadDirectory, problemId, snapshotId) {
+  return captureFromDirectory(uploadDirectory, currentTestdataPath(uploadDirectory, problemId), snapshotId);
+}
+
 async function remove(uploadDirectory, snapshotId) {
   const directory = snapshotDirectory(uploadDirectory, snapshotId);
   await fs.remove(directory);
@@ -117,6 +121,7 @@ async function remove(uploadDirectory, snapshotId) {
 
 module.exports = {
   capture,
+  captureFromDirectory,
   currentTestdataPath,
   manifest,
   remove,

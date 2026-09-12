@@ -341,6 +341,27 @@ async function refreshCurrentTestdataSnapshot(problem, actorId) {
   }
 }
 
+// Build the immutable snapshot from a validated staging directory before the
+// live testdata directory is switched. This keeps the database pointer and
+// filesystem replacement recoverable as one upload operation.
+async function refreshTestdataSnapshotFromDirectory(problem, actorId, sourceDirectory) {
+  await ensureCurrentSnapshot(problem, actorId);
+  const stateBefore = await loadState(problem.id);
+  const previousSnapshotId = stateBefore && stateBefore.current_snapshot_id;
+  const requestedSnapshotId = `ps_${crypto.randomUUID().replace(/-/g, '')}`;
+  let testdata;
+  try {
+    testdata = await testdataSnapshots.captureFromDirectory(syzoj.config.upload_dir, sourceDirectory, requestedSnapshotId);
+    const refreshed = await TypeORM.getConnection().transaction(manager =>
+      refreshTestdataSnapshotAggregate(manager, problem, actorId, requestedSnapshotId, testdata)
+    );
+    return { ...refreshed, previous_snapshot_id: previousSnapshotId, testdata };
+  } catch (error) {
+    if (testdata && testdata.created) await testdataSnapshots.remove(syzoj.config.upload_dir, requestedSnapshotId).catch(() => {});
+    throw error;
+  }
+}
+
 async function snapshotForCurrentVersion(problem, actorId, options = {}) {
   await ensureCurrentSnapshot(problem, actorId);
   const requestedSnapshotId = `ps_${crypto.randomUUID().replace(/-/g, '')}`;
@@ -358,7 +379,8 @@ syzoj.utils.problemV2 = {
   serializeProblem,
   problemResource,
   snapshotForCurrentVersion,
-  refreshCurrentTestdataSnapshot
+  refreshCurrentTestdataSnapshot,
+  refreshTestdataSnapshotFromDirectory
 };
 
 const requireCapability = (capability, loader) => syzoj.utils.authorizationV2.requireScopedCapability(capability, loader);
@@ -809,10 +831,14 @@ async function importBulkProblems(req, res) {
   let extracted;
   try {
     extracted = await extractBulkImportArchive(req.file);
-    const created = [], failures = [];
+    const created = [], createdFolders = [], failures = [];
+    let retryFolders = null;
+    if (req.body && req.body.retry_folders) {
+      try { retryFolders = new Set(JSON.parse(String(req.body.retry_folders)).map(value => String(value))); } catch (_) { throw bulkImportError('失败项列表格式无效。'); }
+    }
     await ensureProblemSchema();
     await syzoj.utils.vjudgeV2.ensureSchema();
-    for (const item of extracted.items) {
+    for (const item of extracted.items.filter(item => !retryFolders || retryFolders.has(item.name))) {
       try {
         const body = item.content || {};
         const content = contentFromInput(body, {
@@ -836,12 +862,13 @@ async function importBulkProblems(req, res) {
           return value.problem;
         });
         created.push(Number(problem.id));
+        createdFolders.push(item.name);
       } catch (error) { failures.push({ folder: item.name, message: error && error.message ? error.message : '导入失败。' }); }
     }
     if (!created.length && failures.length) {
       return syzoj.utils.apiV2.fail(res, 422, 'BULK_IMPORT_INVALID', failures[0].message, { failures });
     }
-    return syzoj.utils.apiV2.send(res, { created: created.length, problem_ids: created, failed: failures.length, failures });
+    return syzoj.utils.apiV2.send(res, { created: created.length, problem_ids: created, created_folders: createdFolders, failed: failures.length, failures });
   } catch (error) { return syzoj.utils.apiV2.fail(res, error.statusCode || 422, error.code || 'BULK_IMPORT_INVALID', error.message); }
   finally { if (extracted && extracted.root) await fs.remove(extracted.root).catch(() => {}); }
 }

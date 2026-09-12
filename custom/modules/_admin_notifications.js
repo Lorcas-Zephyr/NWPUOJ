@@ -1,172 +1,28 @@
 'use strict';
-
 const TypeORM = require('typeorm');
-
 let schemaPromise = null;
-function api() { return syzoj.utils.apiV2; }
-function connection() { return TypeORM.getConnection(); }
-function now() { return Math.floor(Date.now() / 1000); }
-function reason(req, fallback) { return syzoj.utils.operationReason(req, fallback || '管理全站通知'); }
-async function isSiteAdmin(res) {
-  const user = res.locals.user;
-  if (!user) return false;
-  if (user.is_admin || res.locals.isSiteOwner) return true;
-  return typeof syzoj.utils.isSiteOwnerAccount === 'function' && await syzoj.utils.isSiteOwnerAccount(user);
-}
-async function requireSiteAdmin(req, res) {
-  if (await isSiteAdmin(res)) return true;
-  api().fail(res, 403, 'CAPABILITY_REQUIRED', 'Only site administrators can manage notifications.');
-  return false;
-}
-function resource(row) {
-  return {
-    id: Number(row.id), title: row.title || '', content: row.content || '',
-    level: row.level || 'info', audience: row.audience || 'all', status: row.status || 'draft',
-    scheduled_at: row.scheduled_at == null ? null : new Date(Number(row.scheduled_at) * 1000).toISOString(),
-    published_at: row.published_at == null ? null : new Date(Number(row.published_at) * 1000).toISOString(),
-    created_by: row.created_by == null ? null : Number(row.created_by),
-    updated_at: row.updated_at == null ? null : new Date(Number(row.updated_at) * 1000).toISOString()
-  };
-}
-
-async function ensureSchema() {
-  if (schemaPromise) return schemaPromise;
-  schemaPromise = connection().query(`CREATE TABLE IF NOT EXISTS site_notification (
-    id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    title VARCHAR(255) NOT NULL, content TEXT NOT NULL,
-    level VARCHAR(16) NOT NULL DEFAULT 'info', audience VARCHAR(16) NOT NULL DEFAULT 'all',
-    status VARCHAR(16) NOT NULL DEFAULT 'draft', scheduled_at INT NULL, published_at INT NULL,
-    created_by INT NULL, updated_by INT NULL, created_at INT NOT NULL, updated_at INT NOT NULL,
-    KEY idx_site_notification_status(status,updated_at), KEY idx_site_notification_publish(published_at)
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).catch(error => { schemaPromise = null; throw error; });
-  return schemaPromise;
-}
-
-function validate(body, current) {
-  const source = body || {};
-  const title = source.title == null && current ? current.title : String(source.title || '').trim();
-  const content = source.content == null && current ? current.content : String(source.content || '').trim();
-  const level = source.level == null && current ? current.level : String(source.level || 'info').trim();
-  const errors = {};
-  if (!title) errors.title = '标题不能为空'; else if (title.length > 255) errors.title = '标题不能超过 255 个字符';
-  if (!content) errors.content = '内容不能为空'; else if (Buffer.byteLength(content, 'utf8') > 60 * 1024) errors.content = '内容不能超过 60 KiB';
-  if (!['info', 'warning', 'important'].includes(level)) errors.level = '通知级别无效';
-  return { errors, value: { title, content, level, audience: 'all' } };
-}
-
-async function insertRecipients(manager, notificationId, value, actorId, publishedAt) {
-  // A site notification is copied to each active user's inbox at publish time.
-  // INSERT ... SELECT avoids constructing a request-sized VALUES list.
-  if (typeof syzoj.utils.ensureAccountStateSchema === 'function') await syzoj.utils.ensureAccountStateSchema();
-  await manager.query(
-    `INSERT INTO notification
-       (recipient_id,type,title,content,source_url,source_id,actor_id,is_read,created_at)
-     SELECT u.id,'site_notification',?,?,?, ?,?,0,?
-       FROM user u LEFT JOIN auth_user_state state ON state.user_id=u.id
-      WHERE COALESCE(state.status,'active') <> 'disabled'`,
-    [value.title, value.content, '/notifications', Number(notificationId), Number(actorId), Number(publishedAt)]
-  );
-}
-
-async function load(id, lock) {
-  const rows = await connection().query(`SELECT * FROM site_notification WHERE id=? LIMIT 1${lock ? ' FOR UPDATE' : ''}`, [Number(id)]);
-  return rows[0] || null;
-}
-
-app.get('/admin/notifications', async (req, res) => {
-  try {
-    if (!await isSiteAdmin(res)) throw new ErrorMessage('只有全站管理员可以管理通知。');
-    await ensureSchema();
-    const rows = await connection().query('SELECT * FROM site_notification ORDER BY updated_at DESC,id DESC LIMIT 100');
-    res.render('admin_notifications', { notifications: rows.map(resource) });
-  } catch (error) { syzoj.log(error); res.status(error.statusCode || 403).render('error', { err: error }); }
-});
-
-app.get('/admin/notification/:id/edit', async (req, res) => {
-  try {
-    if (!await isSiteAdmin(res)) throw new ErrorMessage('只有全站管理员可以管理通知。');
-    await ensureSchema();
-    const row = Number(req.params.id) > 0 ? await load(req.params.id, false) : null;
-    if (req.params.id !== '0' && !row) throw new ErrorMessage('通知不存在。');
-    res.render('admin_notification_edit', {
-      notification: row || { id: 0, title: '', content: '', level: 'info', status: 'draft' },
-      notificationEtag: row ? api().etagFor(resource(row)) : ''
-    });
-  } catch (error) { syzoj.log(error); res.status(error.statusCode || 403).render('error', { err: error }); }
-});
-
-app.get('/api/v2/admin/notifications', async (req, res) => {
-  if (!await requireSiteAdmin(req, res)) return;
-  await ensureSchema();
-  const rows = await connection().query('SELECT * FROM site_notification ORDER BY updated_at DESC,id DESC LIMIT 100');
-  return api().send(res, rows.map(resource));
-});
-
-app.get('/api/v2/admin/notifications/:id', async (req, res) => {
-  if (!await requireSiteAdmin(req, res)) return;
-  await ensureSchema();
-  const row = await load(req.params.id, false);
-  if (!row) return api().fail(res, 404, 'NOTIFICATION_NOT_FOUND', 'Notification was not found.');
-  const value = resource(row); api().setResourceEtag(res, value); return api().send(res, value);
-});
-
-app.post('/api/v2/admin/notifications', async (req, res) => {
-  if (!await requireSiteAdmin(req, res)) return;
-  await ensureSchema();
-  const checked = validate(req.body); if (Object.keys(checked.errors).length) return api().fail(res, 422, 'VALIDATION_FAILED', 'Notification fields are invalid.', checked.errors);
-  const stamp = now();
-  try {
-    const result = await connection().transaction(async manager => {
-      const inserted = await manager.query('INSERT INTO site_notification (title,content,level,audience,status,created_by,updated_by,created_at,updated_at) VALUES (?,?,?,\'all\',\'draft\',?,?,?,?)', [checked.value.title, checked.value.content, checked.value.level, res.locals.user.id, res.locals.user.id, stamp, stamp]);
-      const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, { action: 'admin:notification.create', resourceType: 'site_notification', resourceId: Number(inserted.insertId), reason: reason(req, '创建全站通知') }, manager);
-      return { id: Number(inserted.insertId), auditEventId };
-    });
-    res.locals.apiMeta.audit_event_id = result.auditEventId;
-    return api().send(res, resource(await load(result.id, false)), 201);
-  } catch (error) { return api().fail(res, error.statusCode || 500, error.code || 'NOTIFICATION_CREATE_FAILED', error.message || 'Notification could not be created.'); }
-});
-
-app.patch('/api/v2/admin/notifications/:id', async (req, res) => {
-  if (!await requireSiteAdmin(req, res)) return;
-  if (!(req.get('If-Match') || req.body && req.body.if_match)) return api().fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when editing a notification.', { if_match: 'required' });
-  await ensureSchema();
-  try {
-    const result = await connection().transaction(async manager => {
-      const rows = await manager.query('SELECT * FROM site_notification WHERE id=? LIMIT 1 FOR UPDATE', [Number(req.params.id)]);
-      if (!rows.length) throw Object.assign(new Error('Notification was not found.'), { statusCode: 404, code: 'NOTIFICATION_NOT_FOUND' });
-      if (rows[0].status === 'published') throw Object.assign(new Error('已发布通知不能直接编辑，请新建通知。'), { statusCode: 409, code: 'NOTIFICATION_ALREADY_PUBLISHED' });
-      const current = rows[0]; const currentResource = resource(current);
-      if (!api().ifMatch(req, currentResource)) throw Object.assign(new Error('Notification changed. Reload it before saving.'), { statusCode: 412, code: 'ETAG_MISMATCH' });
-      const checked = validate(req.body, current); if (Object.keys(checked.errors).length) throw Object.assign(new Error('Notification fields are invalid.'), { statusCode: 422, code: 'VALIDATION_FAILED', fields: checked.errors });
-      const stamp = now(); await manager.query('UPDATE site_notification SET title=?,content=?,level=?,updated_by=?,updated_at=? WHERE id=?', [checked.value.title, checked.value.content, checked.value.level, res.locals.user.id, stamp, Number(req.params.id)]);
-      const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, { action: 'admin:notification.update', resourceType: 'site_notification', resourceId: Number(req.params.id), reason: reason(req, '编辑全站通知') }, manager);
-      return { auditEventId };
-    });
-    res.locals.apiMeta.audit_event_id = result.auditEventId;
-    return api().send(res, resource(await load(req.params.id, false)));
-  } catch (error) { return api().fail(res, error.statusCode || 500, error.code || 'NOTIFICATION_UPDATE_FAILED', error.message || 'Notification could not be updated.', error.fields || {}); }
-});
-
-app.post('/api/v2/admin/notifications/:id/publish', async (req, res) => {
-  if (!await requireSiteAdmin(req, res)) return;
-  if (!(req.get('If-Match') || req.body && req.body.if_match)) return api().fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when publishing a notification.', { if_match: 'required' });
-  await ensureSchema(); const stamp = now();
-  try {
-    const result = await connection().transaction(async manager => {
-      const rows = await manager.query('SELECT * FROM site_notification WHERE id=? LIMIT 1 FOR UPDATE', [Number(req.params.id)]);
-      if (!rows.length) throw Object.assign(new Error('Notification was not found.'), { statusCode: 404, code: 'NOTIFICATION_NOT_FOUND' });
-      const current = rows[0]; if (!api().ifMatch(req, resource(current))) throw Object.assign(new Error('Notification changed. Reload it before publishing.'), { statusCode: 412, code: 'ETAG_MISMATCH' });
-      if (current.status === 'published') return { already: true, id: Number(current.id) };
-      await manager.query("UPDATE site_notification SET status='published',published_at=?,updated_by=?,updated_at=? WHERE id=?", [stamp, res.locals.user.id, stamp, Number(req.params.id)]);
-      await insertRecipients(manager, current.id, current, res.locals.user.id, stamp);
-      const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, { action: 'admin:notification.publish', resourceType: 'site_notification', resourceId: Number(current.id), reason: reason(req, '发布全站通知') }, manager);
-      return { id: Number(current.id), auditEventId };
-    });
-    if (!result.already) await api().appendEvent({ stream: `notifications:site:${result.id}`, type: 'site_notification.published', aggregateId: result.id, actor: res.locals.user, payload: { notification_id: result.id, audit_event_id: result.auditEventId } });
-    res.locals.apiMeta.audit_event_id = result.auditEventId || null;
-    res.locals.apiMeta.already_published = !!result.already;
-    return api().send(res, resource(await load(result.id, false)));
-  } catch (error) { return api().fail(res, error.statusCode || 500, error.code || 'NOTIFICATION_PUBLISH_FAILED', error.message || 'Notification could not be published.', error.fields || {}); }
-});
-
-ensureSchema().catch(error => syzoj.log(`[site-notification] schema initialization failed: ${error.stack || error.message}`));
+const api = () => syzoj.utils.apiV2;
+const db = () => TypeORM.getConnection();
+const now = () => Math.floor(Date.now() / 1000);
+const isAdmin = res => !!(res.locals.user && (res.locals.user.is_admin || res.locals.isSiteOwner));
+const fail = (res,s,c,m,f) => api().fail(res,s,c,m,f);
+const iso = v => v == null ? null : new Date(Number(v) * 1000).toISOString();
+function ids(v) { if(Array.isArray(v)) return [...new Set(v.map(Number).filter(n=>Number.isInteger(n)&&n>0))]; return [...new Set(String(v||'').split(/[\s,;]+/).map(Number).filter(n=>Number.isInteger(n)&&n>0))]; }
+function resource(r) { let target=[]; try { target=r.target_user_ids_json?JSON.parse(r.target_user_ids_json):[]; } catch(e) {} return {id:Number(r.id),title:r.title||'',content:r.content||'',level:r.level||'none',audience:r.audience||'all',audience_ref:r.audience_ref||null,target_user_ids:target,status:r.status||'draft',scheduled_at:iso(r.scheduled_at),published_at:iso(r.published_at),revoked_at:iso(r.revoked_at),archived_at:iso(r.archived_at),require_ack:!!r.require_ack,is_pinned:!!r.is_pinned,allow_markdown:r.allow_markdown!==0,allow_images:r.allow_images!==0,created_by:r.created_by==null?null:Number(r.created_by),updated_at:iso(r.updated_at)}; }
+function validate(body,current) { const b=body||{}, title=b.title==null&&current?current.title:String(b.title||'').trim(), content=b.content==null&&current?current.content:String(b.content||'').trim(), level=b.level==null&&current?current.level:String(b.level||'none'), audience=b.audience==null&&current?current.audience:String(b.audience||'all'), ref=b.audience_ref==null&&current?current.audience_ref:(b.audience_ref==null?null:String(b.audience_ref).trim()), target=b.target_user_ids==null&&current?(current.target_user_ids||[]):ids(b.target_user_ids), errors={}; if(!title)errors.title='标题不能为空';else if(title.length>255)errors.title='标题不能超过255个字符';if(!content)errors.content='内容不能为空';else if(Buffer.byteLength(content,'utf8')>60*1024)errors.content='内容不能超过60 KiB';if(!['none','info','warning','important','urgent'].includes(level))errors.level='通知级别无效';if(!['all','participants','users'].includes(audience))errors.audience='通知范围无效';if(audience==='participants'&&!ref)errors.audience_ref='参赛范围需要比赛 ID';if(audience==='users'&&(!target.length||target.length>500))errors.target_user_ids='请提供1-500个用户ID';let scheduled=b.scheduled_at==null&&current?current.scheduled_at:b.scheduled_at;if(scheduled){const n=Math.floor(new Date(scheduled).getTime()/1000);if(!Number.isFinite(n)||n<=now())errors.scheduled_at='定时发布时间必须晚于当前时间';else scheduled=n;}return {errors,value:{title,content,level,audience,audience_ref:ref,target_user_ids:target,scheduled_at:scheduled||null,require_ack:!!b.require_ack,is_pinned:!!b.is_pinned,allow_markdown:b.allow_markdown!==false,allow_images:b.allow_images!==false}}; }
+async function ensureSchema(){if(schemaPromise)return schemaPromise;schemaPromise=(async()=>{const c=db();await c.query(`CREATE TABLE IF NOT EXISTS site_notification (id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,title VARCHAR(255) NOT NULL,content MEDIUMTEXT NOT NULL,level VARCHAR(16) NOT NULL DEFAULT 'none',audience VARCHAR(16) NOT NULL DEFAULT 'all',audience_ref VARCHAR(128) NULL,target_user_ids_json TEXT NULL,status VARCHAR(16) NOT NULL DEFAULT 'draft',scheduled_at INT NULL,published_at INT NULL,revoked_at INT NULL,archived_at INT NULL,require_ack TINYINT(1) NOT NULL DEFAULT 0,is_pinned TINYINT(1) NOT NULL DEFAULT 0,allow_markdown TINYINT(1) NOT NULL DEFAULT 1,allow_images TINYINT(1) NOT NULL DEFAULT 1,created_by INT NULL,updated_by INT NULL,published_by INT NULL,revoked_by INT NULL,archived_by INT NULL,created_at INT NOT NULL,updated_at INT NOT NULL,KEY idx_sn_status(status,updated_at)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);const cols=await c.query("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='site_notification'");const have=new Set(cols.map(x=>x.COLUMN_NAME));const add={audience_ref:'VARCHAR(128) NULL',target_user_ids_json:'TEXT NULL',revoked_at:'INT NULL',archived_at:'INT NULL',require_ack:'TINYINT(1) NOT NULL DEFAULT 0',is_pinned:'TINYINT(1) NOT NULL DEFAULT 0',allow_markdown:'TINYINT(1) NOT NULL DEFAULT 1',allow_images:'TINYINT(1) NOT NULL DEFAULT 1',published_by:'INT NULL',revoked_by:'INT NULL',archived_by:'INT NULL'};for(const [n,t]of Object.entries(add))if(!have.has(n))await c.query(`ALTER TABLE site_notification ADD COLUMN ${n} ${t}`);})().catch(e=>{schemaPromise=null;throw e});return schemaPromise;}
+async function load(id,lock,m){const rs=await(m||db()).query(`SELECT * FROM site_notification WHERE id=? LIMIT 1${lock?' FOR UPDATE':''}`,[Number(id)]);return rs[0]||null;}
+async function addRecipients(m,row,actor,at){if(typeof syzoj.utils.ensureAccountStateSchema==='function')await syzoj.utils.ensureAccountStateSchema();let where="COALESCE(state.status,'active') <> 'disabled'",p=[row.title,row.content,'/notifications',Number(row.id),Number(actor),at];if(row.audience==='users'){const a=ids(JSON.parse(row.target_user_ids_json||'[]'));if(!a.length)return;where+=` AND u.id IN (${a.map(()=>'?').join(',')})`;p=p.concat(a);}if(row.audience==='participants'){const a=(await m.query('SELECT user_id FROM contest_player WHERE contest_id=?',[Number(row.audience_ref)])).map(x=>Number(x.user_id)).filter(Boolean);if(!a.length)return;where+=` AND u.id IN (${a.map(()=>'?').join(',')})`;p=p.concat(a);}await m.query(`INSERT INTO notification (recipient_id,type,title,content,source_url,source_id,actor_id,is_read,created_at) SELECT u.id,'site_notification',?,?,?,?,?,0,? FROM user u LEFT JOIN auth_user_state state ON state.user_id=u.id WHERE ${where}`,p);}
+async function audit(req,action,id,m){if(syzoj.utils.authorizationV2&&syzoj.utils.authorizationV2.recordAudit)return syzoj.utils.authorizationV2.recordAudit(req,{action,resourceType:'site_notification',resourceId:Number(id),reason:syzoj.utils.operationReason(req,action)},m);return null;}
+app.get('/admin/notifications',async(req,res)=>{try{if(!isAdmin(res))throw new ErrorMessage('只有全站管理员可以管理通知。');await ensureSchema();const rs=await db().query('SELECT * FROM site_notification ORDER BY updated_at DESC,id DESC LIMIT 100');res.render('admin_notifications',{notifications:rs.map(resource)});}catch(e){syzoj.log(e);res.status(e.statusCode||403).render('error',{err:e});}});
+app.get('/admin/notification/:id/edit',async(req,res)=>{try{if(!isAdmin(res))throw new ErrorMessage('只有全站管理员可以管理通知。');await ensureSchema();const row=Number(req.params.id)?await load(req.params.id):null;if(Number(req.params.id)&&!row)throw new ErrorMessage('通知不存在。');res.render('admin_notification_edit',{notification:row||{id:0,title:'',content:'',level:'none',audience:'all',status:'draft'},notificationEtag:row?api().etagFor(resource(row)):''});}catch(e){syzoj.log(e);res.status(e.statusCode||403).render('error',{err:e});}});
+app.get('/api/v2/admin/notifications',async(req,res)=>{if(!isAdmin(res))return fail(res,403,'CAPABILITY_REQUIRED','Only site administrators can manage notifications.');await ensureSchema();return api().send(res,(await db().query('SELECT * FROM site_notification ORDER BY updated_at DESC,id DESC LIMIT 100')).map(resource));});
+app.get('/api/v2/admin/notifications/:id',async(req,res)=>{if(!isAdmin(res))return fail(res,403,'CAPABILITY_REQUIRED','Only site administrators can manage notifications.');await ensureSchema();const row=await load(req.params.id);if(!row)return fail(res,404,'NOTIFICATION_NOT_FOUND','Notification was not found.');return api().send(res,resource(row));});
+app.post('/api/v2/admin/notifications',async(req,res)=>{if(!isAdmin(res))return fail(res,403,'CAPABILITY_REQUIRED','Only site administrators can manage notifications.');await ensureSchema();const c=validate(req.body);if(Object.keys(c.errors).length)return fail(res,422,'VALIDATION_FAILED','Notification fields are invalid.',c.errors);const t=now();try{const out=await db().transaction(async m=>{const q=await m.query('INSERT INTO site_notification (title,content,level,audience,audience_ref,target_user_ids_json,status,scheduled_at,require_ack,is_pinned,allow_markdown,allow_images,created_by,updated_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?, ?,?,?,?,?,?,?,?,?)',[c.value.title,c.value.content,c.value.level,c.value.audience,c.value.audience_ref,c.value.target_user_ids.length?JSON.stringify(c.value.target_user_ids):null,c.value.scheduled_at?'scheduled':'draft',c.value.scheduled_at,c.value.require_ack?1:0,c.value.is_pinned?1:0,c.value.allow_markdown?1:0,c.value.allow_images?1:0,res.locals.user.id,res.locals.user.id,t,t]);return{ id:q.insertId,audit:await audit(req,'admin:notification.create',q.insertId,m)};});res.locals.apiMeta.audit_event_id=out.audit;return api().send(res,resource(await load(out.id)),201);}catch(e){return fail(res,500,'NOTIFICATION_CREATE_FAILED',e.message);}});
+app.patch('/api/v2/admin/notifications/:id',async(req,res)=>{if(!isAdmin(res))return fail(res,403,'CAPABILITY_REQUIRED','Only site administrators can manage notifications.');if(!(req.get('If-Match')||req.body&&req.body.if_match))return fail(res,428,'PRECONDITION_REQUIRED','If-Match is required when editing a notification.');await ensureSchema();try{const out=await db().transaction(async m=>{const row=await load(req.params.id,true,m);if(!row)throw Object.assign(new Error('Notification was not found.'),{statusCode:404,code:'NOTIFICATION_NOT_FOUND'});if(['published','revoked','archived'].includes(row.status))throw Object.assign(new Error('当前状态不可编辑。'),{statusCode:409,code:'NOTIFICATION_STATE_INVALID'});if(!api().ifMatch(req,resource(row)))throw Object.assign(new Error('Notification changed.'),{statusCode:412,code:'ETAG_MISMATCH'});const c=validate(req.body,row);if(Object.keys(c.errors).length)throw Object.assign(new Error('Notification fields are invalid.'),{statusCode:422,code:'VALIDATION_FAILED',fields:c.errors});const t=now();await m.query('UPDATE site_notification SET title=?,content=?,level=?,audience=?,audience_ref=?,target_user_ids_json=?,status=?,scheduled_at=?,require_ack=?,is_pinned=?,allow_markdown=?,allow_images=?,updated_by=?,updated_at=? WHERE id=?',[c.value.title,c.value.content,c.value.level,c.value.audience,c.value.audience_ref,c.value.target_user_ids.length?JSON.stringify(c.value.target_user_ids):null,c.value.scheduled_at?'scheduled':'draft',c.value.scheduled_at,c.value.require_ack?1:0,c.value.is_pinned?1:0,c.value.allow_markdown?1:0,c.value.allow_images?1:0,res.locals.user.id,t,Number(req.params.id)]);return{audit:await audit(req,'admin:notification.update',req.params.id,m)};});res.locals.apiMeta.audit_event_id=out.audit;return api().send(res,resource(await load(req.params.id)));}catch(e){return fail(res,e.statusCode||500,e.code||'NOTIFICATION_UPDATE_FAILED',e.message,e.fields);}});
+async function publish(req,res,id){const expected=req.get('If-Match')||req.body&&req.body.if_match;if(!expected)return{error:[428,'PRECONDITION_REQUIRED','If-Match is required when publishing a notification.']};const out=await db().transaction(async m=>{const row=await load(id,true,m);if(!row)throw Object.assign(new Error('Notification was not found.'),{statusCode:404,code:'NOTIFICATION_NOT_FOUND'});if(api().etagFor(resource(row))!==expected)throw Object.assign(new Error('Notification changed.'),{statusCode:412,code:'ETAG_MISMATCH'});if(row.status==='published')return{already:true};if(['revoked','archived'].includes(row.status))throw Object.assign(new Error('当前状态不可发布。'),{statusCode:409,code:'NOTIFICATION_STATE_INVALID'});const t=now();await m.query("UPDATE site_notification SET status='published',published_at=?,published_by=?,updated_by=?,updated_at=? WHERE id=?",[t,res.locals.user.id,res.locals.user.id,t,id]);row.status='published';row.published_at=t;await addRecipients(m,row,res.locals.user.id,t);return{audit:await audit(req,'admin:notification.publish',id,m)};});if(!out.already)await api().appendEvent({stream:`notifications:site:${id}`,type:'site_notification.published',aggregateId:Number(id),actor:res.locals.user,payload:{notification_id:Number(id)}});return{value:resource(await load(id)),audit:out.audit};}
+app.post('/api/v2/admin/notifications/:id/publish',async(req,res)=>{if(!isAdmin(res))return fail(res,403,'CAPABILITY_REQUIRED','Only site administrators can manage notifications.');await ensureSchema();try{const out=await publish(req,res,req.params.id);if(out.error)return fail(res,...out.error);res.locals.apiMeta.audit_event_id=out.audit||null;return api().send(res,out.value);}catch(e){return fail(res,e.statusCode||500,e.code||'NOTIFICATION_PUBLISH_FAILED',e.message);}});
+async function transition(req,res,id,action){const expected=req.get('If-Match')||req.body&&req.body.if_match;if(!expected)return fail(res,428,'PRECONDITION_REQUIRED','If-Match is required for this action.');const out=await db().transaction(async m=>{const row=await load(id,true,m);if(!row)return{error:[404,'NOTIFICATION_NOT_FOUND','Notification was not found.']};if(!api().ifMatch(req,resource(row)))return{error:[412,'ETAG_MISMATCH','Notification changed.']};const t=now();if(action==='reopen'){await m.query("UPDATE site_notification SET status='draft',revoked_at=NULL,archived_at=NULL,published_at=NULL,updated_by=?,updated_at=? WHERE id=?",[res.locals.user.id,t,id]);await m.query("DELETE FROM notification WHERE type='site_notification' AND source_id=?",[id]);}else if(action==='revoke'){await m.query("UPDATE site_notification SET status='revoked',revoked_at=?,revoked_by=?,updated_by=?,updated_at=? WHERE id=?",[t,res.locals.user.id,res.locals.user.id,t,id]);}else if(action==='archive'){await m.query("UPDATE site_notification SET status='archived',archived_at=?,archived_by=?,updated_by=?,updated_at=? WHERE id=?",[t,res.locals.user.id,res.locals.user.id,t,id]);}else return{error:[400,'NOTIFICATION_STATE_INVALID','Unknown action.']};return{audit:await audit(req,'admin:notification.'+action,id,m)};});if(out.error)return fail(res,...out.error);res.locals.apiMeta.audit_event_id=out.audit||null;return api().send(res,resource(await load(id)));}
+for(const action of ['revoke','archive','reopen'])app.post(`/api/v2/admin/notifications/:id/${action}`,async(req,res)=>{if(!isAdmin(res))return fail(res,403,'CAPABILITY_REQUIRED','Only site administrators can manage notifications.');await ensureSchema();try{return transition(req,res,req.params.id,action);}catch(e){return fail(res,e.statusCode||500,e.code||'NOTIFICATION_STATE_FAILED',e.message);}});
+async function publishDue(){try{await ensureSchema();const rows=await db().query("SELECT id FROM site_notification WHERE status='scheduled' AND scheduled_at<=? ORDER BY id LIMIT 20",[now()]);for(const x of rows){const row=await load(x.id);const req={get:n=>n==='If-Match'?api().etagFor(resource(row)):null,body:{},method:'POST',path:'/scheduler'};const res={locals:{user:{id:0,is_admin:true},apiMeta:{},isSiteOwner:true}};try{await publish(req,res,x.id);}catch(e){syzoj.log(`[site-notification] scheduled publish ${x.id}: ${e.message}`);}}}catch(e){syzoj.log(`[site-notification] scheduler: ${e.message}`);}}
+setInterval(publishDue,30000);publishDue();

@@ -6,8 +6,8 @@ const BUILT_IN_ROLES = Object.freeze({
   guest: Object.freeze(['problem:read', 'problemset:read', 'contest:read', 'ranking:read', 'discussion:read', 'announcement:read', 'banner:read']),
   member: Object.freeze(['submission:create', 'problemset:register', 'problemset:submit', 'contest:register', 'contest:submit', 'solution:create', 'discussion:create', 'message:own', 'notification:read', 'clipboard:own', 'ticket:create', 'profile:edit']),
   participant: Object.freeze(['contest:read', 'contest:submit', 'submission:own.read', 'ranking:read']),
-  problem_editor: Object.freeze(['problem:read', 'problem:create', 'problem:edit', 'problem:delete', 'problem:testdata.write', 'problem:tag.manage']),
-  problem_reviewer: Object.freeze(['problem:read', 'problem:edit', 'problem:delete', 'problem:publish', 'problem:archive', 'problem:testdata.write', 'problem:tag.manage']),
+  problem_editor: Object.freeze(['problem:read', 'problem:create', 'problem:edit', 'problem:delete', 'problem:testdata.write', 'problem:tag.assign']),
+  problem_reviewer: Object.freeze(['problem:read', 'problem:edit', 'problem:delete', 'problem:publish', 'problem:archive', 'problem:testdata.write', 'problem:tag.assign', 'problem:tag.catalog.manage']),
   contest_manager: Object.freeze(['contest:read', 'contest:create', 'contest:edit', 'contest:delete', 'contest:publish', 'contest:registration.manage', 'contest:standings.rebuild', 'contest:standings.export']),
   problemset_manager: Object.freeze(['problemset:read', 'problemset:create', 'problemset:edit', 'problemset:delete', 'problemset:publish', 'problemset:archive', 'problemset:registration.manage', 'problemset:standings.export']),
   judge_operator: Object.freeze(['judge:read', 'judge:worker.restart', 'submission:rejudge']),
@@ -18,7 +18,7 @@ const BUILT_IN_ROLES = Object.freeze({
     'admin:health.read', 'admin:audit.read', 'admin:user.manage', 'admin:permission.grant',
     'admin:config.read', 'admin:config.write', 'admin:job.manage', 'admin:content.manage',
     'problem:read', 'problem:create', 'problem:edit', 'problem:publish', 'problem:archive',
-    'problem:testdata.write', 'problem:tag.manage', 'problem:delete', 'contest:read', 'contest:create',
+    'problem:testdata.write', 'problem:tag.assign', 'problem:tag.catalog.manage', 'problem:delete', 'contest:read', 'contest:create',
     'contest:edit', 'contest:delete', 'contest:publish', 'contest:registration.manage', 'contest:standings.rebuild', 'contest:standings.export',
     'problemset:read', 'problemset:create', 'problemset:edit', 'problemset:delete', 'problemset:publish',
     'problemset:archive', 'problemset:registration.manage', 'problemset:standings.export',
@@ -32,7 +32,7 @@ const BUILT_IN_ROLES = Object.freeze({
 
 const LEGACY_ROLE_MAP = Object.freeze({
   manage_problem: 'problem_editor',
-  manage_problem_tag: 'problem_editor',
+  manage_problem_tag: 'problem_reviewer',
   manage_contest: 'contest_manager',
   manage_problemset: 'problemset_manager',
   manage_solution: 'content_moderator',
@@ -54,7 +54,7 @@ const RESOURCE_OWNER_CAPABILITIES = new Set([
   'problemset:edit', 'problemset:publish'
 ]);
 const RESOURCE_OWNER_RESTRICTED_CAPABILITIES = new Set([
-  'problem:edit', 'problem:delete', 'problem:publish', 'problem:archive', 'problem:testdata.write', 'problem:tag.manage',
+  'problem:edit', 'problem:delete', 'problem:publish', 'problem:archive', 'problem:testdata.write', 'problem:tag.assign',
   'contest:edit', 'contest:delete', 'contest:publish', 'contest:registration.manage',
   'contest:standings.rebuild', 'contest:standings.export', 'contest:start', 'contest:freeze', 'contest:end',
   'problemset:edit', 'problemset:delete', 'problemset:publish', 'problemset:archive',
