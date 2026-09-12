@@ -5,9 +5,26 @@
     return response.headers.get('ETag') || body && body.meta && body.meta.etag || '';
   }
 
+  function freshKey() {
+    return window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + '-' + Math.random().toString(36).slice(2);
+  }
+
   async function request(url, options) {
-    var response = await window.fetch(url, Object.assign({ credentials: 'same-origin' }, options || {}));
+    var requestOptions = Object.assign({ credentials: 'same-origin' }, options || {});
+    var response = await window.fetch(url, requestOptions);
     var body = await response.json().catch(function () { return null; });
+    // A stale key should never strand a user action. Retry once only for a
+    // deterministic JSON/empty request; streamed multipart bodies are left
+    // untouched because they cannot be safely replayed.
+    if (response.status === 409 && body && body.error && body.error.code === 'IDEMPOTENCY_CONFLICT' &&
+        (requestOptions.body == null || typeof requestOptions.body === 'string')) {
+      var retryOptions = Object.assign({}, requestOptions);
+      var retryHeaders = new Headers(requestOptions.headers || {});
+      retryHeaders.set('Idempotency-Key', freshKey());
+      retryOptions.headers = retryHeaders;
+      response = await window.fetch(url, retryOptions);
+      body = await response.json().catch(function () { return null; });
+    }
     var result = { response: response, body: body, data: body && body.data, etag: etag(response, body) };
     if (!response.ok) {
       var error = new Error(body && body.error && body.error.message || '请求失败。');
