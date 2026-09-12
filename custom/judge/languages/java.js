@@ -6,6 +6,12 @@ function javaEnvironmentCommand(command) {
     return `export LD_LIBRARY_PATH="${JAVA_LIBRARY_PATH}"; exec ${command}`;
 }
 
+// The judge host may expose many CPUs to a sandbox. Without an explicit
+// processor count, HotSpot creates a large GC/compiler thread pool and can
+// fail with pthread_create(EAGAIN) even when the submitted program uses one
+// thread. Keep Java's runtime thread footprint bounded by the process limit.
+const JAVA_RUN_COMMAND = 'java -XX:ActiveProcessorCount=2 -XX:CICompilerCount=2 -XX:ParallelGCThreads=2 -XX:ConcGCThreads=1 "$1"';
+
 exports.lang = {
     name: "java",
     sourceFileName: "Main.java",
@@ -34,7 +40,7 @@ exports.lang = {
         parameters: [
             "bash",
             "-c",
-            javaEnvironmentCommand("\"$1\""),
+            javaEnvironmentCommand(JAVA_RUN_COMMAND),
             "java",
             `${binaryDirectory}/run`
         ],

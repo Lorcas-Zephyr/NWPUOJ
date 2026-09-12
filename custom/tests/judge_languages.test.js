@@ -60,6 +60,8 @@ test('judge registers modern C++ and Python runtimes', () => {
   assert.match(java.compile('/source/Main.java', '/binary').parameters[2], /LD_LIBRARY_PATH=.*lib\/jli/);
   assert.equal(java.run('/binary', '/work', 1000, 256).executable, '/bin/bash');
   assert.match(java.run('/binary', '/work', 1000, 256).parameters[2], /LD_LIBRARY_PATH=.*lib\/jli/);
+  assert.match(java.run('/binary', '/work', 1000, 256).parameters[2], /ActiveProcessorCount=2/);
+  assert.match(java.run('/binary', '/work', 1000, 256).parameters[2], /ParallelGCThreads=2/);
   assert.match(judgeDockerfile, /PYPY_VERSION=7\.3\.23/);
   assert.match(judgeDockerfile, /PYPY_SHA256=16f9f56e82d1f4ec95a324c1a8cacfd78afc7f0656c0a809a18725ef4391453a/);
   assert.match(judgeDockerfile, /\/opt\/pypy\/bin > \/rootfs\/etc\/ld\.so\.conf\.d\/pypy\.conf/);
