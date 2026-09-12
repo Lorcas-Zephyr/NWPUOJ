@@ -160,7 +160,7 @@ function appJudgeQueueAge(seconds) {
     submit.disabled = true;
     fetch('/api/v2/admin/judge-workers/' + encodeURIComponent(selectedWorker.id) + '/restart', {
       method: 'POST', credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) },
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + '-' + Math.random().toString(36).slice(2) },
       body: JSON.stringify({})
     }).then(function (response) { return response.json().then(function (body) { if (!response.ok) throw new Error(body.error && body.error.message || '重启失败'); return body; }); })
       .then(function () { dialog.close(); if (window.NWPUOJApp) window.NWPUOJApp.showToast(selectedWorker.name + ' 已重启', 'success'); refresh(); })

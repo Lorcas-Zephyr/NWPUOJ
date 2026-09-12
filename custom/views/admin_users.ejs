@@ -20,7 +20,7 @@
       var response = await fetch('/api/v2/admin/users/' + encodeURIComponent(form.dataset.userId), {
         method: 'DELETE',
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) },
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + '-' + Math.random().toString(36).slice(2) },
         body: '{}'
       });
       var body = await response.json();
