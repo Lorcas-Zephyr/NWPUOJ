@@ -55,6 +55,10 @@
   --app-space-6: 32px;
   --app-motion-fast: 140ms;
   --app-motion-base: 220ms;
+  --app-glass-bg: rgba(255, 255, 255, 0.72);
+  --app-glass-bg-strong: rgba(255, 255, 255, 0.86);
+  --app-glass-line: rgba(127, 174, 207, 0.32);
+  --app-glass-shadow: 0 14px 36px rgba(32, 96, 135, 0.11), inset 0 1px 0 rgba(255,255,255,0.82);
 }
 
 :root[data-theme="dark"] {
@@ -99,6 +103,10 @@
   --app-banner-bg: #20242b;
   --app-focus: 0 0 0 3px rgba(105, 164, 255, 0.23);
   --app-shadow-menu: 0 20px 60px rgba(0, 0, 0, 0.42), 0 2px 8px rgba(0, 0, 0, 0.3);
+  --app-glass-bg: rgba(24, 29, 37, 0.72);
+  --app-glass-bg-strong: rgba(28, 34, 43, 0.9);
+  --app-glass-line: rgba(159, 190, 220, 0.22);
+  --app-glass-shadow: 0 18px 48px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255,255,255,0.08);
 }
 
 *,
@@ -385,8 +393,9 @@ body.app-v2.is-dialog-open {
   gap: 24px;
   padding: 0 28px;
   border-bottom: 1px solid var(--app-line);
-  background: color-mix(in srgb, var(--app-surface) 96%, transparent);
-  backdrop-filter: blur(16px);
+  background: var(--app-glass-bg);
+  backdrop-filter: blur(22px) saturate(135%);
+  -webkit-backdrop-filter: blur(22px) saturate(135%);
   box-shadow: 0 1px 0 rgba(33, 104, 150, 0.04), 0 8px 24px rgba(33, 104, 150, 0.035);
 }
 
@@ -459,7 +468,7 @@ body.app-v2.is-dialog-open {
 }
 
 .app-icon-button:hover {
-  background: var(--app-bg);
+  background: color-mix(in srgb, var(--app-accent-soft) 72%, transparent);
   color: var(--app-text) !important;
 }
 

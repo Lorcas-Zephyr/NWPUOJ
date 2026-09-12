@@ -13,6 +13,13 @@ Updated: 2026-07-31
 - [ ] Add browser-level visual regression coverage for desktop and mobile workspaces.
 - [ ] Add a production deployment smoke test covering notification scheduling and targeted delivery.
 
+## UI refresh (2026-09-13)
+
+- [x] Add a restrained liquid-glass surface language to shared buttons, topbar, icon actions, and dialogs.
+- [x] Preserve light/dark contrast, focus rings, and reduced-motion behavior while applying translucency.
+- [ ] Extend the glass treatment to filters, dropdowns, drawers, and empty states after visual review.
+- [ ] Run browser screenshots at desktop, tablet, and mobile widths and review contrast/overflow.
+
 ## Goals
 
 - Build a quiet, professional interface for repeated OJ workflows rather than a marketing-style site.
