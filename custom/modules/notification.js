@@ -1,5 +1,6 @@
 let Notification = syzoj.model('notification');
 let User = syzoj.model('user');
+const { linkUserMentions } = require('../libs/user-mentions');
 
 // ============ 通用 API:创建通知 ============
 // 暴露给所有触发点(题解审核 / 工单 / @ 提及 / 评论回复等)统一调用
@@ -76,6 +77,9 @@ app.get('/notifications', async (req, res) => {
       if (n.actor_id) {
         n.actor = await User.findById(n.actor_id);
       }
+      if (n.type === 'site_notification' && n.content) {
+        n.contentRendered = await linkUserMentions(await syzoj.utils.markdown(n.content));
+      }
     }
     let unreadCount = await countUnread(userId);
 
@@ -97,4 +101,3 @@ app.get('/notifications', async (req, res) => {
 // ============ POST /notifications/read-all 全部已读 ============
 
 // ============ POST /notification/:id/delete 删除单条 ============
-

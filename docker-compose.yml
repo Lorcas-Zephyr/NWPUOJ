@@ -89,6 +89,7 @@ services:
       - ./custom/modules/_api_v2_rating_domain.js:/app/modules/_api_v2_rating_domain.js:ro
       - ./custom/modules/_api_v2_vjudge_domain.js:/app/modules/_api_v2_vjudge_domain.js:ro
       - ./custom/modules/_api_v2_content_domain.js:/app/modules/_api_v2_content_domain.js:ro
+      - ./custom/modules/_admin_notifications.js:/app/modules/_admin_notifications.js:ro
       - ./custom/modules/_api_v2_admin_domain.js:/app/modules/_api_v2_admin_domain.js:ro
       - ./custom/modules/_api_v2_migration.js:/app/modules/_api_v2_migration.js:ro
       - ./custom/modules/_api_v2_contract.js:/app/modules/_api_v2_contract.js:ro
@@ -137,6 +138,8 @@ services:
       - ./custom/views/admin_banners.ejs:/app/views/admin_banners.ejs:ro
       - ./custom/modules/announcement.js:/app/modules/announcement.js:ro
       - ./custom/views/admin_announcements.ejs:/app/views/admin_announcements.ejs:ro
+      - ./custom/views/admin_notifications.ejs:/app/views/admin_notifications.ejs:ro
+      - ./custom/views/admin_notification_edit.ejs:/app/views/admin_notification_edit.ejs:ro
       - ./custom/views/admin_announcement_edit.ejs:/app/views/admin_announcement_edit.ejs:ro
       - ./custom/models-built/private-message.js:/app/models-built/private-message.js:ro
       - ./custom/models-built/user-message-setting.js:/app/models-built/user-message-setting.js:ro
