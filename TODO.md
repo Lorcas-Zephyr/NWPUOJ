@@ -2,6 +2,17 @@
 
 Updated: 2026-07-31
 
+## Current follow-up (2026-09-12)
+
+- [x] Remove notification severity/level from the editor and API resource.
+- [x] Expand notification content editing to the full workspace width.
+- [x] Use a fresh idempotency key for every distinct notification save/publish request.
+- [x] Remove the unused notification severity field from storage responses and the editor.
+- [x] Give the notification editor a full-width, tall writing surface.
+- [x] Verify notification, tag, testdata, bulk-import, and shared API changes with the full test suite.
+- [ ] Add browser-level visual regression coverage for desktop and mobile workspaces.
+- [ ] Add a production deployment smoke test covering notification scheduling and targeted delivery.
+
 ## Goals
 
 - Build a quiet, professional interface for repeated OJ workflows rather than a marketing-style site.

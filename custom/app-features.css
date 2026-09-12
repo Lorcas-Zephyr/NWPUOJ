@@ -1597,6 +1597,11 @@
   border-top: 1px solid var(--app-line-strong);
 }
 
+.notification-settings-section {
+  grid-template-columns: minmax(180px, 0.32fr) minmax(0, 1.68fr);
+  gap: 36px;
+}
+
 .app-settings-copy h2 {
   margin: 5px 0 6px;
   font-size: 16px;
@@ -7733,6 +7738,16 @@
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 12px;
   line-height: 1.7;
+}
+
+.notification-content-field {
+  width: 100%;
+}
+
+.notification-content-editor {
+  width: 100%;
+  min-height: 520px;
+  resize: vertical;
 }
 
 .app-editor-bar {
