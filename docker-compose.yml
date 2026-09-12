@@ -181,6 +181,7 @@ services:
       - ./custom/app-shared.css:/app/static/self/app-shared.css:ro
       - ./custom/app-features.css:/app/static/self/app-features.css:ro
       - ./custom/app-v2.js:/app/static/self/app-v2.js:ro
+      - ./custom/app-api.js:/app/static/self/app-api.js:ro
       - ./custom/lucide-1.27.0.min.js:/app/static/self/lucide-1.27.0.min.js:ro
       - ./custom/modern-editor.js:/app/static/self/modern-editor.js:ro
       - ./custom/views/ranklist.ejs:/app/views/ranklist.ejs:ro
