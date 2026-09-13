@@ -128,14 +128,14 @@
 }
 
 .app-button-primary {
-  border-color: var(--app-accent);
-  background: var(--app-accent);
+  border-color: #2b83c6;
+  background: #2b83c6;
   color: #ffffff !important;
 }
 
 .app-button-primary:hover {
-  border-color: var(--app-accent-hover);
-  background: var(--app-accent-hover);
+  border-color: #1769a7;
+  background: #1769a7;
   color: #ffffff !important;
 }
 
