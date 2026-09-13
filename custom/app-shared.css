@@ -114,12 +114,9 @@
   justify-content: center;
   gap: 8px;
   padding: 8px 13px;
-  border: 1px solid var(--app-glass-line);
+  border: 1px solid transparent;
   border-radius: var(--app-radius-small);
-  background: var(--app-glass-bg);
-  box-shadow: 0 3px 12px rgba(33, 104, 150, 0.05), inset 0 1px 0 rgba(255,255,255,0.58);
-  backdrop-filter: blur(14px) saturate(125%);
-  -webkit-backdrop-filter: blur(14px) saturate(125%);
+  background: transparent;
   color: var(--app-text) !important;
   font-size: 13px;
   font-weight: 650;
@@ -127,17 +124,12 @@
   overflow-wrap: anywhere;
   text-align: center;
   white-space: normal;
-  transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease, transform 140ms ease;
-}
-
-.app-button:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 7px 18px rgba(33, 104, 150, 0.12), inset 0 1px 0 rgba(255,255,255,0.72);
+  transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease;
 }
 
 .app-button-primary {
-  border-color: color-mix(in srgb, var(--app-accent) 78%, white);
-  background: linear-gradient(145deg, color-mix(in srgb, var(--app-accent) 94%, white), var(--app-accent-hover));
+  border-color: var(--app-accent);
+  background: var(--app-accent);
   color: #ffffff !important;
 }
 
@@ -148,8 +140,8 @@
 }
 
 .app-button-secondary {
-  border-color: var(--app-glass-line);
-  background: var(--app-glass-bg-strong);
+  border-color: var(--app-line-strong);
+  background: var(--app-surface);
 }
 
 .app-button-secondary:hover,
@@ -783,10 +775,7 @@
   padding: 0;
   border: 1px solid var(--app-line);
   border-radius: var(--app-radius);
-  background: var(--app-glass-bg-strong);
-  backdrop-filter: blur(24px) saturate(135%);
-  -webkit-backdrop-filter: blur(24px) saturate(135%);
-  border-color: var(--app-glass-line);
+  background: var(--app-surface-raised);
   color: var(--app-text);
   box-shadow: var(--app-shadow-menu);
 }

@@ -1,25 +1,25 @@
 :root {
   color-scheme: light;
-  --app-bg: #f4f8fc;
+  --app-bg: #f6f8fa;
   --app-surface: #ffffff;
   --app-surface-raised: #ffffff;
   --app-sidebar: #ffffff;
-  --app-sidebar-hover: #edf6fd;
+  --app-sidebar-hover: #f0f4f7;
   --app-sidebar-text: #1b1e24;
   --app-sidebar-muted: #707784;
   --app-sidebar-item: #4d5562;
   --app-sidebar-icon: #697280;
-  --app-sidebar-active: #dff0fc;
-  --app-sidebar-active-text: #1769a7;
-  --app-sidebar-line: #dceaf4;
+  --app-sidebar-active: #eaf3f8;
+  --app-sidebar-active-text: #397b9f;
+  --app-sidebar-line: #e1e8ed;
   --app-text: #17191d;
   --app-text-secondary: #5d6470;
   --app-text-muted: #858c98;
   --app-line: #e5e8ed;
   --app-line-strong: #d5d9e0;
-  --app-accent: #2b83c6;
-  --app-accent-hover: #1769a7;
-  --app-accent-soft: #e3f2fc;
+  --app-accent: #4b91b7;
+  --app-accent-hover: #397b9f;
+  --app-accent-soft: #eaf3f8;
   --app-on-accent: #ffffff;
   --app-success: #17834f;
   --app-success-soft: #e9f7f0;
@@ -393,10 +393,8 @@ body.app-v2.is-dialog-open {
   gap: 24px;
   padding: 0 28px;
   border-bottom: 1px solid var(--app-line);
-  background: var(--app-glass-bg);
-  backdrop-filter: blur(22px) saturate(135%);
-  -webkit-backdrop-filter: blur(22px) saturate(135%);
-  box-shadow: 0 1px 0 rgba(33, 104, 150, 0.04), 0 8px 24px rgba(33, 104, 150, 0.035);
+  background: color-mix(in srgb, var(--app-surface) 96%, transparent);
+  backdrop-filter: blur(16px);
 }
 
 .app-topbar-context,
@@ -468,7 +466,7 @@ body.app-v2.is-dialog-open {
 }
 
 .app-icon-button:hover {
-  background: color-mix(in srgb, var(--app-accent-soft) 72%, transparent);
+  background: var(--app-bg);
   color: var(--app-text) !important;
 }
 
