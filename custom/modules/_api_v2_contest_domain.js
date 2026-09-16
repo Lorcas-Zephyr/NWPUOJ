@@ -9,7 +9,8 @@ const contestDeletion = require('../libs/contest-deletion');
 const { normalizeStudentIdRows } = require('../libs/contest-temp-accounts');
 const { ensureRegistrationProfileSchema, ORDINARY_STUDENT_ID_SCOPE } = require('../libs/registration-profile-schema');
 const { contestConfigurationLocked, resolveContestStatus, snapshotRefreshAllowed, standingsVisibility, transitionAllowed } = require('../libs/contest-lifecycle');
-const { advanceStandingsPointers, calculateStandingRows, serializeStandingRow } = require('../libs/contest-standings');
+const { advanceStandingsPointers, calculateStandingRows, serializeStandingRow, normalizeFreezeAfterMinutes,
+  resolveStandingsFreeze, selectStandingsView, loadFrozenScoreDetails } = require('../libs/contest-standings');
 
 let schemaPromise = null;
 const ordinaryRegistrationUpload = multer({
@@ -135,7 +136,7 @@ function serializeContest(contest, state, canManage) {
 
 async function stateFor(contestId) {
   await ensureContestV2Schema();
-  const rows = await TypeORM.getConnection().query('SELECT * FROM contest_v2_state WHERE contest_id=? LIMIT 1', [contestId]);
+  const rows = await TypeORM.getConnection().query("SELECT *,TIMESTAMPDIFF(SECOND,'1970-01-01',frozen_at) AS frozen_at_seconds FROM contest_v2_state WHERE contest_id=? LIMIT 1", [contestId]);
   return rows[0] || null;
 }
 
@@ -253,6 +254,13 @@ async function canManageContest(contest, user, action) {
   const scoped = await syzoj.utils.authorizationV2.authorize(user, action, { id: Number(contest.id), ownerId: Number(contest.holder_id), scope }, { scope });
   return !!scoped;
 }
+
+async function standingsViewFor(contest, user, requestedView) {
+  const [config, state, canManage] = await Promise.all([
+    loadContestConfig(contest), stateFor(contest.id), canManageContest(contest, user, 'contest:standings.export')
+  ]);
+  return selectStandingsView(resolveStandingsFreeze(contest, config, state), canManage, requestedView);
+}
 async function isActiveParticipant(contestId, user) {
   if (!user) return false;
   const rows = await TypeORM.getConnection().query(
@@ -368,12 +376,11 @@ async function trackContestProblemSnapshot(contestId, problemId, problemSnapshot
 
 function standingsKind(status, requested) {
   if (requested) return requested;
-  if (status === 'frozen') return 'frozen';
   if (['ended', 'rated', 'archived'].includes(status)) return 'final';
   return 'realtime';
 }
 
-async function standingSource(manager, contest) {
+async function standingSource(manager, contest, cutoff = null) {
   const players = await manager.query(
     `SELECT cp.id AS participant_id,cp.user_id,u.username,cp.score_details
      FROM contest_player cp INNER JOIN user u ON u.id=cp.user_id
@@ -384,6 +391,10 @@ async function standingSource(manager, contest) {
   );
   const ranklists = await manager.query('SELECT ranking_params FROM contest_ranklist WHERE id=? LIMIT 1', [contest.ranklist_id]);
   const rankingParams = parseJson(ranklists[0] && ranklists[0].ranking_params, {});
+  if (cutoff != null) {
+    const frozenDetails = await loadFrozenScoreDetails(manager, contest, cutoff);
+    for (const player of players) player.score_details = frozenDetails.get(Number(player.user_id)) || {};
+  }
   const judgeIds = [];
   for (const player of players) {
     const details = parseJson(player.score_details, {});
@@ -394,7 +405,7 @@ async function standingSource(manager, contest) {
     const judges = await manager.query('SELECT id,submit_time FROM judge_state WHERE id IN (?)', [Array.from(new Set(judgeIds))]);
     judges.forEach(row => judgeTimes.set(Number(row.id), Number(row.submit_time || 0)));
   }
-  const watermarkRows = await manager.query('SELECT MAX(id) AS id FROM judge_state WHERE type=1 AND type_info=?', [contest.id]);
+  const watermarkRows = await manager.query('SELECT MAX(id) AS id FROM judge_state WHERE type=1 AND type_info=? AND submit_time<?', [contest.id, cutoff == null ? Number(contest.end_time) : cutoff]);
   const rows = calculateStandingRows({ type: contest.type, startTime: contest.start_time, rankingParams, judgeTimes, players });
   rows.forEach(row => {
     row.diagnostics = {
@@ -426,25 +437,35 @@ async function projectStandings(contestId, options) {
     const contests = await manager.query('SELECT * FROM contest WHERE id=? FOR UPDATE', [Number(contestId)]);
     if (!contests.length) throw Object.assign(new Error('Contest was not found.'), { statusCode: 404, code: 'CONTEST_NOT_FOUND' });
     const contest = contests[0];
-    let states = await manager.query('SELECT * FROM contest_v2_state WHERE contest_id=? FOR UPDATE', [contest.id]);
+    let states = await manager.query("SELECT *,TIMESTAMPDIFF(SECOND,'1970-01-01',frozen_at) AS frozen_at_seconds FROM contest_v2_state WHERE contest_id=? FOR UPDATE", [contest.id]);
     if (!states.length) {
       const initialStatus = lifecycleFor(contest, null);
       await manager.query('INSERT INTO contest_v2_state (contest_id,status,revision,updated_at,updated_by) VALUES (?,?,0,UTC_TIMESTAMP(3),?)', [contest.id, initialStatus, options.actor && options.actor.id || null]);
-      states = await manager.query('SELECT * FROM contest_v2_state WHERE contest_id=? FOR UPDATE', [contest.id]);
+      states = await manager.query("SELECT *,TIMESTAMPDIFF(SECOND,'1970-01-01',frozen_at) AS frozen_at_seconds FROM contest_v2_state WHERE contest_id=? FOR UPDATE", [contest.id]);
     }
-    const status = lifecycleFor(contest, states[0]);
+    const configs = await manager.query('SELECT security_json FROM contest_v2_config WHERE contest_id=?', [contest.id]);
+    const freeze = resolveStandingsFreeze(contest, { security: parseJson(configs[0] && configs[0].security_json, {}) }, states[0]);
+    const status = freeze.frozen ? 'frozen' : lifecycleFor(contest, states[0]);
     const kind = standingsKind(status, options.kind);
     if (!['initial', 'realtime', 'frozen', 'unfrozen', 'final', 'rebuild'].includes(kind)) {
       throw Object.assign(new Error('Invalid standings projection kind.'), { statusCode: 422, code: 'STANDINGS_KIND_INVALID' });
     }
-    const source = await standingSource(manager, contest);
+    let cutoff = options.cutoff;
+    if (kind === 'frozen' && cutoff == null) {
+      cutoff = freeze.freezeAt;
+      if (cutoff == null) throw Object.assign(new Error('No standings freeze is configured.'), { statusCode: 409, code: 'STANDINGS_NOT_FROZEN' });
+    }
+    const source = await standingSource(manager, contest, cutoff);
     const contentHash = crypto.createHash('sha256').update(JSON.stringify(source.rows.map(row => ({
       participant_id: row.participant_id, user_id: row.user_id, rank: row.rank,
       score: row.score, penalty: row.penalty, details: row.details
     })))).digest('hex');
     const latest = await manager.query('SELECT * FROM contest_v2_standings_version WHERE contest_id=? ORDER BY version_number DESC LIMIT 1', [contest.id]);
-    if ((kind === 'realtime' || options.deduplicate) && latest.length && latest[0].content_hash === contentHash && latest[0].contest_status === status && (!options.deduplicate || latest[0].kind === kind)) {
-      return { created: false, contest, version: latest[0], rows: source.rows };
+    const comparable = options.deduplicate
+      ? await manager.query('SELECT * FROM contest_v2_standings_version WHERE contest_id=? AND kind=? ORDER BY version_number DESC LIMIT 1', [contest.id, kind])
+      : latest;
+    if ((kind === 'realtime' || options.deduplicate) && comparable.length && comparable[0].content_hash === contentHash && comparable[0].contest_status === status) {
+      return { created: false, contest, version: comparable[0], rows: source.rows };
     }
     const versionNumber = latest.length ? Number(latest[0].version_number) + 1 : 1;
     const inserted = await manager.query(`INSERT INTO contest_v2_standings_version
@@ -586,6 +607,7 @@ syzoj.utils.contestStandingsV2 = {
 syzoj.utils.contestV2 = {
   ensureSchema: ensureContestV2Schema,
   ensureConfig: loadContestConfig,
+  standingsView: standingsViewFor,
   snapshotProblems,
   syncProblemSnapshotsForProblem,
   getProblemSnapshot: loadContestProblemSnapshot,
@@ -688,6 +710,9 @@ app.put('/api/v2/contests/:id/config', async (req, res) => {
     if (!api.ifMatch(req, current)) return api.fail(res, 412, 'ETAG_MISMATCH', 'The contest configuration changed. Refresh it and try again.');
     const problemIds = (await contest.getProblems()).map(Number);
     const next = normalizedContestConfig(req.body || {}, current, problemIds);
+    next.security = Object.assign({}, next.security, {
+      standings_freeze_after_minutes: normalizeFreezeAfterMinutes(next.security.standings_freeze_after_minutes, contest.start_time, contest.end_time)
+    });
     const updated = await contestMutation.withContestLock(contest.id, () => TypeORM.getConnection().transaction('READ COMMITTED', async manager => {
       const contestRows = await manager.query('SELECT * FROM contest WHERE id=? FOR UPDATE', [contest.id]);
       const configRows = await manager.query('SELECT * FROM contest_v2_config WHERE contest_id=? FOR UPDATE', [contest.id]);
@@ -721,6 +746,7 @@ app.put('/api/v2/contests/:id/config', async (req, res) => {
       return configResource(fresh[0]);
     }));
     invalidateRegistrationReadState(contest.id, res.locals.user.id);
+    if (syzoj.utils.invalidateContestReadCache) syzoj.utils.invalidateContestReadCache(contest.id);
     const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, { action: 'contest:config.update', resourceType: 'contest', resourceId: contest.id, reason, details: { from_revision: current.revision, to_revision: updated.revision } });
     await api.appendEvent({ stream: `contest:${contest.id}`, type: 'contest.config.updated', aggregateId: contest.id, actor: res.locals.user, payload: { revision: updated.revision, audit_event_id: auditEventId } });
     res.set('X-Audit-Event-ID', String(auditEventId));
@@ -745,6 +771,14 @@ async function saveContestV2(req, res, contestId) {
   const start = instant(body.start_at == null ? body.start_time : body.start_at, existing && existing.start_time);
   const end = instant(body.end_at == null ? body.end_time : body.end_at, existing && existing.end_time);
   if (!title || title.length > 80 || !Number.isFinite(start) || !Number.isFinite(end) || start >= end) return api.fail(res, 422, 'VALIDATION_FAILED', 'A title no longer than 80 characters and valid start/end times are required.', { title: !title ? 'required' : title.length > 80 ? 'maximum 80 characters' : undefined });
+  let freezeAfterMinutes;
+  try {
+    freezeAfterMinutes = normalizeFreezeAfterMinutes(body.standings_freeze_after_minutes === undefined
+      ? existingConfig && existingConfig.security.standings_freeze_after_minutes
+      : body.standings_freeze_after_minutes, start / 1000, end / 1000);
+  } catch (error) {
+    return api.fail(res, 422, error.code, error.message, { standings_freeze_after_minutes: 'invalid' });
+  }
   const priorProblemIds = existing ? (await existing.getProblems()).map(Number) : [];
   const requestedProblemIds = body.problem_ids === undefined ? priorProblemIds : (Array.isArray(body.problem_ids) ? body.problem_ids : []);
   const problemIds = Array.from(new Set(requestedProblemIds.map(Number).filter(id => Number.isSafeInteger(id) && id > 0)));
@@ -785,8 +819,9 @@ async function saveContestV2(req, res, contestId) {
   if (body.admins !== undefined && (!Array.isArray(body.admins) || admins.length !== body.admins.length)) return api.fail(res, 422, 'VALIDATION_FAILED', 'Administrator IDs must be unique positive integers.', { admins: 'unique positive integers' });
   for (const adminId of admins) if (!await User.findById(adminId)) return api.fail(res, 422, 'CONTEST_ADMIN_INVALID', `Administrator #${adminId} does not exist.`, { admins: String(adminId) });
   await Promise.all([ensureContestV2Schema(), api.ensureFoundationSchema()]);
-  const id = await contestMutation.saveContest({ id: contestId || 0, actorId: user.id, title, subtitle: String(body.subtitle == null && existing ? existing.subtitle || '' : body.subtitle || ''), information: String(body.information == null && existing ? existing.information || '' : body.information || ''), problems: problemIds.join('|'), admins: admins.join('|'), type, rankingParams: normalizedRankingParams, startTime: Math.floor(start / 1000), endTime: Math.floor(end / 1000), hideStatistics: body.hide_statistics === undefined && existing ? !!existing.hide_statistics : !!body.hide_statistics, isPublic: visibility === 'public', allowRegistration, allowLateRegistration, isRated, revision: mutationRevision });
+  const id = await contestMutation.saveContest({ id: contestId || 0, actorId: user.id, title, subtitle: String(body.subtitle == null && existing ? existing.subtitle || '' : body.subtitle || ''), information: String(body.information == null && existing ? existing.information || '' : body.information || ''), problems: problemIds.join('|'), admins: admins.join('|'), type, rankingParams: normalizedRankingParams, startTime: Math.floor(start / 1000), endTime: Math.floor(end / 1000), hideStatistics: body.hide_statistics === undefined && existing ? !!existing.hide_statistics : !!body.hide_statistics, isPublic: visibility === 'public', allowRegistration, allowLateRegistration, isRated, freezeAfterMinutes, revision: mutationRevision });
   invalidateRegistrationReadState(id, user.id);
+  if (syzoj.utils.invalidateContestReadCache) syzoj.utils.invalidateContestReadCache(id);
   const saved = await Contest.findById(id);
   let state = await stateFor(id);
   if (lifecycleFor(saved, state) === 'scheduled') {
@@ -1002,9 +1037,9 @@ app.get('/api/v2/contests/:id/standings', async (req, res) => {
   if (!contest) return api.fail(res, 404, 'CONTEST_NOT_FOUND', 'Contest was not found.');
   await ensureContestV2Schema();
   const user = res.locals.user;
-  const manager = await canManageContest(contest, user, 'contest:standings.rebuild');
-  const operator = !!(user && await syzoj.utils.authorizationV2.authorize(user, 'judge:read', null, { scope: 'global' }));
-  const fullScope = manager || operator;
+  const standingsView = await standingsViewFor(contest, user, String(req.query.view || 'public'));
+  const manager = standingsView.canManage;
+  const fullScope = manager;
   const participants = user ? await TypeORM.getConnection().query('SELECT id FROM contest_player WHERE contest_id=? AND user_id=? LIMIT 1', [contest.id, user.id]) : [];
   const participant = participants.length > 0;
   const state = await stateFor(contest.id);
@@ -1020,21 +1055,28 @@ app.get('/api/v2/contests/:id/standings', async (req, res) => {
   if (access === 'not_found') return api.fail(res, 404, 'CONTEST_NOT_FOUND', 'Contest was not found.');
   if (access === 'hidden') return api.fail(res, 403, 'STANDINGS_HIDDEN', 'Standings are not visible in your contest scope.');
 
-  let currents = await TypeORM.getConnection().query('SELECT * FROM contest_v2_standings_current WHERE contest_id=? LIMIT 1', [contest.id]);
-  if (!currents.length || (!currents[0].live_version_id && fullScope) || (!currents[0].public_version_id && !fullScope)) {
-    await projectStandings(contest.id, { kind: standingsKind(status), reason: 'Initial v2 standings projection' });
-    currents = await TypeORM.getConnection().query('SELECT * FROM contest_v2_standings_current WHERE contest_id=? LIMIT 1', [contest.id]);
-  }
-  const current = currents[0] || {};
-  let view = fullScope ? String(req.query.view || 'live') : 'public';
+  let view = fullScope ? String(req.query.view || 'public') : 'public';
   if (!['live', 'public', 'frozen', 'final'].includes(view)) return api.fail(res, 422, 'VALIDATION_FAILED', 'Unknown standings view.', { view: 'live, public, frozen, or final' });
-  const pointer = { live: current.live_version_id, public: current.public_version_id, frozen: current.frozen_version_id, final: current.final_version_id }[view];
+  let pointer;
+  if (view === 'frozen' && !standingsView.frozen) {
+    const currents = await TypeORM.getConnection().query('SELECT frozen_version_id FROM contest_v2_standings_current WHERE contest_id=? LIMIT 1', [contest.id]);
+    pointer = currents[0] && currents[0].frozen_version_id;
+  } else if (view === 'final' && !standingsView.ended) {
+    return api.fail(res, 409, 'STANDINGS_NOT_READY', 'The contest has not ended.');
+  } else {
+    const projection = await projectStandings(contest.id, {
+      kind: standingsView.cutoff != null ? 'frozen' : standingsView.ended ? 'final' : 'realtime',
+      cutoff: standingsView.cutoff, deduplicate: true, reason: 'Current standings view'
+    });
+    pointer = projection.version.id;
+  }
   if (!pointer) return api.fail(res, 409, 'STANDINGS_NOT_READY', 'The requested standings projection is not ready.');
   const payload = await loadStandingVersion(pointer, req, fullScope ? 'manager' : 'public', contest.type);
   if (!payload) return api.fail(res, 409, 'STANDINGS_NOT_READY', 'The requested standings projection is not ready.');
   res.locals.apiMeta.limit = api.parseLimit(req, 100, 200);
-  res.locals.apiMeta.scope = fullScope ? (manager ? 'contest_manager' : 'judge_operator') : (participant ? 'participant' : 'public');
-  return api.send(res, { contest_id: Number(contest.id), view, frozen: status === 'frozen', ...payload });
+  res.locals.apiMeta.scope = fullScope ? 'contest_manager' : (participant ? 'participant' : 'public');
+  return api.send(res, { contest_id: Number(contest.id), view, frozen: standingsView.frozen,
+    showing_live: standingsView.showLive, freeze_at: iso(standingsView.freezeAt), ...payload });
 });
 
 app.get('/api/v2/contests/:id/standings/versions', async (req, res) => {

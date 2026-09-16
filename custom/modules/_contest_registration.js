@@ -471,6 +471,8 @@ async function guardContestEditor(req, res, next) {
     if (!await canManageContest(contest, res.locals.user, 'contest:edit')) {
       return res.status(403).render('error', { err: new ErrorMessage('您没有权限编辑该比赛。') });
     }
+    const contestConfig = await syzoj.utils.contestV2.ensureConfig(contest);
+    res.locals.contestFreezeAfterMinutes = contestConfig.security.standings_freeze_after_minutes;
     if (!res.locals.user.is_admin) {
       const elevatedUser = Object.create(res.locals.user);
       elevatedUser.is_admin = true;

@@ -1,6 +1,7 @@
 <% this.title = contest.id ? '比赛管理 - ' + contest.title : '新建比赛' %>
 <% include app_header %>
 <% const appUnavailableProblems = problems.filter(function (problem) { return syzoj.utils.contestSubmissionEnabled && !syzoj.utils.contestSubmissionEnabled(problem); }); %>
+<% const appFreezeMinutes = typeof contestFreezeAfterMinutes !== 'undefined' && contestFreezeAfterMinutes != null ? Number(contestFreezeAfterMinutes) : null; %>
 
 <div class="app-page app-contest-editor-page">
   <header class="app-page-header"><div class="app-page-heading"><% if (contest.id) { %><a class="app-back-link" href="<%= syzoj.utils.makeUrl(['contest', contest.id]) %>"><i data-lucide="arrow-left"></i>返回比赛</a><% } %><span class="app-kicker">CONTEST WORKSPACE</span><h1 class="app-page-title"><%= contest.id ? contest.title : '新建比赛' %></h1><p class="app-page-description"><%= contest.id ? '维护比赛内容、赛程、权限与计分设置。' : '创建一场新的训练或正式比赛。' %></p></div></header>
@@ -13,6 +14,8 @@
     <section class="app-settings-section">
       <div class="app-settings-copy"><span class="app-kicker">VISIBILITY</span><h2>访问与计分</h2><p>控制比赛在前台的显示方式和报名范围。</p></div>
       <div class="app-settings-fields">
+        <label class="app-setting-row"><span><strong>启用封榜</strong><small>开赛后按设定时间封榜，比赛结束后自动显示完整榜单。</small></span><input class="app-switch" type="checkbox" name="standings_freeze_enabled"<%= appFreezeMinutes != null ? ' checked' : '' %>></label>
+        <label class="app-field" data-freeze-time-field<%= appFreezeMinutes == null ? ' hidden' : '' %>><span class="app-label">开赛后多久封榜（分钟）</span><input class="app-input" type="number" name="standings_freeze_after_minutes" min="0" step="1" value="<%= appFreezeMinutes == null ? '' : appFreezeMinutes %>" placeholder="例如：240"<%= appFreezeMinutes == null ? ' disabled' : ' required' %>><span class="app-help">填写非负整数，0 表示开赛即封榜，必须早于比赛结束。封榜期间仅统计封榜时刻之前的提交；管理员可单独切换实时榜单。</span></label>
         <label class="app-setting-row"><span><strong>隐藏统计信息</strong><small>参赛者无法查看实时统计。</small></span><input class="app-switch" type="checkbox" name="hide_statistics"<%= contest.hide_statistics ? ' checked' : '' %>></label>
         <label class="app-setting-row"><span><strong>隐藏比赛</strong><small>从公开列表隐藏，仅比赛管理员可访问。</small></span><input class="app-switch" type="checkbox" name="hide_contest"<%= contest.id && !contest.is_public ? ' checked' : '' %>></label>
         <label class="app-setting-row"><span><strong>允许用户报名</strong><small>关闭后仅可通过管理员生成的比赛账号参赛。</small></span><input class="app-switch" type="checkbox" name="allow_registration"<%= !contest.id || (typeof contestRegistration !== 'undefined' && contestRegistration && contestRegistration.allowRegistration) ? ' checked' : '' %>></label>
@@ -30,6 +33,20 @@
 (function () {
   var editorForm = document.getElementById('contest-editor-form');
   var editorSections = Array.prototype.filter.call(editorForm.children, function (element) { return element.classList && element.classList.contains('app-settings-section'); });
+  var freezeToggle = editorForm.elements.standings_freeze_enabled;
+  var freezeInput = editorForm.elements.standings_freeze_after_minutes;
+  function updateFreezeField() {
+    editorForm.querySelector('[data-freeze-time-field]').hidden = !freezeToggle.checked;
+    freezeInput.disabled = !freezeToggle.checked;
+    freezeInput.required = freezeToggle.checked;
+    var duration = (new Date(editorForm.elements.end_time.value) - new Date(editorForm.elements.start_time.value)) / 60000;
+    if (Number.isFinite(duration) && duration > 0) freezeInput.max = String(Math.ceil(duration) - 1);
+    else freezeInput.removeAttribute('max');
+  }
+  freezeToggle.addEventListener('change', updateFreezeField);
+  editorForm.elements.start_time.addEventListener('change', updateFreezeField);
+  editorForm.elements.end_time.addEventListener('change', updateFreezeField);
+  updateFreezeField();
 
   if (editorSections.length === 4) {
     var existingContest = <%= contest.id ? 'true' : 'false' %>;
@@ -128,6 +145,7 @@
       if (editorForm.elements.allow_registration && editorForm.elements.allow_registration.checked) visibility.push('允许用户报名');
       else visibility.push('仅限比赛账号');
       if (editorForm.elements.allow_late_registration && editorForm.elements.allow_late_registration.checked) visibility.push('允许开赛后报名');
+      visibility.push(freezeToggle.checked ? '开赛后 ' + freezeInput.value + ' 分钟封榜' : '不封榜');
       setReview('[data-review-title]', fieldValue('title') || '未填写');
       setReview('[data-review-problems]', problems.length ? problems.length + ' 道 · ' + problems.slice(0, 3).join('、') + (problems.length > 3 ? ' 等' : '') : '暂未添加');
       setReview('[data-review-admins]', admins.length ? admins.length + ' 人 · ' + admins.slice(0, 3).join('、') + (admins.length > 3 ? ' 等' : '') : '仅当前创建者');
@@ -366,6 +384,7 @@ function apiMessage(result, fallback) {
       CONTEST_PROBLEM_UNAVAILABLE: '所选题目未启用比赛提交，请先移除。',
       CONTEST_RANKING_INVALID: '排行参数只能包含已选题目，权重必须大于 0 且不超过 1000。',
       CONTEST_ADMIN_INVALID: '所选比赛管理员不存在，请移除后重新添加。',
+      CONTEST_FREEZE_INVALID: '封榜时间必须是非负整数分钟，且早于比赛结束时间。',
       ETAG_MISMATCH: '比赛已被其他管理员修改，请刷新后重试。',
       VALIDATION_FAILED: '请检查比赛名称、赛程和所选内容。'
     };
@@ -435,6 +454,7 @@ editorForm.addEventListener('submit', async function (event) {
           visibility: editorForm.querySelector('[name="hide_contest"]:checked') ? 'private' : 'public',
           allow_registration: !!editorForm.querySelector('[name="allow_registration"]:checked'),
           allow_late_registration: !!editorForm.querySelector('[name="allow_late_registration"]:checked'),
+          standings_freeze_after_minutes: freezeToggle.checked ? Number(freezeInput.value) : null,
           is_rated: !!editorForm.querySelector('[name="is_rated"]:checked')
         })
       }));

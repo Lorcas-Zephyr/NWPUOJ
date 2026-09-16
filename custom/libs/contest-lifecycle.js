@@ -16,7 +16,7 @@ function resolveContestStatus(contest, state, nowSeconds) {
   if (state) {
     if (state.status === 'scheduled' && Number(contest.end_time || 0) <= now) return 'ended';
     if (state.status === 'scheduled' && Number(contest.start_time || 0) <= now) return 'running';
-    if (state.status === 'running' && Number(contest.end_time || 0) <= now) return 'ended';
+    if (['running', 'frozen'].includes(state.status) && Number(contest.end_time || 0) <= now) return 'ended';
     return state.status;
   }
   if (Number(contest.end_time || 0) <= now) return 'ended';

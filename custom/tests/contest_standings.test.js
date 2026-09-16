@@ -6,6 +6,77 @@ const { advanceStandingsPointers, calculateStandingRows, serializeStandingRow } 
 const fs = require('node:fs');
 const path = require('node:path');
 const { buildContestRanklistCsv, buildContestRanklistRows, csvCell, problemAlias } = require('../libs/contest-ranklist-export');
+const { normalizeFreezeAfterMinutes, resolveStandingsFreeze, selectStandingsView, scoreDetailsBefore } = require('../libs/contest-standings');
+
+test('freeze configuration accepts disabled, zero and integer minutes, rejects invalid or end-boundary values', () => {
+  for (const value of [null, undefined, '']) assert.equal(normalizeFreezeAfterMinutes(value, 100, 3700), null);
+  for (const value of [0, 1, '59']) assert.equal(normalizeFreezeAfterMinutes(value, 100, 3700), Number(value));
+  for (const value of [-1, 1.5, 'abc', ' ', true, [], {}, 60, 61, Infinity]) {
+    assert.throws(() => normalizeFreezeAfterMinutes(value, 100, 3700), { code: 'CONTEST_FREEZE_INVALID', statusCode: 422 });
+  }
+});
+
+test('freeze starts exactly at the configured minute, ends automatically and defaults off for old contests', () => {
+  const contest = { start_time: 100, end_time: 3700 };
+  const config = { security: { standings_freeze_after_minutes: 30 } };
+  for (const [now, frozen] of [[99, false], [1899, false], [1900, true], [3699, true], [3700, false]]) {
+    assert.equal(resolveStandingsFreeze(contest, config, null, now).frozen, frozen);
+  }
+  assert.equal(resolveStandingsFreeze(contest, {}, null, 2000).frozen, false);
+  assert.equal(resolveStandingsFreeze(contest, { security: { standings_freeze_after_minutes: 0 } }, null, 100).frozen, true);
+  const manual = { status: 'frozen', frozen_at_seconds: 200 };
+  assert.equal(resolveStandingsFreeze(contest, {}, manual, 300).freezeAt, 200);
+  assert.equal(resolveStandingsFreeze(contest, config, manual, 3700).frozen, false);
+});
+
+test('live standings require contest management and explicit opt-in and never change other viewers', () => {
+  const freeze = { frozen: true, freezeAt: 1900, ended: false };
+  for (const view of [undefined, 'public', 'frozen', 'final', 'live']) {
+    assert.equal(selectStandingsView(freeze, false, view).cutoff, 1900);
+  }
+  assert.equal(selectStandingsView(freeze, true, undefined).cutoff, 1900);
+  assert.equal(selectStandingsView(freeze, true, 'live').cutoff, null);
+  assert.equal(selectStandingsView(freeze, true, 'public').showLive, false);
+  assert.equal(freeze.frozen, true);
+  assert.equal(selectStandingsView({ ...freeze, frozen: false, ended: true }, false).cutoff, null);
+});
+
+const freezeContest = { type: 'acm', problems: '11|12', start_time: 100, end_time: 3700 };
+function judge(id, time, score = 0, status = 'Wrong Answer', extra = {}) {
+  return { id, user_id: 7, problem_id: 11, submit_time: time, score, status, pending: 0, ...extra };
+}
+
+test('ACM freeze excludes the boundary, late AC, CE penalty, cancelled and pending submissions', () => {
+  const submissions = [judge(1, 99), judge(2, 110), judge(3, 120, null, 'Compile Error'),
+    judge(4, 150, 0, 'Wrong Answer', { pending: 1 }), judge(5, 180, 0, 'Cancelled'),
+    judge(6, 190, 100, 'Accepted', { action_type: 'cheated' }),
+    judge(7, 200, 100, 'Accepted'), judge(8, 230, 100, 'Accepted')];
+  const frozen = scoreDetailsBefore(submissions, freezeContest, 200).get(7)[11];
+  assert.equal(frozen.accepted, false);
+  assert.equal(frozen.unacceptedCount, 1);
+  assert.equal(frozen.judge_id, 3);
+  const final = scoreDetailsBefore(submissions, freezeContest, 3700).get(7)[11];
+  assert.equal(final.accepted, true);
+  assert.equal(final.acceptedTime, 200);
+  assert.equal(final.unacceptedCount, 1);
+  assert.deepEqual(scoreDetailsBefore(submissions, freezeContest, 100), new Map());
+});
+
+test('IOI best-score and NOI latest-score rules are reconstructed before cutoff, with correct weighted ranks', () => {
+  const submissions = [judge(1, 110, 60), judge(2, 150, 30), judge(3, 190, 80), judge(4, 200, 100, 'Accepted'),
+    judge(5, 170, 100, 'Accepted', { user_id: 8 }), judge(6, 180, 100, 'Accepted', { user_id: 8 }),
+    judge(7, 185, 90, 'Wrong Answer', { problem_id: 99 })];
+  const ioi = scoreDetailsBefore(submissions, { ...freezeContest, type: 'ioi' }, 180);
+  const noi = scoreDetailsBefore(submissions, { ...freezeContest, type: 'noi' }, 180);
+  assert.equal(ioi.get(7)[11].score, 60);
+  assert.equal(noi.get(7)[11].score, 30);
+  assert.equal(ioi.get(8)[11].judge_id, 5);
+  assert.equal(ioi.get(7)[99], undefined);
+  const rows = calculateStandingRows({ type: 'ioi', rankingParams: { 11: 2 }, players: [7, 8, 9].map(id => ({
+    user_id: id, player_id: id, details: ioi.get(id) || {}
+  })) });
+  assert.deepEqual(rows.map(row => [row.user_id, row.score, row.rank]), [[8, 200, 1], [7, 120, 2], [9, 0, 3]]);
+});
 
 test('ACM standings use accepted count, penalty, stable ties, and competition ranks', () => {
   const rows = calculateStandingRows({
@@ -47,6 +118,7 @@ test('frozen standings keep the public pointer stable while live results advance
   let pointers = advanceStandingsPointers(null, 1, 'realtime', 'running');
   assert.deepEqual(pointers, { live_version_id: 1, public_version_id: 1, frozen_version_id: null, final_version_id: null });
   pointers = advanceStandingsPointers(pointers, 2, 'frozen', 'frozen');
+  assert.equal(pointers.live_version_id, 1);
   assert.equal(pointers.public_version_id, 2);
   assert.equal(pointers.frozen_version_id, 2);
   pointers = advanceStandingsPointers(pointers, 3, 'realtime', 'frozen');

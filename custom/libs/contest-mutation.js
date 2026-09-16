@@ -51,13 +51,14 @@ async function syncContestV2Projection(manager, contestId, input, isNew, now) {
     }))
   });
   const security = parseJson(current.security_json, { result_visibility: 'public_after_end', submission_visibility: 'own_during_contest', allow_vjudge: false });
+  if (input.freezeAfterMinutes !== undefined) security.standings_freeze_after_minutes = input.freezeAfterMinutes;
   const registration = Object.assign({}, parseJson(current.registration_json, { enabled: true, approval_required: false }), { enabled: !!input.allowRegistration, allow_late_registration: !!input.allowLateRegistration });
   const teams = parseJson(current.teams_json, { enabled: false, minimum_size: 1, maximum_size: 1 });
   const ratedProfile = input.isRated ? (input.type === 'acm' ? 'icpc' : 'ioi') : null;
   await manager.query(`INSERT INTO contest_v2_config
     (contest_id,timezone,rules_json,scoring_json,visibility,security_json,registration_json,teams_json,rated_profile,revision,updated_by,updated_at)
     VALUES (?,?,?,?,?,?,?,?,?,1,?,UTC_TIMESTAMP(3)) ON DUPLICATE KEY UPDATE
-    rules_json=VALUES(rules_json),scoring_json=VALUES(scoring_json),visibility=VALUES(visibility),
+    rules_json=VALUES(rules_json),scoring_json=VALUES(scoring_json),visibility=VALUES(visibility),security_json=VALUES(security_json),
     registration_json=VALUES(registration_json),rated_profile=VALUES(rated_profile),revision=revision+1,
     updated_by=VALUES(updated_by),updated_at=VALUES(updated_at)`,
   [contestId, current.timezone || 'Asia/Shanghai', JSON.stringify(rules), JSON.stringify(scoring), input.isPublic ? 'public' : 'private', JSON.stringify(security), JSON.stringify(registration), JSON.stringify(teams), ratedProfile, input.actorId]);

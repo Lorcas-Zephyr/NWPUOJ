@@ -27,7 +27,9 @@ test('scheduled and running states advance from database time without overriding
   assert.equal(resolveContestStatus(contest, null, 50), 'scheduled');
   assert.equal(resolveContestStatus(contest, { status: 'scheduled' }, 150), 'running');
   assert.equal(resolveContestStatus(contest, { status: 'running' }, 250), 'ended');
-  assert.equal(resolveContestStatus(contest, { status: 'frozen' }, 250), 'frozen');
+  assert.equal(resolveContestStatus(contest, { status: 'frozen' }, 199), 'frozen');
+  assert.equal(resolveContestStatus(contest, { status: 'frozen' }, 200), 'ended');
+  assert.equal(resolveContestStatus(contest, { status: 'frozen' }, 250), 'ended');
   assert.equal(resolveContestStatus(contest, { status: 'draft' }, 250), 'draft');
 });
 

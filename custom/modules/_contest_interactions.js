@@ -9,6 +9,7 @@ const User = syzoj.model('user');
 const { linkUserMentions } = require('../libs/user-mentions');
 const { buildContestRanklistCsv } = require('../libs/contest-ranklist-export');
 const classGroups = require('../libs/class-groups');
+const { loadFrozenScoreDetails } = require('../libs/contest-standings');
 
 const contestOverviewContext = new AsyncLocalStorage();
 const contestStatisticsCache = new Map();
@@ -125,7 +126,9 @@ syzoj.utils.invalidateContestReadCache = function invalidateContestReadCache(con
   for (const key of contestStatisticsCache.keys()) {
     if (key.startsWith(prefix)) contestStatisticsCache.delete(key);
   }
-  contestRanklistCache.delete(Number(contestId));
+  for (const key of contestRanklistCache.keys()) {
+    if (key.startsWith(prefix)) contestRanklistCache.delete(key);
+  }
 };
 
 ContestRanklist.prototype.getPlayers = function getPlayersWithoutOverviewFanout() {
@@ -162,8 +165,8 @@ async function loadContestStatistics(contestId, problemIds) {
   });
 }
 
-async function loadContestRanklist(contest) {
-  return cached(contestRanklistCache, Number(contest.id), 1000, async () => {
+async function loadContestRanklist(contest, cutoff = null) {
+  return cached(contestRanklistCache, `${Number(contest.id)}:${cutoff == null ? 'live' : cutoff}`, 1000, async () => {
     if (syzoj.utils.aiContest && syzoj.utils.aiContest.ensureSchema) await syzoj.utils.aiContest.ensureSchema();
     const rows = await TypeORM.getConnection().query(
       `SELECT cp.id AS player_id,cp.user_id,cp.score,cp.score_details,cp.time_spent,
@@ -181,9 +184,10 @@ async function loadContestRanklist(contest) {
       [contest.id]
     );
     const rankingParams = parseJson(contest.ranklist && contest.ranklist.ranking_params, {});
+    const frozenDetails = cutoff == null ? null : await loadFrozenScoreDetails(TypeORM.getConnection(), contest, cutoff);
     const judgeIds = [];
     const items = rows.map(row => {
-      const details = parseJson(row.score_details, {});
+      const details = frozenDetails ? frozenDetails.get(Number(row.user_id)) || {} : parseJson(row.score_details, {});
       for (const detail of Object.values(details)) {
         if (detail && detail.judge_id) judgeIds.push(Number(detail.judge_id));
       }
@@ -404,7 +408,8 @@ app.get('/contest/:id/ranklist', async (req, res, next) => {
     if (typeof syzoj.utils.ensureTemporaryContestAccountSchema === 'function') {
       await syzoj.utils.ensureTemporaryContestAccountSchema();
     }
-    const allItems = await loadContestRanklist(contest);
+    const standingsView = await syzoj.utils.contestV2.standingsView(contest, res.locals.user, String(req.query.view || 'public'));
+    const allItems = await loadContestRanklist(contest, standingsView.cutoff);
     const accountFilter = normalizeRanklistAccountFilter(req.query.account);
     const classMembership = await classGroups.membershipForUsers(allItems.map(item => item.user.id));
     const requestedClassIds = classGroups.normalizeClassIds(req.query.classes);
@@ -434,7 +439,8 @@ app.get('/contest/:id/ranklist', async (req, res, next) => {
       canManageRanklist,
       canExportRanklist: canManageRanklist,
       showRanklistIdentities,
-      ranklistProfiles
+      ranklistProfiles,
+      standingsView
     });
   } catch (error) {
     syzoj.log(error);
@@ -457,7 +463,8 @@ app.get('/contest/:id/ranklist/export', async (req, res) => {
       await syzoj.utils.ensureTemporaryContestAccountSchema();
     }
     const accountFilter = normalizeRanklistAccountFilter(req.query.account);
-    const allItems = await loadContestRanklist(contest);
+    const standingsView = await syzoj.utils.contestV2.standingsView(contest, res.locals.user, String(req.query.view || 'public'));
+    const allItems = await loadContestRanklist(contest, standingsView.cutoff);
     const classMembership = await classGroups.membershipForUsers(allItems.map(item => item.user.id));
     const availableClassIds = new Set(classMembership.classes.map(group => group.id));
     const selectedClassIds = classGroups.normalizeClassIds(req.query.classes).filter(id => availableClassIds.has(id));
@@ -467,7 +474,8 @@ app.get('/contest/:id/ranklist/export', async (req, res) => {
     const csv = buildContestRanklistCsv({ contest, items, problemIds, profiles, accountFilter, selectedClassIds, classMembership: classMembership.byUser });
     const suffix = [accountFilter === 'all' ? '' : accountFilter, selectedClassIds.length ? 'classes' : ''].filter(Boolean).map(value => '-' + value).join('');
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="contest-${contest.id}-ranklist${suffix}.csv"`);
+    const viewSuffix = standingsView.cutoff != null ? '-frozen' : standingsView.showLive ? '-live' : '';
+    res.setHeader('Content-Disposition', `attachment; filename="contest-${contest.id}-ranklist${suffix}${viewSuffix}.csv"`);
     res.setHeader('Cache-Control', 'private, no-store');
     return res.send(csv);
   } catch (error) {

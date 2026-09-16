@@ -1,5 +1,89 @@
 'use strict';
 
+function normalizeFreezeAfterMinutes(value, startTime, endTime) {
+  if (value == null || value === '') return null;
+  if ((typeof value !== 'number' && typeof value !== 'string') ||
+      !/^\d+$/.test(String(value)) || !Number.isSafeInteger(Number(value)) ||
+      Number(value) * 60 >= Number(endTime) - Number(startTime)) {
+    throw Object.assign(new Error('封榜时间必须是非负整数分钟，且早于比赛结束时间。'), {
+      code: 'CONTEST_FREEZE_INVALID', statusCode: 422
+    });
+  }
+  return Number(value);
+}
+
+function resolveStandingsFreeze(contest, config, state, nowSeconds) {
+  const now = nowSeconds == null ? Math.floor(Date.now() / 1000) : Number(nowSeconds);
+  const start = Number(contest.start_time);
+  const end = Number(contest.end_time);
+  const minutes = config && config.security && config.security.standings_freeze_after_minutes;
+  const scheduled = minutes != null && minutes !== '' && Number.isSafeInteger(Number(minutes)) && Number(minutes) >= 0;
+  let freezeAt = scheduled ? start + Number(minutes) * 60 : null;
+  if (state && state.status === 'frozen') {
+    const manual = Number(state.frozen_at_seconds);
+    const manualAt = Number.isFinite(manual) && manual > 0 ? manual : start;
+    freezeAt = freezeAt == null ? manualAt : Math.min(freezeAt, manualAt);
+  }
+  const ended = now >= end || !!(state && ['ended', 'rated', 'archived'].includes(state.status));
+  const frozen = !ended && now >= start && freezeAt != null && freezeAt < end && now >= freezeAt;
+  return { frozen, freezeAt, ended };
+}
+
+function selectStandingsView(freeze, canManage, requestedView) {
+  const showLive = freeze.frozen && !!canManage && requestedView === 'live';
+  return { ...freeze, canManage: !!canManage, showLive,
+    cutoff: freeze.frozen && !showLive ? freeze.freezeAt : null };
+}
+
+// Reconstruct from submissions, never from the latest score: a later AC or a
+// latest-only NOI score cannot safely be rolled back from contest_player.
+function scoreDetailsBefore(submissions, contest, cutoff) {
+  const result = new Map();
+  const problemIds = new Set(String(contest.problems || '').split('|').map(Number));
+  const ordered = submissions.filter(row => !row.pending && !row.action_type &&
+    !['Cancelled', 'Cheated'].includes(row.status) && problemIds.has(Number(row.problem_id)) &&
+    Number(row.submit_time) >= Number(contest.start_time) &&
+    Number(row.submit_time) < Math.min(cutoff, Number(contest.end_time)))
+    .sort((a, b) => Number(a.submit_time) - Number(b.submit_time) || Number(a.id) - Number(b.id));
+  for (const row of ordered) {
+    const userId = Number(row.user_id);
+    if (!result.has(userId)) result.set(userId, {});
+    const details = result.get(userId);
+    const problemId = Number(row.problem_id);
+    const previous = details[problemId];
+    if (contest.type === 'acm') {
+      const detail = previous || { accepted: false, unacceptedCount: 0, acceptedTime: 0, judge_id: 0 };
+      if (!detail.accepted) {
+        detail.judge_id = Number(row.id);
+        detail.time = Number(row.submit_time);
+        if (row.status === 'Accepted') {
+          detail.accepted = true;
+          detail.acceptedTime = Number(row.submit_time);
+        } else if (row.score != null) detail.unacceptedCount++;
+      }
+      details[problemId] = detail;
+    } else if (!previous || (contest.type === 'noi'
+      ? Number(row.id) > previous.judge_id
+      : Number(row.score || 0) >= previous.score && previous.score < 100)) {
+      details[problemId] = { score: Number(row.score || 0), judge_id: Number(row.id), time: Number(row.submit_time) };
+    }
+  }
+  return result;
+}
+
+async function loadFrozenScoreDetails(connection, contest, cutoff) {
+  const submissions = await connection.query(
+    `SELECT js.id,js.user_id,js.problem_id,js.submit_time,js.status,js.score
+       FROM judge_state js
+       LEFT JOIN judge_state_admin_action action ON action.judge_id=js.id
+      WHERE js.type=1 AND js.type_info=? AND js.pending=0 AND action.judge_id IS NULL
+        AND js.submit_time>=? AND js.submit_time<?
+      ORDER BY js.submit_time ASC,js.id ASC`,
+    [Number(contest.id), Number(contest.start_time), Math.min(cutoff, Number(contest.end_time))]
+  );
+  return scoreDetailsBefore(submissions, contest, cutoff);
+}
+
 function parseDetails(value) {
   if (value && typeof value === 'object') return value;
   try { return JSON.parse(value || '{}'); } catch (_) { return {}; }
@@ -102,11 +186,13 @@ function advanceStandingsPointers(current, versionId, kind, status) {
     frozen_version_id: current && current.frozen_version_id || null,
     final_version_id: current && current.final_version_id || null
   };
-  pointers.live_version_id = Number(versionId);
   if (kind === 'frozen') {
     pointers.frozen_version_id = Number(versionId);
     pointers.public_version_id = Number(versionId);
-  } else if (kind === 'final' || ['ended', 'rated', 'archived'].includes(status)) {
+    return pointers;
+  }
+  pointers.live_version_id = Number(versionId);
+  if (kind === 'final' || ['ended', 'rated', 'archived'].includes(status)) {
     pointers.final_version_id = Number(versionId);
     pointers.public_version_id = Number(versionId);
   } else if (kind === 'unfrozen' || status !== 'frozen') {
@@ -115,4 +201,5 @@ function advanceStandingsPointers(current, versionId, kind, status) {
   return pointers;
 }
 
-module.exports = { advanceStandingsPointers, calculateStandingRows, normalizeProblemDetails, publicProblemDetails, serializeStandingRow };
+module.exports = { advanceStandingsPointers, calculateStandingRows, normalizeProblemDetails, publicProblemDetails, serializeStandingRow,
+  normalizeFreezeAfterMinutes, resolveStandingsFreeze, selectStandingsView, scoreDetailsBefore, loadFrozenScoreDetails };
