@@ -2,6 +2,7 @@
 <% include util %>
 <%
 function submissionStatus(item) {
+  if (item.result && item.result.frozen) return 'Waiting';
   if (item.info.adminActionType === 'cheated') return '作弊';
   if (item.info.adminActionType === 'cancelled') return '已取消';
   if (item.result) return item.result.result;
@@ -80,7 +81,7 @@ const submissionListRoute = displayConfig.inContest
         <% if (displayConfig.showOthers) { %><label class="app-field app-field-third"><span class="app-label">提交者</span><input class="app-input" name="submitter" value="<%= form.submitter || '' %>"></label><% } %>
         <label class="app-field app-field-third"><span class="app-label">语言</span><select class="app-select" name="language"><option value="">不限</option><option value="submit-answer"<%= form.language === 'submit-answer' ? ' selected' : '' %>>提交答案</option><option value="non-submit-answer"<%= form.language === 'non-submit-answer' ? ' selected' : '' %>>非提交答案</option><optgroup label="本地语言"><% for (const lang of syzoj.config.filter_enabled_languages) { %><option value="<%= lang %>"<%= form.language === lang ? ' selected' : '' %>><%= syzoj.languages[lang].show %></option><% } %></optgroup><% for (const provider of Object.keys(vjudge.languages)) { %><optgroup label="<%= provider %>"><% for (const lang of Object.keys(vjudge.languages[provider]).sort((a, b) => vjudge.languages[provider][a].index - vjudge.languages[provider][b].index)) { %><option value="<%= lang %>"<%= form.language === lang ? ' selected' : '' %>><%= vjudge.languages[provider][lang].show %></option><% } %></optgroup><% } %></select></label>
         <% if (displayConfig.showScore) { %><label class="app-field app-field-quarter"><span class="app-label">最低分</span><input class="app-input" name="min_score" type="number" min="0" max="100" placeholder="0" value="<%= form.min_score || '' %>"></label><label class="app-field app-field-quarter"><span class="app-label">最高分</span><input class="app-input" name="max_score" type="number" min="0" max="100" placeholder="100" value="<%= form.max_score || '' %>"></label><% } %>
-        <% if (displayConfig.showResult) { %><label class="app-field app-field-quarter"><span class="app-label">状态</span><select class="app-select" name="status"><option value="">不限</option><% for (const status of ['Accepted', 'Wrong Answer', 'Partially Correct', 'Compile Error', 'Runtime Error', 'Time Limit Exceeded', 'Memory Limit Exceeded', 'Output Limit Exceeded', 'System Error', 'Cancelled', 'Cheated']) { %><option value="<%= status %>"<%= form.status === status ? ' selected' : '' %>><%= status %></option><% } %></select></label><% } %>
+        <% if (displayConfig.showResult) { %><label class="app-field app-field-quarter"><span class="app-label">状态</span><select class="app-select" name="status"><option value="">不限</option><% for (const status of ['Waiting', 'Accepted', 'Wrong Answer', 'Partially Correct', 'Compile Error', 'Runtime Error', 'Time Limit Exceeded', 'Memory Limit Exceeded', 'Output Limit Exceeded', 'System Error', 'Cancelled', 'Cheated']) { %><option value="<%= status %>"<%= form.status === status ? ' selected' : '' %>><%= status %></option><% } %></select></label><% } %>
       </div>
       <div class="app-form-actions">
         <% if (user && displayConfig.showOthers) { %><div class="app-segmented" aria-label="提交范围"><button type="button" aria-pressed="<%= !form.submitter ? 'true' : 'false' %>" data-submission-scope="all">全部</button><button type="button" aria-pressed="<%= form.submitter === user.username ? 'true' : 'false' %>" data-submission-scope="mine">我的</button></div><% } %>
@@ -99,8 +100,8 @@ const submissionListRoute = displayConfig.inContest
               <td class="app-cell-number"><% if (canView) { %><a href="<%= submissionLink(item) %>">#<%= item.info.submissionId %></a><% } else { %><strong>#<%= item.info.submissionId %></strong><% } %></td>
               <td class="app-cell-primary"><a href="<%= submissionProblemLink(item) %>"><strong><%= displayConfig.inContest ? this.alpha(item.info.problemId) : displayConfig.inProblemSet ? item.info.problemId : item.info.problemDisplayId %>.</strong> <%= item.info.problemName %></a></td>
               <td><% if (canView) { %><a href="<%= submissionLink(item) %>" class="app-status <%= submissionStatusClass(status) %>" data-submission-status><%= status %></a><% } else { %><span class="app-status <%= submissionStatusClass(status) %>" data-submission-status><%= status %></span><% } %></td>
-              <% if (displayConfig.showScore) { const score = item.info.adminActionType ? 0 : (item.result ? Math.floor(item.result.score || 0) : 0); %><td class="app-cell-number"><span class="app-score <%= score === 100 ? 'app-score-perfect' : score === 0 ? 'app-score-zero' : '' %>" data-submission-score><%= score %></span></td><% } %>
-              <% if (displayConfig.showUsage) { %><td class="app-cell-number" data-submission-time><%= item.result ? (item.result.time || 0) + ' ms' : '0 ms' %></td><td class="app-cell-number" data-submission-memory><%= item.result ? submissionFormatSize((item.result.memory || 0) * 1024) : '0 B' %></td><% } %>
+              <% if (displayConfig.showScore) { const score = item.result && item.result.frozen ? '—' : item.info.adminActionType ? 0 : (item.result ? Math.floor(item.result.score || 0) : 0); %><td class="app-cell-number"><span class="app-score <%= score === 100 ? 'app-score-perfect' : score === 0 ? 'app-score-zero' : '' %>" data-submission-score><%= score %></span></td><% } %>
+              <% if (displayConfig.showUsage) { %><td class="app-cell-number" data-submission-time><%= item.result && item.result.frozen ? '—' : item.result ? (item.result.time || 0) + ' ms' : '0 ms' %></td><td class="app-cell-number" data-submission-memory><%= item.result && item.result.frozen ? '—' : item.result ? submissionFormatSize((item.result.memory || 0) * 1024) : '0 B' %></td><% } %>
               <% if (displayConfig.showCode) { %><td><% if (item.info.language) { %><strong><%= item.info.language %></strong> · <% } %><%= submissionFormatSize(item.info.codeSize) %></td><% } %>
               <td><a href="<%= syzoj.utils.makeUrl(['user', item.info.userId]) %>" class="username-tier-<%= submissionUserTier(item.info.userId) %>"><%= item.info.user %></a><% if (tag && tag.text) { %><span class="user-name-tag tag-tier-<%= tag.tier || 'default' %>"><%= tag.text %></span><% } %></td>
               <td class="app-cell-number"><%= item.info.submitTime %></td>
@@ -131,6 +132,27 @@ const submissionListRoute = displayConfig.inContest
 <script>
 (function () {
   var itemList = <%- serializejs(items) %>;
+  var freezeState = <%- serializejs(typeof submissionFreeze !== 'undefined' ? submissionFreeze : null) %>;
+  var freezeStateUrl = <%- serializejs(displayConfig.inContest ? '/api/v2/contests/' + contest.id + '/submission-visibility' : null) %>;
+  function freezeKey(state) { return JSON.stringify([state.frozen, state.freezeAt, state.canManage, state.endTime]); }
+  async function checkFreezeState() {
+    try {
+      var response = await fetch(freezeStateUrl, { credentials: 'same-origin', cache: 'no-store' });
+      if (response.status === 403) return window.location.reload();
+      if (!response.ok) throw new Error('visibility unavailable');
+      var payload = await response.json();
+      if (payload.data && freezeKey(payload.data) !== freezeKey(freezeState)) return window.location.reload();
+      if (payload.data) freezeState = payload.data;
+    } catch (error) {}
+    scheduleFreezeCheck();
+  }
+  function scheduleFreezeCheck() {
+    if (!freezeState || freezeState.serverTime >= freezeState.endTime) return;
+    // This also reveals already-judged Waiting rows at the end, without
+    // pretending they are still running or keeping judge streams open.
+    window.setTimeout(checkFreezeState, Math.max(1000, Math.min(15000, (freezeState.endTime - freezeState.serverTime) * 1000)));
+  }
+  scheduleFreezeCheck();
   var pendingTasks = new Set(itemList.filter(function (item) { return item.token; }).map(function (item) { return item.info.taskId; }));
   if (!pendingTasks.size) return;
   var retryDelay = 1000;
@@ -164,12 +186,16 @@ const submissionListRoute = displayConfig.inContest
     status.className = 'app-status ' + statusClass(label);
     if (update.pending) return;
     item.result = update.result;
+    var frozen = !!(update.result && update.result.frozen);
+    if (frozen) {
+      row.querySelectorAll('a[data-submission-status], .app-cell-number a').forEach(function (link) { link.removeAttribute('href'); });
+    }
     var score = row.querySelector('[data-submission-score]');
-    if (score) { var value = update.result ? Math.floor(update.result.score || 0) : 0; score.textContent = value; score.className = 'app-score ' + (value === 100 ? 'app-score-perfect' : value === 0 ? 'app-score-zero' : ''); }
+    if (score) { var value = frozen ? '—' : update.result ? Math.floor(update.result.score || 0) : 0; score.textContent = value; score.className = 'app-score ' + (value === 100 ? 'app-score-perfect' : value === 0 ? 'app-score-zero' : ''); }
     var time = row.querySelector('[data-submission-time]');
-    if (time) time.textContent = (update.result ? update.result.time || 0 : 0) + ' ms';
+    if (time) time.textContent = frozen ? '—' : (update.result ? update.result.time || 0 : 0) + ' ms';
     var memory = row.querySelector('[data-submission-memory]');
-    if (memory) memory.textContent = size((update.result ? update.result.memory || 0 : 0) * 1024);
+    if (memory) memory.textContent = frozen ? '—' : size((update.result ? update.result.memory || 0 : 0) * 1024);
     pendingTasks.delete(item.info.taskId);
   }
   async function connect() {

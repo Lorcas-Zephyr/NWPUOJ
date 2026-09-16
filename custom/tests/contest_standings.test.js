@@ -6,7 +6,7 @@ const { advanceStandingsPointers, calculateStandingRows, serializeStandingRow } 
 const fs = require('node:fs');
 const path = require('node:path');
 const { buildContestRanklistCsv, buildContestRanklistRows, csvCell, problemAlias } = require('../libs/contest-ranklist-export');
-const { normalizeFreezeAfterMinutes, resolveStandingsFreeze, selectStandingsView, scoreDetailsBefore } = require('../libs/contest-standings');
+const { normalizeFreezeAfterMinutes, resolveStandingsFreeze, selectStandingsView, scoreDetailsBefore, frozenScoreDetails } = require('../libs/contest-standings');
 
 test('freeze configuration accepts disabled, zero and integer minutes, rejects invalid or end-boundary values', () => {
   for (const value of [null, undefined, '']) assert.equal(normalizeFreezeAfterMinutes(value, 100, 3700), null);
@@ -76,6 +76,28 @@ test('IOI best-score and NOI latest-score rules are reconstructed before cutoff,
     user_id: id, player_id: id, details: ioi.get(id) || {}
   })) });
   assert.deepEqual(rows.map(row => [row.user_id, row.score, row.rank]), [[8, 200, 1], [7, 120, 2], [9, 0, 3]]);
+});
+
+test('frozen cells count attempts without exposing post-cutoff verdicts or affecting scores and penalty', () => {
+  const submissions = [judge(1, 150), judge(2, 200, 100, 'Accepted'),
+    judge(3, 210, null, 'Compile Error'), judge(4, 220, 50, 'Wrong Answer', { pending: 1 }),
+    judge(5, 230, 100, 'Accepted', { problem_id: 12 }), judge(6, 3700),
+    judge(7, 240, 0, 'Cancelled'), judge(8, 250, 0, 'Cheated', { action_type: 'cheated' })];
+  for (const type of ['acm', 'ioi', 'noi']) {
+    const contest = { ...freezeContest, type };
+    const details = frozenScoreDetails(submissions, contest, 200).get(7);
+    assert.equal(details[11].frozenAttempts, 3);
+    assert.deepEqual(details[12], { frozenAttempts: 1 });
+    assert.equal(details[11].judge_id, 1);
+    const [row] = calculateStandingRows({ type, startTime: 100, players: [{ user_id: 7, details }] });
+    const [before] = calculateStandingRows({ type, startTime: 100, players: [{ user_id: 7, details: scoreDetailsBefore(submissions, contest, 200).get(7) }] });
+    assert.equal(row.score, before.score);
+    assert.equal(row.penalty, before.penalty);
+    assert.equal(serializeStandingRow(row, { type }).details[12].frozen_attempts, 1);
+    const changedVerdicts = submissions.map(s => s.submit_time >= 200 && s.submit_time < 230
+      ? { ...s, status: 'Runtime Error', score: 0, pending: !s.pending } : s);
+    assert.deepEqual(frozenScoreDetails(changedVerdicts, contest, 200).get(7), details);
+  }
 });
 
 test('ACM standings use accepted count, penalty, stable ties, and competition ranks', () => {

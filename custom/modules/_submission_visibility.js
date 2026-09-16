@@ -32,6 +32,7 @@ async function hasAccessiblePublishedProblemSet(userId, problemId) {
 async function canViewSubmissionDetail(judge, user) {
   if (!user) return false;
   if (judge.user_id === user.id || user.is_admin) return true;
+  if (await syzoj.utils.contestV2.isSubmissionFrozen(judge, user)) return false;
   if (await user.hasPrivilege('manage_problem')) return true;
 
   await judge.loadRelationships();

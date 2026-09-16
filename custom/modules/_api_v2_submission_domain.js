@@ -152,6 +152,7 @@ function statusForJudge(judge, projectedStatus) {
 
 function publicSubmission(row, viewerId, options = {}) {
   const includeCode = options.includeCode === true;
+  const frozen = options.frozen === true;
   const canReadSource = includeCode && submissionDomain.sourceVisibleTo({
     ownerId: row.user_id,
     viewerId,
@@ -167,15 +168,16 @@ function publicSubmission(row, viewerId, options = {}) {
     language: row.language || null,
     code_version_id: row.code_version_id || null,
     source_visibility: row.source_visibility,
-    status: row.status,
-    score: row.score == null ? null : Number(row.score),
-    total_time: row.total_time == null ? null : Number(row.total_time),
-    memory: row.max_memory == null ? null : Number(row.max_memory),
+    status: frozen ? 'queued' : row.status,
+    frozen,
+    score: frozen || row.score == null ? null : Number(row.score),
+    total_time: frozen || row.total_time == null ? null : Number(row.total_time),
+    memory: frozen || row.max_memory == null ? null : Number(row.max_memory),
     code_length: row.code_length == null ? null : Number(row.code_length),
     source_hash: canReadSource ? row.source_hash || null : undefined,
     source: canReadSource ? (row.version_source == null ? row.code || null : row.version_source) : undefined,
     created_at: row.submit_time ? new Date(Number(row.submit_time) * 1000).toISOString() : syzoj.utils.apiV2.databaseIso(row.created_at),
-    updated_at: syzoj.utils.apiV2.databaseIso(row.updated_at)
+    updated_at: frozen ? null : syzoj.utils.apiV2.databaseIso(row.updated_at)
   };
 }
 
@@ -299,6 +301,7 @@ async function projectRuntimeState(taskId, nextStatus) {
 async function canViewSubmission(judge, user) {
   if (!judge || !user) return false;
   if (Number(judge.user_id) === Number(user.id)) return true;
+  if (await syzoj.utils.contestV2.isSubmissionFrozen(judge, user)) return false;
   if (await syzoj.utils.authorizationV2.authorize(user, 'judge:read', null, {})) return true;
   return !!(judge.is_public && judge.type === 0);
 }
@@ -790,7 +793,11 @@ app.get('/api/v2/submissions', async (req, res) => {
   const hasMore = rows.length > limit;
   res.locals.apiMeta.next_cursor = hasMore ? api.encodeCursor(rows[limit - 1].submission_id) : null;
   res.locals.apiMeta.limit = limit;
-  return api.send(res, rows.slice(0, limit).map(row => publicSubmission(row, res.locals.user.id)));
+  const freezeViews = new Map();
+  const visibleRows = await Promise.all(rows.slice(0, limit).map(async row => publicSubmission(row, res.locals.user.id, {
+    frozen: await syzoj.utils.contestV2.isSubmissionFrozen(row, res.locals.user, freezeViews)
+  })));
+  return api.send(res, visibleRows);
 });
 
 app.get('/api/v2/submissions/:id', async (req, res) => {
@@ -835,6 +842,7 @@ app.get('/api/v2/submissions/:id/result-revisions', async (req, res) => {
   if (!user) return api.fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.');
   const judge = await JudgeState.findById(Number(req.params.id));
   if (!judge) return api.fail(res, 404, 'SUBMISSION_NOT_FOUND', 'Submission was not found.');
+  if (await syzoj.utils.contestV2.isSubmissionFrozen(judge, user)) return api.fail(res, 403, 'SUBMISSION_FORBIDDEN', '封榜期间不能查看其他用户的评测结果。');
   const canReadAll = await syzoj.utils.authorizationV2.authorize(user, 'judge:read', null, {});
   if (Number(judge.user_id) !== Number(user.id) && !canReadAll) return api.fail(res, 403, 'SUBMISSION_FORBIDDEN', 'You cannot view historical results for this submission.');
   await ensureSubmissionSchema(); const limit = api.parseLimit(req, 30, 100); const cursor = Number(api.decodeCursor(req.query.cursor) || 0);

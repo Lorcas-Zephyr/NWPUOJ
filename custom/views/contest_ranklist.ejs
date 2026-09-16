@@ -101,14 +101,17 @@ for (const problem of problems) {
               <% if (contest.type === 'acm') { %><td class="app-cell-number"><strong><%= Math.max(0, item.player.score) %></strong></td><td class="app-cell-number"><%= syzoj.utils.formatTime(appPenalty) %></td><% } %>
               <% for (const problem of problems) { const detail = item.player.score_details[problem.id]; const canOpen = !!(user && (appRankSupervisor || user.id === item.user.id)); %>
                 <td class="app-rank-result<%= problem.appFirstUserId === item.user.id ? ' is-first' : '' %>">
-                  <% if (detail) { %><% if (canOpen) { %><a href="<%= syzoj.utils.makeUrl(['submission', detail.judge_id]) %>"><% } %>
+                  <% if (detail && detail.frozenAttempts && !(contest.type === 'acm' && detail.accepted)) { %>
+                    <strong class="app-rank-frozen" title="封榜后提交 <%= detail.frozenAttempts %> 次，结果待揭晓" aria-label="封榜后有提交，结果待揭晓">?</strong>
+                    <small class="app-rank-frozen"><%= detail.frozenAttempts %> 次</small>
+                  <% } else if (detail) { %><% if (canOpen && detail.judge_id) { %><a href="<%= syzoj.utils.makeUrl(['submission', detail.judge_id]) %>"><% } %>
                     <% if (contest.type === 'acm') { %>
                       <% if (detail.accepted) { %><strong class="app-score app-score-perfect"><%= detail.unacceptedCount ? '+' + detail.unacceptedCount : '+' %></strong><small><%= syzoj.utils.formatTime(detail.acceptedTime - contest.start_time) %></small><% } else if (detail.unacceptedCount) { %><strong class="app-score app-score-zero">-<%= detail.unacceptedCount %></strong><% } %>
                     <% } else { %>
                       <% if (detail.weighted_score != null) { %><strong class="app-score <%= Number(detail.score) === 100 ? 'app-score-perfect' : (Number(detail.score) === 0 ? 'app-score-zero' : '') %>"><%= Math.round(detail.weighted_score) %></strong><% } else { %><strong class="app-score app-score-zero">0</strong><% } %>
                       <% if (detail.judge_state) { %><small><%= syzoj.utils.formatTime(detail.judge_state.submit_time - contest.start_time) %></small><% } %>
                     <% } %>
-                  <% if (canOpen) { %></a><% } %><% } %>
+                  <% if (canOpen && detail.judge_id) { %></a><% } %><% } %>
                 </td>
               <% } %>
               <% if (contest.type === 'noi' || contest.type === 'ioi') { %><td class="app-cell-number"><strong class="app-score"><%= item.player.score %></strong></td><% } %>

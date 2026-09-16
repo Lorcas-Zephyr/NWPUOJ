@@ -35,6 +35,16 @@ function selectStandingsView(freeze, canManage, requestedView) {
     cutoff: freeze.frozen && !showLive ? freeze.freezeAt : null };
 }
 
+function submissionHiddenByFreeze(submission, view, viewer) {
+  return !!(view && view.frozen && !view.canManage &&
+    Number(submission.user_id) !== Number(viewer && viewer.id || 0) &&
+    Number(submission.submit_time) >= Number(view.freezeAt));
+}
+
+function frozenSubmissionResult() {
+  return { result: 'Waiting', score: null, time: null, memory: null, frozen: true };
+}
+
 // Reconstruct from submissions, never from the latest score: a later AC or a
 // latest-only NOI score cannot safely be rolled back from contest_player.
 function scoreDetailsBefore(submissions, contest, cutoff) {
@@ -73,15 +83,33 @@ function scoreDetailsBefore(submissions, contest, cutoff) {
 
 async function loadFrozenScoreDetails(connection, contest, cutoff) {
   const submissions = await connection.query(
-    `SELECT js.id,js.user_id,js.problem_id,js.submit_time,js.status,js.score
+    `SELECT js.id,js.user_id,js.problem_id,js.submit_time,js.status,js.score,js.pending
        FROM judge_state js
        LEFT JOIN judge_state_admin_action action ON action.judge_id=js.id
-      WHERE js.type=1 AND js.type_info=? AND js.pending=0 AND action.judge_id IS NULL
+      WHERE js.type=1 AND js.type_info=? AND action.judge_id IS NULL
         AND js.submit_time>=? AND js.submit_time<?
       ORDER BY js.submit_time ASC,js.id ASC`,
-    [Number(contest.id), Number(contest.start_time), Math.min(cutoff, Number(contest.end_time))]
+    [Number(contest.id), Number(contest.start_time), Number(contest.end_time)]
   );
-  return scoreDetailsBefore(submissions, contest, cutoff);
+  return frozenScoreDetails(submissions, contest, cutoff);
+}
+
+function frozenScoreDetails(submissions, contest, cutoff) {
+  const details = scoreDetailsBefore(submissions, contest, cutoff);
+  const problems = new Set(String(contest.problems || '').split('|').map(Number));
+  for (const row of submissions) {
+    if (row.action_type || ['Cancelled', 'Cheated'].includes(row.status) ||
+        !problems.has(Number(row.problem_id)) || Number(row.submit_time) < Math.max(cutoff, Number(contest.start_time)) ||
+        Number(row.submit_time) >= Number(contest.end_time)) continue;
+    const userId = Number(row.user_id);
+    if (!details.has(userId)) details.set(userId, {});
+    const userDetails = details.get(userId);
+    const detail = userDetails[row.problem_id] || (userDetails[row.problem_id] = {});
+    // Count submissions only: no verdict, judge ID, score or completion state
+    // from the sealed period may enter the frozen projection.
+    detail.frozenAttempts = Number(detail.frozenAttempts || 0) + 1;
+  }
+  return details;
 }
 
 function parseDetails(value) {
@@ -159,6 +187,7 @@ function publicProblemDetails(details, type) {
     } else {
       result[problemId] = { score: Number(detail.score || 0) };
     }
+    if (detail.frozenAttempts) result[problemId].frozen_attempts = Number(detail.frozenAttempts);
   }
   return result;
 }
@@ -202,4 +231,5 @@ function advanceStandingsPointers(current, versionId, kind, status) {
 }
 
 module.exports = { advanceStandingsPointers, calculateStandingRows, normalizeProblemDetails, publicProblemDetails, serializeStandingRow,
-  normalizeFreezeAfterMinutes, resolveStandingsFreeze, selectStandingsView, scoreDetailsBefore, loadFrozenScoreDetails };
+  normalizeFreezeAfterMinutes, resolveStandingsFreeze, selectStandingsView, scoreDetailsBefore, loadFrozenScoreDetails,
+  frozenScoreDetails, submissionHiddenByFreeze, frozenSubmissionResult };

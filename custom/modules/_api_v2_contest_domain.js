@@ -10,7 +10,7 @@ const { normalizeStudentIdRows } = require('../libs/contest-temp-accounts');
 const { ensureRegistrationProfileSchema, ORDINARY_STUDENT_ID_SCOPE } = require('../libs/registration-profile-schema');
 const { contestConfigurationLocked, resolveContestStatus, snapshotRefreshAllowed, standingsVisibility, transitionAllowed } = require('../libs/contest-lifecycle');
 const { advanceStandingsPointers, calculateStandingRows, serializeStandingRow, normalizeFreezeAfterMinutes,
-  resolveStandingsFreeze, selectStandingsView, loadFrozenScoreDetails } = require('../libs/contest-standings');
+  resolveStandingsFreeze, selectStandingsView, loadFrozenScoreDetails, submissionHiddenByFreeze } = require('../libs/contest-standings');
 
 let schemaPromise = null;
 const ordinaryRegistrationUpload = multer({
@@ -260,6 +260,16 @@ async function standingsViewFor(contest, user, requestedView) {
     loadContestConfig(contest), stateFor(contest.id), canManageContest(contest, user, 'contest:standings.export')
   ]);
   return selectStandingsView(resolveStandingsFreeze(contest, config, state), canManage, requestedView);
+}
+
+async function isSubmissionFrozen(judge, user, views = new Map()) {
+  const contestId = Number(judge.contest_id || (Number(judge.type) === 1 && judge.type_info) || 0);
+  if (!contestId || Number(judge.user_id) === Number(user && user.id || 0)) return false;
+  if (!views.has(contestId)) views.set(contestId, (async () => {
+    const contest = await Contest.findById(contestId);
+    return contest ? standingsViewFor(contest, user) : null;
+  })());
+  return submissionHiddenByFreeze(judge, await views.get(contestId), user);
 }
 async function isActiveParticipant(contestId, user) {
   if (!user) return false;
@@ -608,6 +618,7 @@ syzoj.utils.contestV2 = {
   ensureSchema: ensureContestV2Schema,
   ensureConfig: loadContestConfig,
   standingsView: standingsViewFor,
+  isSubmissionFrozen,
   snapshotProblems,
   syncProblemSnapshotsForProblem,
   getProblemSnapshot: loadContestProblemSnapshot,

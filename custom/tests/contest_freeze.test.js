@@ -119,8 +119,21 @@ function harness() {
   return { get: (route, userId, query) => request('get', route, userId, query),
     save: (userId, body) => request('post', '/api/v2/contests/:id/update', userId, {}, body),
     create: (userId, body) => request('post', '/api/v2/contests', userId, {}, body),
-    setNow: value => { now = value; }, setFreeze: value => { freezeMinutes = value; utils.invalidateContestReadCache(21); }, versions };
+    setNow: value => { now = value; }, setFreeze: value => { freezeMinutes = value; utils.invalidateContestReadCache(21); }, versions,
+    submissionFrozen: (judge, userId) => utils.contestV2.isSubmissionFrozen(judge, userId ? { id: userId } : null) };
 }
+
+test('shared contest submission policy exempts only owners and the relevant managers and ends automatically', async () => {
+  const app = harness();
+  const submission = { type: 1, type_info: 21, user_id: 7, submit_time: 220 };
+  for (const user of [1, 2, 7]) assert.equal(await app.submissionFrozen(submission, user), false);
+  for (const user of [null, 3, 8]) assert.equal(await app.submissionFrozen(submission, user), true);
+  assert.equal(await app.submissionFrozen({ ...submission, submit_time: 219 }, 8), false);
+  assert.equal(await app.submissionFrozen({ ...submission, type: 0 }, 8), false);
+  assert.equal(await app.submissionFrozen({ contest_id: 21, user_id: 7, submit_time: 220 }, 8), true);
+  app.setNow(400);
+  assert.equal(await app.submissionFrozen(submission, 8), false);
+});
 
 test('contest creation and external-compatible editing validate and preserve the freeze setting', async () => {
   const app = harness();
@@ -148,6 +161,9 @@ test('actual standings API defaults managers to frozen and denies participant/gu
     const result = await app.get(route, userId);
     assert.equal(result.frozen, true);
     assert.equal(result.rows.find(row => row.user_id === 7).score, 0);
+    const detail = result.rows.find(row => row.user_id === 7).details[11];
+    assert.equal(detail.frozen_attempts || detail.frozenAttempts, 1);
+    assert.equal(detail.accepted, false);
   }
   for (const userId of [7, 3]) {
     for (const view of ['live', 'final', 'frozen']) {
@@ -183,7 +199,7 @@ test('HTML standings isolate live cache, retain class/account ranks and export t
   assert.deepEqual(Array.from(filtered.ranklist, row => [row.user.id, row.player.standing_rank, row.player.overall_standing_rank]), [[7, 1, 2], [9, 1, 2]]);
   assert.equal(filtered.ranklistProfiles.get(7).real_name, '甲');
   const exported = await app.get('/contest/:id/ranklist/export', 2);
-  assert.match(exported, /"player7","甲","20260007","学院","班级","0","0","未通过","1",""/);
+  assert.match(exported, /"player7","甲","20260007","学院","班级","0","0","\?","2",""/);
   const liveExported = await app.get('/contest/:id/ranklist/export', 2, { view: 'live' });
   assert.match(liveExported, /"player7","甲","20260007","学院","班级","1","1320","通过","2","120"/);
   for (const userId of [null, 7, 3]) assert.ok((await app.get('/contest/:id/ranklist/export', userId, { view: 'live' })).err);

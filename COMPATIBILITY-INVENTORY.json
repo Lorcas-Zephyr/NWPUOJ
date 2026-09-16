@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-12T15:32:26.689Z",
+  "generated_at": "2026-09-16T10:20:58.703Z",
   "frontend_page_routes": [
     {
       "method": "GET",
@@ -185,43 +185,43 @@
       "method": "GET",
       "route": "/contest/:id",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 312
+      "line": 316
     },
     {
       "method": "GET",
       "route": "/contest/:id/edit",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 321
+      "line": 325
     },
     {
       "method": "GET",
       "route": "/contest/:id/details",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 335
+      "line": 339
     },
     {
       "method": "GET",
       "route": "/contest/:id",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 362
+      "line": 366
     },
     {
       "method": "GET",
       "route": "/contest/:id/ranklist",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 389
+      "line": 393
     },
     {
       "method": "GET",
       "route": "/contest/:id/ranklist/export",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 445
+      "line": 451
     },
     {
       "method": "GET",
       "route": "/contest/:id/problem/:pid",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 479
+      "line": 487
     },
     {
       "method": "GET",
@@ -251,49 +251,49 @@
       "method": "GET",
       "route": "/contest/:id/edit",
       "source": "custom/modules/_contest_registration.js",
-      "line": 485
+      "line": 487
     },
     {
       "method": "GET",
       "route": "/contest/:id/participants",
       "source": "custom/modules/_contest_registration.js",
-      "line": 651
+      "line": 653
     },
     {
       "method": "GET",
       "route": "/contest/:id/registrations",
       "source": "custom/modules/_contest_registration.js",
-      "line": 673
+      "line": 675
     },
     {
       "method": "GET",
       "route": "/contest/:id/registrations/export",
       "source": "custom/modules/_contest_registration.js",
-      "line": 714
+      "line": 716
     },
     {
       "method": "GET",
       "route": "/contest/:id/problem/:pid",
       "source": "custom/modules/_contest_registration.js",
-      "line": 769
+      "line": 771
     },
     {
       "method": "GET",
       "route": "/contest/:id/:pid/download/additional_file",
       "source": "custom/modules/_contest_registration.js",
-      "line": 770
+      "line": 772
     },
     {
       "method": "GET",
       "route": "/contest/:id/ranklist",
       "source": "custom/modules/_contest_registration.js",
-      "line": 771
+      "line": 773
     },
     {
       "method": "GET",
       "route": "/contest/:id/submissions",
       "source": "custom/modules/_contest_registration.js",
-      "line": 772
+      "line": 774
     },
     {
       "method": "GET",
@@ -419,43 +419,43 @@
       "method": "GET",
       "route": "/submissions",
       "source": "custom/modules/_submission_routes.js",
-      "line": 355
+      "line": 391
     },
     {
       "method": "GET",
       "route": "/contest/:id/submissions",
       "source": "custom/modules/_submission_routes.js",
-      "line": 370
+      "line": 406
     },
     {
       "method": "GET",
       "route": "/contest/submission/:id",
       "source": "custom/modules/_submission_routes.js",
-      "line": 382
+      "line": 418
     },
     {
       "method": "GET",
       "route": "/submission/:id",
       "source": "custom/modules/_submission_routes.js",
-      "line": 396
+      "line": 432
     },
     {
       "method": "GET",
       "route": "/contest/submission/:id",
       "source": "custom/modules/_submission_routes.js",
-      "line": 396
+      "line": 432
     },
     {
       "method": "GET",
       "route": "/submission/:id",
-      "source": "custom/modules/_submission_visibility.js",
-      "line": 121
-    },
-    {
-      "method": "GET",
-      "route": "/contest/submission/:id",
       "source": "custom/modules/_submission_visibility.js",
       "line": 122
+    },
+    {
+      "method": "GET",
+      "route": "/contest/submission/:id",
+      "source": "custom/modules/_submission_visibility.js",
+      "line": 123
     },
     {
       "method": "GET",

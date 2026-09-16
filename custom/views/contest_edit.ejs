@@ -145,7 +145,7 @@
       if (editorForm.elements.allow_registration && editorForm.elements.allow_registration.checked) visibility.push('允许用户报名');
       else visibility.push('仅限比赛账号');
       if (editorForm.elements.allow_late_registration && editorForm.elements.allow_late_registration.checked) visibility.push('允许开赛后报名');
-      visibility.push(freezeToggle.checked ? '开赛后 ' + freezeInput.value + ' 分钟封榜' : '不封榜');
+      visibility.push(freezeToggle.checked ? (freezeInput.value === '' ? '封榜时间未填写' : '开赛后 ' + freezeInput.value + ' 分钟封榜') : '不封榜');
       setReview('[data-review-title]', fieldValue('title') || '未填写');
       setReview('[data-review-problems]', problems.length ? problems.length + ' 道 · ' + problems.slice(0, 3).join('、') + (problems.length > 3 ? ' 等' : '') : '暂未添加');
       setReview('[data-review-admins]', admins.length ? admins.length + ' 人 · ' + admins.slice(0, 3).join('、') + (admins.length > 3 ? ' 等' : '') : '仅当前创建者');
@@ -199,8 +199,12 @@
     });
     backButton.addEventListener('click', function () { moveToStep(currentStep - 1); });
     nextButton.addEventListener('click', function () { moveToStep(currentStep + 1); });
-    editorForm.addEventListener('input', function () { formDirty = true; });
-    editorForm.addEventListener('change', function () { formDirty = true; });
+    function updateReview() {
+      formDirty = true;
+      if (currentStep === editorSections.length - 1) renderReview();
+    }
+    editorForm.addEventListener('input', updateReview);
+    editorForm.addEventListener('change', updateReview);
     editorForm.addEventListener('invalid', function (event) {
       var section = event.target.closest('.app-settings-section');
       var index = editorSections.indexOf(section);

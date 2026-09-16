@@ -41,8 +41,8 @@ function acmColumns(item, problemIds, contest) {
     const wrongAttempts = Math.max(0, Number(detail.unacceptedCount || 0));
     const accepted = !!detail.accepted;
     columns.push(
-      accepted ? '通过' : (wrongAttempts ? '未通过' : '未提交'),
-      accepted ? wrongAttempts + 1 : wrongAttempts,
+      accepted ? '通过' : (detail.frozenAttempts ? '?' : (wrongAttempts ? '未通过' : '未提交')),
+      accepted ? wrongAttempts + 1 : wrongAttempts + Number(detail.frozenAttempts || 0),
       accepted ? elapsedSeconds(detail.acceptedTime, contest.start_time) : ''
     );
   }
@@ -54,7 +54,7 @@ function scoreColumns(item, problemIds, contest) {
   for (const problemId of problemIds) {
     const detail = item.player.score_details[problemId] || {};
     columns.push(
-      detail.weighted_score == null ? '' : Number(detail.weighted_score),
+      detail.frozenAttempts ? '?' : (detail.weighted_score == null ? '' : Number(detail.weighted_score)),
       detail.judge_state ? elapsedSeconds(detail.judge_state.submit_time, contest.start_time) : ''
     );
   }

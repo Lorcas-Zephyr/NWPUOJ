@@ -1622,6 +1622,18 @@
   gap: 18px;
 }
 
+.app-contest-editor-form .app-settings-fields {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.app-contest-editor-form .app-settings-fields > * {
+  grid-column: 1 / -1;
+}
+
+.app-rank-result .app-rank-frozen {
+  color: var(--app-accent);
+}
+
 .app-email-password-dialog .app-dialog-body {
   display: grid;
   gap: 16px;
