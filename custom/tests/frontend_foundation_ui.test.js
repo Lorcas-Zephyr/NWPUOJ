@@ -4,11 +4,50 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+const vm = require('node:vm');
 const readAppCss = require('./helpers/read-app-css');
 
 const root = path.resolve(__dirname, '../..');
 const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf8');
 const icons = require(path.join(root, 'custom/lucide-1.27.0.min.js'));
+
+test('long statements reveal at 0.1 percent visibility while retaining the scroll fade', () => {
+  const script = read('custom/app-v2.js');
+  const source = script.slice(script.indexOf('function setupReveals()'), script.indexOf('function setupGlobalEvents()'));
+  const elements = [{ style: {} }, { style: {} }];
+  let notify;
+  let threshold;
+  const observed = new Set();
+  function Observer(callback, options) {
+    notify = callback;
+    threshold = options.threshold;
+    this.observe = element => observed.add(element);
+    this.unobserve = element => observed.delete(element);
+  }
+  const context = vm.createContext({
+    document: { querySelectorAll: () => elements },
+    window: { IntersectionObserver: Observer }, IntersectionObserver: Observer
+  });
+  vm.runInContext(source + '\nsetupReveals();', context);
+  assert.equal(threshold, 0.001);
+  assert.equal(observed.size, 2);
+  assert.equal(elements[0].style.opacity, '0');
+  assert.equal(elements[0].style.transition, 'opacity 260ms ease, transform 260ms ease');
+  notify([{ target: elements[0], isIntersecting: true, intersectionRatio: 0.002 },
+    { target: elements[1], isIntersecting: false, intersectionRatio: 0 }]);
+  assert.equal(elements[0].style.opacity, '1');
+  assert.equal(elements[0].style.transform, 'translateY(0)');
+  assert.equal(observed.has(elements[0]), false);
+  assert.equal(elements[1].style.opacity, '0');
+  notify([{ target: elements[1], isIntersecting: true, intersectionRatio: 0.002 }]);
+  assert.equal(elements[1].style.opacity, '1');
+  assert.equal(observed.size, 0);
+
+  elements.forEach(element => { element.style = {}; });
+  context.window = {};
+  vm.runInContext('setupReveals();', context);
+  assert.deepEqual(elements.map(element => element.style), [{}, {}]);
+});
 
 test('application CSS has explicit shell, shared, and feature ownership', () => {
   const header = read('custom/views/app_header.ejs');

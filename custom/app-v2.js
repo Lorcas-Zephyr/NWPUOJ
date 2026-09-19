@@ -442,6 +442,7 @@
       element.style.transform = 'translateY(8px)';
       element.style.transition = 'opacity 260ms ease, transform 260ms ease';
     });
+    // Long statements must reveal as soon as a small portion enters the viewport.
     var observer = new IntersectionObserver(function (entries) {
       entries.forEach(function (entry) {
         if (!entry.isIntersecting) return;
@@ -449,7 +450,7 @@
         entry.target.style.transform = 'translateY(0)';
         observer.unobserve(entry.target);
       });
-    }, { threshold: 0.08 });
+    }, { threshold: 0.001 });
     elements.forEach(function (element) { observer.observe(element); });
   }
 
