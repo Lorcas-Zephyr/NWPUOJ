@@ -1066,6 +1066,10 @@ var Problem = /** @class */ (function (_super) {
         __metadata("design:type", Number)
     ], Problem.prototype, "python_time_limit_multiplier");
     __decorate([
+        TypeORM.Column({ nullable: false, type: "double", default: 2 }),
+        __metadata("design:type", Number)
+    ], Problem.prototype, "java_time_limit_multiplier");
+    __decorate([
         TypeORM.Column({ nullable: true, type: "integer" }),
         __metadata("design:type", Number)
     ], Problem.prototype, "memory_limit");

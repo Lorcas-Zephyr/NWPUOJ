@@ -91,6 +91,9 @@ export default class Problem extends Model {
   @TypeORM.Column({ nullable: false, type: "double", default: 2 })
   python_time_limit_multiplier: number;
 
+  @TypeORM.Column({ nullable: false, type: "double", default: 2 })
+  java_time_limit_multiplier: number;
+
   @TypeORM.Column({ nullable: true, type: "integer" })
   memory_limit: number;
 

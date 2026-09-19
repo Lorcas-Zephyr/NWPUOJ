@@ -480,6 +480,7 @@ function judgeConfigResource(row) {
     type: row.type,
     time_limit: Number(row.time_limit || 0),
     python_time_limit_multiplier: Number(row.python_time_limit_multiplier) > 0 ? Number(row.python_time_limit_multiplier) : 2,
+    java_time_limit_multiplier: Number(row.java_time_limit_multiplier) > 0 ? Number(row.java_time_limit_multiplier) : 2,
     memory_limit: Number(row.memory_limit || 0),
     file_io: !!row.file_io,
     file_io_input_name: row.file_io_input_name || '',
@@ -503,7 +504,7 @@ app.get('/api/v2/problems/:id/judge-configuration', async (req, res) => {
   const problem = await Problem.findById(Number(req.params.id));
   if (!problem) return api().fail(res, 404, 'PROBLEM_NOT_FOUND', 'Problem was not found.');
   if (!await can(user, 'problem:edit', problem)) return api().fail(res, 403, 'CAPABILITY_REQUIRED', 'Capability required: problem:edit.');
-  const rows = await TypeORM.getConnection().query('SELECT id,type,time_limit,python_time_limit_multiplier,memory_limit,file_io,file_io_input_name,file_io_output_name FROM problem WHERE id=? LIMIT 1', [problem.id]);
+  const rows = await TypeORM.getConnection().query('SELECT id,type,time_limit,python_time_limit_multiplier,java_time_limit_multiplier,memory_limit,file_io,file_io_input_name,file_io_output_name FROM problem WHERE id=? LIMIT 1', [problem.id]);
   return api().send(res, judgeConfigResource(rows[0]));
 });
 async function updateJudgeConfigurationV2(req, res) {
@@ -514,7 +515,7 @@ async function updateJudgeConfigurationV2(req, res) {
   if (!await can(user, 'problem:edit', problem)) return api().fail(res, 403, 'CAPABILITY_REQUIRED', 'Capability required: problem:edit.');
   try {
     const result = await contentTransaction(async manager => {
-      const rows = await manager.query('SELECT id,type,time_limit,python_time_limit_multiplier,memory_limit,file_io,file_io_input_name,file_io_output_name FROM problem WHERE id=? LIMIT 1 FOR UPDATE', [problem.id]);
+      const rows = await manager.query('SELECT id,type,time_limit,python_time_limit_multiplier,java_time_limit_multiplier,memory_limit,file_io,file_io_input_name,file_io_output_name FROM problem WHERE id=? LIMIT 1 FOR UPDATE', [problem.id]);
       if (!rows.length) throw Object.assign(new Error('Problem was not found.'), { code: 'PROBLEM_NOT_FOUND', statusCode: 404 });
       const current = judgeConfigResource(rows[0]);
       if (!api().ifMatch(req, current)) throw Object.assign(new Error('The judge configuration changed. Refresh it and try again.'), { code: 'ETAG_MISMATCH', statusCode: 412 });
@@ -527,16 +528,19 @@ async function updateJudgeConfigurationV2(req, res) {
       const timeLimit = type === 'submit-answer' ? current.time_limit : Number(req.body && req.body.time_limit);
       const pythonMultiplierInput = req.body && req.body.python_time_limit_multiplier;
       const pythonTimeLimitMultiplier = type === 'submit-answer' || pythonMultiplierInput == null || String(pythonMultiplierInput).trim() === '' ? current.python_time_limit_multiplier : Number(pythonMultiplierInput);
+      const javaMultiplierInput = req.body && req.body.java_time_limit_multiplier;
+      const javaTimeLimitMultiplier = type === 'submit-answer' || javaMultiplierInput == null || String(javaMultiplierInput).trim() === '' ? current.java_time_limit_multiplier : Number(javaMultiplierInput);
       const memoryLimit = type === 'submit-answer' ? current.memory_limit : Number(req.body && req.body.memory_limit);
       const maximumTime = Number(syzoj.config.limit && syzoj.config.limit.time_limit || 86400000);
       const maximumMemory = Number(syzoj.config.limit && syzoj.config.limit.memory_limit || 1048576);
       if (type !== 'submit-answer' && (!Number.isSafeInteger(timeLimit) || timeLimit < 1 || timeLimit > maximumTime)) throw Object.assign(new Error('Time limit is invalid.'), { code: 'VALIDATION_FAILED', statusCode: 422, fields: { time_limit: 'out of range' } });
       if (type !== 'submit-answer' && (!Number.isFinite(pythonTimeLimitMultiplier) || pythonTimeLimitMultiplier <= 0 || pythonTimeLimitMultiplier > 1000)) throw Object.assign(new Error('Python time limit multiplier is invalid.'), { code: 'VALIDATION_FAILED', statusCode: 422, fields: { python_time_limit_multiplier: 'a number from 0 to 1000 is required' } });
+      if (type !== 'submit-answer' && (!Number.isFinite(javaTimeLimitMultiplier) || javaTimeLimitMultiplier <= 0 || javaTimeLimitMultiplier > 1000)) throw Object.assign(new Error('Java 时间限制倍数必须大于 0 且不超过 1000。'), { code: 'VALIDATION_FAILED', statusCode: 422, fields: { java_time_limit_multiplier: 'a number greater than 0 and at most 1000 is required' } });
       if (type !== 'submit-answer' && (!Number.isSafeInteger(memoryLimit) || memoryLimit < 1 || memoryLimit > maximumMemory)) throw Object.assign(new Error('Memory limit is invalid.'), { code: 'VALIDATION_FAILED', statusCode: 422, fields: { memory_limit: 'out of range' } });
       const fileIo = type === 'traditional' && !!(req.body && req.body.file_io);
       const inputName = fileIo ? judgeConfigFilename(req.body.file_io_input_name, 'file_io_input_name') : current.file_io_input_name;
       const outputName = fileIo ? judgeConfigFilename(req.body.file_io_output_name, 'file_io_output_name') : current.file_io_output_name;
-      const saved = { problem_id: Number(problem.id), type, time_limit: timeLimit, python_time_limit_multiplier: pythonTimeLimitMultiplier, memory_limit: memoryLimit, file_io: fileIo, file_io_input_name: inputName, file_io_output_name: outputName };
+      const saved = { problem_id: Number(problem.id), type, time_limit: timeLimit, python_time_limit_multiplier: pythonTimeLimitMultiplier, java_time_limit_multiplier: javaTimeLimitMultiplier, memory_limit: memoryLimit, file_io: fileIo, file_io_input_name: inputName, file_io_output_name: outputName };
       const projection = await problemDomain.updateJudgeConfigurationAggregate(manager, problem, saved, user.id);
       const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, { action: 'problem:judge-configuration.update', resourceType: 'problem', resourceId: Number(problem.id), scope: `problem:${problem.id}`, details: saved }, manager);
       const eventId = await contentDomain.appendEvent(manager, { stream: `problem:${problem.id}`, type: 'problem.judge-configuration.updated', aggregateId: problem.id, actorId: user.id, payload: { ...saved, audit_event_id: auditEventId } });

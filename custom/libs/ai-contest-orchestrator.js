@@ -115,6 +115,7 @@ async function problemForPrompt(contestId, problemId) {
     file_io: !!content.file_io, file_io_input_name: content.file_io_input_name || null,
     file_io_output_name: content.file_io_output_name || null,
     python_time_limit_multiplier: Number(content.python_time_limit_multiplier || 2),
+    java_time_limit_multiplier: Number(content.java_time_limit_multiplier || 2),
     vjudge_config: content.vjudge_config || null
   };
 }

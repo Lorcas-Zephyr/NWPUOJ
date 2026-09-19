@@ -429,7 +429,7 @@ app.get('/api/v2/problems', async (req, res) => {
 app.post('/api/v2/problems', requireCapability('problem:create'), async (req, res) => {
   const api = syzoj.utils.apiV2;
   const Problem = syzoj.model('problem');
-  const content = contentFromInput(req.body || {}, { type: 'traditional', time_limit: 1000, python_time_limit_multiplier: 2, memory_limit: 256 });
+  const content = contentFromInput(req.body || {}, { type: 'traditional', time_limit: 1000, python_time_limit_multiplier: 2, java_time_limit_multiplier: 2, memory_limit: 256 });
   const fields = validateContent(content);
   const requestedId = req.body && req.body.id !== '' && req.body.id != null ? Number(req.body.id) : null;
   const tagIds = Array.isArray(req.body && req.body.tag_ids) ? req.body.tag_ids.map(Number) : [];
@@ -770,6 +770,7 @@ const BULK_PROBLEM_TEMPLATE = {
     type: 'traditional',
     time_limit: 1000,
     python_time_limit_multiplier: 2,
+    java_time_limit_multiplier: 2,
     memory_limit: 256,
     file_io: false,
     file_io_input_name: '',
@@ -850,6 +851,7 @@ async function importBulkProblems(req, res) {
           limit_and_hint: '',
           time_limit: 1000,
           python_time_limit_multiplier: 2,
+          java_time_limit_multiplier: 2,
           memory_limit: 256
         });
         const fields = validateContent(content);

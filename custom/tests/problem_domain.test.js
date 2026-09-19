@@ -233,6 +233,8 @@ test('updating judge configuration advances a draft version and snapshot togethe
   const updated = await problemDomain.updateJudgeConfigurationAggregate(manager, { id: 7, is_public: false }, {
     type: 'interaction',
     time_limit: 2000,
+    python_time_limit_multiplier: 4,
+    java_time_limit_multiplier: 3.5,
     memory_limit: 512,
     file_io: false,
     file_io_input_name: '',
@@ -241,15 +243,19 @@ test('updating judge configuration advances a draft version and snapshot togethe
 
   assert.deepEqual(updated, { version_id: '92', snapshot_id: 'ps_new' });
   const projection = calls.find(call => call.sql.startsWith('UPDATE problem SET type='));
-  assert.deepEqual(projection.params, ['interaction', 2000, 512, false, '', '', 7]);
+  assert.deepEqual(projection.params, ['interaction', 2000, 4, 3.5, 512, false, '', '', 7]);
   const versionInsert = calls.find(call => call.sql.startsWith('INSERT INTO problem_v2_version'));
   assert.equal(JSON.parse(versionInsert.params[4]).type, 'interaction');
+  assert.equal(JSON.parse(versionInsert.params[4]).python_time_limit_multiplier, 4);
+  assert.equal(JSON.parse(versionInsert.params[4]).java_time_limit_multiplier, 3.5);
   assert.equal(versionInsert.params[2], 91);
   assert.equal(versionInsert.params[3], 'draft');
   const snapshotInsert = calls.find(call => call.sql.startsWith('INSERT INTO problem_v2_snapshot'));
   assert.equal(snapshotInsert.params[0], 'ps_new');
   assert.equal(snapshotInsert.params[2], '92');
   assert.equal(JSON.parse(snapshotInsert.params[4]).type, 'interaction');
+  assert.equal(JSON.parse(snapshotInsert.params[4]).python_time_limit_multiplier, 4);
+  assert.equal(JSON.parse(snapshotInsert.params[4]).java_time_limit_multiplier, 3.5);
   assert.equal(snapshotInsert.params[6], 'a'.repeat(64));
   assert.equal(snapshotInsert.params[7], 'snapshots/ps_old');
   const stateUpdate = calls.find(call => call.sql.startsWith('UPDATE problem_v2_state SET current_version_id'));
@@ -289,6 +295,8 @@ test('updating published judge configuration preserves a pending statement draft
   const updated = await problemDomain.updateJudgeConfigurationAggregate(manager, { id: 8, is_public: true }, {
     type: 'interaction',
     time_limit: 1500,
+    python_time_limit_multiplier: 5,
+    java_time_limit_multiplier: 2.5,
     memory_limit: 256,
     file_io: false,
     file_io_input_name: '',
@@ -306,6 +314,13 @@ test('updating published judge configuration preserves a pending statement draft
   assert.equal(versionInserts[1].params[3], 'draft');
   assert.equal(JSON.parse(versionInserts[1].params[4]).title, 'Pending statement');
   assert.equal(JSON.parse(versionInserts[1].params[4]).type, 'interaction');
+  for (const insert of versionInserts) {
+    assert.equal(JSON.parse(insert.params[4]).python_time_limit_multiplier, 5);
+    assert.equal(JSON.parse(insert.params[4]).java_time_limit_multiplier, 2.5);
+  }
+  const snapshot = calls.find(call => call.sql.startsWith('INSERT INTO problem_v2_snapshot'));
+  assert.equal(JSON.parse(snapshot.params[4]).python_time_limit_multiplier, 5);
+  assert.equal(JSON.parse(snapshot.params[4]).java_time_limit_multiplier, 2.5);
   const stateUpdate = calls.find(call => call.sql.startsWith('UPDATE problem_v2_state SET current_version_id'));
   assert.deepEqual(stateUpdate.params, ['101', 'ps_published_new', 8]);
 });
@@ -365,9 +380,10 @@ test('publishing includes the immutable testdata hash and worker-relative path i
   assert.equal(snapshot.params[7], 'snapshots/ps_testdata_0001');
 });
 
-test('publishing legacy versions fills the non-null Python multiplier default', async () => {
+test('publishing legacy versions fills the non-null language multiplier defaults', async () => {
   const canonical = problemDomain.serializeContent(content());
-  const legacy = canonical.replace('"python_time_limit_multiplier":2', '"python_time_limit_multiplier":null');
+  const legacy = canonical.replace('"python_time_limit_multiplier":2', '"python_time_limit_multiplier":null')
+    .replace(',"java_time_limit_multiplier":2', '');
   const calls = [];
   const manager = {
     async query(sql, params) {
@@ -382,8 +398,10 @@ test('publishing legacy versions fills the non-null Python multiplier default', 
   const normalized = calls.find(call => call.sql.startsWith('UPDATE problem_v2_version SET content_json='));
   assert.ok(normalized);
   assert.equal(JSON.parse(normalized.params[0]).python_time_limit_multiplier, 2);
+  assert.equal(JSON.parse(normalized.params[0]).java_time_limit_multiplier, 2);
   const snapshot = calls.find(call => call.sql.startsWith('INSERT INTO problem_v2_snapshot'));
   assert.equal(JSON.parse(snapshot.params[4]).python_time_limit_multiplier, 2);
+  assert.equal(JSON.parse(snapshot.params[4]).java_time_limit_multiplier, 2);
 });
 
 test('refreshing published testdata advances the snapshot without exposing a newer statement draft', async () => {

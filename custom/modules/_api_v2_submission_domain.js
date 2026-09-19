@@ -378,6 +378,8 @@ async function immutableExecutionProblem(problem, snapshotId) {
     throw missingProblemSnapshot(snapshotId);
   }
   if (!content || typeof content !== 'object') throw missingProblemSnapshot(snapshotId);
+  // Old snapshots have the default Java multiplier, not a newer live setting.
+  if (content.java_time_limit_multiplier == null) content.java_time_limit_multiplier = 2;
   if (content.vjudge_config == null && rows[0].provider_config != null) content.vjudge_config = rows[0].provider_config;
   const requiresLocalTestdata = !String(content.type || problem.type || '').startsWith('vjudge:');
   if (requiresLocalTestdata && (!rows[0].testdata_hash || !rows[0].testdata_path)) {

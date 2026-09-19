@@ -9,11 +9,14 @@ async function ensureLegacyProblemSchema(connection) {
   if (!columns.some(row => row.COLUMN_NAME === 'python_time_limit_multiplier')) {
     await connection.query('ALTER TABLE problem ADD COLUMN python_time_limit_multiplier DOUBLE NOT NULL DEFAULT 2 AFTER time_limit');
   }
+  if (!columns.some(row => row.COLUMN_NAME === 'java_time_limit_multiplier')) {
+    await connection.query('ALTER TABLE problem ADD COLUMN java_time_limit_multiplier DOUBLE NOT NULL DEFAULT 2 AFTER python_time_limit_multiplier');
+  }
 }
 
 const EDITABLE_FIELDS = Object.freeze([
   'title', 'description', 'input_format', 'output_format', 'example', 'limit_and_hint',
-  'time_limit', 'python_time_limit_multiplier', 'memory_limit', 'file_io', 'file_io_input_name', 'file_io_output_name', 'type',
+  'time_limit', 'python_time_limit_multiplier', 'java_time_limit_multiplier', 'memory_limit', 'file_io', 'file_io_input_name', 'file_io_output_name', 'type',
   'vjudge_config'
 ]);
 const PROBLEM_TYPES = new Set([
@@ -21,7 +24,7 @@ const PROBLEM_TYPES = new Set([
   'vjudge:luogu', 'vjudge:uoj', 'vjudge:hdu', 'vjudge:poj'
 ]);
 const JUDGE_CONFIGURATION_FIELDS = Object.freeze([
-  'type', 'time_limit', 'python_time_limit_multiplier', 'memory_limit', 'file_io', 'file_io_input_name', 'file_io_output_name'
+  'type', 'time_limit', 'python_time_limit_multiplier', 'java_time_limit_multiplier', 'memory_limit', 'file_io', 'file_io_input_name', 'file_io_output_name'
 ]);
 const REVIEW_REQUEST_STATUSES = new Set(['draft', 'rejected']);
 
@@ -29,7 +32,7 @@ function orderedContent(source = {}) {
   const content = {};
   EDITABLE_FIELDS.forEach(field => {
     content[field] = source[field] == null
-      ? (field === 'python_time_limit_multiplier' ? 2 : null)
+      ? (['python_time_limit_multiplier', 'java_time_limit_multiplier'].includes(field) ? 2 : null)
       : source[field];
   });
   return content;
@@ -80,6 +83,7 @@ function validateContent(content) {
   if (String(content.title || '').length > 80) fields.title = 'maximum length is 80';
   if (content.time_limit != null && (!Number.isSafeInteger(Number(content.time_limit)) || Number(content.time_limit) < 1)) fields.time_limit = 'positive integer required';
   if (content.python_time_limit_multiplier != null && (!Number.isFinite(Number(content.python_time_limit_multiplier)) || Number(content.python_time_limit_multiplier) <= 0 || Number(content.python_time_limit_multiplier) > 1000)) fields.python_time_limit_multiplier = 'a number from 0 to 1000 is required';
+  if (content.java_time_limit_multiplier != null && (!Number.isFinite(Number(content.java_time_limit_multiplier)) || Number(content.java_time_limit_multiplier) <= 0 || Number(content.java_time_limit_multiplier) > 1000)) fields.java_time_limit_multiplier = 'a number greater than 0 and at most 1000 is required';
   if (content.memory_limit != null && (!Number.isSafeInteger(Number(content.memory_limit)) || Number(content.memory_limit) < 1)) fields.memory_limit = 'positive integer required';
   if (content.type != null && !PROBLEM_TYPES.has(String(content.type))) fields.type = 'unsupported problem type';
   const remote = content.vjudge_config == null ? '' : String(content.vjudge_config);
@@ -149,7 +153,9 @@ function serializeProblem(problem, state, databaseIso = value => value == null ?
     current_snapshot_id: state && state.current_snapshot_id || null,
     type: problem.type,
     source: sourceMetadata(problem),
-    limits: { time_ms: problem.time_limit, memory_mib: problem.memory_limit, python_time_limit_multiplier: Number(problem.python_time_limit_multiplier) > 0 ? Number(problem.python_time_limit_multiplier) : 2 },
+    limits: { time_ms: problem.time_limit, memory_mib: problem.memory_limit,
+      python_time_limit_multiplier: Number(problem.python_time_limit_multiplier) > 0 ? Number(problem.python_time_limit_multiplier) : 2,
+      java_time_limit_multiplier: Number(problem.java_time_limit_multiplier) > 0 ? Number(problem.java_time_limit_multiplier) : 2 },
     statement: {
       description: problem.description,
       input: problem.input_format,
@@ -278,9 +284,9 @@ async function updateJudgeConfigurationAggregate(manager, problem, configuration
   const publicProblem = !!problem.is_public;
   const hasPendingDraft = publicProblem && currentSnapshot && currentVersion && String(currentSnapshot.version_id) !== String(currentVersion.id);
 
-  const configurationFields = Object.prototype.hasOwnProperty.call(configuration, 'python_time_limit_multiplier') ? JUDGE_CONFIGURATION_FIELDS : ['type', 'time_limit', 'memory_limit', 'file_io', 'file_io_input_name', 'file_io_output_name'];
+  const configurationFields = JUDGE_CONFIGURATION_FIELDS.filter(field => Object.prototype.hasOwnProperty.call(configuration, field));
   await manager.query(
-    configurationFields.length === 7 ? 'UPDATE problem SET type=?,time_limit=?,python_time_limit_multiplier=?,memory_limit=?,file_io=?,file_io_input_name=?,file_io_output_name=? WHERE id=?' : 'UPDATE problem SET type=?,time_limit=?,memory_limit=?,file_io=?,file_io_input_name=?,file_io_output_name=? WHERE id=?',
+    `UPDATE problem SET ${configurationFields.map(field => `${field}=?`).join(',')} WHERE id=?`,
     configurationFields.map(field => configuration[field]).concat([problemId])
   );
 
@@ -367,8 +373,8 @@ async function publishProblemAggregate(manager, problem, versionId, actorId, sna
   content.vjudge_config = providerConfig;
   const canonicalContent = serializeContent(content);
   const canonicalHash = contentHash(content);
-  // Legacy versions created before the Python multiplier column may contain a
-  // null value. Normalize those versions when they cross the publish boundary
+  // Legacy versions created before language multiplier columns may omit them or
+  // contain null. Normalize those versions when they cross the publish boundary
   // so the compatibility projection never writes NULL into the non-null field.
   if (String(version.content_json || '') !== canonicalContent || String(version.content_hash || '') !== canonicalHash) {
     await manager.query(

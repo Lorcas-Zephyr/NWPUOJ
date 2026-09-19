@@ -8582,6 +8582,35 @@
   gap: 30px;
 }
 
+.app-problem-limit-fields {
+  display: grid;
+  gap: 16px;
+}
+
+.app-limit-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(96px, 132px);
+  align-items: center;
+  gap: 6px 16px;
+  min-width: 0;
+}
+
+.app-limit-field > .app-label {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.app-limit-field > .app-input {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.app-limit-field > .app-help {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  margin: 0;
+}
+
 .app-problem-config-form > section {
   padding-top: 20px;
   border-top: 1px solid var(--app-line-strong);
