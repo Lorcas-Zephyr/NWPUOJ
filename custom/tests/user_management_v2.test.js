@@ -4,9 +4,67 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+const vm = require('node:vm');
 
 const root = path.resolve(__dirname, '../..');
 const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf8');
+
+test('admin user search binds student IDs as text alongside username, email and UID', () => {
+  const source = read('custom/modules/_admin_users.js');
+  const context = vm.createContext({});
+  vm.runInContext(source.slice(source.indexOf('function userSearchCondition('), source.indexOf("app.get('/admin/users'")), context);
+  assert.equal(context.userSearchCondition('').sql, '');
+  for (const keyword of ['0012345678', '2026', 'alice', 'alice@example.test', '42', "' OR 1=1 --"]) {
+    const condition = context.userSearchCondition(keyword);
+    assert.match(condition.sql, /u\.username LIKE \? OR u\.email LIKE \? OR CAST\(u\.id AS CHAR\)=\?/);
+    assert.match(condition.sql, /EXISTS \(SELECT 1 FROM user_registration_profile profile WHERE profile.user_id=u.id AND profile.student_id LIKE \?\)/);
+    assert.deepEqual(Array.from(condition.params), [`%${keyword}%`, `%${keyword}%`, keyword, `%${keyword}%`]);
+    assert.ok(!condition.sql.includes(keyword));
+  }
+  const route = source.slice(source.indexOf("app.get('/admin/users'"));
+  assert.ok(route.indexOf('canManageUsers(res.locals.user)') < route.indexOf('ensureRegistrationProfileSchema()'));
+  assert.match(route, /SELECT COUNT\(\*\) AS count FROM user u \$\{condition.sql\}/);
+  assert.match(route, /condition.params.concat\(\[USER_PAGE_SIZE, \(currentPage - 1\) \* USER_PAGE_SIZE\]\)/);
+  assert.match(route, /q: keyword \|\| undefined/);
+  assert.match(read('custom/views/admin_users.ejs'), /placeholder="用户名、邮箱、UID 或学号"/);
+});
+
+test('admin user search API keeps permission, cursor and redaction while matching student IDs', async () => {
+  const source = read('custom/modules/_api_v2_admin_domain.js');
+  let handler;
+  let schemaReady = false;
+  const calls = [];
+  const context = vm.createContext({
+    app: { get(route, permission, callback) {
+      assert.equal(route, '/api/v2/admin/users');
+      assert.equal(permission, 'admin:user.manage');
+      handler = callback;
+    } },
+    requireCapability: capability => capability,
+    ensureRegistrationProfileSchema: async () => { schemaReady = true; },
+    syzoj: { utils: { ensureAccountStateSchema: async () => {} } },
+    TypeORM: { getConnection: () => ({ query: async (sql, params) => {
+      assert.ok(schemaReady);
+      calls.push({ sql, params });
+      return [{ id: 10, username: 'alice', email: 'private@example.test' }, { id: 11, username: 'bob' }];
+    } }) },
+    api: () => ({ parseLimit: () => 1, decodeCursor: value => value, encodeCursor: String, send: (_res, data) => data }),
+    iso: value => value || null
+  });
+  vm.runInContext(source.slice(source.indexOf("app.get('/api/v2/admin/users',"), source.indexOf('function managedUserError(')), context);
+  for (const keyword of ['0012345678', '2026', 'alice', '42', '', "' OR 1=1 --"]) {
+    const res = { locals: { apiMeta: {} } };
+    const rows = await handler({ query: { q: ` ${keyword} `, cursor: '9' } }, res);
+    const call = calls.at(-1);
+    assert.match(call.sql, /u.id>\? AND \(\?='' OR/);
+    assert.match(call.sql, /profile.user_id=u.id AND profile.student_id LIKE CONCAT\('%',\?,'%'\)/);
+    assert.deepEqual(Array.from(call.params), [9, keyword, keyword, keyword, keyword, keyword, 2]);
+    assert.equal(res.locals.apiMeta.next_cursor, '10');
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].email, '[redacted]');
+    assert.equal(rows[0].student_id, undefined);
+  }
+});
 
 test('administrator user profile v2 preserves owner and administrator boundaries', () => {
   const route = read('custom/modules/_api_v2_admin_domain.js');

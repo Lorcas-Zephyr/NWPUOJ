@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const TypeORM = require('typeorm');
 const classGroups = require('../libs/class-groups');
+const { ensureRegistrationProfileSchema } = require('../libs/registration-profile-schema');
 
 const User = syzoj.model('user');
 const USER_PAGE_SIZE = 30;
@@ -283,8 +284,8 @@ syzoj.utils.adminUserManagementV2 = Object.freeze({ deleteUserAccount });
 function userSearchCondition(keyword) {
   if (!keyword) return { sql: '', params: [] };
   return {
-    sql: 'WHERE (u.username LIKE ? OR u.email LIKE ? OR CAST(u.id AS CHAR)=?)',
-    params: [`%${keyword}%`, `%${keyword}%`, keyword]
+    sql: 'WHERE (u.username LIKE ? OR u.email LIKE ? OR CAST(u.id AS CHAR)=? OR EXISTS (SELECT 1 FROM user_registration_profile profile WHERE profile.user_id=u.id AND profile.student_id LIKE ?))',
+    params: [`%${keyword}%`, `%${keyword}%`, keyword, `%${keyword}%`]
   };
 }
 
@@ -295,6 +296,7 @@ app.get('/admin/users', async (req, res) => {
     }
 
     const keyword = String(req.query.q || '').trim().slice(0, 80);
+    if (keyword) await ensureRegistrationProfileSchema();
     const requestedPage = Number.parseInt(req.query.page, 10);
     const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
     const condition = userSearchCondition(keyword);

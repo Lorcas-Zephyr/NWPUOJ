@@ -5,6 +5,7 @@ const path = require('path');
 const multer = require('multer');
 const TypeORM = require('typeorm');
 const contentDomain = require('../libs/content-domain');
+const { ensureRegistrationProfileSchema } = require('../libs/registration-profile-schema');
 const User = syzoj.model('user');
 const Problem = syzoj.model('problem');
 const JudgeState = syzoj.model('judge_state');
@@ -654,8 +655,9 @@ app.post('/api/v2/admin/jobs/:id/retry', requireCapability('admin:job.manage', {
 });
 
 app.get('/api/v2/admin/users', requireCapability('admin:user.manage'), async (req, res) => {
-  await syzoj.utils.ensureAccountStateSchema(); const limit = api().parseLimit(req, 50, 100); const cursor = Number(api().decodeCursor(req.query.cursor) || 0); const keyword = String(req.query.q || '').trim();
-  const rows = await TypeORM.getConnection().query(`SELECT u.id,u.username,u.email,u.is_admin,u.is_show,u.rating,u.register_time,COALESCE(state.status,'active') AS account_status,state.reason AS disabled_reason,state.changed_at AS status_changed_at FROM user u LEFT JOIN auth_user_state state ON state.user_id=u.id WHERE u.id>? AND (?='' OR u.username LIKE CONCAT('%',?,'%') OR u.email LIKE CONCAT('%',?,'%')) ORDER BY u.id ASC LIMIT ?`, [cursor, keyword, keyword, keyword, limit + 1]);
+  await syzoj.utils.ensureAccountStateSchema(); const limit = api().parseLimit(req, 50, 100); const cursor = Number(api().decodeCursor(req.query.cursor) || 0); const keyword = String(req.query.q || '').trim().slice(0, 80);
+  await ensureRegistrationProfileSchema();
+  const rows = await TypeORM.getConnection().query(`SELECT u.id,u.username,u.email,u.is_admin,u.is_show,u.rating,u.register_time,COALESCE(state.status,'active') AS account_status,state.reason AS disabled_reason,state.changed_at AS status_changed_at FROM user u LEFT JOIN auth_user_state state ON state.user_id=u.id WHERE u.id>? AND (?='' OR u.username LIKE CONCAT('%',?,'%') OR u.email LIKE CONCAT('%',?,'%') OR CAST(u.id AS CHAR)=? OR EXISTS (SELECT 1 FROM user_registration_profile profile WHERE profile.user_id=u.id AND profile.student_id LIKE CONCAT('%',?,'%'))) ORDER BY u.id ASC LIMIT ?`, [cursor, keyword, keyword, keyword, keyword, keyword, limit + 1]);
   const more = rows.length > limit; res.locals.apiMeta.limit = limit; res.locals.apiMeta.next_cursor = more ? api().encodeCursor(rows[limit - 1].id) : null;
   return api().send(res, rows.slice(0, limit).map(row => ({ id: Number(row.id), username: row.username, email: row.email ? '[redacted]' : null, is_admin: !!row.is_admin, visible_in_rankings: !!row.is_show, account_status: row.account_status, disabled_reason: row.account_status === 'disabled' ? row.disabled_reason : null, status_changed_at: iso(row.status_changed_at), rating: Number(row.rating || 1500), registered_at: row.register_time ? new Date(Number(row.register_time) * 1000).toISOString() : null })));
 });
