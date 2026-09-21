@@ -211,7 +211,9 @@ test('UI is plain text, separate from announcements, and includes retry-safe con
   const editor = read('views/contest_notices.ejs');
   const client = read('contest-notices.js');
   for (const file of ['views/contest_edit.ejs', 'views/contest_registrations.ejs']) assert.match(read(file), /'notices'\]\).*发布通知/);
-  assert.match(read('views/contest_details.ejs'), /include contest_notice_table/);
+  const details = read('views/contest_details.ejs');
+  assert.match(details, /include contest_notice_table/);
+  assert.ok(details.indexOf('include contest_notice_table') > details.lastIndexOf('</section>'), 'contest notices belong below information and announcements');
   assert.match(read('views/app_footer.ejs'), /include contest_notice_client/);
   assert.match(editor, /textarea.*maxlength="4000"/);
   assert.doesNotMatch(editor, /include markdown|modern-editor|allow_markdown/);

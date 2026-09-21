@@ -4,7 +4,6 @@
 
 <div class="app-page app-contest-details-page">
   <div class="app-contest-details">
-    <% include contest_notice_table %>
     <section class="app-contest-detail-section">
       <header><i data-lucide="file-text"></i><div><span class="app-kicker">INFORMATION</span><h2>比赛信息</h2></div></header>
       <% if (contestDetails.subtitle) { %><div class="app-markdown"><%- contestDetails.subtitle %></div><% } else { %><div class="app-contest-detail-empty">暂无比赛信息</div><% } %>
@@ -13,6 +12,7 @@
       <header><i data-lucide="megaphone"></i><div><span class="app-kicker">ANNOUNCEMENT</span><h2>比赛公告</h2></div></header>
       <% if (contestDetails.information) { %><div class="app-markdown"><%- contestDetails.information %></div><% } else { %><div class="app-contest-detail-empty">暂无比赛公告</div><% } %>
     </section>
+    <% include contest_notice_table %>
   </div>
 </div>
 
