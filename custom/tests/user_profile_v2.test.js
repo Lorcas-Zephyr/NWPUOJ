@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+const vm = require('node:vm');
 
 const root = path.resolve(__dirname, '../..');
 const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf8');
@@ -115,4 +116,16 @@ test('registration identity accepts newly added colleges', () => {
   assert.match(registration, /'电子信息学院',\s*'人工智能学院',\s*'柔性电子学院',\s*'自动化学院'/);
   assert.match(registration, /const COLLEGES = \[/);
   assert.match(registration, /COLLEGES\.includes\(next\.college\)/);
+  assert.match(registration, /'生命科学与技术学院',\s*'生命科学与医学学部'/);
+  assert.match(registration, /colleges: COLLEGES/);
+  assert.match(registration, /registrationColleges: COLLEGES/);
+  const context = vm.createContext({});
+  vm.runInContext(registration.match(/const COLLEGES = \[[\s\S]*?\];/)[0] + '\n' +
+    registration.slice(registration.indexOf('function cleanText('), registration.indexOf('async function findProfile(')), context);
+  for (const college of ['生命科学与技术学院', '生命科学与医学学部']) {
+    const identity = context.validateIdentity({ student_id: '2026000001', real_name: '测试用户', college }, true);
+    assert.equal(identity.college, college);
+  }
+  assert.throws(() => context.validateIdentity({ student_id: '2026000001', real_name: '测试用户', college: '不存在的学院' }, true),
+    error => error.registrationCode === 2013);
 });

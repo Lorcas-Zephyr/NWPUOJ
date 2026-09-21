@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-21T10:22:10.384Z",
+  "generated_at": "2026-09-21T15:22:35.219Z",
   "frontend_page_routes": [
     {
       "method": "GET",
@@ -401,13 +401,13 @@
       "method": "GET",
       "route": "/sign_up",
       "source": "custom/modules/_registration_identity.js",
-      "line": 377
+      "line": 378
     },
     {
       "method": "GET",
       "route": "/user/:id/edit",
       "source": "custom/modules/_registration_identity.js",
-      "line": 446
+      "line": 447
     },
     {
       "method": "GET",
