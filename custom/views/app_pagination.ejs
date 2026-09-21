@@ -7,6 +7,11 @@ if (appPageEnd - appPageStart < 4) {
   if (appPageEnd === paginate.pageCnt) appPageStart = Math.max(1, paginate.pageCnt - 4);
 }
 function appPageUrl(pageNumber) {
+  if (typeof paginationBasePath !== 'undefined' && paginationBasePath) {
+    const query = Object.assign({}, req.query, { page: pageNumber });
+    delete query.revision;
+    return syzoj.utils.makeUrl(paginationBasePath, query);
+  }
   return syzoj.utils.makeUrl(req, Object.assign({}, req.query, { page: pageNumber }));
 }
 %>

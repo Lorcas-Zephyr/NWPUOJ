@@ -1,4 +1,5 @@
 const TypeORM = require('typeorm');
+const requestReads = require('../libs/request-read-cache');
 const authorizationDomain = require('../libs/authorization-domain');
 const {
   BUILT_IN_ROLES,
@@ -202,31 +203,31 @@ async function persistentCapabilities(user, scope) {
   if (!user) return [];
   await ensureAuthorizationSchema();
   const requested = normalizeScope(scope);
-  const teamRows = await TypeORM.getConnection().query(
+  const teamRows = await requestReads.memo(`auth:teams:${user.id}`, () => TypeORM.getConnection().query(
     "SELECT team_id FROM auth_team_member WHERE user_id=? AND status='active'",
     [user.id]
-  );
+  ));
   const subjects = [{ type: 'user', id: Number(user.id) }].concat(teamRows.map(row => ({ type: 'team', id: Number(row.team_id) })));
   const clauses = subjects.map(() => '(grant_row.subject_type=? AND grant_row.subject_id=?)').join(' OR ');
   const params = subjects.flatMap(subject => [subject.type, subject.id]);
-  const rows = await TypeORM.getConnection().query(
+  const rows = await requestReads.memo(`auth:grants:${user.id}`, () => TypeORM.getConnection().query(
     `SELECT grant_row.scope_type,grant_row.scope_id,capability.capability
        FROM auth_grant grant_row
        JOIN auth_role_capability capability ON capability.role_id=grant_row.role_id
       WHERE (${clauses}) AND grant_row.revoked_at IS NULL
         AND (grant_row.expires_at IS NULL OR grant_row.expires_at>UTC_TIMESTAMP(3))`,
     params
-  );
+  ));
   return rows.filter(row => scopeMatches(row.scope_type, row.scope_id, requested)).map(row => row.capability);
 }
 
 async function authorizedScopeIds(user, scopeType, capability) {
   if (!user) return [];
   await ensureAuthorizationSchema();
-  const teamRows = await TypeORM.getConnection().query(
+  const teamRows = await requestReads.memo(`auth:teams:${user.id}`, () => TypeORM.getConnection().query(
     "SELECT team_id FROM auth_team_member WHERE user_id=? AND status='active'",
     [user.id]
-  );
+  ));
   const subjects = [{ type: 'user', id: Number(user.id) }].concat(teamRows.map(row => ({ type: 'team', id: Number(row.team_id) })));
   const clauses = subjects.map(() => '(grant_row.subject_type=? AND grant_row.subject_id=?)').join(' OR ');
   const params = subjects.flatMap(subject => [subject.type, subject.id]);
@@ -260,13 +261,13 @@ async function effectiveCapabilities(subject, scope) {
 async function policyDecision(subject, capability, resource, context, scope) {
   await ensureAuthorizationSchema();
   const connection = TypeORM.getConnection();
-  const policies = await connection.query(
+  const policies = await requestReads.memo('auth:policies', () => connection.query(
     'SELECT id,name,effect,capability,scope_type,scope_id,conditions_json,enabled FROM auth_policy WHERE enabled=1 ORDER BY id ASC'
-  );
+  ));
   if (!policies.length) return { effect: null, matchedPolicyIds: [], invalidPolicyIds: [] };
   const [teams, organizations] = await Promise.all([
-    connection.query("SELECT team_id FROM auth_team_member WHERE user_id=? AND status='active'", [subject.id]),
-    connection.query("SELECT organization_id FROM auth_organization_member WHERE user_id=? AND status='active'", [subject.id])
+    requestReads.memo(`auth:teams:${subject.id}`, () => connection.query("SELECT team_id FROM auth_team_member WHERE user_id=? AND status='active'", [subject.id])),
+    requestReads.memo(`auth:organizations:${subject.id}`, () => connection.query("SELECT organization_id FROM auth_organization_member WHERE user_id=? AND status='active'", [subject.id]))
   ]);
   const req = context && context.req;
   const decision = evaluatePolicies(policies, capability, scope, {

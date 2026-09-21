@@ -2,6 +2,8 @@ const crypto = require('crypto');
 const TypeORM = require('typeorm');
 const contestMutation = require('../libs/contest-mutation');
 const contestRating = require('../libs/contest-rating');
+const { ReadCache } = require('../libs/read-cache');
+const ranklistRatingCache = new ReadCache(128);
 const ratingNotification = require('../libs/rating-notification');
 const JudgeState = syzoj.model('judge_state');
 
@@ -310,51 +312,48 @@ app.get('/user/:id', (req, res, next) => {
   next();
 });
 
+async function enrichContestRanklistRating(options) {
+  const contestId = Number(options.contest.id);
+  const data = await ranklistRatingCache.get(contestId, 2000, async () => {
+    const connection = TypeORM.getConnection();
+    const [rows, statusRows] = await Promise.all([
+      connection.query(
+      `SELECT rh.user_id,rh.rating_calculation_id,rh.rating_after,rh.rank,
+              finalization.participant_count,
+              (SELECT previous.rating_after FROM rating_history previous
+               WHERE previous.user_id=rh.user_id AND previous.rating_calculation_id<rh.rating_calculation_id
+               ORDER BY previous.rating_calculation_id DESC LIMIT 1) AS rating_before
+       FROM contest_rating_finalization finalization
+       INNER JOIN rating_history rh ON rh.rating_calculation_id=finalization.rating_calculation_id
+       WHERE finalization.contest_id=? AND finalization.status='completed'`,
+      [contestId]),
+      connection.query(`SELECT config.is_rated,finalization.status,finalization.skip_reason,finalization.participant_count
+        FROM contest LEFT JOIN contest_rating_config config ON config.contest_id=contest.id
+        LEFT JOIN contest_rating_finalization finalization ON finalization.contest_id=contest.id
+        WHERE contest.id=? LIMIT 1`, [contestId])
+    ]);
+    return { changes: new Map(rows.map(row => [Number(row.user_id), {
+      calculationId: Number(row.rating_calculation_id), after: Number(row.rating_after),
+      before: row.rating_before == null ? Number(syzoj.config.default.user.rating) : Number(row.rating_before),
+      rank: Number(row.rank), participants: Number(row.participant_count)
+    }])), status: statusRows[0] || null };
+  });
+  for (const item of options.ranklist) {
+    const change = data.changes.get(Number(item.user.id));
+    if (change) item.ratingChange = Object.assign({}, change);
+  }
+  options.contestRatingFinalized = data.changes.size > 0;
+  options.contestRatingStatus = data.status;
+  options.contestRated = !!(data.status && data.status.is_rated);
+  return options;
+}
+syzoj.utils.enrichContestRanklistRating = enrichContestRanklistRating;
+
 app.get('/contest/:id/ranklist', (req, res, next) => {
   const originalRender = res.render.bind(res);
   res.render = function renderRanklistWithRating(view, options) {
-    if (view !== 'contest_ranklist' || !options || !Array.isArray(options.ranklist)) {
-      return originalRender.apply(res, arguments);
-    }
-    TypeORM.getConnection().query(
-      `SELECT rh.user_id,rh.rating_calculation_id,rh.rating_after,rh.rank,u.rating,
-              finalization.participant_count
-       FROM contest_rating_finalization finalization
-       INNER JOIN rating_history rh ON rh.rating_calculation_id=finalization.rating_calculation_id
-       INNER JOIN user u ON u.id=rh.user_id
-       WHERE finalization.contest_id=? AND finalization.status='completed'`,
-      [Number(req.params.id)]
-    ).then(rows => {
-      const changes = new Map(rows.map(row => [Number(row.user_id), {
-        calculationId: Number(row.rating_calculation_id),
-        after: Number(row.rating_after),
-        rank: Number(row.rank),
-        participants: Number(row.participant_count)
-      }]));
-      let previousByUser = new Map();
-      return Promise.all(Array.from(changes.keys()).map(async userId => {
-        const historyRows = await TypeORM.getConnection().query(
-          `SELECT rh.rating_after FROM rating_history rh
-           INNER JOIN rating_calculation rc ON rc.id=rh.rating_calculation_id
-           WHERE rh.user_id=? AND rh.rating_calculation_id<? ORDER BY rh.rating_calculation_id DESC LIMIT 1`,
-          [userId,changes.get(userId).calculationId]
-        );
-        previousByUser.set(userId, historyRows.length ? Number(historyRows[0].rating_after) : Number(syzoj.config.default.user.rating));
-      })).then(() => {
-        options.ranklist.forEach(item => {
-          const change = changes.get(Number(item.user.id));
-          if (change) item.ratingChange = Object.assign(change, { before: previousByUser.get(Number(item.user.id)) });
-        });
-        options.contestRatingFinalized = changes.size > 0;
-        return TypeORM.getConnection().query(
-          'SELECT status,skip_reason,participant_count FROM contest_rating_finalization WHERE contest_id=? LIMIT 1',
-          [Number(req.params.id)]
-        ).then(statusRows => {
-          options.contestRatingStatus = statusRows.length ? statusRows[0] : null;
-          originalRender(view, options);
-        });
-      });
-    }).catch(next);
+    if (view !== 'contest_ranklist' || !options || !Array.isArray(options.ranklist)) return originalRender.apply(res, arguments);
+    enrichContestRanklistRating(options).then(() => originalRender(view, options)).catch(next);
     return res;
   };
   next();

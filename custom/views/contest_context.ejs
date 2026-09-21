@@ -103,6 +103,14 @@ function appContestDurationLabel(seconds) {
   var end = Number(root.dataset.end);
   var initialPhase = Number(root.dataset.now) < start ? 0 : (Number(root.dataset.now) < end ? 1 : 2);
   var reloading = false;
+  window.addEventListener('contest-clock-sync', function (event) {
+    var clock = event.detail;
+    if (!clock || !Number.isFinite(clock.start) || !Number.isFinite(clock.end) || !Number.isFinite(clock.now)) return;
+    start = clock.start; end = clock.end;
+    serverOffset = clock.now * 1000 - Date.now();
+    root.dataset.start = String(start); root.dataset.end = String(end);
+    update();
+  });
   function duration(seconds) {
     seconds = Math.max(0, Math.floor(seconds));
     var days = Math.floor(seconds / 86400);

@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const apiV2Helpers = require('../libs/api-v2');
 const v2RouteEnforcement = require('../libs/v2-route-enforcement');
+app.use(require('../libs/request-read-cache').middleware);
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const SESSION_MAX_AGE = 12 * 60 * 60 * 1000;

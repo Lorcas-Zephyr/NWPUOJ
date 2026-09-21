@@ -28,9 +28,10 @@ function render(manager) {
     + result.stdout + '<script src="/self/app-v2.js"></script></body></html>';
 }
 
-async function fixture(manager, handler, viewport) {
+async function fixture(manager, handler, viewport, setup) {
   const context = await browser.newContext({ viewport: viewport || { width: 1440, height: 1000 } });
   const page = await context.newPage();
+  if (setup) { await context.addInitScript(setup); await page.clock.install(); }
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('dialog', dialog => dialog.accept());
@@ -90,6 +91,82 @@ test('publish retries keep their body token, render text safely and retain usabl
     await page.screenshot({ path: '/tmp/nwpuoj-contest-notices-mobile.png', fullPage: true });
     assert.deepEqual(errors, []);
   } finally { await context.close(); }
+});
+
+test('healthy notification push stops idle polling; events sync unread notices and failures enable fallback', async () => {
+  let notices = [];
+  let unreadCalls = 0, historyCalls = 0;
+  const { page, context } = await fixture(false, async (route, url) => {
+    if (url.pathname.endsWith('/unread')) {
+      unreadCalls++;
+      return json(route, { ...inactive, eligible: true, active: true, items: notices });
+    }
+    historyCalls++;
+    return json(route, { items: notices, next_before_id: null });
+  }, null, () => {
+    window.EventSource = class extends EventTarget {
+      constructor(url) { super(); this.url = url; window.noticeSource = this; }
+      close() { this.closed = true; }
+    };
+  });
+  try {
+    await page.getByText('暂无比赛通知', { exact: true }).waitFor();
+    await page.evaluate(() => window.noticeSource.dispatchEvent(new Event('ready')));
+    await page.clock.runFor(100);
+    const before = [unreadCalls, historyCalls];
+    await page.clock.runFor(16000);
+    assert.deepEqual([unreadCalls, historyCalls], before, 'no 5-second or 15-second idle polling while push is healthy');
+    notices = [{ id: 1, content: '推送通知', published_at: now }];
+    await page.evaluate(() => window.noticeSource.dispatchEvent(new Event('changed')));
+    await page.clock.runFor(500);
+    await page.locator('dialog[open]').waitFor();
+    assert.equal(await page.locator('[data-notice-content]').textContent(), '推送通知');
+    const afterPush = unreadCalls;
+    await page.evaluate(() => window.noticeSource.onerror());
+    assert.equal(await page.evaluate(() => window.noticeSource.closed), true);
+    const fallbackResponse = page.waitForResponse(response => response.url().endsWith('/unread'));
+    await page.clock.runFor(31000);
+    await fallbackResponse;
+    assert.ok(unreadCalls > afterPush, 'network failure enables staggered fallback polling');
+  } finally { await context.close(); }
+});
+
+test('push during an in-flight read queues a catch-up for both history and unread notices', async () => {
+  let release, entered;
+  const held = new Promise(resolve => { release = resolve; });
+  const reading = new Promise(resolve => { entered = resolve; });
+  const calls = { history: 0, unread: 0 };
+  let notices = [];
+  const { page, context, errors } = await fixture(false, async (route, url) => {
+    const kind = url.pathname.endsWith('/unread') ? 'unread' : 'history';
+    const snapshot = notices.slice();
+    calls[kind]++;
+    if (calls[kind] === 1) {
+      if (calls.history && calls.unread) entered();
+      await held;
+    }
+    return json(route, kind === 'unread'
+      ? { ...inactive, eligible: true, active: true, items: snapshot }
+      : { items: snapshot, next_before_id: null });
+  }, null, () => {
+    window.EventSource = class extends EventTarget {
+      constructor() { super(); window.noticeSource = this; }
+      close() {}
+    };
+  });
+  try {
+    await reading;
+    notices = [{ id: 1, content: '查询期间发布的通知', published_at: now }];
+    await page.evaluate(() => window.noticeSource.dispatchEvent(new Event('changed')));
+    await page.clock.runFor(500);
+    release();
+    await page.locator('dialog[open]').waitFor();
+    await page.locator('[data-notice-history-rows] tr').waitFor();
+    assert.equal(await page.locator('[data-notice-content]').textContent(), notices[0].content);
+    assert.equal(await page.locator('[data-notice-history-rows] td').last().textContent(), notices[0].content);
+    assert.deepEqual(calls, { history: 2, unread: 2 });
+    assert.deepEqual(errors, []);
+  } finally { release(); await context.close(); }
 });
 
 test('queued popups survive failed acknowledgement, do not close on Escape, and stay read after reload', async () => {

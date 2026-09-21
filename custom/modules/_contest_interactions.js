@@ -10,6 +10,8 @@ const { linkUserMentions } = require('../libs/user-mentions');
 const { buildContestRanklistCsv } = require('../libs/contest-ranklist-export');
 const classGroups = require('../libs/class-groups');
 const { loadFrozenScoreDetails } = require('../libs/contest-standings');
+const { ReadCache } = require('../libs/read-cache');
+const ranklistAuxCache = new ReadCache(128);
 
 const contestOverviewContext = new AsyncLocalStorage();
 const contestStatisticsCache = new Map();
@@ -118,11 +120,13 @@ function cached(cache, key, ttl, loader) {
   });
   entry.promise = promise;
   cache.set(key, entry);
+  while (cache.size > 256) cache.delete(cache.keys().next().value);
   return promise;
 }
 
 syzoj.utils.invalidateContestReadCache = function invalidateContestReadCache(contestId) {
   const prefix = String(Number(contestId)) + ':';
+  ranklistAuxCache.invalidate(prefix);
   for (const key of contestStatisticsCache.keys()) {
     if (key.startsWith(prefix)) contestStatisticsCache.delete(key);
   }
@@ -166,7 +170,7 @@ async function loadContestStatistics(contestId, problemIds) {
 }
 
 async function loadContestRanklist(contest, cutoff = null) {
-  return cached(contestRanklistCache, `${Number(contest.id)}:${cutoff == null ? 'live' : cutoff}`, 1000, async () => {
+  return cached(contestRanklistCache, `${Number(contest.id)}:${cutoff == null ? 'live' : cutoff}:${contest.type}:${contest.start_time}:${contest.end_time}:${contest.problems}`, 2000, async () => {
     if (syzoj.utils.aiContest && syzoj.utils.aiContest.ensureSchema) await syzoj.utils.aiContest.ensureSchema();
     const rows = await TypeORM.getConnection().query(
       `SELECT cp.id AS player_id,cp.user_id,cp.score,cp.score_details,cp.time_spent,
@@ -183,7 +187,9 @@ async function loadContestRanklist(contest, cutoff = null) {
        WHERE cp.contest_id=? AND removal.user_id IS NULL`,
       [contest.id]
     );
-    const rankingParams = parseJson(contest.ranklist && contest.ranklist.ranking_params, {});
+    const rankingRows = await TypeORM.getConnection().query('SELECT ranking_params FROM contest_ranklist WHERE id=? LIMIT 1', [contest.ranklist_id]);
+    const rankingParams = parseJson(rankingRows[0] && rankingRows[0].ranking_params, {});
+    const activeProblems = new Set(String(contest.problems || '').split('|'));
     const frozenDetails = cutoff == null ? null : await loadFrozenScoreDetails(TypeORM.getConnection(), contest, cutoff);
     const judgeIds = [];
     const items = rows.map(row => {
@@ -222,6 +228,10 @@ async function loadContestRanklist(contest, cutoff = null) {
       let score = 0;
       let tie = 0;
       for (const [problemId, detail] of Object.entries(item.player.score_details)) {
+        if (!activeProblems.has(String(problemId))) {
+          delete item.player.score_details[problemId];
+          continue;
+        }
         if (!detail) continue;
         detail.judge_state = { submit_time: judgeTimes.get(Number(detail.judge_id)) || Number(detail.time || 0) };
         if (contest.type === 'acm') {
@@ -390,28 +400,31 @@ app.get('/contest/:id', (req, res, next) => {
   next();
 });
 
-app.get('/contest/:id/ranklist', async (req, res, next) => {
-  try {
+async function contestRanklistView(req, res) {
     const contestId = Number(req.params.id);
     const contest = Number.isSafeInteger(contestId) && contestId > 0 ? await Contest.findById(contestId) : null;
-    if (!contest) throw new ErrorMessage('无此比赛。');
+    if (!contest) throw Object.assign(new ErrorMessage('无此比赛。'), { statusCode: 404 });
     const supervisor = await contest.isSupervisior(res.locals.user);
     if (!contest.is_public && (!res.locals.user || (!res.locals.user.is_admin && !supervisor && !String(contest.admins || '').split('|').includes(String(res.locals.user.id))))) {
-      throw new ErrorMessage('比赛未公开，请耐心等待。');
+      throw Object.assign(new ErrorMessage('比赛未公开，请耐心等待。'), { statusCode: 403 });
     }
-    const submitted = !!(res.locals.contestRegistration && res.locals.contestRegistration.submitted);
-    const publicReadOnly = !!contest.is_public && !supervisor && !(res.locals.contestRegistration && res.locals.contestRegistration.registered);
+    let registration = res.locals.contestRegistration;
+    if (!registration && res.locals.user) {
+      const participants = await TypeORM.getConnection().query('SELECT id,submitted_at FROM contest_player WHERE contest_id=? AND user_id=? LIMIT 1', [contest.id, res.locals.user.id]);
+      registration = { registered: !!participants.length, submitted: !!(participants[0] && participants[0].submitted_at) };
+    }
+    const submitted = !!(registration && registration.submitted);
+    const publicReadOnly = !!contest.is_public && !supervisor && !(registration && registration.registered);
     if ([publicReadOnly, contest.allowedSeeingResult() && contest.allowedSeeingOthers(), contest.isEnded(), supervisor, submitted].every(value => !value)) {
-      throw new ErrorMessage('您没有权限进行此操作。');
+      throw Object.assign(new ErrorMessage('您没有权限进行此操作。'), { statusCode: 403 });
     }
-    await contest.loadRelationships();
     if (typeof syzoj.utils.ensureTemporaryContestAccountSchema === 'function') {
       await syzoj.utils.ensureTemporaryContestAccountSchema();
     }
     const standingsView = await syzoj.utils.contestV2.standingsView(contest, res.locals.user, String(req.query.view || 'public'));
     const allItems = await loadContestRanklist(contest, standingsView.cutoff);
     const accountFilter = normalizeRanklistAccountFilter(req.query.account);
-    const classMembership = await classGroups.membershipForUsers(allItems.map(item => item.user.id));
+    const classMembership = await loadRanklistClasses(contest, allItems);
     const requestedClassIds = classGroups.normalizeClassIds(req.query.classes);
     const availableClassIds = new Set(classMembership.classes.map(group => group.id));
     const selectedClassIds = requestedClassIds.filter(id => availableClassIds.has(id));
@@ -420,12 +433,11 @@ app.get('/contest/:id/ranklist', async (req, res, next) => {
     const offset = (paginate.currPage - 1) * paginate.perPage;
     const ranklist = rankedItems.slice(offset, offset + paginate.perPage);
     const problemIds = await contest.getProblems();
-    const problems = (await Promise.all(problemIds.map(id => Problem.findById(id)))).filter(Boolean);
-    const canManageRanklist = await canExportContestRanklist(contest, res.locals.user);
+    const problems = await loadRanklistProblems(problemIds);
+    const canManageRanklist = standingsView.canManage;
     const showRanklistIdentities = canManageRanklist && String(req.query.identity || '') === 'real';
     const ranklistProfiles = showRanklistIdentities ? await loadRanklistProfiles(ranklist) : new Map();
-    await applyCurrentProblemVersions(problems);
-    res.render('contest_ranklist', {
+    return {
       contest,
       ranklist,
       problems,
@@ -440,11 +452,72 @@ app.get('/contest/:id/ranklist', async (req, res, next) => {
       canExportRanklist: canManageRanklist,
       showRanklistIdentities,
       ranklistProfiles,
-      standingsView
-    });
+      standingsView,
+      ranklistSupervisor: supervisor,
+      paginationBasePath: ['contest', contest.id, 'ranklist']
+    };
+}
+
+function loadRanklistClasses(contest, items) {
+  const ids = items.map(item => item.user.id);
+  return ranklistAuxCache.get(`${contest.id}:classes:${ids.join(',')}`, 2000, () => classGroups.membershipForUsers(ids));
+}
+
+async function loadRanklistProblems(ids) {
+  if (!ids.length) return [];
+  // One batch read of current titles, never a cached copy of problem statements.
+  const rows = await TypeORM.getConnection().query(`SELECT p.id,
+      COALESCE(JSON_UNQUOTE(JSON_EXTRACT(version.content_json,'$.title')),p.title) AS title
+    FROM problem p LEFT JOIN problem_v2_state state ON state.problem_id=p.id
+    LEFT JOIN problem_v2_version version ON version.id=state.current_version_id
+    WHERE p.id IN (?)`, [ids]);
+  const byId = new Map(rows.map(row => [Number(row.id), row]));
+  return ids.map(id => byId.get(Number(id))).filter(Boolean);
+}
+
+app.get('/contest/:id/ranklist', async (req, res) => {
+  try {
+    res.render('contest_ranklist', await contestRanklistView(req, res));
   } catch (error) {
     syzoj.log(error);
     res.status(error.statusCode || 400).render('error', { err: error });
+  }
+});
+
+app.get('/api/v2/contests/:id/ranklist-view', async (req, res) => {
+  const api = syzoj.utils.apiV2;
+  try {
+    const options = await contestRanklistView(req, res);
+    if (syzoj.utils.enrichContestRanklistRating) await syzoj.utils.enrichContestRanklistRating(options);
+    options.ranklistPartial = true;
+    // Per-view versioning skips EJS rendering as well as payload transfer when
+    // nothing changed. Permissions and current titles were re-read above.
+    const revision = api.etagFor({
+      viewer: Number(res.locals.user && res.locals.user.id || 0),
+      contest: [options.contest.id, options.contest.title, options.contest.type, options.contest.start_time, options.contest.end_time, options.contest.isEnded()],
+      rows: options.ranklist, problems: options.problems, page: options.paginate,
+      account: options.ranklistAccountFilter, classes: options.ranklistClassOptions, selected: options.ranklistSelectedClassIds,
+      total: options.ranklistTotal, manager: options.canManageRanklist, supervisor: options.ranklistSupervisor,
+      identity: options.showRanklistIdentities, profiles: Array.from(options.ranklistProfiles.entries()),
+      view: options.standingsView, rated: options.contestRated, rating: options.contestRatingStatus,
+      finalized: options.contestRatingFinalized,
+      cheaters: Array.from(syzoj.contestCheaterMap && syzoj.contestCheaterMap.get(options.contest.id) || []),
+      // Username colours, tags and class tags are live in-memory projections.
+      names: options.ranklist.map(item => syzoj.utils.renderUsername(item.user))
+    });
+    const unchanged = req.query.revision === revision;
+    const html = unchanged ? null : await new Promise((resolve, reject) => res.render('contest_ranklist', options, (error, output) => error ? reject(error) : resolve(output)));
+    const now = Math.floor(Date.now() / 1000);
+    const boundary = options.standingsView.freezeAt > now && !options.standingsView.frozen
+      ? Math.min(options.standingsView.freezeAt, options.contest.end_time) : options.contest.end_time;
+    const nextUpdate = options.contest.isEnded() ? 30000 : Math.max(1000, Math.min(15000, (boundary - now) * 1000));
+    return api.send(res, { unchanged, revision, html, next_update_ms: nextUpdate,
+      can_manage: options.canManageRanklist, frozen: options.standingsView.frozen,
+      show_live: options.standingsView.showLive, title: options.contest.title,
+      clock: { start: Number(options.contest.start_time), end: Number(options.contest.end_time), now } });
+  } catch (error) {
+    syzoj.log(error);
+    return api.fail(res, error.statusCode || 500, 'REQUEST_FAILED', '无法更新排行榜，请刷新页面确认访问权限。');
   }
 });
 
@@ -458,14 +531,13 @@ app.get('/contest/:id/ranklist/export', async (req, res) => {
         err: new ErrorMessage(res.locals.user ? '您没有权限导出该比赛的排行榜。' : '请登录后导出排行榜。')
       });
     }
-    await contest.loadRelationships();
     if (typeof syzoj.utils.ensureTemporaryContestAccountSchema === 'function') {
       await syzoj.utils.ensureTemporaryContestAccountSchema();
     }
     const accountFilter = normalizeRanklistAccountFilter(req.query.account);
     const standingsView = await syzoj.utils.contestV2.standingsView(contest, res.locals.user, String(req.query.view || 'public'));
     const allItems = await loadContestRanklist(contest, standingsView.cutoff);
-    const classMembership = await classGroups.membershipForUsers(allItems.map(item => item.user.id));
+    const classMembership = await loadRanklistClasses(contest, allItems);
     const availableClassIds = new Set(classMembership.classes.map(group => group.id));
     const selectedClassIds = classGroups.normalizeClassIds(req.query.classes).filter(id => availableClassIds.has(id));
     const items = ranklistItemsForFilters(allItems, accountFilter, selectedClassIds, classMembership, contest);

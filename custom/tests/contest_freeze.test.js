@@ -11,6 +11,8 @@ const lifecycle = require('../libs/contest-lifecycle');
 // Execute the actual API and HTML handlers against a deterministic database
 // fixture. This covers permissions, cache separation, API projections and CSV.
 function harness() {
+  const queryCounts = new Map();
+  let renderCount = 0;
   let now = 300;
   let freezeMinutes = 2;
   const submissions = [
@@ -32,6 +34,7 @@ function harness() {
   const versions = [], rows = new Map();
   let pointers = null;
   const db = { transaction: async (_level, callback) => callback(db), query: async (sql, args = []) => {
+    queryCounts.set(sql, (queryCounts.get(sql) || 0) + 1);
     if (/^CREATE TABLE/.test(sql)) return [];
     if (/^SHOW COLUMNS/.test(sql)) return [{ Field: 'exists' }];
     if (/SELECT security_json FROM contest_v2_config/.test(sql)) return [{ security_json: JSON.stringify({ standings_freeze_after_minutes: freezeMinutes }) }];
@@ -40,6 +43,8 @@ function harness() {
     if (/SELECT \* FROM contest WHERE/.test(sql)) return [contest];
     if (/FROM contest_player cp/.test(sql)) return players.map(player => ({ ...player }));
     if (/SELECT id FROM contest_player/.test(sql)) return [ { id: 7 } ];
+    if (/SELECT id,submitted_at FROM contest_player/.test(sql)) return [{ id: 7, submitted_at: null }];
+    if (/FROM problem p LEFT JOIN problem_v2_state/.test(sql)) return [{ id: 11, title: 'Problem' }];
     if (/SELECT revision FROM contest_registration_setting/.test(sql)) return [{ revision: 1 }];
     if (/SELECT ranking_params FROM contest_ranklist/.test(sql)) return [{ ranking_params: '{}' }];
     if (/SELECT id,submit_time FROM judge_state/.test(sql)) return submissions.filter(row => args[0].includes(row.id));
@@ -78,10 +83,12 @@ function harness() {
   for (const method of ['get', 'post', 'put', 'patch', 'delete']) app[method] = (route, handler) => routes.set(method + ' ' + route, handler);
   const api = { send: (res, value) => (res.apiResult = value), fail: (res, status, code) => (res.apiResult = { error: { status, code } }),
     parseLimit: () => 100, decodeCursor: value => value || 0, encodeCursor: value => value,
-    appendEvent: async () => {}, ensureFoundationSchema: async () => {}, ifMatch: req => req.body.if_match === 'fixture-etag' };
+    appendEvent: async () => {}, ensureFoundationSchema: async () => {}, ifMatch: req => req.body.if_match === 'fixture-etag',
+    etagFor: value => require('crypto').createHash('sha256').update(JSON.stringify(value)).digest('hex') };
   const utils = { apiV2: api, authorizationV2: { authorize: async (user, _action, resource) =>
     !!user && (user.id === 1 || user.id === 2 && resource && resource.id === 21) },
-    paginate: (count, page, perPage) => ({ currPage: Number(page || 1), perPage, count }) };
+    paginate: (count, page, perPage) => ({ currPage: Number(page || 1), perPage, count }),
+    renderUsername: user => user.username };
   function Ranklist() {}
   Ranklist.prototype.getPlayers = async () => [];
   const classGroups = { normalizeClassIds: value => value ? String(value).split(',').map(Number).filter(id => id > 0) : [],
@@ -112,11 +119,16 @@ function harness() {
     const req = { params: { id: '21' }, query, body, res, get: () => null };
     // HTML handlers return via res.render rather than returning its value.
     let rendered;
-    res.render = (_template, values) => { rendered = values; return values; };
+    res.render = (_template, values, callback) => {
+      renderCount++;
+      rendered = values;
+      if (callback) callback(null, JSON.stringify({ rows: values.ranklist, profiles: Array.from(values.ranklistProfiles.entries()), view: values.standingsView }));
+      return values;
+    };
     const result = await routes.get(method + ' ' + route)(req, res);
     return res.apiResult || (result === undefined ? rendered : result);
   }
-  return { get: (route, userId, query) => request('get', route, userId, query),
+  return { get: (route, userId, query) => request('get', route, userId, query), queryCounts, renderCount: () => renderCount,
     save: (userId, body) => request('post', '/api/v2/contests/:id/update', userId, {}, body),
     create: (userId, body) => request('post', '/api/v2/contests', userId, {}, body),
     setNow: value => { now = value; }, setFreeze: value => { freezeMinutes = value; utils.invalidateContestReadCache(21); }, versions,
@@ -208,4 +220,40 @@ test('HTML standings isolate live cache, retain class/account ranks and export t
   app.setFreeze(2);
   app.setNow(400);
   assert.equal((await app.get(route, 7)).ranklist.find(row => row.user.id === 7).player.score, 1);
+});
+
+test('partial standings recheck permissions, isolate private/live views, and skip unchanged rendering', async () => {
+  const app = harness();
+  const route = '/api/v2/contests/:id/ranklist-view';
+  const manager = await app.get(route, 2, { view: 'live', identity: 'real' });
+  const managed = JSON.parse(manager.html);
+  assert.equal(managed.rows.find(row => row.user.id === 7).player.score, 1);
+  assert.equal(managed.profiles[0][1].real_name, '甲');
+  const rendered = app.renderCount();
+  const same = await app.get(route, 2, { view: 'live', identity: 'real', revision: manager.revision });
+  assert.equal(same.unchanged, true);
+  assert.equal(same.html, null);
+  assert.equal(app.renderCount(), rendered);
+  for (const userId of [null, 3, 7]) {
+    const publicResult = await app.get(route, userId, { view: 'live', identity: 'real', revision: manager.revision });
+    assert.equal(publicResult.unchanged, false);
+    assert.equal(publicResult.can_manage, false);
+    const publicView = JSON.parse(publicResult.html);
+    assert.deepEqual(publicView.profiles, []);
+    assert.equal(publicView.rows.find(row => row.user.id === 7).player.score, 0);
+    assert.equal(publicView.rows.find(row => row.user.id === 7).player.score_details[11].frozenAttempts, 1);
+  }
+  app.setNow(400);
+  const final = await app.get(route, 7);
+  assert.equal(final.frozen, false);
+  assert.equal(JSON.parse(final.html).rows.find(row => row.user.id === 7).player.score, 1);
+});
+
+test('450 partial standings readers share the expensive score and frozen-result queries', async () => {
+  const app = harness();
+  await Promise.all(Array.from({ length: 450 }, () => app.get('/api/v2/contests/:id/ranklist-view', 7)));
+  const count = fragment => Array.from(app.queryCounts.entries()).filter(([sql]) => sql.includes(fragment)).reduce((sum, [, value]) => sum + value, 0);
+  assert.equal(count('FROM contest_player cp'), 1);
+  assert.equal(count('SELECT js.id,js.user_id'), 1);
+  assert.equal(count('SELECT ranking_params FROM contest_ranklist'), 1);
 });

@@ -49,9 +49,11 @@
     var beforeId = null;
     var historyLoaded = false;
     var historyBusy = false;
+    var historyRefreshPending = false;
 
     async function loadHistory(older) {
-      if (historyBusy || (older && !beforeId)) return;
+      if (historyBusy) { if (!older) historyRefreshPending = true; return; }
+      if (older && !beforeId) return;
       historyBusy = true;
       moreButton.disabled = refreshButton.disabled = true;
       try {
@@ -91,13 +93,13 @@
       } finally {
         historyBusy = false;
         moreButton.disabled = refreshButton.disabled = false;
+        if (historyRefreshPending) { historyRefreshPending = false; loadHistory(false); }
       }
     }
     refreshHistory = function () { return loadHistory(false); };
     refreshButton.addEventListener('click', refreshHistory);
     moreButton.addEventListener('click', function () { loadHistory(true); });
     refreshHistory();
-    window.setInterval(function () { if (!document.hidden) refreshHistory(); }, 15000);
   }
 
   var form = document.querySelector('[data-contest-notice-publish]');
@@ -147,8 +149,9 @@
     });
   }
 
+  function setupNotifier() {
   var notifier = document.querySelector('[data-contest-notifier]');
-  if (!notifier) return;
+  if (!notifier) return function () {};
   var url = '/api/v2/contests/' + notifier.dataset.contestId + '/notices';
   var readKey = 'contest-notice-read:' + notifier.dataset.userId + ':' + notifier.dataset.contestId;
   var dialog = notifier.querySelector('dialog');
@@ -157,9 +160,23 @@
   var current = null;
   var readThrough = 0;
   var polling = false;
+  var pollPending = false;
   var acknowledging = false;
   var stopped = false;
   var timer;
+  var queued = [];
+  var showTimer;
+
+  function displayNext() {
+    window.clearTimeout(showTimer);
+    queued = queued.filter(function (notice) { return notice.id > readThrough; });
+    if (current || !queued.length) return;
+    if (document.hidden || document.querySelector('dialog[open]')) {
+      showTimer = window.setTimeout(displayNext, 1000);
+      return;
+    }
+    showNotice(queued[0]);
+  }
 
   function closeNotice() {
     current = null;
@@ -178,7 +195,8 @@
     ackButton.focus();
   }
   async function poll() {
-    if (polling || stopped || document.hidden) return;
+    if (stopped || document.hidden) return;
+    if (polling) { pollPending = true; return; }
     window.clearTimeout(timer);
     polling = true;
     try {
@@ -186,14 +204,19 @@
       readThrough = Math.max(readThrough, Number(data.read_through) || 0);
       stopped = !data.eligible || data.server_time >= data.end_time;
       if (current && (!data.active || readThrough >= current.id)) closeNotice();
-      var nextNotice = data.items.find(function (notice) { return notice.id > readThrough; });
-      if (data.active && !current && nextNotice) showNotice(nextNotice);
+      queued = data.active ? data.items : [];
+      displayNext();
+      if (!stopped) {
+        var boundary = data.active ? data.end_time : data.start_time;
+        timer = window.setTimeout(poll, Math.max(1000, Math.min(2147483647, (boundary - data.server_time) * 1000)));
+      }
     } catch (error) {
       if ([401, 403, 404].indexOf(error.status) !== -1) { stopped = true; if (current) closeNotice(); }
       // Network failures must not discard an unread notice or the active dialog.
+      if (!stopped) timer = window.setTimeout(poll, 15000 + Math.random() * 15000);
     } finally {
       polling = false;
-      if (!stopped) timer = window.setTimeout(poll, 5000);
+      if (pollPending) { pollPending = false; poll(); }
     }
   }
   dialog.addEventListener('cancel', function (event) { event.preventDefault(); });
@@ -212,6 +235,7 @@
       readThrough = Math.max(readThrough, noticeId);
       try { window.localStorage.setItem(readKey, String(noticeId)); } catch (_) {}
       if (current && current.id === noticeId) closeNotice();
+      displayNext();
       poll();
     } catch (error) {
       status(readStatus, '已读状态保存失败，请点击“知道了”重试。');
@@ -221,9 +245,73 @@
     if (event.key !== readKey) return;
     readThrough = Math.max(readThrough, Number(event.newValue) || 0);
     if (current && readThrough >= current.id) closeNotice();
+    displayNext();
   });
-  document.addEventListener('visibilitychange', function () { if (!document.hidden) { poll(); refreshHistory(); } });
-  window.addEventListener('online', function () { poll(); refreshHistory(); });
-  window.addEventListener('pageshow', function (event) { if (event.persisted) poll(); });
   poll();
+  return function () { stopped = false; return poll(); };
+  }
+
+  var refreshUnread = setupNotifier();
+  var liveRoot = document.querySelector('[data-contest-notifier]') || historyRoot;
+  if (!liveRoot) return;
+  var streamUrl = '/api/v2/contests/' + liveRoot.dataset.contestId + '/notices/events';
+  var stream, watchdog, fallbackTimer, probeTimer, updateTimer;
+  function sync() { refreshUnread(); refreshHistory(); }
+  function disconnect() {
+    if (stream) stream.close();
+    stream = null;
+    window.clearTimeout(watchdog);
+  }
+  function armWatchdog() {
+    window.clearTimeout(watchdog);
+    watchdog = window.setTimeout(useFallback, 45000);
+  }
+  function fallbackPoll() {
+    if (!document.hidden) sync();
+    fallbackTimer = window.setTimeout(fallbackPoll, 15000 + Math.random() * 15000);
+  }
+  function useFallback() {
+    disconnect();
+    window.clearTimeout(fallbackTimer);
+    window.clearTimeout(probeTimer);
+    if (document.hidden) return;
+    fallbackTimer = window.setTimeout(fallbackPoll, 15000 + Math.random() * 15000);
+    probeTimer = window.setTimeout(connect, 60000 + Math.random() * 15000);
+  }
+  function connect() {
+    disconnect();
+    window.clearTimeout(probeTimer);
+    if (document.hidden) return;
+    if (!window.EventSource) { useFallback(); return; }
+    stream = new EventSource(streamUrl);
+    var active = stream;
+    watchdog = window.setTimeout(useFallback, 20000);
+    stream.addEventListener('ready', function () {
+      if (stream !== active) return;
+      window.clearTimeout(fallbackTimer);
+      armWatchdog();
+      sync(); // Reconnection always repairs missed events from persisted history.
+    });
+    stream.addEventListener('heartbeat', function () { if (stream === active) armWatchdog(); });
+    stream.addEventListener('renew', function () {
+      if (stream !== active) return;
+      disconnect();
+      probeTimer = window.setTimeout(connect, 500 + Math.random() * 1500);
+    });
+    stream.addEventListener('changed', function () {
+      if (stream !== active) return;
+      armWatchdog();
+      window.clearTimeout(updateTimer);
+      updateTimer = window.setTimeout(sync, Math.random() * 350);
+    });
+    stream.onerror = function () { if (stream === active) useFallback(); };
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) { disconnect(); window.clearTimeout(fallbackTimer); window.clearTimeout(probeTimer); }
+    else { sync(); connect(); }
+  });
+  window.addEventListener('online', function () { sync(); connect(); });
+  window.addEventListener('pagehide', function () { disconnect(); window.clearTimeout(fallbackTimer); window.clearTimeout(probeTimer); });
+  window.addEventListener('pageshow', function (event) { if (event.persisted) { sync(); connect(); } });
+  connect();
 })();

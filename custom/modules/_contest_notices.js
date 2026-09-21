@@ -4,6 +4,10 @@
 // or inbox messages. Read cursors belong to a user and persist across sessions.
 const TypeORM = require('typeorm');
 const { appendEvent } = require('../libs/content-domain');
+const { ReadCache } = require('../libs/read-cache');
+const { ContestNoticeStream } = require('../libs/contest-notice-stream');
+const historyCache = new ReadCache();
+const noticeStream = new ContestNoticeStream();
 const Contest = syzoj.model('contest');
 const db = () => TypeORM.getConnection();
 const api = () => syzoj.utils.apiV2;
@@ -56,7 +60,7 @@ async function canManage(contest, user) {
 async function access(req, res, managerOnly) {
   const contest = await Contest.findById(positiveId(req.params.id));
   if (!contest) throw noticeError(404, 'CONTEST_NOT_FOUND', '无此比赛。');
-  const manager = await canManage(contest, res.locals.user);
+  const manager = managerOnly || !contest.is_public ? await canManage(contest, res.locals.user) : false;
   if ((managerOnly || !contest.is_public) && !manager) {
     throw noticeError(res.locals.user ? 403 : 401, res.locals.user ? 'CAPABILITY_REQUIRED' : 'AUTHENTICATION_REQUIRED', '您没有权限管理或查看该比赛通知。');
   }
@@ -89,10 +93,10 @@ app.get('/api/v2/contests/:id/notices', async (req, res) => {
   try {
     const { contest } = await access(req, res, false);
     const before = req.query.before_id ? positiveId(req.query.before_id) : null;
-    const rows = await db().query(
+    const rows = await historyCache.get(`${contest.id}:${before || 'latest'}`, 3000, () => db().query(
       `SELECT id,content,published_at FROM contest_notice WHERE contest_id=?${before ? ' AND id<?' : ''} ORDER BY id DESC LIMIT 51`,
       before ? [contest.id, before] : [contest.id]
-    );
+    ));
     return api().send(res, {
       items: rows.slice(0, 50).map(resource),
       next_before_id: rows.length > 50 ? Number(rows[49].id) : null
@@ -100,10 +104,18 @@ app.get('/api/v2/contests/:id/notices', async (req, res) => {
   } catch (error) { return handleError(res, error); }
 });
 
+app.get('/api/v2/contests/:id/notices/events', async (req, res) => {
+  try {
+    const { contest } = await access(req, res, false);
+    return noticeStream.attach(req, res, contest.id);
+  } catch (error) { return handleError(res, error); }
+});
+
 app.get('/api/v2/contests/:id/notices/unread', async (req, res) => {
   try {
     if (!res.locals.user) throw noticeError(401, 'AUTHENTICATION_REQUIRED', '请先登录。');
-    const { contest, manager } = await access(req, res, false);
+    const { contest } = await access(req, res, false);
+    const manager = await canManage(contest, res.locals.user);
     const now = Math.floor(Date.now() / 1000);
     // Read the live registration, not a cached page state (removals take effect immediately).
     const registered = await db().query('SELECT id FROM contest_player WHERE contest_id=? AND user_id=? LIMIT 1', [contest.id, res.locals.user.id]);
@@ -156,6 +168,10 @@ app.post('/api/v2/contests/:id/notices', async (req, res) => {
         aggregateId: contest.id, actorId: res.locals.user.id, payload: { notice_id: id } });
       return { row: { id, content, published_at: at }, auditId };
     });
+    if (!result.replay) {
+      historyCache.invalidate(`${contest.id}:`);
+      noticeStream.publish(contest.id);
+    }
     res.locals.apiMeta.audit_event_id = result.auditId || null;
     return api().send(res, resource(result.row), result.replay ? 200 : 201);
   } catch (error) { return handleError(res, error); }

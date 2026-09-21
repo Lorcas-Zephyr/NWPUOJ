@@ -5,7 +5,7 @@
   "scripts": {
     "postinstall": "npm install --prefix node_modules/markdown-it --omit=dev --no-package-lock --no-save",
     "test": "npm run verify:design && npm run test:syntax && npm run test:languages && npm run test:contest-freeze && npm run test:contest-notices && npm run test:unit && npm run test:profile && npm run test:vjudge",
-    "test:contest-notices": "node --test tests/contest_notices.test.js",
+    "test:contest-notices": "node --test tests/contest_notices.test.js tests/contest_live_performance.test.js",
     "test:contest-freeze": "node --test tests/contest_freeze.test.js tests/contest_submission_freeze.test.js",
     "verify:design": "node tests/verify-design-checklist.js",
     "test:web:smoke": "bash tests/web_render_smoke.sh",

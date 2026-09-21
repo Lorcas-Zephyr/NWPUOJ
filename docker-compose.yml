@@ -184,6 +184,7 @@ services:
       - ./custom/app-v2.js:/app/static/self/app-v2.js:ro
       - ./custom/app-api.js:/app/static/self/app-api.js:ro
       - ./custom/contest-notices.js:/app/static/self/contest-notices.js:ro
+      - ./custom/contest-ranklist-live.js:/app/static/self/contest-ranklist-live.js:ro
       - ./custom/lucide-1.27.0.min.js:/app/static/self/lucide-1.27.0.min.js:ro
       - ./custom/modern-editor.js:/app/static/self/modern-editor.js:ro
       - ./custom/views/ranklist.ejs:/app/views/ranklist.ejs:ro
@@ -273,6 +274,9 @@ services:
       - ./custom/libs/testdata-snapshot.js:/app/libs/testdata-snapshot.js:ro
       - ./custom/libs/testdata-upload.js:/app/libs/testdata-upload.js:ro
       - ./custom/libs/content-domain.js:/app/libs/content-domain.js:ro
+      - ./custom/libs/read-cache.js:/app/libs/read-cache.js:ro
+      - ./custom/libs/request-read-cache.js:/app/libs/request-read-cache.js:ro
+      - ./custom/libs/contest-notice-stream.js:/app/libs/contest-notice-stream.js:ro
       - ./custom/libs/contest-mutation.js:/app/libs/contest-mutation.js:ro
       - ./custom/libs/contest-order.js:/app/libs/contest-order.js:ro
       - ./custom/libs/ai-provider-adapters.js:/app/libs/ai-provider-adapters.js:ro

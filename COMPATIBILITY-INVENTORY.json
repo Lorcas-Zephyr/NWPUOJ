@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-21T09:06:37.760Z",
+  "generated_at": "2026-09-21T10:22:10.384Z",
   "frontend_page_routes": [
     {
       "method": "GET",
@@ -185,61 +185,61 @@
       "method": "GET",
       "route": "/contest/:id",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 316
+      "line": 326
     },
     {
       "method": "GET",
       "route": "/contest/:id/edit",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 325
+      "line": 335
     },
     {
       "method": "GET",
       "route": "/contest/:id/details",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 339
+      "line": 349
     },
     {
       "method": "GET",
       "route": "/contest/:id",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 366
+      "line": 376
     },
     {
       "method": "GET",
       "route": "/contest/:id/ranklist",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 393
+      "line": 478
     },
     {
       "method": "GET",
       "route": "/contest/:id/ranklist/export",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 451
+      "line": 524
     },
     {
       "method": "GET",
       "route": "/contest/:id/problem/:pid",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 487
+      "line": 559
     },
     {
       "method": "GET",
       "route": "/contest/:id/notices",
       "source": "custom/modules/_contest_notices.js",
-      "line": 77
+      "line": 81
     },
     {
       "method": "GET",
       "route": "/user/:id",
       "source": "custom/modules/_contest_rating.js",
-      "line": 255
+      "line": 257
     },
     {
       "method": "GET",
       "route": "/contest/:id/ranklist",
       "source": "custom/modules/_contest_rating.js",
-      "line": 313
+      "line": 352
     },
     {
       "method": "GET",
@@ -413,13 +413,13 @@
       "method": "GET",
       "route": "/login",
       "source": "custom/modules/_request_security.js",
-      "line": 158
+      "line": 159
     },
     {
       "method": "GET",
       "route": "/sign_up",
       "source": "custom/modules/_request_security.js",
-      "line": 158
+      "line": 159
     },
     {
       "method": "GET",

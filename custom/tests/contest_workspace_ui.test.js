@@ -209,7 +209,7 @@ test('contest rankings and submissions start directly with their working content
   assert.match(interactions, /contest:standings\.export/);
   assert.match(interactions, /buildContestRanklistCsv/);
   assert.match(interactions, /loadRanklistProfiles\(items\)/);
-  assert.match(interactions, /const canManageRanklist = await canExportContestRanklist/);
+  assert.match(interactions, /const canManageRanklist = standingsView.canManage/);
   assert.match(interactions, /canManageRanklist && String\(req\.query\.identity \|\| ''\) === 'real'/);
   assert.match(interactions, /showRanklistIdentities \? await loadRanklistProfiles\(ranklist\) : new Map\(\)/);
   assert.match(css, /\.app-rank-overall\s*\{[^}]*display:\s*inline;[^}]*white-space:\s*nowrap/s);

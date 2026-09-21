@@ -59,6 +59,7 @@ function harness() {
     require(name) {
       if (name === 'typeorm') return { getConnection: () => database };
       if (name === '../libs/content-domain') return { appendEvent: async (manager, event) => { assert.equal(manager, database); events.push(event); } };
+      if (name === '../libs/read-cache' || name === '../libs/contest-notice-stream') return require(name);
       throw new Error(name);
     },
     app: { get: (url, handler) => routes.set('GET ' + url, handler), post: (url, handler) => routes.set('POST ' + url, handler) },
@@ -221,7 +222,9 @@ test('UI is plain text, separate from announcements, and includes retry-safe con
   assert.match(client, /textContent = notice.content/);
   assert.match(client, /pending.content !== content/);
   assert.match(client, /readThrough = Math.max\(readThrough, noticeId\)/);
-  assert.match(client, /data.items.find/);
+  assert.match(client, /queued = data.active \? data.items/);
+  assert.match(client, /new EventSource/);
+  assert.doesNotMatch(client, /setTimeout\(poll, 5000\)|setInterval/);
   assert.match(client, /visibilitychange/);
   assert.match(client, /addEventListener\('storage'/);
 });
