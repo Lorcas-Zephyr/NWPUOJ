@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-20T09:09:34.762Z",
+  "generated_at": "2026-09-21T09:06:37.760Z",
   "frontend_page_routes": [
     {
       "method": "GET",
@@ -222,6 +222,12 @@
       "route": "/contest/:id/problem/:pid",
       "source": "custom/modules/_contest_interactions.js",
       "line": 487
+    },
+    {
+      "method": "GET",
+      "route": "/contest/:id/notices",
+      "source": "custom/modules/_contest_notices.js",
+      "line": 77
     },
     {
       "method": "GET",
@@ -723,8 +729,8 @@
   "approved_runtime_callbacks": [],
   "compatibility_adapters": [],
   "summary": {
-    "frontend_page_route_registrations": 119,
-    "frontend_page_route_shapes": 99,
+    "frontend_page_route_registrations": 120,
+    "frontend_page_route_shapes": 100,
     "v1_api_reads": 0,
     "v1_write_routes": 0,
     "v1_write_route_shapes": 0,

@@ -44,6 +44,7 @@ fs.readdir = function orderedReaddir(directory, options, callback) {
            '_api_v2_problem_workflows.js',
            '_api_v2_submission_domain.js',
            '_api_v2_contest_domain.js',
+           '_contest_notices.js',
            '_ai_contest.js',
            '_api_v2_contest_temp_accounts.js',
            '_class_groups.js',

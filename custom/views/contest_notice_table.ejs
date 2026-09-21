@@ -1,0 +1,9 @@
+<section class="app-contest-detail-section" data-contest-notice-history data-contest-id="<%= contest.id %>">
+  <header><i data-lucide="bell-ring"></i><div><span class="app-kicker">CONTEST NOTICES</span><h2>比赛通知</h2></div></header>
+  <p class="app-help" data-notice-history-status role="status">正在加载比赛通知…</p>
+  <div class="app-table-region" role="region" aria-label="比赛通知" tabindex="0" data-notice-table-region hidden>
+    <table class="app-table app-contest-notice-table"><thead><tr><th scope="col">发布时间</th><th scope="col">通知内容</th></tr></thead><tbody data-notice-history-rows></tbody></table>
+  </div>
+  <div class="app-page-actions"><button class="app-button app-button-secondary" type="button" data-notice-history-more hidden>加载更早通知</button><button class="app-button app-button-quiet" type="button" data-notice-history-refresh>刷新通知</button></div>
+  <noscript>请开启 JavaScript 查看比赛通知。</noscript>
+</section>

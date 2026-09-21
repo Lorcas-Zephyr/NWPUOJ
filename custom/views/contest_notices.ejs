@@ -1,0 +1,14 @@
+<% this.title = '发布通知 - ' + contest.title %>
+<% include app_header %>
+<div class="app-page app-contest-notices-page">
+  <header class="app-page-header"><div class="app-page-heading"><a class="app-back-link" href="<%= syzoj.utils.makeUrl(['contest', contest.id]) %>"><i data-lucide="arrow-left"></i>返回比赛</a><span class="app-kicker">CONTEST MANAGEMENT</span><h1 class="app-page-title"><%= contest.title %></h1><p class="app-page-description">发布本场比赛的赛时通知，并查看通知历史。</p></div></header>
+  <nav class="app-tabs app-contest-admin-tabs" aria-label="比赛管理"><a href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'edit']) %>"><i data-lucide="square-pen"></i>比赛内容</a><a href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'registrations']) %>"><i data-lucide="users-round"></i>报名管理</a><a class="is-active" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'notices']) %>" aria-current="page"><i data-lucide="bell-ring"></i>发布通知</a></nav>
+  <form class="app-form" data-contest-notice-publish data-contest-id="<%= contest.id %>">
+    <section class="app-settings-section">
+      <div class="app-settings-copy"><span class="app-kicker">PUBLISH</span><h2>发布通知</h2><p>通知立即显示在比赛详情页；比赛进行中，已报名的普通账户和临时比赛账户会收到弹窗。</p><p>仅支持纯文本。发布后保留历史，如需更正，请发布一条新通知。</p></div>
+      <div class="app-settings-fields"><label class="app-field"><span class="app-label">通知内容</span><textarea class="app-textarea" name="content" rows="8" maxlength="4000" required placeholder="例如：B 题的输入范围已更正，请重新查看题面。" aria-describedby="contest-notice-help"></textarea><span class="app-help" id="contest-notice-help">最多 4000 个字符，保留换行，不解析 Markdown 或 HTML。</span></label><div class="app-form-actions"><button class="app-button app-button-primary" type="submit"><i data-lucide="send"></i><span data-notice-publish-label>发布通知</span></button></div><p class="app-help" data-notice-publish-status role="status" hidden></p></div>
+    </section>
+  </form>
+  <% include contest_notice_table %>
+</div>
+<% include app_footer %>

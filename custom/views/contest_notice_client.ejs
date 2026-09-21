@@ -1,0 +1,17 @@
+<%
+var appNoticeContest = (typeof contestHeader !== 'undefined' && contestHeader && contestHeader.contest)
+  || (typeof problemContext !== 'undefined' && problemContext && problemContext.contest)
+  || (typeof contest !== 'undefined' && contest && contest.id ? contest : null);
+%>
+<% if (appNoticeContest && appNoticeContest.id) { %>
+  <% if (user) { %>
+    <div data-contest-notifier data-contest-id="<%= appNoticeContest.id %>" data-user-id="<%= user.id %>">
+      <dialog class="app-dialog app-contest-notice-dialog" aria-modal="true" aria-labelledby="contest-notice-title" aria-describedby="contest-notice-content">
+        <div class="app-dialog-header"><h2 id="contest-notice-title">比赛通知</h2><span class="app-help" data-notice-published-at></span></div>
+        <div class="app-dialog-body"><p class="app-help"><%= appNoticeContest.title %></p><div class="app-contest-notice-text" id="contest-notice-content" data-notice-content></div><p class="app-help" data-notice-read-status role="status" hidden></p></div>
+        <div class="app-dialog-actions"><button class="app-button app-button-primary" type="button" data-notice-ack>知道了</button></div>
+      </dialog>
+    </div>
+  <% } %>
+  <script src="/self/contest-notices.js?rev=20260921-1" defer></script>
+<% } %>

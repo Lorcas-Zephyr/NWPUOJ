@@ -663,6 +663,53 @@
   margin-bottom: 0;
 }
 
+.app-contest-notice-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.app-contest-notices-page .app-settings-fields {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.app-contest-notices-page .app-settings-fields > * {
+  grid-column: 1 / -1;
+}
+
+.app-contest-notice-table th:first-child,
+.app-contest-notice-table td:first-child {
+  width: 170px;
+  vertical-align: top;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-contest-notice-table td:last-child,
+.app-contest-notice-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.7;
+}
+
+.app-contest-notice-dialog {
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+}
+
+.app-contest-notice-dialog .app-dialog-body {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.app-contest-notice-dialog .app-dialog-header {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 600px) {
+  .app-contest-notice-table th:first-child,
+  .app-contest-notice-table td:first-child { width: 112px; }
+}
+
 .app-contest-detail-empty {
   padding: 3px 0;
   color: var(--app-text-muted);

@@ -3,7 +3,7 @@
 
 <div class="app-page app-contest-registrations-page">
   <header class="app-page-header"><div class="app-page-heading"><a class="app-back-link" href="<%= syzoj.utils.makeUrl(['contest', contest.id]) %>"><i data-lucide="arrow-left"></i>返回比赛</a><span class="app-kicker">CONTEST MANAGEMENT</span><h1 class="app-page-title"><%= contest.title %></h1><p class="app-page-description">维护参赛资格、报名资料与临时比赛账户。</p></div></header>
-  <nav class="app-tabs app-contest-admin-tabs"><a href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'edit']) %>"><i data-lucide="square-pen"></i>比赛内容</a><a class="is-active" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'registrations']) %>" aria-current="page"><i data-lucide="users-round"></i>报名管理</a></nav>
+  <nav class="app-tabs app-contest-admin-tabs"><a href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'edit']) %>"><i data-lucide="square-pen"></i>比赛内容</a><a class="is-active" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'registrations']) %>" aria-current="page"><i data-lucide="users-round"></i>报名管理</a><a href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'notices']) %>"><i data-lucide="bell-ring"></i>发布通知</a></nav>
   <div class="app-section-header app-contest-participant-header">
     <div><h2 class="app-section-title">参赛者管理</h2><p class="app-section-description"><%= registrations.length %> 名有效报名用户</p></div>
     <div class="app-page-actions">

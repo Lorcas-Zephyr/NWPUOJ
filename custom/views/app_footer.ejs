@@ -52,6 +52,7 @@
       window.fetch.__nwpuojWriteHeaders = true;
     })();
   </script>
+  <% include contest_notice_client %>
   <script src="/self/app-v2.js?v=<%= encodeURIComponent(syzoj.config.nwpuoj_version || '2.1.0') %>&amp;rev=20260919-1"></script>
 </body>
 </html>

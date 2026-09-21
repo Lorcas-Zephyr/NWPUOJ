@@ -85,6 +85,7 @@ services:
       - ./custom/modules/_api_v2_problem_workflows.js:/app/modules/_api_v2_problem_workflows.js:ro
       - ./custom/modules/_api_v2_submission_domain.js:/app/modules/_api_v2_submission_domain.js:ro
       - ./custom/modules/_api_v2_contest_domain.js:/app/modules/_api_v2_contest_domain.js:ro
+      - ./custom/modules/_contest_notices.js:/app/modules/_contest_notices.js:ro
       - ./custom/modules/_api_v2_contest_temp_accounts.js:/app/modules/_api_v2_contest_temp_accounts.js:ro
       - ./custom/modules/_api_v2_rating_domain.js:/app/modules/_api_v2_rating_domain.js:ro
       - ./custom/modules/_api_v2_vjudge_domain.js:/app/modules/_api_v2_vjudge_domain.js:ro
@@ -182,6 +183,7 @@ services:
       - ./custom/app-features.css:/app/static/self/app-features.css:ro
       - ./custom/app-v2.js:/app/static/self/app-v2.js:ro
       - ./custom/app-api.js:/app/static/self/app-api.js:ro
+      - ./custom/contest-notices.js:/app/static/self/contest-notices.js:ro
       - ./custom/lucide-1.27.0.min.js:/app/static/self/lucide-1.27.0.min.js:ro
       - ./custom/modern-editor.js:/app/static/self/modern-editor.js:ro
       - ./custom/views/ranklist.ejs:/app/views/ranklist.ejs:ro
@@ -192,6 +194,9 @@ services:
       - ./custom/views/contest_ranklist.ejs:/app/views/contest_ranklist.ejs:ro
       - ./custom/views/contest.ejs:/app/views/contest.ejs:ro
       - ./custom/views/contest_details.ejs:/app/views/contest_details.ejs:ro
+      - ./custom/views/contest_notices.ejs:/app/views/contest_notices.ejs:ro
+      - ./custom/views/contest_notice_table.ejs:/app/views/contest_notice_table.ejs:ro
+      - ./custom/views/contest_notice_client.ejs:/app/views/contest_notice_client.ejs:ro
       - ./custom/views/contest_context.ejs:/app/views/contest_context.ejs:ro
       - ./custom/views/contest_registration_v2_script.ejs:/app/views/contest_registration_v2_script.ejs:ro
       - ./custom/views/contests.ejs:/app/views/contests.ejs:ro
