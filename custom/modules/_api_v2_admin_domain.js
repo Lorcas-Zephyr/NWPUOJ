@@ -6,6 +6,7 @@ const multer = require('multer');
 const TypeORM = require('typeorm');
 const contentDomain = require('../libs/content-domain');
 const { ensureRegistrationProfileSchema } = require('../libs/registration-profile-schema');
+const { isValidManagedTemporaryUsername } = require('../libs/contest-temp-accounts');
 const User = syzoj.model('user');
 const Problem = syzoj.model('problem');
 const JudgeState = syzoj.model('judge_state');
@@ -682,7 +683,7 @@ function assertManagedUserAccess(target, actor) {
   return { actorIsOwner, ownerId, targetId };
 }
 
-function managedUserResource(target, profile, privileges) {
+function managedUserResource(target, profile, privileges, temporaryAccount) {
   return {
     id: Number(target.id),
     username: target.username,
@@ -693,19 +694,21 @@ function managedUserResource(target, profile, privileges) {
     prefer_formatted_code: !!target.prefer_formatted_code,
     is_admin: !!target.is_admin,
     is_site_owner: Number(target.id) === Number(syzoj.siteOwnerUserId || 0),
+    is_temporary_contest_account: !!temporaryAccount,
     identity: syzoj.utils.registrationIdentityV2.profileResource(profile),
     privileges: Array.from(new Set(privileges || [])).sort()
   };
 }
 
 async function managedUserRead(targetId) {
-  await syzoj.utils.registrationIdentityV2.ensureRegistrationSchema();
-  const [users, profiles, privileges] = await Promise.all([
+  await Promise.all([syzoj.utils.registrationIdentityV2.ensureRegistrationSchema(), syzoj.utils.ensureTemporaryContestAccountSchema()]);
+  const [users, profiles, privileges, temporaryAccounts] = await Promise.all([
     TypeORM.getConnection().query('SELECT id,username,email,password,information,sex,public_email,prefer_formatted_code,is_admin FROM user WHERE id=? LIMIT 1', [targetId]),
     TypeORM.getConnection().query('SELECT student_id,real_name,college FROM user_registration_profile WHERE user_id=? LIMIT 1', [targetId]),
-    TypeORM.getConnection().query('SELECT privilege FROM user_privilege WHERE user_id=? ORDER BY privilege', [targetId])
+    TypeORM.getConnection().query('SELECT privilege FROM user_privilege WHERE user_id=? ORDER BY privilege', [targetId]),
+    TypeORM.getConnection().query('SELECT contest_id FROM temporary_contest_account WHERE user_id=? LIMIT 1', [targetId])
   ]);
-  return { target: users[0] || null, profile: profiles[0] || null, privileges: privileges.map(row => row.privilege) };
+  return { target: users[0] || null, profile: profiles[0] || null, privileges: privileges.map(row => row.privilege), temporaryAccount: temporaryAccounts[0] || null };
 }
 
 function managedUserFailure(res, error) {
@@ -731,7 +734,7 @@ app.get('/api/v2/admin/users/:id', requireCapability('admin:user.manage'), async
   try {
     const loaded = await managedUserRead(targetId);
     assertManagedUserAccess(loaded.target, res.locals.user);
-    const resource = managedUserResource(loaded.target, loaded.profile, loaded.privileges);
+    const resource = managedUserResource(loaded.target, loaded.profile, loaded.privileges, loaded.temporaryAccount);
     if (api().apiNotModified(req, res, resource)) return;
     return api().send(res, resource);
   } catch (error) {
@@ -766,35 +769,42 @@ app.patch('/api/v2/admin/users/:id', requireCapability('admin:user.manage'), asy
     return api().fail(res, 422, 'VALIDATION_FAILED', error.message, { new_password: 'invalid' });
   }
   try {
-    await Promise.all([api().ensureFoundationSchema(), syzoj.utils.registrationIdentityV2.ensureRegistrationSchema()]);
+    await Promise.all([api().ensureFoundationSchema(), syzoj.utils.registrationIdentityV2.ensureRegistrationSchema(), syzoj.utils.ensureTemporaryContestAccountSchema()]);
     const saved = await TypeORM.getConnection().transaction(async manager => {
       const userRows = await manager.query('SELECT id,username,email,password,information,sex,public_email,prefer_formatted_code,is_admin FROM user WHERE id=? FOR UPDATE', [targetId]);
       const target = userRows[0] || null;
       const access = assertManagedUserAccess(target, actor);
       const profileRows = await manager.query('SELECT student_id,real_name,college FROM user_registration_profile WHERE user_id=? FOR UPDATE', [targetId]);
       const privilegeRows = await manager.query('SELECT privilege FROM user_privilege WHERE user_id=? FOR UPDATE', [targetId]);
+      const temporaryRows = await manager.query('SELECT contest_id FROM temporary_contest_account WHERE user_id=? LIMIT 1 FOR UPDATE', [targetId]);
+      const temporaryAccount = temporaryRows[0] || null;
       const currentPrivileges = privilegeRows.map(row => row.privilege);
-      const current = managedUserResource(target, profileRows[0], currentPrivileges);
+      const current = managedUserResource(target, profileRows[0], currentPrivileges, temporaryAccount);
       if (!api().ifMatch(req, current)) throw managedUserError('ETAG_MISMATCH', 'The user profile changed. Refresh it and try again.', 412);
 
       const username = body.username == null ? target.username : String(body.username).trim();
-      const email = body.email == null ? String(target.email || '') : String(body.email).trim().toLowerCase();
-      if (!syzoj.utils.isValidUsername(username)) throw managedUserError('VALIDATION_FAILED', '用户名仅允许字母、数字、连字符和下划线，且不能超过 20 个字符。', 422, { username: 'invalid' });
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw managedUserError('VALIDATION_FAILED', 'Email is invalid.', 422, { email: 'invalid' });
+      const emailText = body.email == null ? String(target.email || '') : String(body.email).trim().toLowerCase();
+      const email = temporaryAccount && !emailText ? null : emailText;
+      if (temporaryAccount) {
+        if (!isValidManagedTemporaryUsername(username)) throw managedUserError('VALIDATION_FAILED', '临时比赛账户用户名不能为空、不能包含不可见控制字符，且不能超过 80 个字符。', 422, { username: 'invalid' });
+      } else if (!syzoj.utils.isValidUsername(username)) {
+        throw managedUserError('VALIDATION_FAILED', '用户名仅允许字母、数字、连字符和下划线，且不能超过 20 个字符。', 422, { username: 'invalid' });
+      }
+      if (!(temporaryAccount && email === null) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw managedUserError('VALIDATION_FAILED', 'Email is invalid.', 422, { email: 'invalid' });
       if (access.targetId === access.ownerId && username !== target.username) throw managedUserError('OWNER_ACCOUNT_PROTECTED', 'The site owner username cannot be changed.', 403);
       const isAdmin = hasAdminStatus ? inputBoolean(body.is_admin, !!target.is_admin) : !!target.is_admin;
       if (hasAdminStatus && isAdmin !== !!target.is_admin && !access.actorIsOwner) {
         throw managedUserError('OWNER_CAPABILITY_REQUIRED', 'Only the site owner can change site administrator status.', 403);
       }
       if (access.targetId === access.ownerId && !isAdmin) throw managedUserError('OWNER_ACCOUNT_PROTECTED', 'The site owner administrator status cannot be removed.', 403);
-      const emailChanged = email !== String(target.email || '').trim().toLowerCase();
+      const emailChanged = String(email || '') !== String(target.email || '').trim().toLowerCase();
       const passwordChanged = !!passwordHash;
       if (access.targetId === Number(actor.id) && (emailChanged || passwordChanged) && !await syzoj.utils.verifyPassword(body.current_password, target.password)) {
         throw managedUserError('CURRENT_PASSWORD_REQUIRED', 'The current password is required to change email or password.', 403, { current_password: 'incorrect' });
       }
-      const duplicateUsers = await manager.query('SELECT id,username,email FROM user WHERE id<>? AND (username=? OR email=?) LIMIT 1 FOR UPDATE', [targetId, username, email]);
+      const duplicateUsers = await manager.query('SELECT id,username,email,(username=?) AS username_conflict FROM user WHERE id<>? AND (username=? OR email=?) LIMIT 1 FOR UPDATE', [username, targetId, username, email]);
       if (duplicateUsers.length) {
-        const conflict = new Error(duplicateUsers[0].username === username ? 'Duplicate username' : 'Duplicate email');
+        const conflict = new Error(Number(duplicateUsers[0].username_conflict) ? 'Duplicate username' : 'Duplicate email');
         conflict.code = 'ER_DUP_ENTRY';
         throw conflict;
       }
@@ -832,7 +842,8 @@ app.patch('/api/v2/admin/users/:id', requireCapability('admin:user.manage'), asy
         actorId: actor.id, payload: { changed_fields: changedFields, audit_event_id: auditEventId }
       });
       return {
-        resource: managedUserResource({ ...target, username, email, information, sex, public_email: publicEmail, prefer_formatted_code: formattedCode, is_admin: isAdmin }, identity, nextPrivileges),
+        resource: managedUserResource({ ...target, username, email, information, sex, public_email: publicEmail, prefer_formatted_code: formattedCode, is_admin: isAdmin }, identity, nextPrivileges, temporaryAccount),
+        temporaryContestId: temporaryAccount && Number(temporaryAccount.contest_id),
         emailChanged, passwordChanged, auditEventId, eventId
       };
     });
@@ -842,6 +853,7 @@ app.patch('/api/v2/admin/users/:id', requireCapability('admin:user.manage'), asy
     }
     if (saved.emailChanged && syzoj.utils.refreshVerifiedCache) await syzoj.utils.refreshVerifiedCache();
     User.deleteFromCache(targetId);
+    if (saved.temporaryContestId && syzoj.utils.invalidateContestReadCache) syzoj.utils.invalidateContestReadCache(saved.temporaryContestId);
     if (syzoj.utils.invalidateUserRequestStateCache) syzoj.utils.invalidateUserRequestStateCache(targetId);
     if (typeof syzoj.refreshAdminUserIds === 'function') await syzoj.refreshAdminUserIds();
     if (syzoj.utils.refreshUserTagsCache) await syzoj.utils.refreshUserTagsCache();

@@ -7,13 +7,17 @@ const appCurrentUserIsSiteOwner = typeof actorIsOwner !== 'undefined'
   ? !!actorIsOwner
   : !!(typeof isSiteOwner !== 'undefined' && isSiteOwner);
 const appCanManageUsers = typeof actorCanManage !== 'undefined' ? !!actorCanManage : !!(user && user.allowedManage);
+const appManagedTemporaryAccount = appCanManageUsers && typeof isTemporaryContestAccount !== 'undefined' && isTemporaryContestAccount;
 const appEditedUserIsSiteOwner = !!(syzoj.siteOwnerUserId && Number(edited_user.id) === Number(syzoj.siteOwnerUserId));
 const appCanManageSiteAdmin = appCurrentUserIsSiteOwner && !appEditedUserIsSiteOwner;
 const appIdentity = typeof registrationProfile !== 'undefined' && registrationProfile ? registrationProfile : {};
-const appColleges = typeof registrationColleges !== 'undefined' ? registrationColleges : [];
+const appColleges = typeof registrationColleges !== 'undefined' ? registrationColleges.slice() : [];
 const appStudentId = appIdentity.student_id || '';
 const appRealName = appIdentity.real_name || '';
 const appCollege = appIdentity.college || '';
+// CSV-created accounts may retain an imported college outside the normal list.
+// Renaming one must not silently clear or force a rewrite of its identity.
+if (appManagedTemporaryAccount && appCollege && !appColleges.includes(appCollege)) appColleges.push(appCollege);
 const appCanManageIdentity = appCanManageUsers;
 const appRequiresIdentity = typeof identityProfileComplete !== 'undefined' && !identityProfileComplete && edited_user.id === user.id;
 const appTagState = typeof myTagState !== 'undefined' ? myTagState : null;
@@ -161,6 +165,8 @@ form.addEventListener('submit', async function (event) {
       if (adminFlow || selfFlow) payload.username = form.elements.username.value;
       ['student_id', 'real_name', 'college'].forEach(function (name) {
         var field = form.elements.namedItem(name);
+        if (adminFlow && currentResult.body.data.is_temporary_contest_account && field &&
+            String(field.value || '').trim() === String((currentResult.body.data.identity || {})[name] || '')) return;
         if (field && !field.disabled && (adminFlow || !field.readOnly)) payload[name] = field.value;
       });
       if (adminFlow && form.dataset.canGrant === '1') {
@@ -250,11 +256,34 @@ function showError(error) { if (window.NWPUOJApp) window.NWPUOJApp.showToast(err
 </script>
 <script>
 (function () {
+  var managedTemporary = <%= appManagedTemporaryAccount ? 'true' : 'false' %>;
   document.querySelectorAll('input[name="username"]').forEach(function (input) {
-    input.maxLength = 20;
     var help = input.parentElement && input.parentElement.querySelector('.app-help');
-    if (help) help.textContent = '允许使用字母、数字、连字符和下划线，最多 20 个字符。';
+    if (managedTemporary) {
+      input.removeAttribute('maxlength');
+      input.required = true;
+      function validateTemporaryName() {
+        var name = input.value.trim();
+        var invalid = !name || Array.from(name).length > 80 || /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u.test(name);
+        input.setCustomValidity(invalid ? '用户名不能为空、不能包含不可见控制字符，且不能超过 80 个字符。' : '');
+      }
+      input.addEventListener('input', validateTemporaryName);
+      validateTemporaryName();
+      if (help) help.textContent = '临时比赛账户支持中文、空格和常用符号，不受普通账户 20 字符限制；最多 80 个字符，不可重名或包含不可见控制字符。';
+    } else {
+      input.maxLength = 20;
+      if (help) help.textContent = '允许使用字母、数字、连字符和下划线，最多 20 个字符。';
+    }
   });
+  if (managedTemporary) {
+    var form = document.getElementById('account-form');
+    ['email', 'student_id', 'real_name', 'college'].forEach(function (name) {
+      var field = form.elements.namedItem(name);
+      if (field) field.required = false;
+    });
+    var emailHelp = form.elements.email.closest('.app-field').querySelector('.app-help');
+    if (emailHelp) emailHelp.textContent = '临时比赛账户可不填写邮箱；填写或修改邮箱后需要重新激活。';
+  }
 })();
 </script>
 <% include app_footer %>

@@ -2,6 +2,15 @@
 
 const MAX_IMPORT_ROWS = 1000;
 const MAX_USERNAME_LENGTH = 20;
+// The user.username column is VARCHAR(80). Only administrator edits use this
+// broader policy; public registration and generated names keep their rules.
+const MANAGED_TEMP_USERNAME_MAX_LENGTH = 80;
+
+function isValidManagedTemporaryUsername(value) {
+  return typeof value === 'string' && value.trim().length > 0 &&
+    Array.from(value).length <= MANAGED_TEMP_USERNAME_MAX_LENGTH &&
+    !/[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u.test(value);
+}
 
 function inputError(message, statusCode) {
   const error = new Error(message);
@@ -144,10 +153,12 @@ function isLoginAllowed(expiryByUserId, userId, now) {
 
 module.exports = {
   MAX_IMPORT_ROWS,
+  MANAGED_TEMP_USERNAME_MAX_LENGTH,
   appendPlayersToRanklist,
   csvCell,
   inputError,
   isLoginAllowed,
+  isValidManagedTemporaryUsername,
   normalizeRows,
   normalizeStudentIdRows,
   parseCsv,

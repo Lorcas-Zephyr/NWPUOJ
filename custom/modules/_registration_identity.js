@@ -60,12 +60,14 @@ function ensureRegistrationSchema() {
 }
 
 async function notifyLongUsernames() {
+  await syzoj.utils.ensureTemporaryContestAccountSchema();
   const connection = TypeORM.getConnection();
   const now = Math.floor(Date.now() / 1000);
   await connection.transaction(async manager => {
     const users = await manager.query(
       `SELECT id,username FROM user
         WHERE CHAR_LENGTH(username)>?
+          AND NOT EXISTS (SELECT 1 FROM temporary_contest_account temporary WHERE temporary.user_id=user.id)
           AND NOT EXISTS (
             SELECT 1 FROM notification existing
              WHERE existing.recipient_id=user.id
@@ -422,13 +424,16 @@ async function loadUserEditContext(req, res) {
     throw new ErrorMessage('您没有权限进行此操作。');
   }
   editedUser.privileges = await editedUser.getPrivileges();
+  await syzoj.utils.ensureTemporaryContestAccountSchema();
+  const temporaryAccounts = await TypeORM.getConnection().query('SELECT contest_id FROM temporary_contest_account WHERE user_id=? LIMIT 1', [editedUser.id]);
   res.locals.user.allowedManage = actorCanManage;
   return {
     editedUser: editedUser,
     profile: await findProfile(editedUser.id),
     actorIsOwner: actorIsOwner,
     actorCanManage: actorCanManage,
-    actorCanGrant: actorCanGrant
+    actorCanGrant: actorCanGrant,
+    isTemporaryContestAccount: temporaryAccounts.length > 0
   };
 }
 
@@ -437,6 +442,7 @@ function renderUserEdit(res, context, errorInfo) {
     edited_user: context.editedUser,
     registrationProfile: context.profile,
     registrationColleges: COLLEGES,
+    isTemporaryContestAccount: context.isTemporaryContestAccount,
     actorIsOwner: context.actorIsOwner,
     actorCanManage: context.actorCanManage,
     actorCanGrant: context.actorCanGrant,

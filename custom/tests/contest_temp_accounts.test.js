@@ -6,6 +6,7 @@ const {
   appendPlayersToRanklist,
   csvCell,
   isLoginAllowed,
+  isValidManagedTemporaryUsername,
   normalizeRows,
   normalizeStudentIdRows,
   parseCsv,
@@ -68,6 +69,15 @@ test('limits generated temporary-account usernames to twenty characters', async 
   const manager = { async query() { return []; } };
   const username = await uniqueUsername(manager, '超长学院名称超长学院名称-超长姓名', '2026000001', new Set());
   assert.ok(username.length <= 20);
+});
+
+test('administrator edits accept international temporary names up to the storage limit', () => {
+  for (const name of ['计算机学院 - 张三（2026）', 'Northwest Team #1 / O\'Brien', '名'.repeat(80), '😀'.repeat(80)]) {
+    assert.equal(isValidManagedTemporaryUsername(name), true, name);
+  }
+  for (const name of ['', '   ', '名'.repeat(81), '😀'.repeat(81), 'a\nb', 'a\tb', 'a\u0000b', 'a\u200bb', 'a\u202eb', 'a\u2028b', '\ud800']) {
+    assert.equal(isValidManagedTemporaryUsername(name), false, JSON.stringify(name));
+  }
 });
 
 test('preserves existing ranklist order while appending imported players', () => {

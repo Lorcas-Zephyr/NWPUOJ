@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-21T15:22:35.219Z",
+  "generated_at": "2026-09-21T16:34:23.719Z",
   "frontend_page_routes": [
     {
       "method": "GET",
@@ -53,37 +53,37 @@
       "method": "GET",
       "route": "/admin/links",
       "source": "custom/modules/_api_v2_admin_domain.js",
-      "line": 1097
+      "line": 1109
     },
     {
       "method": "GET",
       "route": "/admin/config",
       "source": "custom/modules/_api_v2_admin_domain.js",
-      "line": 1212
+      "line": 1224
     },
     {
       "method": "GET",
       "route": "/admin/privilege",
       "source": "custom/modules/_api_v2_admin_domain.js",
-      "line": 1259
+      "line": 1271
     },
     {
       "method": "GET",
       "route": "/admin/jobs",
       "source": "custom/modules/_api_v2_admin_domain.js",
-      "line": 1608
+      "line": 1620
     },
     {
       "method": "GET",
       "route": "/admin/rejudge",
       "source": "custom/modules/_api_v2_admin_domain.js",
-      "line": 1618
+      "line": 1630
     },
     {
       "method": "GET",
       "route": "/admin/raw",
       "source": "custom/modules/_api_v2_admin_domain.js",
-      "line": 1626
+      "line": 1638
     },
     {
       "method": "GET",
@@ -401,13 +401,13 @@
       "method": "GET",
       "route": "/sign_up",
       "source": "custom/modules/_registration_identity.js",
-      "line": 378
+      "line": 380
     },
     {
       "method": "GET",
       "route": "/user/:id/edit",
       "source": "custom/modules/_registration_identity.js",
-      "line": 447
+      "line": 453
     },
     {
       "method": "GET",

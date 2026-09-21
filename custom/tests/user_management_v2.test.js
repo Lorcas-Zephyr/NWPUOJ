@@ -5,9 +5,151 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
+const { isValidManagedTemporaryUsername } = require('../libs/contest-temp-accounts');
 
 const root = path.resolve(__dirname, '../..');
 const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf8');
+
+// Run the actual managed-user routes against an isolated transaction fixture.
+// No test edits an account or creates a session on the live site.
+function managedUserHarness(options = {}) {
+  const source = read('custom/modules/_api_v2_admin_domain.js');
+  const temporary = options.temporary !== false;
+  const target = { id: 20, username: 'original', email: temporary ? null : 'fixture@example.test', sex: '0', ...options.target };
+  const profile = { student_id: '2026000001', real_name: '测试用户', college: 'CSV 原学院' };
+  const writes = [], events = [], invalidations = [], routes = new Map();
+  const db = { async query(sql, params) {
+    if (sql.startsWith('SELECT id,username,email,password')) return [{ ...target }];
+    if (sql.startsWith('SELECT student_id,real_name,college')) return [{ ...profile }];
+    if (sql.startsWith('SELECT privilege')) return [];
+    if (sql.startsWith('SELECT contest_id FROM temporary_contest_account')) return temporary ? [{ contest_id: 42 }] : [];
+    if (sql.includes('AS username_conflict')) return options.duplicate ? [{ id: 21, username: 'collision', username_conflict: 1 }] : [];
+    if (sql.startsWith('UPDATE user SET username=')) { writes.push({ sql, params: Array.from(params) }); return {}; }
+    throw new Error('Unexpected SQL: ' + sql);
+  }, async transaction(callback) { return callback(db); } };
+  const api = {
+    send: (_res, data) => ({ status: 200, data }),
+    fail: (_res, status, code, message, fields) => ({ status, error: { code, message, fields } }),
+    ifMatch: (req, current) => (req.get('If-Match') || req.body.if_match) === JSON.stringify(current),
+    apiNotModified: () => false, ensureFoundationSchema: async () => {}
+  };
+  const context = vm.createContext({
+    app: {
+      get: (url, capability, handler) => routes.set('GET ' + url, { capability, handler }),
+      patch: (url, capability, handler) => routes.set('PATCH ' + url, { capability, handler })
+    },
+    requireCapability: value => value,
+    api: () => api, TypeORM: { getConnection: () => db },
+    isValidManagedTemporaryUsername, LEGACY_MANAGED_PRIVILEGE_SET: new Set(),
+    inputBoolean: (value, fallback) => value == null ? fallback : !!value,
+    normalizeSex: (value, fallback) => value == null ? fallback : String(value),
+    User: { deleteFromCache: id => invalidations.push(['user', id]) },
+    contentDomain: { appendEvent: async (_manager, event) => { events.push(event); return 'event'; } },
+    syzoj: { siteOwnerUserId: 1, log() {}, utils: {
+      isValidUsername: value => /^[a-zA-Z0-9_-]{1,20}$/.test(value),
+      ensureTemporaryContestAccountSchema: async () => {},
+      registrationIdentityV2: {
+        ensureRegistrationSchema: async () => {},
+        profileResource: value => ({ ...value }),
+        saveProfileFields: async () => { throw new Error('Unchanged temporary identity must not be resaved'); }
+      },
+      authorizationV2: {
+        recentLoginSatisfied: () => true,
+        authorize: async () => true,
+        recordAudit: async (_req, event) => { events.push(event); return 'audit'; }
+      },
+      invalidateContestReadCache: id => invalidations.push(['contest', id])
+    } }
+  });
+  vm.runInContext(source.slice(source.indexOf('function managedUserError('), source.indexOf('async function changeUserStatus(')), context);
+  async function invoke(method, body, actor = { id: 1 }) {
+    const route = routes.get(method + ' /api/v2/admin/users/:id');
+    assert.equal(route.capability, 'admin:user.manage');
+    if (actor.id !== 1 && !actor.canManage) return { status: 403 };
+    return route.handler({ params: { id: '20' }, body, get: () => '' }, { locals: { user: actor } });
+  }
+  return { target, writes, events, invalidations,
+    read: () => invoke('GET', {}),
+    async rename(body, actor) {
+      const current = await invoke('GET', {});
+      return invoke('PATCH', { if_match: JSON.stringify(current.data), ...body }, actor);
+    }
+  };
+}
+
+test('managed temporary rename accepts long Unicode names without requiring or changing email and identity', async () => {
+  const h = managedUserHarness();
+  const username = '2026 西北工业大学 ICPC 校赛 - 计算机学院（张三）';
+  const result = await h.rename({ username, email: '' });
+  assert.equal(result.status, 200, JSON.stringify(result));
+  assert.equal(result.data.username, username);
+  assert.equal(result.data.is_temporary_contest_account, true);
+  assert.equal(result.data.identity.college, 'CSV 原学院');
+  assert.equal(h.writes.length, 1);
+  assert.equal(h.writes[0].params[0], username);
+  assert.equal(h.writes[0].params[1], null, 'empty temporary emails remain SQL NULL, not a conflicting empty string');
+  assert.equal(h.events.length, 2);
+  assert.deepEqual(h.invalidations, [['user', 20], ['contest', 42]]);
+});
+
+test('temporary rename preserves duplicate-name, version, length, visibility and permission checks', async () => {
+  for (const username of ['', '名'.repeat(81), 'a\u202eb']) {
+    const h = managedUserHarness();
+    assert.equal((await h.rename({ username })).status, 422);
+    assert.equal(h.writes.length, 0);
+  }
+  const duplicate = managedUserHarness({ duplicate: true });
+  assert.equal((await duplicate.rename({ username: 'Taken' })).error.code, 'USERNAME_ALREADY_USED');
+  assert.equal(duplicate.writes.length, 0);
+  const stale = managedUserHarness();
+  assert.equal((await stale.rename({ username: '新名字', if_match: 'outdated' })).status, 412);
+  assert.equal((await stale.rename({ username: '新名字', if_match: '' })).status, 428);
+  assert.equal((await stale.rename({ username: '新名字' }, { id: 20 })).status, 403);
+  assert.equal(stale.writes.length, 0);
+  assert.equal(stale.events.length, 0);
+});
+
+test('ordinary accounts cannot opt into the temporary policy through request fields', async () => {
+  for (const username of ['中文名', 'x'.repeat(21)]) {
+    const h = managedUserHarness({ temporary: false });
+    assert.equal((await h.rename({ username, is_temporary_contest_account: true })).status, 422);
+    assert.equal(h.writes.length, 0);
+  }
+  const normal = managedUserHarness({ temporary: false });
+  assert.equal((await normal.rename({ username: 'normal_name' })).status, 200);
+  assert.equal((await normal.rename({ username: 'normal_name', email: '' })).status, 422);
+});
+
+test('long-name notifications exempt temporary accounts without relaxing ordinary registration', () => {
+  const source = read('custom/modules/_registration_identity.js');
+  assert.match(source, /NOT EXISTS \(SELECT 1 FROM temporary_contest_account temporary WHERE temporary.user_id=user.id\)/);
+  assert.match(source, /!syzoj.utils.isValidUsername\(username\)/);
+});
+
+test('login accepts the exact renamed Unicode account and still enforces temporary expiry', async () => {
+  const source = read('custom/modules/_api_v2_identity.js');
+  const user = { id: 20, username: '2026 西北工业大学 ICPC 校赛（计算机学院） - 张三 #1', password: 'fixture-hash' };
+  let handler, allowed = true, sessions = 0;
+  const context = vm.createContext({
+    app: { post: (_url, callback) => { handler = callback; } },
+    loginKey: () => 'fixture', loginBlocked: () => false, recordFailure() {}, loginFailures: new Map(),
+    publicMe: target => ({ id: target.id, username: target.username }),
+    User: { fromName: async name => { assert.equal(name, user.username); return user; } },
+    api: () => ({ send: (_res, data) => ({ status: 200, data }), fail: (_res, status) => ({ status }) }),
+    syzoj: { log() {}, utils: {
+      verifyPassword: async () => true, passwordNeedsUpgrade: () => false,
+      isTemporaryAccountLoginAllowed: async id => { assert.equal(id, 20); return allowed; },
+      establishAuthenticatedSession: async () => { sessions++; }, clearLegacyLoginCookie() {},
+      authorizationV2: { recordAudit: async () => {} }
+    } }
+  });
+  vm.runInContext(source.slice(source.indexOf("app.post('/api/v2/auth/login',"), source.indexOf("app.post('/api/v2/auth/logout',")), context);
+  const request = { body: { username: user.username, password: 'fixture-password' } };
+  assert.equal((await handler(request, { locals: {} })).status, 200);
+  allowed = false;
+  assert.equal((await handler(request, { locals: {} })).status, 401);
+  assert.equal(sessions, 1);
+});
 
 test('admin user search binds student IDs as text alongside username, email and UID', () => {
   const source = read('custom/modules/_admin_users.js');
