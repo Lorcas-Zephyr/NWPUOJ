@@ -247,6 +247,19 @@ async function main() {
     await fs.copyFile(path.join(sourceDir, problem.letter + '.out'), path.join(destination, '1.out'));
     if (problem.spj) {
       await fs.writeFile(path.join(destination, 'spj_cpp.cpp'), await checkerSource(problem.spj));
+      // These checkers use C++11 features; spj_cpp.cpp alone selects C++03.
+      await fs.writeFile(path.join(destination, 'data.yml'), [
+        'inputFile: "#.in"',
+        'outputFile: "#.out"',
+        'specialJudge:',
+        '  language: cpp17',
+        '  fileName: spj_cpp.cpp',
+        'subtasks:',
+        '  - score: 100',
+        '    type: sum',
+        '    cases: [1]',
+        ''
+      ].join('\n'));
     }
     await fs.rm(path.join(uploadDir, 'testdata-archive', String(id) + '.zip'), { force: true });
     console.log(problem.letter + ' -> #' + id + ' ' + problem.title + (problem.spj ? ' [SPJ]' : ''));
