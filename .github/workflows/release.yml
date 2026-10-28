@@ -22,7 +22,20 @@ jobs:
           cache: npm
           cache-dependency-path: custom/package-lock.json
       - name: Install dependencies
-        run: npm ci
+        run: |
+          if ! npm ci > npm-install.log 2>&1; then
+            cat npm-install.log
+            node <<'NODE'
+          const fs = require('node:fs');
+          const errors = fs.readFileSync('npm-install.log', 'utf8').split(/\r?\n/)
+            .filter(line => /^npm (?:ERR!|error)/.test(line)).slice(0, 12);
+          for (const line of errors) {
+            console.log('::error title=Dependency installation::' + line.replace(/%/g, '%25'));
+          }
+          NODE
+            exit 1
+          fi
+          cat npm-install.log
         working-directory: custom
       - name: Run test suite
         run: npm test
