@@ -21,6 +21,8 @@
 - Improved contest problem ordering, temporary-account renaming, Rating administration, and
   notification delivery and read-state handling.
 - Fixed Markdown editor drafts, file-upload feedback, clipboard links, and responsive list filters.
+- Fixed clean dependency installation on npm 10 by skipping upstream development-peer resolution
+  when preparing the mounted Markdown runtime; locked packages use the official npm registry.
 
 ### Changed
 

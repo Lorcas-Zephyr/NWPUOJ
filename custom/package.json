@@ -3,7 +3,7 @@
   "version": "2.2.0",
   "private": true,
   "scripts": {
-    "postinstall": "npm install --prefix node_modules/markdown-it --omit=dev --no-package-lock --no-save",
+    "postinstall": "npm install --prefix node_modules/markdown-it --omit=dev --no-package-lock --no-save --legacy-peer-deps",
     "test": "npm run verify:design && npm run test:syntax && npm run test:languages && npm run test:contest-freeze && npm run test:contest-notices && npm run test:algorithm-tags && npm run test:unit && npm run test:profile",
     "test:algorithm-tags": "node --test tests/algorithm_tag_catalog.test.js tests/problem_tags.test.js",
     "test:contest-notices": "node --test tests/contest_notices.test.js tests/contest_live_performance.test.js",
