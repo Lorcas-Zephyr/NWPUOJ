@@ -23,6 +23,8 @@
 - Fixed Markdown editor drafts, file-upload feedback, clipboard links, and responsive list filters.
 - Fixed clean dependency installation on npm 10 by skipping upstream development-peer resolution
   when preparing the mounted Markdown runtime; locked packages use the official npm registry.
+- Declared the YAML parser used by testdata uploads so clean installations do not depend on
+  system-wide Node.js packages.
 
 ### Changed
 
