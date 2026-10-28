@@ -108,7 +108,7 @@ test('problem editing loads the current version and only redirects after an effe
   assert.match(editor, /data-can-publish=/);
   assert.match(editor, /current\.current_version_id/);
   assert.match(editor, /\/versions\/.*current\.current_version_id/);
-  assert.match(editor, /form\.elements\.description\.value = content\.description/);
+  assert.match(editor, /form\.elements\.description\.value = split \? parts/);
   assert.match(editor, /wasPublic && versionId && canPublish/);
   assert.match(editor, /\/publish'/);
   assert.match(editor, /\/review-request'/);

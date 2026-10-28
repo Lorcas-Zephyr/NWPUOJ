@@ -16,6 +16,7 @@ function adminIds(contest) {
 }
 
 async function canonicalStandings(manager, contest) {
+  if (syzoj.utils.baseWorkspace && await syzoj.utils.baseWorkspace.contains('contest', contest.id)) return { deferred: false, contestants: [] };
   const pending = await manager.query(
     `SELECT id FROM judge_state WHERE type=1 AND type_info=? AND submit_time>=? AND submit_time<?
      AND (pending=1 OR status IN ('Waiting','Unknown')) LIMIT 1 FOR UPDATE`,
@@ -97,6 +98,7 @@ async function canonicalStandings(manager, contest) {
 }
 
 async function finalizeContestInTransaction(manager, contestId, options = {}) {
+    if (syzoj.utils.baseWorkspace && await syzoj.utils.baseWorkspace.contains('contest', contestId)) return { status: 'unrated', userIds: [] };
     const contests = await manager.query('SELECT * FROM contest WHERE id=? FOR UPDATE', [contestId]);
     if (!contests.length) return { status: 'missing', userIds: [] };
     const contest = contests[0];
@@ -190,7 +192,8 @@ async function listContestRatingStatuses() {
   const rows = await TypeORM.getConnection().query(
     `SELECT contest.id,contest.title,contest.start_time,contest.end_time,
             finalization.status AS finalization_status,
-            finalization.participant_count,finalization.completed_at,finalization.skip_reason
+            finalization.participant_count,finalization.completed_at,finalization.skip_reason,
+            finalization.rating_calculation_id
        FROM contest
        INNER JOIN contest_rating_config config ON config.contest_id=contest.id AND config.is_rated=1
        LEFT JOIN contest_rating_finalization finalization ON finalization.contest_id=contest.id
@@ -204,6 +207,7 @@ async function listContestRatingStatuses() {
     startTime: Number(row.start_time),
     endTime: Number(row.end_time),
     state: ratingStatus(row, now),
+    calculationId: row.rating_calculation_id == null ? null : Number(row.rating_calculation_id),
     participantCount: Number(row.participant_count || 0),
     completedAt: row.completed_at == null ? null : Number(row.completed_at),
     skipReason: row.skip_reason || null
@@ -252,7 +256,9 @@ async function finalizePendingContests() {
   }
 }
 
-async function recalculateRatingsFrom(contestId) {
+async function recalculateRatingsFrom(contestId, options = {}) {
+  const rollbackOnly = options.rollbackOnly === true;
+  if (rollbackOnly && typeof options.recordAudit !== 'function') throw new TypeError('Rating rollback requires an audit writer.');
   const releaseFinalizer = await contestMutation.acquireContestLock('rating-finalizer');
   const contestReleases = [];
   try {
@@ -297,7 +303,8 @@ async function recalculateRatingsFrom(contestId) {
         [affectedContestIds]
       );
       if (lockedContests.length !== affectedContestIds.length ||
-          lockedContests.some((contest, index) => Number(contest.id) !== affectedContestIds[index])) {
+          lockedContests.some((contest, index) => Number(contest.id) !== affectedContestIds[index] ||
+            Number(contest.end_time) !== Number(affectedContests[index].end_time))) {
         throw contestMutation.mutationError('比赛 Rating 配置已变化，请刷新后重试。', 409);
       }
 
@@ -305,6 +312,26 @@ async function recalculateRatingsFrom(contestId) {
         'SELECT id,contest_id FROM rating_calculation WHERE contest_id IN (?) ORDER BY id ASC FOR UPDATE',
         [affectedContestIds]
       );
+      if (rollbackOnly) {
+        const expected = (options.expectedCalculationIds || []).map(Number).sort((a, b) => a - b);
+        const actual = calculationRows.map(row => Number(row.id));
+        if (!calculationRows.some(row => Number(row.contest_id) === Number(contestId)) ||
+            JSON.stringify(expected) !== JSON.stringify(actual)) {
+          throw contestMutation.mutationError('Rating 结算记录已变化，请刷新页面后重新确认撤回范围。', 409);
+        }
+        // This action reverses the legacy calculation used by the admin page.
+        // Never silently overwrite a separate v2 adjustment or running job.
+        const jobs = await manager.query(
+          "SELECT id FROM rating_v2_job WHERE profile_id='icpc' AND state IN ('queued','running','cancelling') LIMIT 1 FOR UPDATE"
+        );
+        const events = await manager.query(
+          "SELECT id FROM rating_v2_event WHERE profile_id='icpc' AND contest_id IN (?) LIMIT 1 FOR UPDATE",
+          [affectedContestIds]
+        );
+        if (jobs.length || events.length) {
+          throw contestMutation.mutationError('存在 Rating 重算任务或独立调整记录，不能通过比赛结算撤回。', 409);
+        }
+      }
       const affectedCalculationIds = new Set(calculationRows.map(row => Number(row.id)));
       const affectedUserIds = new Set();
       const baselines = new Map();
@@ -343,22 +370,52 @@ async function recalculateRatingsFrom(contestId) {
         }
       }
 
+      if (rollbackOnly && affectedUserIds.size) {
+        const users = await manager.query(
+          `SELECT u.id,u.rating,history.rating_after FROM user u
+           INNER JOIN (SELECT user_id,MAX(rating_calculation_id) AS calculation_id FROM rating_history
+             WHERE user_id IN (?) GROUP BY user_id) latest ON latest.user_id=u.id
+           INNER JOIN rating_history history ON history.user_id=u.id AND history.rating_calculation_id=latest.calculation_id
+           ORDER BY u.id FOR UPDATE`, [Array.from(affectedUserIds)]
+        );
+        const projections = await manager.query(
+          "SELECT user_id FROM rating_v2_current WHERE profile_id='icpc' AND user_id IN (?) LIMIT 1 FOR UPDATE",
+          [Array.from(affectedUserIds)]
+        );
+        if (projections.length || users.some(user => Number(user.rating) !== Number(user.rating_after))) {
+          throw contestMutation.mutationError('结算后有用户 Rating 被单独修改，无法安全撤回。', 409);
+        }
+      }
+
+      const resetContestIds = rollbackOnly ? calculationRows.map(row => Number(row.contest_id)) : affectedContestIds;
       await manager.query(
         "DELETE FROM notification WHERE type='contest_rating' AND source_id IN (?)",
-        [affectedContestIds]
+        [resetContestIds]
       );
       await manager.query(
         "DELETE FROM rating_notification_delivery WHERE profile_id='icpc' AND contest_id IN (?)",
-        [affectedContestIds]
+        [resetContestIds]
       );
-      await manager.query('DELETE FROM contest_rating_finalization WHERE contest_id IN (?)', [affectedContestIds]);
+      await manager.query('DELETE FROM contest_rating_finalization WHERE contest_id IN (?)', [resetContestIds]);
       if (calculationBoundary !== null) {
         await manager.query('DELETE FROM rating_history WHERE rating_calculation_id>=?', [calculationBoundary]);
         await manager.query('DELETE FROM rating_calculation WHERE id>=?', [calculationBoundary]);
         const defaultRating = Number(syzoj.config.default.user.rating || 1500);
         for (const userId of affectedUserIds) {
-          await manager.query('UPDATE user SET rating=? WHERE id=?', [baselines.get(userId) || defaultRating,userId]);
+          await manager.query('UPDATE user SET rating=? WHERE id=?', [baselines.has(userId) ? baselines.get(userId) : defaultRating,userId]);
         }
+      }
+
+      if (rollbackOnly) {
+        const result = {
+          contestCount: calculationRows.length,
+          contestIds: calculationRows.map(row => Number(row.contest_id)),
+          calculationIds: calculationRows.map(row => Number(row.id)),
+          userIds: Array.from(affectedUserIds)
+        };
+        // Audit failure must roll back the Rating change as well.
+        result.auditEventId = await options.recordAudit(manager, result);
+        return result;
       }
 
       const summaries = [];

@@ -108,3 +108,19 @@ test('disabled solution and discussion modules have no shell entry points', () =
   assert.doesNotMatch(adminHeader, /solutions|题解审核/);
   assert.doesNotMatch(problemContext, /discussion|solutions|讨论|题解/);
 });
+
+test('shared footer includes linked ICP record, copyright and email on desktop and mobile', () => {
+  const footer = read('custom/views/app_footer.ejs');
+  const features = read('custom/app-features.css');
+  assert.match(footer, /href="https:\/\/beian\.miit\.gov\.cn\/"[^>]*rel="noopener noreferrer"[^>]*>陕ICP备05010979号<\/a>/);
+  assert.match(footer, /版权所有 © 西北工业大学程序设计创新实践基地/);
+  assert.match(footer, /联系邮箱：<a href="mailto:npuicpc@163\.com">npuicpc@163\.com<\/a>/);
+  assert.match(read('custom/views/footer.ejs'), /include app_footer/);
+  assert.match(read('custom/views/admin_footer.ejs'), /include app_footer/);
+  assert.doesNotMatch(features, /\.app-footer\s*\{[^}]*display:\s*none/);
+  assert.match(features, /\.app-footer\s*\{[^}]*padding: 16px 15px calc\(78px \+ env\(safe-area-inset-bottom\)\)/);
+  assert.match(read('custom/app-shell.css'), /\.app-footer\s*\{[^}]*overflow-x:\s*auto;[^}]*white-space:\s*nowrap;/s);
+  assert.doesNotMatch(footer, /app-footer-info|程序设计训练平台/);
+  const header = read('custom/views/app_header.ejs');
+  assert.ok(header.indexOf('<nav class="app-mobile-nav') < header.indexOf('<main class="app-main"'), 'fixed mobile navigation is outside the animated main container');
+});

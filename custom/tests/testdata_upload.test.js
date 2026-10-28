@@ -91,7 +91,8 @@ test('testdata upload pages wait for durable data before refreshing their testca
   assert.match(workflow, /refreshCurrentTestdataSnapshot\(problem, user\.id\)/);
   assert.match(workflow, /result\.snapshot_id = snapshot\.snapshot_id/);
   assert.match(workflow, /snapshot_id: snapshot && snapshot\.snapshot_id \|\| null/);
-  assert.match(workflow, /limits: \{ fileSize: 200 \* 1024 \* 1024, files: 1 \}/);
+  assert.match(workflow, /const TESTDATA_ARCHIVE_LIMIT = 8 \* 1024 \* 1024 \* 1024/);
+  assert.match(workflow, /limits: \{ fileSize: TESTDATA_ARCHIVE_LIMIT, files: 1 \}/);
   assert.match(workflow, /testdata\/upload\/chunk/);
   assert.match(workflow, /testdata\/upload\/complete/);
   assert.match(workflow, /TESTDATA_CHUNK_SIZE = 512 \* 1024/);

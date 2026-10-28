@@ -6,6 +6,7 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 const { isValidManagedTemporaryUsername } = require('../libs/contest-temp-accounts');
+const { validSignature } = require('../libs/user-signature');
 
 const root = path.resolve(__dirname, '../..');
 const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf8');
@@ -40,7 +41,7 @@ function managedUserHarness(options = {}) {
     },
     requireCapability: value => value,
     api: () => api, TypeORM: { getConnection: () => db },
-    isValidManagedTemporaryUsername, LEGACY_MANAGED_PRIVILEGE_SET: new Set(),
+    isValidManagedTemporaryUsername, validSignature, LEGACY_MANAGED_PRIVILEGE_SET: new Set(),
     inputBoolean: (value, fallback) => value == null ? fallback : !!value,
     normalizeSex: (value, fallback) => value == null ? fallback : String(value),
     User: { deleteFromCache: id => invalidations.push(['user', id]) },
@@ -120,6 +121,21 @@ test('ordinary accounts cannot opt into the temporary policy through request fie
   assert.equal((await normal.rename({ username: 'normal_name', email: '' })).status, 422);
 });
 
+test('managed signatures accept fifty Unicode characters and reject longer values before saving', async () => {
+  for (const information of ['', '中'.repeat(50), '😀'.repeat(50), '**签名** <b>纯文本</b>']) {
+    const h = managedUserHarness();
+    assert.equal((await h.rename({ information })).status, 200);
+    assert.equal(h.writes[0].params[2], information);
+  }
+  for (const information of ['a'.repeat(51), '中'.repeat(51), '😀'.repeat(51)]) {
+    const h = managedUserHarness();
+    const result = await h.rename({ information });
+    assert.equal(result.status, 422);
+    assert.equal(result.error.fields.information, 'maximum length is 50');
+    assert.equal(h.writes.length, 0);
+  }
+});
+
 test('long-name notifications exempt temporary accounts without relaxing ordinary registration', () => {
   const source = read('custom/modules/_registration_identity.js');
   assert.match(source, /NOT EXISTS \(SELECT 1 FROM temporary_contest_account temporary WHERE temporary.user_id=user.id\)/);
@@ -143,6 +159,7 @@ test('login accepts the exact renamed Unicode account and still enforces tempora
       authorizationV2: { recordAudit: async () => {} }
     } }
   });
+  vm.runInContext(source.slice(source.indexOf('async function findLoginUser('), source.indexOf('function loginBlocked(')), context);
   vm.runInContext(source.slice(source.indexOf("app.post('/api/v2/auth/login',"), source.indexOf("app.post('/api/v2/auth/logout',")), context);
   const request = { body: { username: user.username, password: 'fixture-password' } };
   assert.equal((await handler(request, { locals: {} })).status, 200);

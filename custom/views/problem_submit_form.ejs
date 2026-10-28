@@ -5,15 +5,16 @@ const apiSubmitEndpoint = appProblemSet
   ? '/api/v2/problem-sets/' + appProblemSet.id + '/problems/' + problem.id + (problem.type === 'submit-answer' ? '/submit-answer' : '/submissions')
   : contest
   ? '/api/v2/contests/' + contest.id + '/problems/' + problem.id + (problem.type === 'submit-answer' ? '/submit-answer' : '/submissions')
-  : (String(problem.type || '').startsWith('vjudge:')
-    ? '/api/v2/vjudge/problems/' + problem.id + '/submissions'
-    : '/api/v2/problems/' + problem.id + (problem.type === 'submit-answer' ? '/submit-answer' : '/submissions'));
+  : '/api/v2/problems/' + problem.id + (problem.type === 'submit-answer' ? '/submit-answer' : '/submissions');
 const submissionDetailBase = contest ? '/contest/submission/' : '/submission/';
 const contestSubmissionListUrl = contest && user
   ? syzoj.utils.makeUrl(['contest', contest.id, 'submissions'], { submitter: user.username })
   : '';
 const problemSetSubmissionListUrl = appProblemSet && user
   ? syzoj.utils.makeUrl(['problem-set', appProblemSet.id, 'submissions'], { submitter: user.username })
+  : '';
+const baseSubmissionListUrl = !contest && !appProblemSet && typeof baseContext !== 'undefined' && baseContext && user
+  ? syzoj.utils.makeUrl(['base', 'submissions'], { submitter: user.username })
   : '';
 const submitIcons = {
   alert: '<svg class="app-static-icon app-static-icon-circle-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"></circle><line x1="12" x2="12" y1="8" y2="12"></line><line x1="12" x2="12.01" y1="16" y2="16"></line></svg>',
@@ -128,7 +129,7 @@ const submitIcons = {
       var upload = document.getElementById('answer');
       var source = submitEditor ? submitEditor.getValue() : '';
       if (!(upload.files && upload.files.length) && !source.trim()) return showSubmitError('请输入代码或上传代码文件。');
-      var sourceLimit = <%= problem.type === 'vjudge:uoj' ? 50 * 1024 : ['vjudge:hdu', 'vjudge:poj'].includes(problem.type) ? 64 * 1024 : 0 %>;
+      var sourceLimit = 0;
       if (sourceLimit && new Blob([source]).size > sourceLimit) return showSubmitError('代码长度超过远程题库限制。');
       document.querySelector('[data-code-input]').value = source;
       document.querySelector('[data-language-input]').value = activeLanguage.getAttribute('data-language');
@@ -182,7 +183,7 @@ function unlockSubmitButton() {
         var source = document.querySelector('[data-code-input]').value;
         var codeUpload = document.getElementById('answer');
         if (codeUpload.files && codeUpload.files[0]) source = await codeUpload.files[0].text();
-        var remoteLimit = <%= problem.type === 'vjudge:uoj' ? 50 * 1024 : ['vjudge:hdu', 'vjudge:poj'].includes(problem.type) ? 64 * 1024 : 0 %>;
+        var remoteLimit = 0;
         if (remoteLimit && new Blob([source]).size > remoteLimit) throw new Error('代码长度超过远程题库限制。');
         headers['Content-Type'] = 'application/json';
         requestBody = JSON.stringify({
@@ -204,6 +205,8 @@ function unlockSubmitButton() {
       }
           if (<%- serializejs(!!appProblemSet) %>) {
             window.location.assign(<%- serializejs(problemSetSubmissionListUrl) %> || (<%- serializejs(submissionDetailBase) %> + encodeURIComponent(payload.data.submission.id)));
+          } else if (<%- serializejs(baseSubmissionListUrl) %>) {
+            window.location.assign(<%- serializejs(baseSubmissionListUrl) %>);
           } else {
             window.location.assign(<%- serializejs(contestSubmissionListUrl) %> || (<%- serializejs(submissionDetailBase) %> + encodeURIComponent(payload.data.submission.id)));
           }

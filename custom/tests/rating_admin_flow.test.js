@@ -67,3 +67,30 @@ test('user profiles separate the Rating chart from real contest participation li
   assert.match(css, /\.app-rating-chart canvas/);
   assert.match(css, /\.app-contest-link-list > a/);
 });
+
+test('contest rollback rejects unauthorized or malformed requests before changing Rating', async () => {
+  const vm = require('node:vm');
+  const source = read('custom/modules/_contest_rating.js');
+  const start = source.indexOf("app.post('/api/v2/admin/rating/contests/:id/rollback'");
+  const end = source.indexOf('\napp.use(', start);
+  let handler, allowed = false, recent = true, mutations = 0;
+  const api = { fail: (res, status, code) => ({ status, code }), send: (res, data) => ({ status: 200, data }) };
+  vm.runInNewContext(source.slice(start, end), {
+    app: { post: (url, fn) => { handler = fn; } },
+    syzoj: { log() {}, utils: { apiV2: api, authorizationV2: { authorize: async () => allowed, recentLoginSatisfied: () => recent } } },
+    ensureRatingSchema: async () => {},
+    contestRating: { recalculateRatingsFrom: async () => { mutations++; return { contestIds: [20], contestCount: 1, userIds: [7], auditEventId: 1 }; } },
+    contestRatingRequestCache: { clear() {} }, ranklistRatingCache: { invalidate() {} }
+  });
+  const req = { params: { id: '20' }, body: { calculation_ids: [2] } };
+  assert.equal((await handler(req, { locals: {} })).status, 401);
+  const res = { locals: { user: { id: 7 } } };
+  assert.equal((await handler(req, res)).status, 403);
+  allowed = true; recent = false;
+  assert.equal((await handler(req, res)).code, 'RECENT_LOGIN_REQUIRED');
+  recent = true;
+  assert.equal((await handler({ ...req, body: { calculation_ids: ['bad'] } }, res)).status, 422);
+  assert.equal(mutations, 0);
+  assert.equal((await handler(req, res)).status, 200);
+  assert.equal(mutations, 1);
+});

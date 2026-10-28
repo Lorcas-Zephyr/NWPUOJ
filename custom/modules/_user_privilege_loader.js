@@ -136,14 +136,21 @@ syzoj.utils.claimSiteOwner = claimSiteOwner;
 
 const originalIsContestSupervisior = Contest.prototype.isSupervisior;
 Contest.prototype.isSupervisior = async function isSupervisior(user) {
-  if (!user) return originalIsContestSupervisior.call(this, user);
+  if (syzoj.utils.baseWorkspace && await syzoj.utils.baseWorkspace.contains('contest', this.id)) return syzoj.utils.baseWorkspace.canManage('contest', this, user);
+  if (!user) return false;
+  if (syzoj.utils.authorizationV2) {
+    const scope = `contest:${this.id}`;
+    return syzoj.utils.authorizationV2.authorize(user, 'contest:edit', {
+      id: Number(this.id), ownerId: Number(this.holder_id), scope
+    }, { scope });
+  }
   if (user.is_admin || Number(user.id) === Number(syzoj.siteOwnerUserId || 0)) return true;
-  if (await user.hasPrivilege('manage_contest')) return Number(this.holder_id) === Number(user.id);
   return originalIsContestSupervisior.call(this, user);
 };
 
 const originalProblemEdit = Problem.prototype.isAllowedEditBy;
 Problem.prototype.isAllowedEditBy = async function isAllowedEditBy(user) {
+  if (syzoj.utils.baseWorkspace && await syzoj.utils.baseWorkspace.contains('problem', this.id)) return syzoj.utils.baseWorkspace.canManage('problem', this, user);
   if (!user) return false;
   if (user.is_admin || Number(user.id) === Number(syzoj.siteOwnerUserId || 0)) return true;
   if (await user.hasPrivilege('manage_problem')) return Number(this.user_id) === Number(user.id);
@@ -151,6 +158,7 @@ Problem.prototype.isAllowedEditBy = async function isAllowedEditBy(user) {
 };
 const originalProblemUse = Problem.prototype.isAllowedUseBy;
 Problem.prototype.isAllowedUseBy = async function isAllowedUseBy(user) {
+  if (syzoj.utils.baseWorkspace && await syzoj.utils.baseWorkspace.contains('problem', this.id)) return syzoj.utils.baseWorkspace.canReadProblem(this, user);
   if (this.is_public) return true;
   if (!user) return false;
   if (user.is_admin || Number(user.id) === Number(syzoj.siteOwnerUserId || 0)) return true;
@@ -159,6 +167,7 @@ Problem.prototype.isAllowedUseBy = async function isAllowedUseBy(user) {
 };
 const originalProblemManage = Problem.prototype.isAllowedManageBy;
 Problem.prototype.isAllowedManageBy = async function isAllowedManageBy(user) {
+  if (syzoj.utils.baseWorkspace && await syzoj.utils.baseWorkspace.contains('problem', this.id)) return syzoj.utils.baseWorkspace.canManage('problem', this, user);
   if (!user) return false;
   if (user.is_admin || Number(user.id) === Number(syzoj.siteOwnerUserId || 0)) return true;
   if (await user.hasPrivilege('manage_problem')) return Number(this.user_id) === Number(user.id);
@@ -178,68 +187,11 @@ ensureSiteOwner()
     process.exit(1);
   });
 
-function parseVjudgeDisplayId(value) {
-  let match = /^([UHP])([1-9]\d*)$/i.exec(String(value || '').trim());
-  if (!match) return null;
-  const types = { U: 'vjudge:uoj', H: 'vjudge:hdu', P: 'vjudge:poj' };
-  return {
-    type: types[match[1].toUpperCase()],
-    remoteId: match[2]
-  };
-}
-
 function contestSubmissionEnabled(problem) {
-  if (!problem || typeof problem.type !== 'string') return true;
-  if (problem.type === 'vjudge:luogu') return !!syzoj.config.luogu_openapi_token;
-  if (problem.type === 'vjudge:uoj') {
-    return process.env.SYZOJ_WEB_UOJ_ALLOW_CONTESTS === 'true' &&
-      !!process.env.SYZOJ_WEB_UOJ_USERNAME && !!process.env.SYZOJ_WEB_UOJ_PASSWORD;
-  }
-  if (problem.type === 'vjudge:hdu') {
-    return process.env.SYZOJ_WEB_HDU_ALLOW_CONTESTS === 'true' &&
-      !!process.env.SYZOJ_WEB_HDU_USERNAME && !!process.env.SYZOJ_WEB_HDU_PASSWORD;
-  }
-  if (problem.type === 'vjudge:poj') {
-    return process.env.SYZOJ_WEB_POJ_ALLOW_CONTESTS === 'true' &&
-      !!process.env.SYZOJ_WEB_POJ_USERNAME && !!process.env.SYZOJ_WEB_POJ_PASSWORD;
-  }
-  return true;
+  return !problem || ['traditional', 'interaction', 'submit-answer'].includes(problem.type);
 }
 
 syzoj.utils.contestSubmissionEnabled = contestSubmissionEnabled;
-
-const recentVjudgeSubmissions = new Map();
-
-app.get('/problem/:id', async (req, res, next) => {
-  try {
-    let displayId = parseVjudgeDisplayId(req.params.id);
-    if (!displayId) return next();
-    let problem = await Problem.findOne({ where: { type: displayId.type, vjudge_config: displayId.remoteId } });
-    if (!problem) throw new ErrorMessage('无此题目。');
-    if (!await problem.isAllowedUseBy(res.locals.user)) throw new ErrorMessage('无此题目。');
-    res.redirect(syzoj.utils.makeUrl(['problem', problem.id]));
-  } catch (e) {
-    syzoj.log(e);
-    res.render('error', { err: e });
-  }
-});
-
-app.get('/problems/search', async (req, res, next) => {
-  try {
-    let displayId = parseVjudgeDisplayId(req.query.keyword);
-    if (!displayId) return next();
-    let requestedRepository = ['all', 'main', 'uoj', 'hdu', 'poj'].includes(req.query.repository) ? req.query.repository : 'all';
-    let displayRepository = { 'vjudge:uoj': 'uoj', 'vjudge:hdu': 'hdu', 'vjudge:poj': 'poj' }[displayId.type];
-    if (requestedRepository !== 'all' && requestedRepository !== displayRepository) return next();
-    let problem = await Problem.findOne({ where: { type: displayId.type, vjudge_config: displayId.remoteId } });
-    if (!problem) return next();
-    if (!await problem.isAllowedUseBy(res.locals.user)) return next();
-    res.redirect(syzoj.utils.makeUrl(['problem', problem.id]));
-  } catch (e) {
-    next(e);
-  }
-});
-
 
 app.get('/problem/:id/submissions', (req, res, next) => {
   let problemId = parseInt(req.params.id);
@@ -271,42 +223,12 @@ app.get('/contest/:id/problem/:pid/submissions', async (req, res, next) => {
       throw new ErrorMessage('无此题目。');
     }
 
-    let problemId = problemIds[contestProblemId - 1];
-    res.locals.problemContextRequest = {
-      problemId: problemId,
-      section: 'submissions',
-      contest: contest,
-      contestProblemId: contestProblemId
-    };
-
-    if (contest.isEnded()) {
-      req.query.contest = String(contestId);
-      req.query.problem_id = String(contestProblemId);
-      req.url = '/submissions?' + querystring.stringify(req.query);
-    } else {
-      req.query.problem_id = String(contestProblemId);
-      req.url = '/contest/' + contestId + '/submissions?' + querystring.stringify(req.query);
-    }
-    next();
-  } catch (e) {
-    syzoj.log(e);
-    res.render('error', { err: e });
-  }
-});
-
-app.get('/contest/:id/submissions', async (req, res, next) => {
-  try {
-    if (res.locals.problemContextRequest) return next();
-    let contest = await Contest.findById(parseInt(req.params.id));
-    if (!contest || !contest.isEnded()) return next();
-
-    res.locals.contestHeaderRequest = {
-      contestId: contest.id,
-      section: 'submissions'
-    };
-    req.query.contest = String(contest.id);
-    req.url = '/submissions?' + querystring.stringify(req.query);
-    next();
+    // Keep old problem-specific URLs in the contest workspace, including
+    // after the contest ends. The list expects the contest ordinal, not the
+    // source problem ID, and must not be switched by a query parameter.
+    const filters = Object.assign({}, req.query, { problem_id: String(contestProblemId) });
+    delete filters.contest;
+    return res.redirect(syzoj.utils.makeUrl(['contest', contestId, 'submissions'], filters));
   } catch (e) {
     syzoj.log(e);
     res.render('error', { err: e });
@@ -351,7 +273,7 @@ app.use(async (req, res, next) => {
   }
 
   res.locals.adminCsrfToken = null;
-  if (res.locals.user && res.locals.appCanAccessAdmin) {
+  if (res.locals.user && (res.locals.appCanAccessAdmin || res.locals.baseMember)) {
     if (!req.session.adminCsrfToken) {
       req.session.adminCsrfToken = crypto.randomBytes(32).toString('hex');
     }
@@ -367,7 +289,7 @@ app.use(async (req, res, next) => {
         ? await Problem.findById(routeProblemId)
         : null;
       if (!problem) {
-        let canCreateProblem = res.locals.user && await res.locals.user.hasPrivilege('manage_problem');
+        let canCreateProblem = res.locals.user && (await res.locals.user.hasPrivilege('manage_problem') || routeProblemId === 0 && req.query.base === '1' && res.locals.baseMember);
         if (!canCreateProblem) {
           throw new ErrorMessage('您没有添加题目的权限。');
         }
@@ -425,8 +347,7 @@ app.use(async (req, res, next) => {
           contextProblem.allowedManage = await contextProblem.isAllowedManageBy(res.locals.user);
           await contextProblem.loadRelationships();
 
-          let isVJudge = typeof contextProblem.type === 'string' && contextProblem.type.startsWith('vjudge:');
-          let testcases = isVJudge ? [] : await syzoj.utils.parseTestdata(
+          let testcases = await syzoj.utils.parseTestdata(
             contextProblem.getTestdataPath(),
             contextProblem.type === 'submit-answer'
           );
@@ -450,7 +371,7 @@ app.use(async (req, res, next) => {
   try {
     res.locals.contestHeader = null;
     let contestRoute = !res.locals.problemContextRequest && req.method === 'GET' &&
-      req.path.match(/^\/contest\/(\d+)(?:\/(details|ranklist|submissions|participants|registrations))?\/?$/);
+      req.path.match(/^\/contest\/(\d+)(?:\/(details|ranklist|rating|submissions|participants|registrations))?\/?$/);
     let contestProblemRoute = req.method === 'GET' &&
       req.path.match(/^\/contest\/(\d+)\/problem\/\d+\/?$/);
     let contestId = res.locals.contestHeaderRequest
@@ -558,6 +479,7 @@ app.get('/user/:id', (req, res, next) => {
       [options.show_user.id]
     ).then(rows => Promise.all(rows.map(async row => {
       const problem = await Problem.findById(Number(row.problem_id));
+      if (problem && syzoj.utils.baseWorkspace && await syzoj.utils.baseWorkspace.contains('problem', problem.id)) return null;
       return problem ? { id: problem.id, displayId: problem.getDisplayId() } : null;
     }))).then(problems => {
       options.show_user.ac_problems = problems.filter(Boolean);
@@ -607,7 +529,7 @@ app.get('/problem/:id/submit', async (req, res) => {
       state: await problem.getJudgeState(res.locals.user, false),
       testcases: context.testcases,
       lastLanguage: res.locals.user ? await res.locals.user.getLastSubmitLanguage() : null,
-      languages: problem.getVJudgeLanguages()
+      languages: null
     });
   } catch (e) {
     syzoj.log(e);
@@ -642,7 +564,7 @@ app.get('/contest/:id/problem/:pid/submit', async (req, res) => {
     problem.allowedManage = await problem.isAllowedManageBy(res.locals.user);
     await problem.loadRelationships();
 
-    let testcases = typeof problem.type === 'string' && problem.type.startsWith('vjudge:') ? [] : await syzoj.utils.parseTestdata(
+    let testcases = await syzoj.utils.parseTestdata(
       problem.getTestdataPath(),
       problem.type === 'submit-answer'
     );
@@ -665,7 +587,7 @@ app.get('/contest/:id/problem/:pid/submit', async (req, res) => {
       state: await problem.getJudgeState(res.locals.user, false),
       testcases: testcases,
       lastLanguage: res.locals.user ? await res.locals.user.getLastSubmitLanguage() : null,
-      languages: problem.getVJudgeLanguages()
+      languages: null
     });
   } catch (e) {
     syzoj.log(e);

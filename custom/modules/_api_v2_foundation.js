@@ -395,7 +395,7 @@ function apiFail(res, status, code, message, details) {
 async function loadReadableOperation(req, res) {
   await ensureFoundationSchema();
   const rows = await TypeORM.getConnection().query(
-    'SELECT id,actor_id,status,response_status,response_json,created_at,updated_at,expires_at FROM api_v2_operation WHERE id=? LIMIT 1',
+    'SELECT id,actor_id,path,status,response_status,response_json,created_at,updated_at,expires_at FROM api_v2_operation WHERE id=? LIMIT 1',
     [req.params.id]
   );
   const operation = rows[0];
@@ -406,6 +406,10 @@ async function loadReadableOperation(req, res) {
   const isJobManager = await authorizeCurrent(res.locals.user, 'admin:job.manage', null, { req, scope: 'global' });
   if (!isJobManager && Number(operation.actor_id) !== Number(res.locals.user.id)) {
     apiFail(res, 403, 'OPERATION_FORBIDDEN', 'You cannot inspect this operation.');
+    return null;
+  }
+  if (syzoj.utils.baseWorkspace && !await syzoj.utils.baseWorkspace.canReadOperation(operation, res.locals.user)) {
+    apiFail(res, 403, 'BASE_ACCESS_REQUIRED', '您的基地访问权限已撤销，无法查看此操作。');
     return null;
   }
   return operation;
@@ -474,10 +478,10 @@ function gatewayLimits(req, res) {
   const bodyLimit = apiHelpers.requestBodyLimit(requestPath, req.get('content-type'), {
     defaultBytes: MAX_BODY_BYTES,
     multipartOverheadBytes: MAX_BODY_BYTES,
-    problemImportArchiveBytes: 100 * 1024 * 1024,
-    testdataArchiveBytes: 200 * 1024 * 1024,
-    testdataFilesBytes: Number(syzoj.config.limit && syzoj.config.limit.testdata || 200 * 1024 * 1024),
-    additionalFileBytes: Number(syzoj.config.limit && syzoj.config.limit.data_size || 200 * 1024 * 1024),
+    problemImportArchiveBytes: 8 * 1024 * 1024 * 1024,
+    testdataArchiveBytes: Number(syzoj.config.limit && syzoj.config.limit.testdata || 8 * 1024 * 1024 * 1024),
+    testdataFilesBytes: Number(syzoj.config.limit && syzoj.config.limit.testdata || 8 * 1024 * 1024 * 1024),
+    additionalFileBytes: Number(syzoj.config.limit && syzoj.config.limit.data_size || 8 * 1024 * 1024 * 1024),
     imageHostBytes: 10 * 1024 * 1024
   });
   const contentLength = Number(req.get('content-length') || 0);
@@ -492,7 +496,7 @@ function gatewayLimits(req, res) {
   }
   const isWrite = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
   const isTestdataChunk = /^\/api\/v2\/problems\/\d+\/testdata\/upload\/chunk$/.test(requestPath);
-  // A 200 MiB archive can require hundreds of small requests. Keep normal
+  // A multi-GiB archive can require thousands of small requests. Keep normal
   // write protection while allowing one active chunk upload to finish.
   const limit = isTestdataChunk ? 1200 : (isWrite ? 60 : 180);
   const actor = res.locals.user ? `user:${res.locals.user.id}` : `ip:${req.ip || 'unknown'}`;

@@ -115,13 +115,12 @@ async function problemForPrompt(contestId, problemId) {
     file_io: !!content.file_io, file_io_input_name: content.file_io_input_name || null,
     file_io_output_name: content.file_io_output_name || null,
     python_time_limit_multiplier: Number(content.python_time_limit_multiplier || 2),
-    java_time_limit_multiplier: Number(content.java_time_limit_multiplier || 2),
-    vjudge_config: content.vjudge_config || null
+    java_time_limit_multiplier: Number(content.java_time_limit_multiplier || 2)
   };
 }
 
 async function availableLanguages(problem) {
-  const languages = problem.getVJudgeLanguages ? problem.getVJudgeLanguages() : null;
+  const languages = syzoj.languages;
   const configured = languages || syzoj.config.enabled_languages || [];
   return Array.isArray(configured) ? configured : Object.keys(configured);
 }
@@ -165,6 +164,9 @@ async function registerAgent(contestId, userId) {
 }
 
 async function createRuns(contestId, providers, options = {}) {
+  if (syzoj.utils.baseWorkspace && await syzoj.utils.baseWorkspace.contains('contest', contestId)) {
+    throw aiError('BASE_ACCESS_REQUIRED', '基地比赛仅限基地成员参加。', 403);
+  }
   await ensureAgentAccounts();
   const contest = await Contest.findById(Number(contestId));
   if (!contest) throw aiError('CONTEST_NOT_FOUND', '比赛不存在。', 404);

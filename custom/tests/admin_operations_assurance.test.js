@@ -10,7 +10,7 @@ const read = relative => fs.readFileSync(path.join(root, relative), 'utf8');
 
 test('admin configuration metadata redacts credential references and sensitive diff responses', () => {
   const admin = read('custom/modules/_api_v2_admin_domain.js');
-  assert.match(admin, /provider_credentials: \{ type: 'secret_reference', mutable: false, sensitive: true \}/);
+  assert.doesNotMatch(admin, /provider_credentials/);
   assert.match(admin, /value: definition\.sensitive \? '\[redacted\]'/);
   assert.match(admin, /secrets_redacted: true/);
   assert.match(admin, /changed: result\.diff, audit_event_id: result\.auditEventId, event_id: result\.eventId, secrets_redacted: true/);
@@ -125,7 +125,7 @@ test('bulk problem actions share unified task serialization, SSE, cancellation, 
 test('unified admin jobs use capability-gated SSE streams for every supported job kind', () => {
   const admin = read('custom/modules/_api_v2_admin_domain.js');
   const foundation = read('custom/modules/_api_v2_foundation.js');
-  assert.match(admin, /function jobEventStream\(job\)[\s\S]*vjudge-import:\$\{job\.id\}[\s\S]*problem-job:\$\{job\.id\}[\s\S]*submission-job:\$\{job\.id\}[\s\S]*rating-job:\$\{job\.id\}[\s\S]*standings-job:\$\{job\.id\}[\s\S]*migration:\$\{job\.id\}/);
+  assert.match(admin, /function jobEventStream\(job\)[\s\S]*problem-job:\$\{job\.id\}[\s\S]*submission-job:\$\{job\.id\}[\s\S]*rating-job:\$\{job\.id\}[\s\S]*standings-job:\$\{job\.id\}[\s\S]*migration:\$\{job\.id\}/);
   assert.match(admin, /app\.get\('\/api\/v2\/admin\/jobs\/:id\/events', requireCapability\('admin:job\.manage'\), async \(req, res\) =>[\s\S]*return api\(\)\.sse\(req, res, stream\)/);
   assert.match(admin, /appendJobEvent\(job, 'job\.cancel\.requested'/);
   assert.match(admin, /appendJobEvent\(job, 'job\.retry\.queued'/);

@@ -1,4 +1,17 @@
-# NWPUOJ v2.0.1 Release Runbook
+# NWPUOJ v2.2.0 Release Runbook
+
+## Source Release
+
+For a GitHub source release, synchronize `VERSION`, package metadata, Web configuration,
+Compose image tags, and README; add the matching version section to `CHANGELOG.md`.
+Run `npm ci && npm test` from `custom`, validate `docker compose config --quiet`, and review
+the staged files. Exclude secrets, uploads, local exports, backups, and private import workspaces.
+Create the release commit and annotated `v2.2.0` tag, then push the branch and tag atomically.
+The `Release` GitHub Actions workflow reruns the tests and publishes the matching changelog
+section. Verify the workflow and published GitHub Release before reporting completion.
+
+Production deployment is a separate operation. The backup, health, deployment, and rollback
+steps below apply when changing a running installation.
 
 ## Preconditions
 
@@ -61,6 +74,7 @@ volume set so rows, files, events, and projections return to one consistent poin
 
 ## Publish
 
-After validation, create the annotated `v2.0.1` tag and GitHub release from the reviewed release
-commit. Include `CHANGELOG.md`, compatibility counts, test totals, image digest, backup identifiers,
-contest drill evidence, and the named rollback owner in the release notes.
+After validation, create the annotated `v2.2.0` tag and GitHub release from the reviewed release
+commit. Include the matching `CHANGELOG.md` section and validation results. For a production
+deployment, also record compatibility counts, image digest, backup identifiers, contest drill
+evidence, and the named rollback owner in the deployment record.

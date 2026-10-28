@@ -81,8 +81,8 @@ test('admin overview omits retired task and migration workspaces', () => {
   const route = fs.readFileSync(path.join(root, 'custom/modules/_admin_overview.js'), 'utf8');
 
   assert.doesNotMatch(route, /canManageMigrations|'admin:job\.manage'/);
-  assert.ok(overview.indexOf('aria-label="待处理事项"') < overview.indexOf('VJudge 状态'));
-  assert.match(overview, /VJudge 状态/);
+  assert.ok(overview.indexOf('aria-label="待处理事项"') < overview.indexOf('最近未结工单'));
+  assert.doesNotMatch(overview, /VJudge 状态/);
   assert.match(overview, /最近未结工单/);
   assert.match(overview, /近期评测管理操作/);
   assert.doesNotMatch(overview, /运行任务|迁移归档|迁移发布证据/);

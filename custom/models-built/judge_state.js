@@ -69,6 +69,7 @@ var Status;
     Status["COMPILE_ERROR"] = "Compile Error";
     Status["FILE_ERROR"] = "File Error";
     Status["INVALID_INTERACTION"] = "Invalid Interaction";
+    Status["PRESENTATION_ERROR"] = "Presentation Error";
     Status["JUDGEMENT_FAILED"] = "Judgement Failed";
     Status["MEMORY_LIMIT_EXCEEDED"] = "Memory Limit Exceeded";
     Status["NO_TESTDATA"] = "No Testdata";

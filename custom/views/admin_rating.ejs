@@ -25,6 +25,7 @@ const appRatingPending = appRatingSummary.pending || 0;
 
 <% if (req.query && req.query.calculated === '1') { %><div class="app-notice app-notice-success"><i data-lucide="circle-check"></i><span><strong>Rating 计算完成</strong><small>处理 <%= Number(req.query.contests || 0) %> 场，完成 <%= Number(req.query.completed || 0) %> 场，无需变更 <%= Number(req.query.skipped || 0) %> 场<%= Number(req.query.deferred || 0) ? '，仍有 ' + Number(req.query.deferred) + ' 场等待评测完成' : '' %>。</small></span></div><% } %>
 <% if (!ratingCanCalculate) { %><div class="app-notice"><i data-lucide="shield-alert"></i><span>当前账户可以查看状态，但没有 Rating 计算权限。</span></div><% } %>
+<% if (req.query && req.query.rolled_back === '1') { %><div class="app-notice app-notice-success"><i data-lucide="circle-check"></i><span>Rating 已撤回，相关比赛已回到待计算状态。</span></div><% } %>
 
 <section class="app-admin-metrics" aria-label="Rating 状态汇总">
   <div><strong><%= appRatingPending %></strong><span>待计算</span></div>
@@ -42,16 +43,76 @@ const appRatingPending = appRatingSummary.pending || 0;
     <td><span class="app-status <%= state[1] %>"><%= state[0] %></span><% if (contest.state === 'pending') { %><small class="app-row-description">先处理作弊、取消等无效提交</small><% } else if (contest.skipReason === 'fewer_than_two_eligible_participants') { %><small class="app-row-description">有效参赛者不足 2 人</small><% } %></td>
     <td class="app-cell-number"><%= ['completed', 'skipped'].includes(contest.state) ? contest.participantCount : '-' %></td>
     <td class="app-cell-number"><%= contest.completedAt ? syzoj.utils.formatDate(contest.completedAt) : '-' %></td>
-    <td class="app-cell-actions"><div class="app-inline-actions"><a class="app-icon-button" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'ranklist']) %>" title="查看排行榜" aria-label="查看排行榜"><i data-lucide="list-ordered"></i></a><a class="app-icon-button" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'edit']) %>" title="管理比赛" aria-label="管理比赛"><i data-lucide="settings"></i></a></div></td>
+    <td class="app-cell-actions"><div class="app-inline-actions"><a class="app-icon-button" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'ranklist']) %>" title="查看排行榜" aria-label="查看排行榜"><i data-lucide="list-ordered"></i></a><a class="app-icon-button" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'edit']) %>" title="管理比赛" aria-label="管理比赛"><i data-lucide="settings"></i></a>
+      <% if (ratingCanCalculate && contest.state === 'completed' && contest.calculationId) {
+        const affected = ratingContests.filter(function(item) { return item.calculationId && (item.endTime > contest.endTime || (item.endTime === contest.endTime && item.id >= contest.id)); }); %>
+      <button class="app-button app-button-secondary" type="button" data-dialog-open="rating-rollback-dialog" data-rating-rollback="<%= contest.id %>" data-rating-title="<%= contest.title %>" data-rating-calculations="<%= JSON.stringify(affected.map(function(item) { return item.calculationId; })) %>" data-rating-contests="<%= affected.map(function(item) { return '#' + item.id + ' ' + item.title; }).join('、') %>"><i data-lucide="undo-2"></i>撤回 Rating</button>
+      <% } %>
+    </div></td>
   </tr><% }); %>
   </tbody></table></div><% } else { %><div class="app-empty"><div class="app-empty-inner"><i data-lucide="calculator"></i><strong>暂无 Rated 比赛</strong><p>新建比赛时开启 Rated 后会显示在这里。</p></div></div><% } %>
 </section>
 
+<% if (ratingCanCalculate) { %>
+<dialog class="app-dialog" id="rating-rollback-dialog" aria-labelledby="rating-rollback-title">
+  <form data-rating-rollback-form>
+    <div class="app-dialog-header"><h2 id="rating-rollback-title">撤回 Rating</h2><button class="app-icon-button" type="button" data-dialog-close aria-label="关闭"><i data-lucide="x"></i></button></div>
+    <div class="app-dialog-body">
+      <p data-rating-rollback-copy></p>
+      <p>恢复到本次结算前的 Rating，移除对应的 Rating 历史及变化通知。相关比赛回到待计算状态，处理完成后可重新点击“一键计算”。</p>
+      <div class="app-notice app-notice-warning" data-rating-rollback-following hidden><i data-lucide="triangle-alert"></i><span>后续比赛依赖本次结算结果，也会一并撤回：<span data-rating-rollback-contests></span></span></div>
+      <p class="app-text-danger" role="alert" data-rating-rollback-error hidden></p>
+    </div>
+    <div class="app-dialog-actions"><button class="app-button app-button-secondary" type="button" data-dialog-close>取消</button><button class="app-button app-button-danger" type="submit"><i data-lucide="undo-2"></i>确认撤回</button></div>
+  </form>
+</dialog>
+<% } %>
+
 <script>
 (function () {
+  var dialog = document.getElementById('rating-rollback-dialog');
+  var selected = null;
+  var rollingBack = false;
+  if (dialog) {
+    document.addEventListener('click', function(event) {
+      var opener = event.target.closest('[data-rating-rollback]');
+      if (!opener || rollingBack) return;
+      selected = { id: opener.dataset.ratingRollback, calculations: JSON.parse(opener.dataset.ratingCalculations) };
+      dialog.querySelector('[data-rating-rollback-copy]').textContent = '确认撤回比赛《' + opener.dataset.ratingTitle + '》的 Rating 结算吗？';
+      dialog.querySelector('[data-rating-rollback-following]').hidden = selected.calculations.length <= 1;
+      dialog.querySelector('[data-rating-rollback-contests]').textContent = opener.dataset.ratingContests;
+      dialog.querySelector('[data-rating-rollback-error]').hidden = true;
+    });
+    dialog.addEventListener('cancel', function(event) { if (rollingBack) event.preventDefault(); });
+    dialog.querySelector('form').addEventListener('submit', async function(event) {
+      event.preventDefault();
+      if (rollingBack || !selected) return;
+      rollingBack = true;
+      var buttons = dialog.querySelectorAll('button');
+      buttons.forEach(function(button) { button.disabled = true; });
+      var errorBox = dialog.querySelector('[data-rating-rollback-error]');
+      errorBox.hidden = true;
+      try {
+        var key = window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : 'rating-rollback-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+        var response = await fetch('/api/v2/admin/rating/contests/' + encodeURIComponent(selected.id) + '/rollback', {
+          method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key },
+          body: JSON.stringify({ calculation_ids: selected.calculations })
+        });
+        var body = await response.json();
+        if (!response.ok) throw new Error(body && body.error && body.error.message || 'Rating 撤回失败。');
+        window.location.assign('/admin/rating?rolled_back=1');
+      } catch(error) {
+        errorBox.textContent = error.message || 'Rating 撤回失败。';
+        errorBox.hidden = false;
+        rollingBack = false;
+        buttons.forEach(function(button) { button.disabled = false; });
+      }
+    });
+  }
   var form = document.querySelector('[data-rating-calculate-v2]');
   if (!form) return;
   form.addEventListener('submit', async function (event) {
+    if (event.defaultPrevented) return;
     event.preventDefault();
     var button = form.querySelector('button[type="submit"]');
     if (button) button.disabled = true;

@@ -65,6 +65,12 @@ app.get('/api/v2/search/problems/:keyword*?', async (req, res) => {
 
     async function mayReturn(problem) {
       if (!problem || !await problem.isAllowedUseBy(res.locals.user)) return false;
+      if (syzoj.utils.baseWorkspace) {
+        const baseSearch = req.query.workspace === 'base';
+        const baseProblem = await syzoj.utils.baseWorkspace.contains('problem', problem.id);
+        if (baseSearch !== baseProblem || baseSearch && (!problem.is_public || !await syzoj.utils.baseWorkspace.isMember(res.locals.user))) return false;
+        if (baseSearch) return true;
+      }
       if (contestOnly && syzoj.utils.contestSubmissionEnabled && !syzoj.utils.contestSubmissionEnabled(problem)) return false;
       if (!syzoj.utils.canAccessProblemOutsideContest) return true;
       return syzoj.utils.canAccessProblemOutsideContest(problem.id, res.locals.user);

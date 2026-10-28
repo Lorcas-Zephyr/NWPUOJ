@@ -17,6 +17,9 @@ const appJs = fs.readFileSync(path.join(root, 'custom/app-v2.js'), 'utf8');
 const editorJs = fs.readFileSync(path.join(root, 'custom/modern-editor.js'), 'utf8');
 const submission = fs.readFileSync(path.join(root, 'custom/views/submission.ejs'), 'utf8');
 const submissions = fs.readFileSync(path.join(root, 'custom/views/submissions.ejs'), 'utf8');
+const problemContext = fs.readFileSync(path.join(root, 'custom/views/problem_context.ejs'), 'utf8');
+const problemSetRanklist = fs.readFileSync(path.join(root, 'custom/views/problem_set_ranklist.ejs'), 'utf8');
+const problemSetSubmissions = fs.readFileSync(path.join(root, 'custom/views/problem_set_submissions.ejs'), 'utf8');
 const problemSets = fs.readFileSync(path.join(root, 'custom/modules/_problem_sets.js'), 'utf8');
 const submissionProcess = fs.readFileSync(path.join(root, 'custom/libs-built/submissions_process.js'), 'utf8');
 const submissionRoutes = fs.readFileSync(path.join(root, 'custom/modules/_submission_routes.js'), 'utf8');
@@ -103,6 +106,32 @@ test('problem-set submissions reuse the complete submission list and accepted-so
   assert.match(submissionVisibility, /hasValidAcceptedSubmission\(user\.id, this\.problem_id\)/);
   assert.match(submissionVisibility, /hasAccessiblePublishedProblemSet\(user\.id, this\.problem_id\)/);
   assert.match(submissionVisibility, /problemSetSubmissionContext/);
+});
+
+test('problem-set submission filters and detail links use the set ordinal', () => {
+  assert.match(problemContext, /problem_id:\s*contextProblemSetProblemId\s*\}\)/);
+  assert.doesNotMatch(problemContext, /contextProblemSet\.id, 'submissions'\], \{ problem_id: contextProblem\.id \}/);
+  assert.match(problemSetRanklist, /detail\.judge_id %>\?problem_set=<%= problemSet\.id/);
+  assert.match(problemSetSubmissions, /item\.submission_id %>\?problem_set=<%= problemSet\.id/);
+});
+
+test('contest and problem-set submission filters use a compact desktop row only', () => {
+  assert.match(submissions, /displayConfig\.showScoreFilter \|\| displayConfig\.showScore/);
+  assert.match(submissions, /displayConfig\.inContest \|\| displayConfig\.inProblemSet \? ' app-submission-filter-compact' : ''/);
+  assert.match(css, /@media \(min-width: 1024px\)\s*\{\s*\.app-submission-filter-compact > \.app-form-grid\s*\{[^}]*display: flex;[^}]*flex-wrap: nowrap;/);
+  assert.match(css, /\.app-submission-filter-compact > \.app-form-grid > \.app-field\s*\{[^}]*flex: 1 1 0;[^}]*max-width: 180px;/);
+  assert.match(submissions, /id="submission-filter-form"/);
+  for (const name of ['problem_id', 'submitter', 'language', 'min_score', 'max_score', 'status']) {
+    assert.ok(submissions.includes('name="' + name + '"'), name + ' filter is preserved');
+  }
+});
+
+test('presentation errors are rendered as format errors in every submission surface', () => {
+  assert.match(submission, /appResultTypes = \[[\s\S]*'格式错误'\]/);
+  assert.match(submission, /presentation error.*app-verdict-format/);
+  assert.match(submissions, /Presentation Error.*格式错误/);
+  assert.match(problemSetSubmissions, /Presentation Error.*格式错误/);
+  assert.match(problemSetSubmissions, /presentation error.*app-verdict app-verdict-format/);
 });
 
 test('compiler diagnostics render their safe formatting without exposing HTML source', () => {

@@ -7,28 +7,18 @@ import User from "./user";
 import File from "./file";
 import JudgeState from "./judge_state";
 import Contest from "./contest";
-import ProblemTag from "./problem_tag";
 import ProblemTagMap from "./problem_tag_map";
 import SubmissionStatistics, { StatisticsType } from "./submission_statistics";
 
 import * as fs from "fs-extra";
 import * as path from "path";
 import * as util from "util";
-import * as LRUCache from "lru-cache";
 import * as DeepCopy from "deepcopy";
-
-const problemTagCache = new LRUCache<number, number[]>({
-  max: syzoj.config.db.cache_size
-});
 
 enum ProblemType {
   Traditional = "traditional",
   SubmitAnswer = "submit-answer",
   Interaction = "interaction",
-  VJudge_Luogu = "vjudge:luogu",
-  VJudge_UOJ = "vjudge:uoj",
-  VJudge_HDU = "vjudge:hdu",
-  VJudge_POJ = "vjudge:poj"
 }
 
 const statisticsTypes = {
@@ -46,13 +36,6 @@ const statisticsCodeOnly = ["fastest", "slowest", "min", "max"];
 @TypeORM.Entity()
 export default class Problem extends Model {
   static cache = true;
-
-  // Tag mappings are cached separately from problem entities. Management
-  // operations that update problem_tag_map use this hook to invalidate the
-  // mapping without evicting the entire problem cache.
-  static invalidateTagCache(problemId: number) {
-    problemTagCache.del(Number(problemId));
-  }
 
   @TypeORM.PrimaryGeneratedColumn()
   id: number;
@@ -129,9 +112,6 @@ export default class Problem extends Model {
       default: ProblemType.Traditional
   })
   type: ProblemType;
-
-  @TypeORM.Column({ nullable: true, type: "varchar", length: 80 })
-  vjudge_config: string;
 
   user?: User;
   publicizer?: User;
@@ -491,29 +471,13 @@ export default class Problem extends Model {
   }
 
   async getTags() {
-    let tagIDs;
-    if (problemTagCache.has(this.id)) {
-      tagIDs = problemTagCache.get(this.id);
-    } else {
-      let maps = await ProblemTagMap.find({
-        where: {
-          problem_id: this.id
-        }
-      });
-
-      tagIDs = maps.map(x => x.tag_id);
-      problemTagCache.set(this.id, tagIDs);
-    }
-
-    let res = await (tagIDs as any).mapAsync(async tagID => {
-      return ProblemTag.findById(tagID);
-    });
-
-    res.sort((a, b) => {
-      return a.color > b.color ? 1 : -1;
-    });
-
-    return res;
+    // V2 editor, bulk and catalog writes use SQL transactions. Read committed
+    // mappings and tag metadata together instead of process-local model caches.
+    return TypeORM.getConnection().query(
+      'SELECT tag.id,tag.name,tag.color,tag.category FROM problem_tag_map map ' +
+      'JOIN problem_tag tag ON tag.id=map.tag_id WHERE map.problem_id=? ORDER BY tag.color ASC,tag.id ASC',
+      [this.id]
+    );
   }
 
   async setTags(newTagIDs) {
@@ -541,8 +505,6 @@ export default class Problem extends Model {
 
       await map.save();
     }
-
-    problemTagCache.set(this.id, newTagIDs);
   }
 
   async changeID(id) {
@@ -591,7 +553,6 @@ export default class Problem extends Model {
     await this.save();
 
     await Problem.deleteFromCache(oldID);
-    await problemTagCache.del(oldID);
   }
 
   async delete() {
@@ -622,8 +583,6 @@ export default class Problem extends Model {
       await user.save();
     }
 
-    problemTagCache.del(this.id);
-
     await Promise.all([
       entityManager.query('DELETE FROM `judge_state_admin_action` WHERE `affected_problem_id` = ' + this.id),
       entityManager.query('DELETE FROM `article_comment` WHERE `article_id` IN (SELECT `id` FROM `article` WHERE `problem_id` = ' + this.id + ')'),
@@ -640,20 +599,7 @@ export default class Problem extends Model {
   }
 
   getDisplayId() {
-    if (this.type === ProblemType.VJudge_UOJ && /^\d+$/.test(this.vjudge_config || '')) {
-      return `U${this.vjudge_config}`;
-    }
-    if (this.type === ProblemType.VJudge_HDU && /^\d+$/.test(this.vjudge_config || '')) {
-      return `H${this.vjudge_config}`;
-    }
-    if (this.type === ProblemType.VJudge_POJ && /^\d+$/.test(this.vjudge_config || '')) {
-      return `P${this.vjudge_config}`;
-    }
     return `#${this.id}`;
   }
 
-  getVJudgeLanguages() {
-    let vjudge = typeof this.type === 'string' && this.type.startsWith('vjudge:') ? this.type.split(':')[1] : null;
-    return vjudge ? require("../libs/vjudge").languages[vjudge] : null;
-  }
 }

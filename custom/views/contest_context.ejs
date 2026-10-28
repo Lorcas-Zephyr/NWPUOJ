@@ -17,6 +17,7 @@ const appContestSectionLabel = {
   details: '详情',
   problems: '题目',
   ranklist: '排行榜',
+  rating: 'Rating',
   submissions: '提交记录',
   participants: '参赛者'
 }[appContestSection] || '比赛';
@@ -72,7 +73,7 @@ function appContestDurationLabel(seconds) {
             <% } %>
           <% } %>
           <% if (appContestRegistration && appContestRegistration.running && appContestRegistration.registered && !appContestRegistration.submitted && !appContestRegistration.isSupervisior) { %><form method="post" data-contest-finish-v2 data-contest-id="<%= appContest.id %>" data-contest-finish-confirm="交卷后将不能再查看题面或提交，只能查看比赛详情和排行榜。确定交卷吗？"><button class="app-button app-button-danger" type="submit"><i data-lucide="send"></i>交卷</button></form><% } %>
-          <% if (contestHeader.isSupervisior) { %><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['contest', appContest.id, 'edit']) %>"><i data-lucide="settings"></i>比赛管理</a><% } %>
+          <% if (contestHeader.isSupervisior) { %><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['contest', appContest.id, 'edit']) %>"><i data-lucide="settings"></i>比赛管理</a><% if (appContestEnded) { %><a class="app-button app-button-secondary" href="<%= syzoj.utils.makeUrl(['contest', appContest.id, 'code-export']) %>" download><i data-lucide="download"></i>下载代码</a><% } %><% } %>
         </div>
       </div>
     </div>
@@ -88,6 +89,7 @@ function appContestDurationLabel(seconds) {
       <a class="app-tab<%= appContestSection === 'details' ? ' is-active' : '' %>" href="<%= syzoj.utils.makeUrl(['contest', appContest.id, 'details']) %>"<% if (appContestSection === 'details') { %> aria-current="page"<% } %>><i data-lucide="info"></i>详情</a>
       <% if (appContestCanView) { %><a class="app-tab<%= appContestSection === 'problems' ? ' is-active' : '' %>" href="<%= syzoj.utils.makeUrl(['contest', appContest.id], { view: 'problems' }) %>"<% if (appContestSection === 'problems') { %> aria-current="page"<% } %>><i data-lucide="list-tree"></i>题目</a><% } %>
       <% if (contestHeader.seeRanklist) { %><a class="app-tab<%= appContestSection === 'ranklist' ? ' is-active' : '' %>" href="<%= syzoj.utils.makeUrl(['contest', appContest.id, 'ranklist']) %>"<% if (appContestSection === 'ranklist') { %> aria-current="page"<% } %>><i data-lucide="chart-no-axes-column-increasing"></i>排行榜</a><% } %>
+      <% if (contestHeader.seeRanklist && typeof contestRatingFinalizationStatus !== 'undefined' && contestRatingFinalizationStatus === 'completed') { %><a class="app-tab<%= appContestSection === 'rating' ? ' is-active' : '' %>" href="<%= syzoj.utils.makeUrl(['contest', appContest.id, 'rating']) %>"<% if (appContestSection === 'rating') { %> aria-current="page"<% } %>><i data-lucide="chart-no-axes-combined"></i>Rating</a><% } %>
       <% if (appContestCanParticipate) { %><a class="app-tab<%= appContestSection === 'submissions' ? ' is-active' : '' %>" href="<%= contestHeader.submissionsUrl %>"<% if (appContestSection === 'submissions') { %> aria-current="page"<% } %>><i data-lucide="activity"></i>提交记录</a><% } %>
       <% if (!appContestReadOnly && user && (!appContestRegistration || !appContestRegistration.submitted)) { %><a class="app-tab<%= appContestSection === 'participants' ? ' is-active' : '' %>" href="<%= syzoj.utils.makeUrl(['contest', appContest.id, 'participants']) %>"<% if (appContestSection === 'participants') { %> aria-current="page"<% } %>><i data-lucide="users"></i>参赛者</a><% } %>
     </nav>

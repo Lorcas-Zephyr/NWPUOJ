@@ -22,6 +22,7 @@ function contestType(contest) {
     <div class="app-page-actions">
       <a class="app-button app-button-primary" href="/problems"><i data-lucide="play"></i>开始做题</a>
       <a class="app-button app-button-secondary" href="/contests"><i data-lucide="trophy"></i>查看比赛</a>
+      <% if (typeof baseMember !== 'undefined' && baseMember) { %><a class="app-button app-button-secondary" href="/base"><i data-lucide="graduation-cap"></i>基地</a><% } %>
     </div>
   </header>
 

@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 const test = require('node:test');
 
 const root = path.resolve(__dirname, '../..');
@@ -41,7 +42,7 @@ test('home removes the personalized training workbench and keeps a balanced publ
   assert.doesNotMatch(css, /\.app-home-training-/);
 });
 
-test('contest list provides instant state filtering with v2-first registration workflows', () => {
+test('contest list provides server state filtering with v2-first registration workflows', () => {
   const view = read('custom/views/contests.ejs');
   const registrationScript = read('custom/views/contest_registration_v2_script.ejs');
 
@@ -49,7 +50,10 @@ test('contest list provides instant state filtering with v2-first registration w
     assert.match(view, new RegExp('data-contest-filter="' + state + '"'));
   }
   assert.match(view, /data-contest-state="<%= state\.key %>"/);
-  assert.match(view, /button\.setAttribute\('aria-pressed'/);
+  assert.match(view, /aria-pressed="<%= listFilters\.state === 'running' %>"/);
+  assert.match(view, /url\.searchParams\.delete\('page'\)/);
+  assert.match(view, /window\.location\.assign/);
+  assert.doesNotMatch(view, /row\.hidden/);
   assert.match(view, /data-contest-visible-count/);
   assert.doesNotMatch(view, /\['contest', contest\.id, '(?:register|unregister)'\]/);
   assert.match(view, /data-contest-registration-v2="register"/);
@@ -132,7 +136,7 @@ test('contest details own information and announcements without duplicating cont
   assert.match(interactions, /content\.information = await linkUserMentions\(content\.information\)/);
   assert.match(mentions, /MENTION_SKIP_SELECTOR = 'a,code,pre,script,style'/);
   assert.match(mentions, /app-user-mention username-tier-/);
-  assert.match(loader, /details\|ranklist\|submissions\|participants\|registrations/);
+  assert.match(loader, /details\|ranklist\|rating\|submissions\|participants\|registrations/);
   assert.match(details, /比赛信息/);
   assert.match(details, /比赛公告/);
   assert.match(details, /contestDetails\.subtitle/);
@@ -162,6 +166,54 @@ test('contest workspaces render the current problem version instead of the origi
   assert.match(search, /loadCurrentVersionContent\(problem\.id\)/);
   assert.match(search, /COALESCE\(JSON_UNQUOTE\(JSON_EXTRACT\(current_version\.content_json, '\$\.title'\)\), problem\.title\) LIKE :title/);
   assert.doesNotMatch(search, /result\.length >= syzoj\.config\.page\.edit_contest_problem_list/);
+});
+
+test('contest problem presentation resolves snapshot data below the upload directory', async () => {
+  const source = read('custom/modules/_contest_interactions.js');
+  const presentation = source.slice(
+    source.indexOf('async function loadContestProblemPresentation'),
+    source.indexOf('async function applyCurrentProblemVersions')
+  );
+  const cases = [
+    { uploadDir: 'uploads', snapshotPath: 'snapshots/ps_fixture_0001', spj: false },
+    { uploadDir: '/srv/oj/uploads', snapshotPath: 'snapshots/ps_fixture_0002', spj: true, type: 'interaction' },
+    { uploadDir: 'uploads', snapshotPath: 'snapshots/ps_fixture_0003', type: 'submit-answer' },
+    { uploadDir: 'uploads', snapshotPath: null },
+    { uploadDir: 'uploads', noSnapshot: true },
+    { uploadDir: 'uploads', noSnapshotApi: true }
+  ];
+  for (const item of cases) {
+    const livePath = path.resolve('/app', item.uploadDir, 'testdata', '911270');
+    const expectedPath = item.snapshotPath
+      ? path.resolve('/app', item.uploadDir, 'testdata', item.snapshotPath)
+      : livePath;
+    const testcases = [{ cases: [{ input: '1.in', output: '1.out' }] }];
+    testcases.spj = !!item.spj;
+    const reads = [];
+    const problem = { id: 911270, type: item.type || 'traditional',
+      getTestdataPath: () => livePath, hasSpecialJudge: async () => !!item.spj };
+    const context = {
+      TypeORM: { getConnection: () => ({ query: async () => [{ testdata_path: item.snapshotPath }] }) },
+      syzoj: { config: { upload_dir: item.uploadDir }, utils: {
+        resolvePath: (...parts) => path.resolve('/app', ...parts),
+        contestV2: item.noSnapshotApi ? null : { getProblemSnapshot: async () =>
+          item.noSnapshot ? null : { problem_snapshot_id: 'ps_fixture_0001' } },
+        parseTestdata: async (directory, submitAnswer) => {
+          reads.push({ directory, submitAnswer });
+          return directory === expectedPath ? testcases : null;
+        },
+        markdown: async () => {}
+      } },
+      contestProblemCache: new Map(), cached: (_cache, _key, _ttl, loader) => loader(),
+      linkUserMentions: async text => text
+    };
+    vm.runInNewContext(presentation + '; this.loadPresentation = loadContestProblemPresentation;', context);
+    const result = await context.loadPresentation(problem, 900109);
+    assert.deepEqual(reads, [{ directory: expectedPath, submitAnswer: item.type === 'submit-answer' }]);
+    assert.equal(result.testcases, testcases, JSON.stringify(item));
+    assert.equal(result.testcases.spj, !!item.spj);
+    assert.equal(result.specialJudge, !!item.spj);
+  }
 });
 
 test('contest problem statements render known user mentions after Markdown', () => {
@@ -195,6 +247,17 @@ test('contest rankings and submissions start directly with their working content
   assert.match(ranklist, /data-rank-identity-toggle/);
   assert.match(ranklist, /显示真实信息/);
   assert.match(ranklist, /appRankDisplayUser\(item\)/);
+  const ioiHeader = ranklist.indexOf("if (contest.type === 'ioi') { %><th>总分</th>");
+  const ioiProblems = ranklist.indexOf("for (let i = 0; i < problems.length; i += 1)", ioiHeader);
+  const noiHeader = ranklist.indexOf("if (contest.type === 'noi') { %><th>总分</th>");
+  assert.ok(ioiHeader >= 0 && ioiHeader < ioiProblems, 'IOI total score must precede problem columns');
+  assert.ok(noiHeader > ranklist.indexOf("for (let i = 0; i < problems.length; i += 1)", noiHeader - 260), 'NOI keeps total score after problem columns');
+  assert.match(ranklist, /if \(contest\.type === 'ioi'\) \{ %><td class="app-cell-number"><strong class="app-score"><%= item\.player\.score %><\/strong><\/td>/);
+  const problemSetRanklist = read('custom/views/problem_set_ranklist.ejs');
+  const problemSetIoiHeader = problemSetRanklist.indexOf("if(problemSet.ranking_mode==='ioi'){%><th>总分</th>");
+  const problemSetIoiProblems = problemSetRanklist.indexOf('problemSetItems.forEach', problemSetIoiHeader);
+  assert.ok(problemSetIoiHeader >= 0 && problemSetIoiHeader < problemSetIoiProblems, 'IOI problem-set total score must precede problem columns');
+  assert.match(problemSetRanklist, /if\(problemSet\.ranking_mode==='ioi'\)\{%><td><strong><%= item\.player\.score %><\/strong><\/td>/);
   assert.match(ranklist, /String\(profile\.real_name\) \+ '-' \+ String\(profile\.student_id\)/);
   assert.match(ranklist, /searchParams\.set\('identity', 'real'\)/);
   assert.match(ranklist, /searchParams\.delete\('identity'\)/);
@@ -227,18 +290,51 @@ test('all public contest subpages use one title convention and expose the active
   const details = read('custom/views/contest_details.ejs');
   const problems = read('custom/views/contest.ejs');
   const ranklist = read('custom/views/contest_ranklist.ejs');
+  const rating = read('custom/views/contest_rating.ejs');
   const submissions = read('custom/views/submissions.ejs');
   const participants = read('custom/views/contest_participants.ejs');
 
   assert.match(details, /this\.title = '详情 - ' \+ contest\.title/);
   assert.match(problems, /this\.title = '题目 - ' \+ contest\.title/);
   assert.match(ranklist, /this\.title = '排行榜 - ' \+ contest\.title/);
+  assert.match(rating, /this\.title = 'Rating - ' \+ contest\.title/);
   assert.match(submissions, /displayConfig\.inContest[\s\S]*'提交记录 - ' \+ contest\.title/);
   assert.match(participants, /this\.title = '参赛者 - ' \+ contest\.title/);
   assert.match(context, /CONTEST #<%= appContest\.id %> · <%= appContestSectionLabel %>/);
-  for (const section of ['details', 'problems', 'ranklist', 'submissions', 'participants']) {
+  for (const section of ['details', 'problems', 'ranklist', 'rating', 'submissions', 'participants']) {
     assert.match(context, new RegExp(section + ": '[^']+'"));
   }
+});
+
+test('contest Rating page is available after finalization and exposes before/change/after values', () => {
+  const interactions = read('custom/modules/_contest_interactions.js');
+  const context = read('custom/views/contest_context.ejs');
+  const rating = read('custom/views/contest_rating.ejs');
+  const privilegeLoader = read('custom/modules/_user_privilege_loader.js');
+  const registration = read('custom/modules/_contest_registration.js');
+  const temporaryAccounts = read('custom/libs/contest-temp-accounts.js');
+
+  assert.match(interactions, /app\.get\('\/contest\/:id\/rating'/);
+  assert.match(interactions, /async function contestRatingView\(req, res\)/);
+  assert.match(interactions, /finalization\.rating_calculation_id/);
+  assert.match(interactions, /status\.status === 'completed'/);
+  assert.match(interactions, /rating_before/);
+  assert.match(interactions, /rating_after/);
+  assert.match(interactions, /ratingEntries/);
+  assert.match(interactions, /aiContest\.ensureSchema\(\)/);
+  assert.match(interactions, /paginate\(total, req\.query\.page, 100\)/);
+  assert.match(context, /contestRatingFinalizationStatus === 'completed'/);
+  assert.match(context, /\['contest', appContest\.id, 'rating'\]/);
+  assert.match(privilegeLoader, /details\|ranklist\|rating\|submissions/);
+  assert.match(registration, /rating/);
+  assert.match(temporaryAccounts, /contest\\\/\(\\d\+\).*rating/);
+  assert.match(rating, /赛前 Rating/);
+  assert.match(rating, /变化/);
+  assert.match(rating, /赛后 Rating/);
+  assert.match(rating, /app-rating-up/);
+  assert.match(rating, /app-rating-down/);
+  assert.match(rating, /include contest_context/);
+  assert.match(rating, /include app_pagination/);
 });
 
 test('public participants and administrator registration management are separate workflows', () => {

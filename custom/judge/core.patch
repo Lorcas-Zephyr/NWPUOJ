@@ -1,0 +1,32 @@
+diff --git a/src/interfaces.ts b/src/interfaces.ts
+--- a/src/interfaces.ts
++++ b/src/interfaces.ts
+@@ -128,6 +128,7 @@ export enum TestcaseResultType {
+     RuntimeError = 8,
+     JudgementFailed = 9, // Special Judge or Interactor fails
+-    InvalidInteraction = 10
++    InvalidInteraction = 10,
++    PresentationError = 11
+ }
+ 
+ export interface FileContent {
+diff --git a/src/judgeResult.ts b/src/judgeResult.ts
+--- a/src/judgeResult.ts
++++ b/src/judgeResult.ts
+@@ -27,6 +27,7 @@ statusToString[TestcaseResultType.RuntimeError] = "Runtime Error";
+ statusToString[TestcaseResultType.FileError] = "File Error";
+ statusToString[TestcaseResultType.JudgementFailed] = "Judgement Failed";
+ statusToString[TestcaseResultType.InvalidInteraction] = "Invalid Interaction";
++statusToString[TestcaseResultType.PresentationError] = "Presentation Error";
+ 
+ export function firstNonAC(t: TestcaseResultType[]): TestcaseResultType {
+     if (t.every(v => v === TestcaseResultType.Accepted)) {
+diff --git a/src/runner/judge.ts b/src/runner/judge.ts
+--- a/src/runner/judge.ts
++++ b/src/runner/judge.ts
+@@ -364,3 +364,4 @@ export async function judgeInteraction(task: InteractionRunTask)
+             } else if (rawScore === -1) {
+-                status = TestcaseResultType.InvalidInteraction;
++                status = TestcaseResultType.PresentationError;
++                message = 'Interactor reported a presentation error (invalid interaction format)';
+             } else {

@@ -10,11 +10,12 @@ const lifecycle = require('../libs/contest-lifecycle');
 
 // Execute the actual API and HTML handlers against a deterministic database
 // fixture. This covers permissions, cache separation, API projections and CSV.
-function harness() {
+function harness(playerCount = 3) {
   const queryCounts = new Map();
   let renderCount = 0;
   let now = 300;
   let freezeMinutes = 2;
+  let medalPercentages = null;
   const submissions = [
     { id: 1, user_id: 7, problem_id: 11, submit_time: 150, status: 'Wrong Answer', score: 0 },
     { id: 2, user_id: 8, problem_id: 11, submit_time: 200, status: 'Accepted', score: 100 },
@@ -28,8 +29,8 @@ function harness() {
     isEnded: () => now >= 400, allowedSeeingResult: () => true, allowedSeeingOthers: () => true
   };
   const live = standings.scoreDetailsBefore(submissions, contest, 400);
-  const players = [7, 8, 9].map(id => ({ player_id: id, participant_id: id, user_id: id,
-    username: 'player' + id, score_details: live.get(id) || {}, rating: 1500,
+  const players = Array.from({ length: playerCount }, (_, index) => index + 7).map(id => ({ player_id: id, participant_id: id, user_id: id,
+    username: 'player' + id, score_details: live.get(id) || (playerCount > 3 ? { 11: { accepted: true, acceptedTime: 230 + id, unacceptedCount: 0 } } : {}), rating: 1500,
     temporary_account_user_id: id === 8 ? id : null, ai_agent_user_id: null }));
   const versions = [], rows = new Map();
   let pointers = null;
@@ -38,7 +39,7 @@ function harness() {
     if (/^CREATE TABLE/.test(sql)) return [];
     if (/^SHOW COLUMNS/.test(sql)) return [{ Field: 'exists' }];
     if (/SELECT security_json FROM contest_v2_config/.test(sql)) return [{ security_json: JSON.stringify({ standings_freeze_after_minutes: freezeMinutes }) }];
-    if (/SELECT \* FROM contest_v2_config/.test(sql)) return [{ contest_id: 21, timezone: 'Asia/Shanghai', security_json: JSON.stringify({ standings_freeze_after_minutes: freezeMinutes }), revision: 1 }];
+    if (/SELECT \* FROM contest_v2_config/.test(sql)) return [{ contest_id: 21, timezone: 'Asia/Shanghai', security_json: JSON.stringify({ standings_freeze_after_minutes: freezeMinutes, medal_percentages: medalPercentages }), revision: 1 }];
     if (/FROM contest_v2_state/.test(sql)) return [{ contest_id: 21, status: 'running', revision: 1 }];
     if (/SELECT \* FROM contest WHERE/.test(sql)) return [contest];
     if (/FROM contest_player cp/.test(sql)) return players.map(player => ({ ...player }));
@@ -98,7 +99,7 @@ function harness() {
     multer: Object.assign(() => ({ single: () => () => {} }), { memoryStorage: () => ({}) }),
     '../libs/contest-standings': { ...standings, resolveStandingsFreeze: (contest, config, state) => standings.resolveStandingsFreeze(contest, config, state, now) },
     '../libs/contest-lifecycle': { ...lifecycle, resolveContestStatus: (contest, state) => lifecycle.resolveContestStatus(contest, state, now) },
-    '../libs/contest-mutation': { saveContest: async input => { freezeMinutes = input.freezeAfterMinutes; return 21; } },
+    '../libs/contest-mutation': { saveContest: async input => { freezeMinutes = input.freezeAfterMinutes; medalPercentages = input.medalPercentages; return 21; } },
     '../libs/contest-deletion': {}, '../libs/contest-temp-accounts': {},
     '../libs/registration-profile-schema': {}, '../libs/problem-domain': {}, '../libs/user-mentions': {},
     '../libs/class-groups': classGroups, '../libs/contest-ranklist-export': require('../libs/contest-ranklist-export')
@@ -166,6 +167,44 @@ test('contest creation and external-compatible editing validate and preserve the
   assert.equal((await app.get(route, 7)).standingsView.freezeAt, 100);
 });
 
+test('contest award settings validate, persist, and invalidate partial leaderboard revisions', async () => {
+  const app = harness();
+  const htmlRoute = '/contest/:id/ranklist';
+  const partialRoute = '/api/v2/contests/:id/ranklist-view';
+  const before = await app.get(htmlRoute, 2, { account: 'ordinary' });
+  assert.deepEqual(Array.from(before.ranklist, row => row.player.medal), ['bronze', 'bronze']);
+  const initial = await app.get(partialRoute, 2);
+  assert.equal((await app.save(3, { if_match: 'fixture-etag', medal_percentages: { gold: 100, silver: 0, bronze: 0 } })).error.code, 'CAPABILITY_REQUIRED');
+  for (const value of [{ gold: 101, silver: 20, bronze: 1 }, { gold: 12.5, silver: 0, bronze: 0 }, {}]) {
+    assert.equal((await app.save(2, { if_match: 'fixture-etag', medal_percentages: value })).error.code, 'CONTEST_MEDALS_INVALID');
+  }
+  assert.equal((await app.save(2, { if_match: 'fixture-etag', medal_percentages: { gold: 0, silver: 100, bronze: 0 } })).id, 21);
+  const after = await app.get(htmlRoute, 2, { account: 'ordinary' });
+  assert.deepEqual(Array.from(after.ranklist, row => row.player.medal), ['silver', 'silver']);
+  const updated = await app.get(partialRoute, 2, { revision: initial.revision });
+  assert.equal(updated.unchanged, false);
+  assert.notEqual(updated.revision, initial.revision);
+  await app.save(2, { if_match: 'fixture-etag', title: 'Preserve awards' });
+  assert.deepEqual(Array.from((await app.get(htmlRoute, 2)).ranklist, row => row.player.medal), ['silver', 'silver', 'silver']);
+  assert.equal((await app.save(2, { if_match: 'fixture-etag', medal_percentages: { gold: 70, silver: 50, bronze: 30 } })).id, 21);
+});
+
+test('medal boundaries use the full contest population beyond the first hundred rows', async () => {
+  const app = harness(150);
+  await app.save(1, { if_match: 'fixture-etag', medal_percentages: { gold: 70, silver: 20, bronze: 0 } });
+  const secondPage = await app.get('/contest/:id/ranklist', 1, { view: 'live', page: '2' });
+  assert.equal(secondPage.ranklist.length, 50);
+  assert.equal(secondPage.ranklist[0].player.standing_rank, 101);
+  assert.equal(secondPage.ranklist.filter(row => row.player.medal === 'gold').length, 5);
+  assert.equal(secondPage.ranklist.filter(row => row.player.medal === 'silver').length, 30);
+  assert.equal(secondPage.ranklist.filter(row => !row.player.medal).length, 15);
+  const filtered = await app.get('/contest/:id/ranklist', 1, { view: 'live', page: '2', account: 'ordinary' });
+  assert.equal(filtered.ranklist[0].player.standing_rank, 101);
+  assert.equal(filtered.ranklist[0].player.overall_standing_rank, 102);
+  assert.equal(filtered.ranklist.filter(row => row.player.medal === 'gold').length, 4);
+  assert.equal(filtered.ranklist.filter(row => row.player.medal === 'silver').length, 30);
+});
+
 test('actual standings API defaults managers to frozen and denies participant/guest/unrelated manager live bypass', async () => {
   const app = harness();
   const route = '/api/v2/contests/:id/standings';
@@ -209,6 +248,7 @@ test('HTML standings isolate live cache, retain class/account ranks and export t
   assert.equal(bypass.standingsView.showLive, false);
   const filtered = await app.get(route, 2, { account: 'ordinary', classes: '3', identity: 'real' });
   assert.deepEqual(Array.from(filtered.ranklist, row => [row.user.id, row.player.standing_rank, row.player.overall_standing_rank]), [[7, 1, 2], [9, 1, 2]]);
+  assert.deepEqual(Array.from(filtered.ranklist, row => row.player.medal), ['bronze', 'bronze']);
   assert.equal(filtered.ranklistProfiles.get(7).real_name, '甲');
   const exported = await app.get('/contest/:id/ranklist/export', 2);
   assert.match(exported, /"player7","甲","20260007","学院","班级","0","0","\?","2",""/);

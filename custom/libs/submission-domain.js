@@ -5,7 +5,7 @@ const crypto = require('crypto');
 const ACTIVE_STATUSES = Object.freeze(['created', 'queued', 'compiling', 'judging']);
 const TERMINAL_STATUSES = Object.freeze([
   'accepted', 'wrong_answer', 'compile_error', 'runtime_error', 'time_limit', 'memory_limit',
-  'output_limit', 'file_error', 'invalid_interaction', 'partially_correct', 'system_error', 'cancelled'
+  'output_limit', 'file_error', 'invalid_interaction', 'presentation_error', 'partially_correct', 'system_error', 'cancelled'
 ]);
 const STATUS_SET = new Set(ACTIVE_STATUSES.concat(TERMINAL_STATUSES));
 const TERMINAL_SET = new Set(TERMINAL_STATUSES);

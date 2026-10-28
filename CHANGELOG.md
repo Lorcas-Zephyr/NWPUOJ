@@ -1,5 +1,48 @@
 # Changelog
 
+## 2.2.0 - 2026-10-28
+
+### Added
+
+- Added private training-base workspaces with member, problem, contest, submission, and
+  problem-migration management.
+- Added weekly standings, contest source-code export, and JPlag-based plagiarism review.
+- Added locally bundled Vditor editing, Markdown table rendering, and statement code copying.
+- Added editable legal documents, registration consent, user signatures, and remembered login.
+- Added a categorized algorithm-tag catalog and improved tag selection and problem filtering.
+- Added scheduled contest standings freezes, live contest notices, and independent Java time limits.
+
+### Fixed
+
+- Refreshed immutable testdata snapshots and judge-side materialization after data changes so new
+  submissions and rejudges use the current published testdata.
+- Improved fixed-group scoring, Java sandbox resource limits, and submission-detail permissions.
+- Preserved participants' own verdicts while masking frozen standings and restricted submissions.
+- Improved contest problem ordering, temporary-account renaming, Rating administration, and
+  notification delivery and read-state handling.
+- Fixed Markdown editor drafts, file-upload feedback, clipboard links, and responsive list filters.
+
+### Changed
+
+- Refined the shared application shell, contest workspaces, problem pages, and administration UI.
+- Pinned the upstream Web image and updated deployment, maintenance, and feature documentation.
+- Excluded local exports, backups, and private problem-import workspaces from the source release.
+
+### Removed
+
+- Removed VJudge remote-provider integrations and their routes, workers, and obsolete configuration;
+  this release uses local judging.
+
+### Upgrade Notes
+
+- Rebuild the Web and Judge images when deploying this version; the source release does not
+  include production data, local credentials, or prebuilt application images.
+- Install the optional plagiarism runtime with `bash custom/scripts/install-jplag.sh` before
+  enabling code-comparison jobs; see `docs/contest-plagiarism.md` for runtime and backup details.
+- Installations with existing VJudge data must plan its retirement before upgrading. The cleanup
+  script `custom/scripts/remove-vjudge.js` defaults to a dry run; execution requires a verified
+  database backup and stopped Web service, and removes remote problems and their related records.
+
 ## 2.1.0 - 2026-09-12
 
 ### Added

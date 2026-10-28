@@ -109,9 +109,9 @@ function normalizeStudentIdRows(buffer) {
   });
 }
 
-function csvCell(value) {
+function csvCell(value, options = {}) {
   let text = String(value == null ? '' : value);
-  if (/^[=+\-@\t\r]/.test(text)) text = "'" + text;
+  if (!options.literal && /^[=+\-@\t\r]/.test(text)) text = "'" + text;
   return '"' + text.replace(/"/g, '""') + '"';
 }
 
@@ -151,6 +151,32 @@ function isLoginAllowed(expiryByUserId, userId, now) {
   return expiry == null || expiry > currentTime;
 }
 
+// Only participant-facing routes belong to a temporary account. Downstream
+// handlers still enforce contest timing, hand-in, freeze and code visibility.
+function temporaryRoute(method, rawPath) {
+  let path;
+  try { path = decodeURIComponent(String(rawPath || '/').split('?')[0]).toLowerCase(); }
+  catch (_) { return null; }
+  path = path.replace(/\/$/, '') || '/';
+  method = String(method || 'GET').toUpperCase();
+  const read = method === 'GET' || method === 'HEAD';
+  if (read && /^\/legal\/(?:terms|privacy|competition|copyright)$/.test(path)) return { kind: 'session' };
+  if (read && (/^\/self\//.test(path) || ['/login', '/logout', '/contests', '/api/v2/contests'].includes(path))) return { kind: 'session' };
+  if (read && ['/api/v2/auth/session'].includes(path)) return { kind: 'session' };
+  if (method === 'POST' && ['/api/v2/auth/login', '/api/v2/auth/logout'].includes(path)) return { kind: 'session' };
+  if (method === 'POST' && path === '/api/v2/submissions/events') return { kind: 'submission-events' };
+  let match = /^\/(?:submission|contest\/submission|api\/v2\/submissions)\/(\d+)(?:\/(testpoints|result-revisions|events))?$/.exec(path);
+  if (read && match) return { kind: 'submission', submissionId: Number(match[1]) };
+  match = /^\/contest\/(\d+)(?:\/(details|ranklist|rating|participants|submissions|problem\/\d+(?:\/(?:submit|submissions))?|\d+\/download\/additional_file))?$/.exec(path);
+  if (read && match) return { kind: 'contest', contestId: Number(match[1]), afterHandIn: ['details', 'ranklist', 'rating'].includes(match[2]) };
+  match = /^\/api\/v2\/contests\/(\d+)(?:\/(config|standings|ranklist-view|participants|submission-visibility|events|notices(?:\/unread|\/events)?))?$/.exec(path);
+  if (read && match) return { kind: 'contest', contestId: Number(match[1]), afterHandIn: !match[2] || ['config', 'standings', 'ranklist-view', 'events', 'notices', 'notices/unread', 'notices/events'].includes(match[2]) };
+  match = /^\/api\/v2\/contests\/(\d+)\/(submit|problems\/\d+\/(?:submissions|submit-answer)|notices\/\d+\/read)$/.exec(path);
+  if (method === 'POST' && match) return { kind: 'contest', contestId: Number(match[1]), afterHandIn: match[2] === 'submit' || /^notices\//.test(match[2]) };
+  if (method === 'POST' && /^\/problem\/\d+\/submit$/.test(path)) return { kind: 'problem-submit' };
+  return null;
+}
+
 module.exports = {
   MAX_IMPORT_ROWS,
   MANAGED_TEMP_USERNAME_MAX_LENGTH,
@@ -162,6 +188,7 @@ module.exports = {
   normalizeRows,
   normalizeStudentIdRows,
   parseCsv,
+  temporaryRoute,
   uniqueUsername,
   usernamePart
 };

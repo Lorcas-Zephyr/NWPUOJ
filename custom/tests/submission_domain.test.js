@@ -91,6 +91,9 @@ test('only system errors are eligible for bounded automatic retry', () => {
   assert.equal(domain.shouldRetryAutomatically('system_error', 0), true);
   assert.equal(domain.shouldRetryAutomatically('system_error', 1), true);
   assert.equal(domain.shouldRetryAutomatically('system_error', 2), false);
+  assert.equal(domain.shouldRetryAutomatically('system_error', 0, 2, 'null'), true);
+  assert.equal(domain.shouldRetryAutomatically('system_error', 0, 2, 'invalid legacy result'), true);
+  assert.equal(domain.shouldRetryAutomatically('system_error', 0, 2, { error: 0 }), true);
   for (const status of ['accepted', 'wrong_answer', 'compile_error', 'runtime_error', 'time_limit', 'memory_limit']) {
     assert.equal(domain.shouldRetryAutomatically(status, 0), false, status);
   }
@@ -239,7 +242,7 @@ test('judge dispatch materializes immutable execution settings from the persiste
   const source = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_submission_domain.js'), 'utf8');
   assert.match(source, /async function immutableExecutionProblem\(problem, snapshotId\)[\s\S]*SELECT problem_id,content_hash,content_json,provider_config,testdata_hash,testdata_path FROM problem_v2_snapshot WHERE id=\? LIMIT 1/);
   assert.match(source, /Object\.assign\(\{\}, problem, content, \{[\s\S]*judge_snapshot_id/);
-  assert.match(source, /content\.vjudge_config == null && rows\[0\]\.provider_config != null/);
+  assert.doesNotMatch(source, /content\.vjudge_config/);
   assert.match(source, /ensureSnapshotTestdata\(problem, snapshotId\)/);
   assert.match(source, /judge_testdata_path/);
   assert.match(source, /judge_testdata_hash/);

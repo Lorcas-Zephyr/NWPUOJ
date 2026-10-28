@@ -30,6 +30,7 @@ async function hasAccessiblePublishedProblemSet(userId, problemId) {
 }
 
 async function canViewSubmissionDetail(judge, user) {
+  if (syzoj.utils.baseWorkspace && !await syzoj.utils.baseWorkspace.canAccessSubmission(judge, user)) return false;
   if (!user) return false;
   if (judge.user_id === user.id || user.is_admin) return true;
   if (await syzoj.utils.contestV2.isSubmissionFrozen(judge, user)) return false;
@@ -89,6 +90,7 @@ syzoj.utils.canViewSubmissionDetail = canViewSubmissionDetail;
 const originalAllowedVisit = JudgeState.prototype.isAllowedVisitBy;
 if (!JudgeState.prototype.__nwpuAcceptedSourceAccess) {
   JudgeState.prototype.isAllowedVisitBy = async function isAllowedVisitByWithAcceptedSource(user) {
+    if (syzoj.utils.baseWorkspace && !await syzoj.utils.baseWorkspace.canAccessSubmission(this, user)) return false;
     if (await originalAllowedVisit.call(this, user)) return true;
     return !!(user && Number(this.type) === 0 &&
       await hasValidAcceptedSubmission(user.id, this.problem_id) &&

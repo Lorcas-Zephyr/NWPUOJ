@@ -12,6 +12,7 @@ const compose = fs.readFileSync(path.join(root, '..', 'docker-compose.yml'), 'ut
 
 test('image host protects uploads with problem edit capability and raster validation', () => {
   assert.match(source, /authorize\(user, 'problem:edit'/);
+  assert.match(source, /baseWorkspace\.isMember\(user\)/);
   assert.match(source, /detectSafeRasterImage/);
   assert.match(source, /MAX_IMAGE_SIZE = 10 \* 1024 \* 1024/);
   assert.match(source, /app\.post\('\/api\/v2\/image-host'/);
@@ -23,4 +24,13 @@ test('image host uses a persistent volume and exposes external links in the UI',
   assert.match(compose, /nwpuoj_image_assets/);
   assert.match(view, /data-image-host-copy/);
   assert.match(view, /外网链接/);
+});
+
+test('base members can reach the image host from problem editors and shared navigation', () => {
+  const problemEditor = fs.readFileSync(path.join(root, 'views/problem_edit.ejs'), 'utf8');
+  const header = fs.readFileSync(path.join(root, 'views/app_header.ejs'), 'utf8');
+  assert.match(problemEditor, /appProblemCanUseImageHost/);
+  assert.match(problemEditor, /href="\/image-host"/);
+  assert.match(header, /appCanUseImageHost/);
+  assert.match(header, /baseMember/);
 });

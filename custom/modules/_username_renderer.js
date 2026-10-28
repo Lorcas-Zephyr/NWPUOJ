@@ -1,7 +1,7 @@
 // 用户名渲染 helper:
 // 优先级:
 //   1. 管理身份(is_admin/有管理权限) → admin 紫色 + 自定义 tag(若设置)
-//   2. 普通用户 + 有 cheated 记录 → cheater 棕色 + 强制"作弊者" tag
+//   2. 普通用户 + 有未满 3 个月的 cheated 标记 → cheater 棕色，不显示用户名牌子
 //   3. 普通用户 + 按 Hit 值分档(gray/blue/green/orange/red)
 //   4. 普通用户 + 无 Hit 数据 → default 深灰
 //
@@ -31,7 +31,7 @@ function calcTier(user) {
   if (user.is_admin) return 'admin';
   if (syzoj.adminUserIds && syzoj.adminUserIds.has(user.id)) return 'admin';
 
-  // 2. 非管理员 + 被标记 cheater → 棕色
+  // 2. 非管理员 + 仍在 3 个月展示期内 → 棕色（缓存每分钟刷新）
   if (syzoj.cheaterUserIds && syzoj.cheaterUserIds.has(user.id)) return 'cheater';
 
   // 3. 按 Hit 值分档
@@ -46,16 +46,15 @@ function calcTier(user) {
 
 // 渲染 tag HTML
 // 优先级:
-//   1. 非 admin 且为 cheater → "作弊者"棕色 tag(强制覆盖)
+//   1. 非 admin 且为 cheater → 不显示用户名牌子
 //   2. 在 syzoj.userTags 缓存中且 text 非空 → 用户自定义 tag
 //   3. 否则不显示 tag
 function renderTagHtml(user, tier) {
   if (!user) return '';
 
-  // 非 admin 的 cheater → 强制作弊者 tag
-  if (tier === 'cheater') {
-    return ' <span class="user-name-tag tag-tier-cheater">作弊者</span>';
-  }
+  // Only hide the name badge; retain the underlying mark, name color and
+  // existing suppression of the user's custom nameplate.
+  if (tier === 'cheater') return '';
 
   if (syzoj.userTagsEnabled === false) return '';
   if (!syzoj.userTags || !syzoj.userTags.has(user.id)) return '';

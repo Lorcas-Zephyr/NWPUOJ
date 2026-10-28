@@ -1,27 +1,9 @@
 const crypto = require('crypto');
 const TypeORM = require('typeorm');
 
-const REPOSITORIES = {
-  all: null,
-  main: null,
-  uoj: 'vjudge:uoj',
-  hdu: 'vjudge:hdu',
-  poj: 'vjudge:poj'
-};
+function normalizeRepository() { return 'all'; }
 
-function normalizeRepository(value) {
-  return Object.prototype.hasOwnProperty.call(REPOSITORIES, value) ? value : 'all';
-}
-
-function applyRepository(query, repository) {
-  if (repository === 'all') {
-    return;
-  } else if (repository === 'main') {
-    query.andWhere("(`type` IS NULL OR `type` NOT LIKE 'vjudge:%')");
-  } else {
-    query.andWhere('`type` = :repositoryType', { repositoryType: REPOSITORIES[repository] });
-  }
-}
+function applyRepository() {}
 
 function normalizeProgress(value, user) {
   if (!user) return 'all';
@@ -53,6 +35,8 @@ function applyProgress(query, progress, user) {
 }
 
 async function applyVisibility(query, user) {
+  await syzoj.utils.baseWorkspace.ensureSchema();
+  query.andWhere(syzoj.utils.baseWorkspace.outside('problem', '`' + String(query.alias || 'problem').replace(/`/g, '') + '`.id'));
   query.andWhere(`NOT EXISTS (
     SELECT 1 FROM problem_v2_state archived_problem
     WHERE archived_problem.problem_id = \`${String(query.alias || 'problem').replace(/`/g, '')}\`.id
@@ -81,7 +65,6 @@ async function applyVisibility(query, user) {
 
 function orderExpression(sort, repository) {
   if (sort === 'ac_rate') return 'ac_num / submit_num';
-  if (sort === 'id' && ['uoj', 'hdu', 'poj'].includes(repository)) return 'CAST(vjudge_config AS UNSIGNED)';
   return sort;
 }
 
@@ -128,77 +111,22 @@ function validateSort(req, allowPublicizeTime) {
 
 function applyKeyword(query, repository, keyword) {
   if (!keyword) return null;
-  const displayMatch = /^([UHP])([1-9]\d*)$/i.exec(keyword);
-  const prefixes = { uoj: 'U', hdu: 'H', poj: 'P' };
-  const displayTypes = { U: 'vjudge:uoj', H: 'vjudge:hdu', P: 'vjudge:poj' };
-  const expectedPrefix = prefixes[repository] || null;
-  const numericKeyword = /^\d+$/.test(keyword);
-  const numericId = numericKeyword && Number.isSafeInteger(Number(keyword)) && Number(keyword) <= 2147483647
-    ? Number(keyword)
-    : null;
-  if (displayMatch) {
-    const displayPrefix = displayMatch[1].toUpperCase();
-    if (repository === 'all') {
-      query.andWhere('`type` = :displayType', {
-        displayType: displayTypes[displayPrefix]
-      });
-      query.andWhere('vjudge_config = :remoteId', { remoteId: displayMatch[2] });
-    } else if (displayPrefix !== expectedPrefix) {
-      query.andWhere('1 = 0');
-    } else {
-      query.andWhere('vjudge_config = :remoteId', { remoteId: displayMatch[2] });
-    }
-    return null;
-  }
-
+  const numericId = /^\d+$/.test(keyword) && Number.isSafeInteger(Number(keyword)) && Number(keyword) <= 2147483647
+    ? Number(keyword) : null;
   query.andWhere(new TypeORM.Brackets(qb => {
     qb.where('title LIKE :title', { title: '%' + keyword + '%' });
-    if ((repository === 'main' || repository === 'all') && numericId !== null) {
-      qb.orWhere('id = :problemId', { problemId: numericId });
-    }
-    if (repository === 'all' && numericKeyword) {
-      qb.orWhere("(`type` IN ('vjudge:uoj', 'vjudge:hdu', 'vjudge:poj') AND vjudge_config = :remoteId)", {
-        remoteId: keyword
-      });
-    } else if (repository !== 'main' && numericKeyword) {
-      qb.orWhere('vjudge_config = :remoteId', { remoteId: keyword });
-    }
+    if (numericId !== null) qb.orWhere('id = :problemId', { problemId: numericId });
   }));
-  if (!numericKeyword) return null;
-  if (repository === 'all') {
-    return numericId === null
-      ? "CASE WHEN `type` IN ('vjudge:uoj', 'vjudge:hdu', 'vjudge:poj') AND vjudge_config = :remoteId THEN 0 ELSE 1 END"
-      : "CASE WHEN `type` IN ('vjudge:uoj', 'vjudge:hdu', 'vjudge:poj') AND vjudge_config = :remoteId THEN 0 WHEN id = :problemId THEN 1 ELSE 2 END";
-  }
-  if (repository === 'main' && numericId !== null) return 'CASE WHEN id = :problemId THEN 0 ELSE 1 END';
-  if (repository !== 'main') return 'CASE WHEN vjudge_config = :remoteId THEN 0 ELSE 1 END';
-  return null;
+  return numericId === null ? null : 'CASE WHEN id = :problemId THEN 0 ELSE 1 END';
 }
 
 async function renderProblems(req, res, query, repository, sortConfig, extra, priorityOrder) {
   const Problem = syzoj.model('problem');
-  const displayNumberOrder = repository === 'all' && sortConfig.sort === 'id';
   if (priorityOrder) {
     query.orderBy(priorityOrder, 'ASC');
-    if (!displayNumberOrder) {
-      query.addOrderBy(orderExpression(sortConfig.sort, repository), sortConfig.order.toUpperCase());
-    }
+    query.addOrderBy(orderExpression(sortConfig.sort, repository), sortConfig.order.toUpperCase());
   } else {
-    if (!displayNumberOrder) {
-      query.orderBy(orderExpression(sortConfig.sort, repository), sortConfig.order.toUpperCase());
-    }
-  }
-  if (displayNumberOrder) {
-    const addOrder = priorityOrder ? 'addOrderBy' : 'orderBy';
-    query[addOrder](
-      "CASE WHEN `type` = 'vjudge:hdu' THEN 1 WHEN `type` = 'vjudge:poj' THEN 2 WHEN `type` = 'vjudge:uoj' THEN 3 ELSE 0 END",
-      sortConfig.order.toUpperCase()
-    );
-    query.addOrderBy(
-      "CASE WHEN `type` IN ('vjudge:uoj', 'vjudge:hdu', 'vjudge:poj') THEN CAST(vjudge_config AS UNSIGNED) ELSE id END",
-      sortConfig.order.toUpperCase()
-    );
-    query.addOrderBy('id', sortConfig.order.toUpperCase());
+    query.orderBy(orderExpression(sortConfig.sort, repository), sortConfig.order.toUpperCase());
   }
   if (sortConfig.sort !== 'id') query.addOrderBy('id', 'ASC');
   const paginate = syzoj.utils.paginate(

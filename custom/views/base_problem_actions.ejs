@@ -1,0 +1,122 @@
+<dialog class="app-dialog" id="base-problem-action-dialog">
+  <div class="app-dialog-header"><h2 data-base-action-title>批量操作题目</h2><button class="app-icon-button" type="button" data-dialog-close aria-label="关闭"><i data-lucide="x"></i></button></div>
+  <div class="app-dialog-body">
+    <div class="app-notice app-notice-warning"><i data-lucide="layers-2"></i><span data-base-action-message></span></div>
+    <label class="app-field" data-base-tag-field hidden><span class="app-label">要添加的标签</span><select class="app-select" data-base-tag-select><option value="">请选择标签</option><% for (const tag of typeof problemTags !== 'undefined' ? problemTags : []) { %><option value="<%= tag.id %>"><%= tag.name %></option><% } %></select></label>
+  </div>
+  <div class="app-dialog-actions"><button class="app-button app-button-secondary" type="button" data-dialog-close>取消</button><button class="app-button app-button-danger" type="button" data-base-action-confirm>确认操作</button></div>
+</dialog>
+<section class="app-notice" data-base-problem-report hidden role="status" aria-live="polite"><div><p data-base-problem-progress></p><ul data-base-problem-errors></ul><a class="app-button app-button-secondary app-button-small" href="" data-base-refresh hidden>刷新列表</a></div></section>
+<script>
+(function () {
+  var form = document.querySelector('[data-base-problem-bulk]');
+  var dialog = document.getElementById('base-problem-action-dialog');
+  var confirm = dialog.querySelector('[data-base-action-confirm]');
+  var panel = document.querySelector('[data-base-problem-report]');
+  var progress = panel.querySelector('[data-base-problem-progress]');
+  var errors = panel.querySelector('[data-base-problem-errors]');
+  var refresh = panel.querySelector('[data-base-refresh]');
+  var labels = { publish: '公开', unpublish: '隐藏', archive: '归档', 'add-tag': '添加标签', migrate: '迁移至正式题库' };
+  var currentAction, selectedIds = [], busy = false;
+  function selected() { return form ? Array.from(form.querySelectorAll('[data-select-item]:checked')).map(function (item) { return Number(item.value); }) : []; }
+  function sync() {
+    if (!form) return;
+    var items = Array.from(form.querySelectorAll('[data-select-item]')), count = selected().length;
+    var master = form.querySelector('[data-select-all]');
+    master.checked = !!items.length && count === items.length; master.indeterminate = count > 0 && count < items.length;
+    form.querySelector('[data-selected-count]').textContent = count;
+    form.querySelectorAll('[data-requires-selection]').forEach(function (button) { button.disabled = !count || busy; });
+  }
+  if (form) {
+    form.addEventListener('submit', function (event) { event.preventDefault(); });
+    form.querySelector('[data-select-all]').onchange = function () { var checked = this.checked; form.querySelectorAll('[data-select-item]').forEach(function (item) { item.checked = checked; }); sync(); };
+    form.querySelectorAll('[data-select-item]').forEach(function (item) { item.addEventListener('change', sync); }); sync();
+  }
+  function open(action, ids) {
+    if (busy || !ids.length || !labels[action]) return;
+    currentAction = action; selectedIds = ids;
+    dialog.querySelector('[data-base-action-title]').textContent = (ids.length > 1 ? '批量' : '') + labels[action];
+    var descriptions = {
+      publish: '在基地内公开所选题目，使用最新题面和数据；不会发布到正式题库。',
+      unpublish: '隐藏后仅上传者和全站管理员可见。被基地比赛引用的题目需先从比赛移除。',
+      archive: '题目从基地列表隐藏，保留提交和数据。被基地比赛引用的题目需先从比赛移除。',
+      'add-tag': '为所选题目追加一个标签，已有标签不会被移除。',
+      migrate: '在正式题库创建独立副本，复制最新题面、评测设置、数据、附件和标签，上传者保留为原出题人。新建正式题目默认未公开，需在正式题库手动公开。基地原题后续保存的修改会自动同步至正式副本（通常约 5 秒，大数据包可能更久），不改变正式题目的公开状态。基地原题及其公开状态保持不变，已迁移项自动跳过。'
+    };
+    dialog.querySelector('[data-base-action-message]').textContent = '已选择 ' + ids.length + ' 题。' + descriptions[action];
+    dialog.querySelector('[data-base-tag-field]').hidden = action !== 'add-tag';
+    confirm.textContent = '确认' + labels[action]; confirm.disabled = false;
+    var menu = document.querySelector('[data-base-action-menu]'); if (menu) menu.open = false;
+    dialog.showModal();
+  }
+  document.querySelectorAll('[data-base-action]').forEach(function (button) { button.onclick = function () { open(button.dataset.baseAction, selected()); }; });
+  document.querySelectorAll('[data-base-migrate]').forEach(function (button) { button.onclick = function () { open('migrate', [Number(button.dataset.baseMigrate)]); }; });
+  dialog.querySelectorAll('[data-dialog-close]').forEach(function (button) { button.onclick = function () { dialog.close(); }; });
+  async function request(url, body) {
+    var options = { credentials: 'same-origin', cache: 'no-store' };
+    if (body) { options.method = 'POST'; options.headers = { 'Content-Type': 'application/json', 'Idempotency-Key': window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + '-' + Math.random() }; options.body = JSON.stringify(body); }
+    var response = await fetch(url, options), result = await response.json();
+    if (!response.ok) throw new Error(result.error && result.error.message || '操作失败，请稍后重试。');
+    return result.data;
+  }
+  function errorRow(id, message) { var item = document.createElement('li'); item.textContent = (id ? '#' + id + '：' : '') + message; errors.appendChild(item); }
+  function migrated(id, value) {
+    document.querySelectorAll('[data-base-migrate="' + id + '"]').forEach(function (button) { button.disabled = !!value; button.textContent = value ? '已迁移' : '迁移至正式题库'; });
+    document.querySelectorAll('[data-base-migrated-link="' + id + '"]').forEach(function (link) { link.hidden = !value; if (value) { link.href = '/problem/' + value.problem_id; link.textContent = '#' + value.problem_id; } });
+  }
+  async function pollJob(id) {
+    var failures = 0;
+    for (;;) {
+      try {
+        var job = await request('/api/v2/problem-jobs/' + encodeURIComponent(id)); failures = 0;
+        var result = job.result || {};
+        progress.textContent = '正在' + labels[currentAction] + '：' + Number(result.processed || 0) + ' / ' + selectedIds.length;
+        if (['completed', 'failed', 'cancelled'].includes(job.state)) {
+          progress.textContent = labels[currentAction] + (job.state === 'cancelled' ? '已取消' : '完成') + '：成功 ' + Number(result.changed || 0) + '，跳过 ' + Number(result.skipped || 0) + '，失败 ' + Number(result.failed || 0) + '。';
+          (result.failures || []).forEach(function (item) { errorRow(item.problem_id, item.message || item.code); });
+          if (job.error) errorRow(null, job.error.message || job.error.code); return;
+        }
+      } catch (error) { if (++failures >= 3) throw error; }
+      await new Promise(function (resolve) { setTimeout(resolve, 1200); });
+    }
+  }
+  confirm.onclick = async function () {
+    if (busy) return;
+    var tagId = Number(dialog.querySelector('[data-base-tag-select]').value);
+    if (currentAction === 'add-tag' && !tagId) { dialog.querySelector('[data-base-tag-select]').focus(); return; }
+    busy = true; confirm.disabled = true; sync(); dialog.close(); panel.hidden = false; refresh.hidden = true; errors.textContent = '';
+    try {
+      if (currentAction === 'migrate') {
+        var added = 0, skipped = 0, failed = 0;
+        for (var index = 0; index < selectedIds.length; index++) {
+          progress.textContent = '正在迁移：' + index + ' / ' + selectedIds.length + '，请勿关闭页面。';
+          try {
+            var result = await request('/api/v2/base/problems/' + selectedIds[index] + '/migrate', {});
+            if (result.skipped) skipped++; else added++;
+            migrated(selectedIds[index], result);
+          } catch (error) { failed++; errorRow(selectedIds[index], error.message); }
+        }
+        progress.textContent = '迁移完成：成功 ' + added + '，已迁移跳过 ' + skipped + '，失败 ' + failed + '。新建正式题目均为未公开，基地原题已保留。';
+      } else if (currentAction === 'add-tag') {
+        var tagged = await request('/api/v2/problems/bulk-tags', { workspace: 'base', tag_id: tagId, problem_ids: selectedIds });
+        progress.textContent = '添加标签完成：成功 ' + tagged.added + '，跳过 ' + tagged.skipped + '。';
+      } else {
+        var job = await request('/api/v2/problems/bulk-actions', { action: currentAction, problem_ids: selectedIds });
+        await pollJob(job.id);
+      }
+    } catch (error) { errorRow(null, error.message); progress.textContent = '操作未全部完成，请刷新确认状态后重试。'; }
+    finally { busy = false; confirm.disabled = false; refresh.hidden = false; sync(); }
+  };
+  // A deleted/archived official copy restores the action on the next visit or
+  // when returning to this tab. Hiding a copy does not count as deleting it.
+  async function refreshMigration() {
+    if (busy) return;
+    var buttons = Array.from(document.querySelectorAll('[data-base-migrate]'));
+    for (var i = 0; i < buttons.length; i++) {
+      var id = Number(buttons[i].dataset.baseMigrate);
+      try { var data = await request('/api/v2/base/problems/' + id + '/migration'); migrated(id, data.migration); } catch (_) {}
+    }
+  }
+  window.addEventListener('focus', refreshMigration);
+})();
+</script>

@@ -59,11 +59,8 @@ test('problem content is canonical, validated, and rendered as one Markdown docu
     time_limit: 'positive integer required',
     type: 'unsupported problem type'
   });
-  assert.equal(content({ vjudge_config: '1000' }).vjudge_config, '1000');
-  assert.notEqual(problemDomain.contentHash(content({ vjudge_config: '1000' })), problemDomain.contentHash(content({ vjudge_config: '1001' })));
-  assert.deepEqual(problemDomain.validateContent(content({ vjudge_config: 'x'.repeat(81) })), { vjudge_config: 'maximum length is 80' });
-  assert.deepEqual(problemDomain.validateContent(content({ type: 'vjudge:poj', vjudge_config: null })), { vjudge_config: 'remote identifier required without surrounding whitespace' });
-  assert.deepEqual(problemDomain.validateContent(content({ type: 'vjudge:poj', vjudge_config: ' 1000 ' })), { vjudge_config: 'remote identifier required without surrounding whitespace' });
+  assert.equal('vjudge_config' in content({ vjudge_config: '1000' }), false);
+  assert.deepEqual(problemDomain.validateContent(content({ type: 'vjudge:poj' })), { type: 'unsupported problem type' });
   assert.equal(problemDomain.statementMarkdown(first), [
     '## 题目描述\n\nAdd two integers.',
     '## 输入格式\n\nTwo integers.',
@@ -132,12 +129,7 @@ test('problem API model exposes immutable version and snapshot identifiers', () 
   assert.deepEqual(value.source, { kind: 'local', provider: null, remote_id: null });
   assert.deepEqual(value.statistics, { accepted: 2, submissions: 5 });
   assert.equal('content_hash' in value, false);
-  assert.deepEqual(problemDomain.sourceMetadata({ type: 'vjudge:poj', vjudge_config: '1000' }), {
-    kind: 'vjudge', provider: 'poj', remote_id: '1000'
-  });
-  assert.deepEqual(problemDomain.sourceMetadata({ type: 'vjudge:luogu', vjudge_config: 'P1000' }), {
-    kind: 'vjudge', provider: 'luogu', remote_id: 'P1000'
-  });
+  assert.deepEqual(problemDomain.sourceMetadata({ type: 'interaction' }), { kind: 'local', provider: null, remote_id: null });
 });
 
 test('creating a problem persists the legacy row and initial version through one manager', async () => {
@@ -563,26 +555,11 @@ test('problem ownership and grants remain scoped to the intended resource', () =
   assert.equal(scopeMatches('global', null, 'problem:4'), true);
 });
 
-test('problem source projection binds, rejects conflicts, and removes stale remote mappings', async () => {
-  const inserted = [];
-  const manager = {
-    rows: [],
-    async query(sql, params) {
-      if (sql.startsWith('SELECT provider')) return this.rows;
-      inserted.push({ sql, params });
-      return {};
-    }
-  };
-  const bound = await problemDomain.syncSourceProjection(manager, { id: 7, type: 'vjudge:poj', vjudge_config: '1000' });
-  assert.deepEqual(bound.source, { kind: 'vjudge', provider: 'poj', remote_id: '1000' });
-  assert.match(inserted[0].sql, /INSERT INTO vjudge_v2_remote_problem/);
-  manager.rows = [{ provider: 'poj', remote_id: '1000', local_problem_id: 8 }];
-  await assert.rejects(problemDomain.syncSourceProjection(manager, { id: 7, type: 'vjudge:poj', vjudge_config: '1000' }), error => error.code === 'VJUDGE_SOURCE_CONFLICT' && error.statusCode === 409);
-  manager.rows = [{ provider: 'poj', remote_id: '1000', local_problem_id: 7 }];
-  inserted.length = 0;
-  const removed = await problemDomain.syncSourceProjection(manager, { id: 7, type: 'traditional', vjudge_config: null });
-  assert.equal(removed.changed, true);
-  assert.match(inserted[0].sql, /DELETE FROM vjudge_v2_remote_problem/);
+test('local source projection needs no retired remote tables', async () => {
+  const manager = { query: async () => { throw new Error('unexpected remote query'); } };
+  const result = await problemDomain.syncSourceProjection(manager, { id: 7, type: 'traditional' });
+  assert.deepEqual(result.source, { kind: 'local', provider: null, remote_id: null });
+  assert.equal(result.changed, false);
 });
 
 test('problem API routes use scoped capabilities and transaction-backed aggregate mutations', () => {

@@ -57,6 +57,17 @@ RUN set -eux; \
 
 COPY --from=python-builder /rootfs/opt/python /rootfs/opt/python
 
+# Keep the interaction verdict semantics in the image reproducible.  The base
+# image ships the Judge TypeScript sources, so apply the small source patch and
+# rebuild the daemon before installing the platform language definitions.
+COPY custom/judge/core.patch /tmp/nwpu-judge-core.patch
+
+RUN set -eux; \
+    patch -p1 -d /app < /tmp/nwpu-judge-core.patch; \
+    cd /app; \
+    npm run build; \
+    rm -f /tmp/nwpu-judge-core.patch
+
 RUN set -eux; \
     mkdir -p /rootfs/opt/pypy; \
     curl -fsSL "https://downloads.python.org/pypy/pypy${PYPY_PYTHON_VERSION}-v${PYPY_VERSION}-linux64.tar.bz2" -o /tmp/pypy.tar.bz2; \

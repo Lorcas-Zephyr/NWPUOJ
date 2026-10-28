@@ -2,7 +2,7 @@
 
 > 状态：已实现（v2-only 运行态已启用）
 >
-> 范围：前台 UI、后端接口、权限模型、评测编排、VJudge、比赛、Rating、管理后台全部重新设计。
+> 范围：前台 UI、后端接口、权限模型、评测编排、比赛、Rating、管理后台全部重新设计。
 
 ## 1. 目标与原则
 
@@ -36,7 +36,7 @@ Browser / Mobile
         |
  ┌──────┼────────┬────────┬────────┬────────┬──────────┐
  │      │        │        │        │        │          │
-题库域  提交域   比赛域   Rating域  VJudge域  管理域   社区域
+题库域  提交域   比赛域   Rating域  管理域   社区域
  │      │        │        │        │        │          │
  └──────┴────────┴────────┴────────┴────────┴──────────┘
         |
@@ -56,7 +56,6 @@ Browser / Mobile
 | Judge | 编译、沙箱、测试点、结果事件、队列和 Worker |
 | Contest | 比赛生命周期、报名、题目快照、排行榜、赛后结算 |
 | Rating | Rating Profile、比赛结算、重算、历史和赛季 |
-| VJudge | 远程账号、题面导入、远程提交、同步和限流 |
 | Content | 公告、Banner、讨论、工单、站内信、通知 |
 | Admin | 系统配置、运营任务、风险、审计、批量任务 |
 
@@ -121,7 +120,6 @@ Browser / Mobile
 | judge_operator | 全局 | 查看评测服务、重启 Worker、处理评测任务 |
 | content_moderator | 全局/社区 | 审核题解、讨论、公告和工单 |
 | rating_manager | 全局/赛季 | 发布 Rating、重算和修正异常结果 |
-| vjudge_manager | 全局 | 管理外部账号、导入任务和远程提交策略 |
 | site_admin | 全局 | 用户、权限、内容和系统配置 |
 | owner | 全局 | 站点所有权、管理员任命、密钥和不可逆操作 |
 
@@ -147,8 +145,6 @@ contest:standings.rebuild
 contest:standings.export
 rating:publish
 rating:recalculate
-vjudge:source.manage
-vjudge:import.create
 admin:user.manage
 admin:permission.grant
 admin:config.write
@@ -289,22 +285,6 @@ DELETE /api/v2/users/:id/avatar
 
 Rating 变化必须通过 `RatingEvent` 记录，禁止直接覆盖用户当前分数。
 
-### 4.6 VJudge
-
-```text
-GET    /api/v2/vjudge/sources
-POST   /api/v2/vjudge/sources
-POST   /api/v2/vjudge/sources/:id/test-connection
-POST   /api/v2/vjudge/sources/:id/imports
-GET    /api/v2/vjudge/imports
-GET    /api/v2/vjudge/imports/:id
-POST   /api/v2/vjudge/imports/:id/cancel
-POST   /api/v2/vjudge/problems/:id/submissions
-GET    /api/v2/vjudge/remote-problems/:source/:remote_id
-```
-
-外部平台账号只保存加密引用，不允许 API 返回明文。导入和远程提交均通过异步任务执行。
-
 ### 4.7 管理与审计
 
 ```text
@@ -368,45 +348,6 @@ created
 | 编译日志 | 本人 | 本人 | 可配置 | 完整 |
 | Worker 诊断 | 不可见 | 不可见 | 摘要 | 完整 |
 
-## 6. VJudge 重设计
-
-### 6.1 Provider Adapter 契约
-
-每个平台实现统一接口：
-
-```text
-checkAccount()
-searchProblems(query)
-fetchProblem(remoteId)
-fetchProblemList(cursor)
-submit(remoteProblem, language, source)
-pollSubmission(remoteSubmissionId)
-normalizeResult(rawResult)
-```
-
-### 6.2 导入流程
-
-```text
-选择平台
-  -> 测试账号
-  -> 选择单题/批量
-  -> 预览题目和冲突
-  -> 设置可见性与标签
-  -> 创建导入任务
-  -> 实时进度
-  -> 成功/跳过/失败
-  -> 可重试失败项
-```
-
-规则：
-
-- 每个平台独立限流、重试和凭据。
-- 远程题目使用 `source + remote_id` 唯一键。
-- 导入任务可取消、可恢复，已完成题目不会重复写入。
-- 比赛使用 VJudge 题目必须显式开启比赛策略。
-- 远程提交记录上游任务 ID、本地提交 ID 和同步事件。
-- 上游错误不会被伪装成本地评测错误。
-
 ## 7. 比赛系统重设计
 
 ### 7.1 生命周期
@@ -443,7 +384,6 @@ draft -> review -> scheduled -> running -> frozen -> ended -> rated -> archived
 - `icpc`：ACM/ICPC 比赛。
 - `ioi`：基于得分的比赛。
 - `practice`：训练赛，可选计入。
-- `vjudge`：外部题库比赛，可独立配置。
 
 ### 8.2 计算规则
 
@@ -505,7 +445,6 @@ draft -> review -> scheduled -> running -> frozen -> ended -> rated -> archived
 | 比赛 | 题目、排行榜、提交、公告同一工作区 |
 | 建赛 | 基本信息、题目、规则、发布确认步骤 |
 | 评测 | 队列和 Worker 实时监控 |
-| VJudge | 平台标签页、连接、导入任务、失败重试 |
 | Rating | 预览、批准、发布、历史和差异 |
 | 后台 | 告警和任务优先，而不是菜单优先 |
 
@@ -531,7 +470,6 @@ draft -> review -> scheduled -> running -> frozen -> ended -> rated -> archived
 - 新 API 使用 `/api/v2`，旧 API 通过兼容层保留一段迁移期。
 - 新权限表与旧管理员字段并行运行，迁移完成后以授权表为准。
 - 旧提交、比赛和 Rating 数据转成事件投影，不直接重写历史。
-- 旧 VJudge 记录保留原始来源字段，补充统一 Provider 字段。
 
 ### 11.2 迁移阶段
 
@@ -551,7 +489,6 @@ draft -> review -> scheduled -> running -> frozen -> ended -> rated -> archived
 3. Judge 事件流、队列、Worker 控制和重测。
 4. 比赛生命周期、报名、排行榜和比赛提交。
 5. Rating Profile、预览、发布和重算。
-6. VJudge Provider、导入任务和远程提交。
 7. 管理后台、审计、公告、Banner 和批量任务。
 8. 社区、通知、站内信、剪贴板和工单。
 9. 深色模式、移动端、可访问性和迁移切换。
@@ -562,7 +499,6 @@ draft -> review -> scheduled -> running -> frozen -> ended -> rated -> archived
 - 每次提交、评测、比赛状态转换、Rating 变化和导入任务都有可追溯事件。
 - 评测服务短暂断线不导致提交丢失或页面通用报错。
 - 比赛开始后题目快照、计分规则和 Rated 状态不可被普通管理员修改。
-- VJudge 单题、批量导入、失败重试和远程提交可恢复。
 - Rating 重算可预览差异、批准、发布和回滚投影。
 - 所有危险操作具备能力授权、资源范围、CSRF、幂等和审计保护，已授权管理会话无需二次登录。
 - 桌面端、平板端和移动端完成关键流程，键盘和屏幕阅读器可操作。
@@ -598,7 +534,6 @@ draft -> review -> scheduled -> running -> frozen -> ended -> rated -> archived
 | 比赛报名 | R/W | R/W | R/W/O | R | R | R | R/W/O |
 | Worker 状态 | - | - | 摘要 | R/O | - | - | R/O |
 | Rating 预览 | - | - | R | - | R/W/P | R | R |
-| VJudge 导入 | - | - | 按比赛策略 | R | R/W/O | - | R/W/O |
 | 题解/讨论审核 | W（本人） | R | R | R | R | R/W/P | R/W/P |
 | 用户和授权 | - | - | - | - | - | - | R/W/O |
 | 站点配置与密钥 | - | - | - | - | - | - | 独立高危授权 |

@@ -10,7 +10,7 @@ const getSubmissionInfo = (s, displayConfig) => ({
     sourceProblemId: s.problem && s.problem.id ? s.problem.id : s.problem_id,
     problemDisplayId: s.problem.getDisplayId(),
     language: displayConfig.showCode ? ((s.language != null && s.language !== '')
-      ? (((s.problem.getVJudgeLanguages() || syzoj.languages)[s.language] || {}).show || s.language)
+      ? (((syzoj.languages)[s.language] || {}).show || s.language)
       : null) : null,
     codeSize: displayConfig.showCode ? s.code_length : null,
     submitTime: syzoj.utils.formatDate(s.submit_time),

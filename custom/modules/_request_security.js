@@ -6,6 +6,7 @@ app.use(require('../libs/request-read-cache').middleware);
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const SESSION_MAX_AGE = 12 * 60 * 60 * 1000;
+const REMEMBERED_SESSION_MAX_AGE = 30 * 24 * 60 * 60 * 1000;
 
 function safeLocalUrl(value, fallback) {
   const url = String(value || '');
@@ -32,6 +33,16 @@ function secureCookieOptions(req) {
   };
 }
 
+function applySessionCookiePolicy(req) {
+  if (!req.session || !req.session.cookie) return;
+  Object.assign(req.session.cookie, secureCookieOptions(req));
+  // Only the server-side preference of an authenticated session can extend
+  // its lifetime. express-session's rolling cookie and FileStore's
+  // originalMaxAge keep browser expiry and server-side idle TTL in sync.
+  req.session.cookie.maxAge = req.session.user_id && req.session.rememberMe === true
+    ? REMEMBERED_SESSION_MAX_AGE : SESSION_MAX_AGE;
+}
+
 function tokenMatches(expected, actual) {
   if (typeof expected !== 'string' || typeof actual !== 'string' || expected.length !== actual.length) return false;
   return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(actual));
@@ -55,6 +66,7 @@ syzoj.utils.safeLocalUrl = safeLocalUrl;
 syzoj.utils.v2RouteEnforcement = v2RouteEnforcement;
 syzoj.utils.ensureGlobalCsrfToken = ensureCsrfToken;
 syzoj.utils.secureCookieOptions = secureCookieOptions;
+syzoj.utils.applySessionCookiePolicy = applySessionCookiePolicy;
 syzoj.utils.operationReason = function operationReason(req, fallback) {
   const provided = String(req && req.body && req.body.reason || '').trim();
   if (provided) return provided.slice(0, 1000);
@@ -82,12 +94,7 @@ syzoj.utils.detectSafeRasterImage = function detectSafeRasterImage(filePath) {
 };
 
 app.use((req, res, next) => {
-  if (req.session && req.session.cookie) {
-    req.session.cookie.httpOnly = true;
-    req.session.cookie.sameSite = 'lax';
-    req.session.cookie.secure = usesSecureCookies(req);
-    req.session.cookie.maxAge = SESSION_MAX_AGE;
-  }
+  applySessionCookiePolicy(req);
   if (req.cookies && req.cookies.login) {
     res.clearCookie('login', secureCookieOptions(req));
   }

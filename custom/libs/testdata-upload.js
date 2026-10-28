@@ -8,7 +8,7 @@ const yauzl = require('yauzl');
 const yaml = require('js-yaml');
 
 const pipe = promisify(pipeline);
-const DEFAULT_LIMITS = Object.freeze({ maxEntries: 2000, maxTotalSize: 200 * 1024 * 1024, maxFileSize: 50 * 1024 * 1024 });
+const DEFAULT_LIMITS = Object.freeze({ maxEntries: 100000, maxTotalSize: 8 * 1024 * 1024 * 1024, maxFileSize: 2 * 1024 * 1024 * 1024 });
 
 function uploadError(message) {
   const error = new Error(message);

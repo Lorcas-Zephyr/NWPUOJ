@@ -9,9 +9,7 @@ if (!contest && !problemSet && typeof problemV2View !== 'undefined' && problemV2
 if (problemSet) this.title = this.alpha(pid) + '. ' + syzoj.utils.removeTitleTag(problem.title) + ' - ' + problemSet.title + ' - 题单';
 else if (contest) this.title = this.alpha(pid) + '. ' + syzoj.utils.removeTitleTag(problem.title) + ' - ' + contest.title + ' - 比赛';
 else this.title = problem.title + ' - 题目';
-const isVJudge = typeof problem.type === 'string' && problem.type.startsWith('vjudge:');
-const problemRepository = { 'vjudge:uoj': 'uoj', 'vjudge:hdu': 'hdu', 'vjudge:poj': 'poj' }[problem.type] || 'main';
-if (isVJudge) testcases = [];
+const problemRepository = 'main';
 const problemContext = {
   problem: problem,
   section: 'statement',

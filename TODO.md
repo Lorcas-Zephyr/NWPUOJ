@@ -1,6 +1,33 @@
 # NWPUOJ UI Remediation
 
-Updated: 2026-07-31
+Updated: 2026-09-24
+
+## Temporary contest account isolation (2026-09-26)
+
+- [x] Enforce the temporary-account scope on the server before ordinary privilege loading; direct page, API, submission-detail, stream, attachment, and hand-in requests cannot escape the contest context.
+- [x] Limit the contest list and `/api/v2/contests` to contests in which the temporary account is currently registered; preserve access to the contest detail, problem, submit, submissions, ranklist, notices, and post-hand-in views.
+- [x] Validate contest membership, account expiry, removed registrations, and post-hand-in redirects for both legacy pages and v2 APIs.
+- [x] Add unit coverage for route policy and temporary-account workflows; the complete custom unit suite passes 449/449 and the JavaScript syntax suite passes.
+- [x] Run an isolated Chromium end-to-end check with a temporary account, two test contests, two test problems, submissions, submission details, ranklist, and hand-in behavior. The environment did not expose a `computeruse` connector, so Playwright Chromium was used as the real-browser equivalent.
+- [x] Remove the isolated test contests, problems, submissions, temporary account, v2 projections/snapshots, and uploaded testdata after verification. Immutable authorization-audit rows remain by design.
+
+## Base submissions and mobile follow-up (2026-09-24)
+
+- [x] Add a member-only base practice submission list using the shared filters, pagination, live judging updates, and existing detail permissions.
+- [x] Keep submission/problem links and the return-to-list action inside the appropriate base context without exposing contest-only results.
+- [x] Adapt base navigation, search controls, member imports, bulk controls, tables, and dialogs for narrow mobile viewports.
+- [x] Test membership/privacy boundaries, live status updates, filtered paging, desktop and mobile rendering; deploy Web and verify health (438 shared tests, 26 base tests, 13 freeze tests, 10 browser tests, syntax checks and smoke checks passed; anonymous base history returns 403).
+
+## Upload and base/list UI follow-up (2026-09-24)
+
+Scope: complete the requested UI fixes using the existing controls; preserve upload payloads, permissions, filtering semantics, and database behavior.
+
+- [x] Show selected filenames for all uploads, including multi-file lists, long names, replacement/cancel/reset states, and consistent base CSV styling without an extra outer input frame (15 inputs across 12 templates verified).
+- [x] Remove the redundant base context strip (back link, internal-visibility/Unrated explanation) and its bottom divider.
+- [x] Match the base problem row's edit, judging settings, and migration button typography.
+- [x] Close action dropdowns on an outside click; preserve menu actions and keyboard accessibility.
+- [x] Group contest/problem-set ownership and participation filters with the other filters and visibly distinguish selected/unselected states; keep the base contest list's native checked filter intact.
+- [x] Verify each item with browser and unit tests (9 browser, 438 unit), inspect desktop/mobile screenshots, restart only Web, and run deployment smoke checks (all passed; Web healthy).
 
 ## Current follow-up (2026-09-12)
 

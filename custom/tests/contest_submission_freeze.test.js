@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const test = require('node:test');
 const standings = require('../libs/contest-standings');
 
-function harness() {
+function harness(options = {}) {
   let now = 300;
   let freezeMinutes = 2;
   let latestQuery;
@@ -17,10 +17,10 @@ function harness() {
     getPrivileges: async () => [], hasPrivilege: async name => id === 3 && name === 'manage_problem'
   }]));
   const problem = { id: 11, title: 'Problem', getDisplayId: () => '11', getVJudgeLanguages: () => null };
-  const contest = { id: 21, holder_id: 1, type: 'acm', start_time: 100, end_time: 400, is_public: true,
+  const contest = { id: 21, holder_id: 1, type: options.type || 'acm', start_time: 100, end_time: 400, is_public: true,
     isSupervisior: async user => !!user && [1, 2].includes(user.id),
     isEnded: () => now >= 400, getProblems: async () => [11],
-    allowedSeeingScore: () => true, allowedSeeingOthers: () => true,
+    allowedSeeingScore: () => options.showScore !== false, allowedSeeingOthers: () => true,
     allowedSeeingResult: () => true, allowedSeeingTestcase: () => false };
   const submissions = [
     { id: 1, user_id: 8, submit_time: 219, status: 'Accepted', score: 100 },
@@ -58,6 +58,11 @@ function harness() {
     },
     apiV2: { send: (res, data) => (res.data = data), fail: (res, status, code) => (res.data = { status, code }) }
   };
+  if (options.baseContest !== undefined) utils.baseWorkspace = {
+    contains: async (kind, id) => !!options.baseContest && kind === 'contest' && Number(id) === 21,
+    canAccessContest: async () => options.baseAccess !== false,
+    visibleSubmissions: () => 'BASE_VISIBILITY'
+  };
   utils.contestV2.isSubmissionFrozen = async (judge, user) => standings.submissionHiddenByFreeze(judge, await utils.contestV2.standingsView(contest, user), user);
   const judgeCache = { getCachedJudgeState: () => ({ result: 'Running 2/5' }), getCachedJudgeDetail: () => null };
   const syzoj = { utils, config: { session_secret: 'test-only', page: { judge_state: 20 }, filter_enabled_languages: ['cpp'] },
@@ -66,7 +71,7 @@ function harness() {
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../libs-built/submissions_process.js'), 'utf8'), processContext);
   const dependencies = { jsonwebtoken: { sign: payload => JSON.stringify(payload) },
     '../libs/submissions_process': processContext.module.exports, '../libs/judger': {},
-    '../libs/compiler-message': {}, '../libs/vjudge': { languages: {} }, '../libs/contest-standings': standings,
+    '../libs/compiler-message': {}, '../libs/contest-standings': standings,
     typeorm: { getConnection: () => ({ query: async sql => /FROM user WHERE/.test(sql) ? [...users.values()] : [] }) } };
   const context = vm.createContext({ app, syzoj, ErrorMessage: Error, Map, Set, console,
     Date: class extends Date { static now() { return now * 1000; } }, require: name => dependencies[name] || require(name) });
@@ -155,6 +160,45 @@ test('status and score filters exclude hidden real results, Waiting includes the
     assert.equal(app.query.parameters.freezeAt, undefined);
     assert.ok(!app.query.conditions.includes(hiddenSql));
   }
+});
+
+test('base ACM participants can filter minimum and maximum scores without exposing a score column', async () => {
+  const app = harness({ baseContest: true, showScore: false });
+  for (const query of [{ min_score: '0' }, { max_score: '100' }, { min_score: '20', max_score: '80' }, { min_score: '100', max_score: '100' }]) {
+    const result = await app.list(7, query);
+    assert.equal(result.displayConfig.showScore, false);
+    assert.equal(result.displayConfig.showScoreFilter, true);
+    assert.equal(result.isFiltered, true);
+    assert.equal(app.query.parameters.contestId, 21);
+    assert.equal(app.query.parameters.minScore, query.min_score == null ? undefined : Number(query.min_score));
+    assert.equal(app.query.parameters.maxScore, query.max_score == null ? undefined : Number(query.max_score));
+    assert.ok(app.query.conditions.some(sql => sql.includes('CASE WHEN EXISTS') && sql.includes('THEN 0 ELSE js.score END')));
+    assert.ok(app.query.conditions.includes('NOT ((js.submit_time >= :freezeAt AND js.user_id != :freezeViewerId))'));
+    assert.equal(app.query.parameters.freezeViewerId, 7);
+    assert.equal(result.items[0].result.score, null, 'score disclosure remains unchanged');
+  }
+});
+
+test('base score filters reject invalid ranges and never bypass membership or hidden NOI scores', async () => {
+  const app = harness({ baseContest: true, showScore: false });
+  for (const query of [{ min_score: '-1' }, { max_score: '101' }, { min_score: '1.5' }, { min_score: '80', max_score: '20' }]) {
+    await assert.rejects(app.list(7, query), /必须是 0 到 100 的整数|最低分不能高于最高分/);
+  }
+  const outside = harness({ baseContest: true, baseAccess: false, showScore: false });
+  const denied = await outside.list(7, { min_score: '0', max_score: '100' });
+  assert.match(denied.err.message, /没有权限/);
+  assert.equal(outside.query, undefined, 'nonmembers are rejected before querying submissions');
+  const normal = harness({ baseContest: false, showScore: false });
+  assert.equal((await normal.list(7)).displayConfig.showScoreFilter, false);
+  await assert.rejects(normal.list(7, { min_score: '100', workspace: 'base', base: '1' }), /不公开分数筛选/);
+  const noi = harness({ baseContest: true, type: 'noi', showScore: false });
+  assert.equal((await noi.list(7)).displayConfig.showScoreFilter, false);
+  await assert.rejects(noi.list(7, { min_score: '100' }), /不公开分数筛选/);
+  const manager = await noi.list(1, { min_score: '0', max_score: '100' });
+  assert.equal(manager.displayConfig.showScoreFilter, true);
+  assert.equal(noi.query.parameters.freezeAt, undefined);
+  noi.setNow(400);
+  assert.equal((await noi.list(7, { min_score: '0' })).displayConfig.showScoreFilter, true);
 });
 
 test('visibility polling authorizes the viewer and reports unfreeze for terminal Waiting rows', async () => {

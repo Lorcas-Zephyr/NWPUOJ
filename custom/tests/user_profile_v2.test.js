@@ -9,6 +9,93 @@ const vm = require('node:vm');
 const root = path.resolve(__dirname, '../..');
 const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf8');
 
+test('profile heading and public username reuse the shared tag renderer without self links', () => {
+  const view = read('custom/views/user.ejs');
+  assert.match(view, /<h1[^>]*>[\s\S]*?renderUsername\(show_user, \{ noLink: true \}\)[\s\S]*?<\/h1>/);
+  assert.match(view, /<dt>用户名<\/dt><dd><%- syzoj\.utils\.renderUsername\(show_user, \{ noLink: true \}\) %><\/dd>/);
+  assert.equal((view.match(/renderUsername\(show_user, \{ noLink: true \}\)/g) || []).length, 2);
+  const css = read('custom/app-features.css');
+  assert.match(css, /\.app-profile-identity h1\s*\{[^}]*flex-wrap:\s*wrap/);
+});
+
+test('profile tag rendering follows the shown user, visibility, class tags and escaping rules', () => {
+  const syzoj = { utils: {}, userTagsEnabled: true, userTags: new Map([
+    [7, { text: '<svg onload=1>', tier: 'blue' }],
+    [8, { text: '浏览者标签', tier: 'red' }]
+  ]), userClassTags: new Map([[7, [
+    { name: '班级<甲>', tag: '甲班' }, { name: '班级乙', tag: '乙班' }, { name: '班级丙', tag: '丙班' }
+  ]]]) };
+  vm.runInNewContext(read('custom/modules/_username_renderer.js'), { syzoj });
+  const shown = { id: 7, username: '<张三>' };
+  let html = syzoj.utils.renderUsername(shown, { noLink: true });
+  assert.match(html, /&lt;张三&gt;/);
+  assert.match(html, /&lt;svg onload=1&gt;/);
+  assert.match(html, /title="班级：班级&lt;甲&gt;"/);
+  assert.match(html, /甲班/); assert.match(html, /乙班/); assert.match(html, />\+1<\/span>/);
+  assert.doesNotMatch(html, /<a\b|<svg\b|浏览者标签/);
+  syzoj.userTagsEnabled = false;
+  html = syzoj.utils.renderUsername(shown, { noLink: true });
+  assert.doesNotMatch(html, /onload/);
+  assert.match(html, /甲班/); // Class membership is separate from custom nameplates.
+  syzoj.userTagsEnabled = true;
+  syzoj.userTags.delete(7); // Invisible/disabled nameplates are omitted by the existing cache.
+  assert.doesNotMatch(syzoj.utils.renderUsername(shown, { noLink: true }), /onload/);
+  syzoj.cheaterUserIds = new Set([7]);
+  html = syzoj.utils.renderUsername(shown, { noLink: true });
+  assert.match(html, /username-tier-cheater/);
+  assert.doesNotMatch(html, /tag-tier-cheater|作弊者/);
+  assert.match(html, /甲班/);
+  assert.doesNotMatch(syzoj.utils.renderUsername({ id: 99, username: '无标签' }, { noLink: true }), /user-name-tag/);
+});
+
+test('cheater name tags stay hidden across profiles and submission lists without changing marks or other users', () => {
+  const syzoj = { utils: {}, userTagsEnabled: true,
+    userTags: new Map([[7, { text: '原自定义牌子', tier: 'blue' }], [8, { text: '普通牌子', tier: 'green' }], [9, { text: '管理员', tier: 'admin' }]]),
+    cheaterUserIds: new Set([7, 9]), adminUserIds: new Set([9]),
+    userClassTags: new Map([[7, [{ name: '测试班级', tag: '测试班' }]]]) };
+  const context = { syzoj };
+  vm.runInNewContext(read('custom/modules/_username_renderer.js'), context);
+  const template = read('custom/views/submissions.ejs');
+  vm.runInNewContext(template.slice(template.indexOf('function submissionUserTag('), template.indexOf('function submissionLink(')), context);
+  for (const options of [{}, { noLink: true }]) {
+    const html = syzoj.utils.renderUsername({ id: 7, username: 'fixture-cheater' }, options);
+    assert.match(html, /username-tier-cheater/);
+    assert.match(html, /测试班/);
+    assert.doesNotMatch(html, /tag-tier-cheater|作弊者|原自定义牌子/);
+    assert.match(syzoj.utils.renderUsername({ id: 8, username: 'fixture-user' }, options), /普通牌子/);
+    assert.match(syzoj.utils.renderUsername({ id: 9, username: 'fixture-admin' }, options), /管理员/);
+  }
+  assert.equal(context.submissionUserTag(7), null);
+  assert.equal(context.submissionUserTag(8).text, '普通牌子');
+  assert.equal(context.submissionUserTag(9).text, '管理员');
+  assert.equal(syzoj.cheaterUserIds.has(7), true);
+  assert.equal(syzoj.userTags.get(7).text, '原自定义牌子');
+  syzoj.userTagsEnabled = false;
+  assert.equal(context.submissionUserTag(7), null);
+  assert.equal(context.submissionUserTag(8), null);
+  assert.doesNotMatch(syzoj.utils.renderUsername({ id: 7, username: 'fixture-cheater' }), /作弊者|原自定义牌子/);
+  syzoj.userTagsEnabled = true;
+  syzoj.cheaterUserIds.delete(7);
+  assert.match(syzoj.utils.renderUsername({ id: 7, username: 'fixture-user' }), /原自定义牌子/);
+  assert.equal(context.submissionUserTag(7).text, '原自定义牌子');
+  assert.doesNotMatch(read('custom/views/user_edit.ejs'), /当前牌子被“作弊者”身份覆盖/);
+  assert.match(template, /adminActionType === 'cheated'\) return '作弊'/);
+});
+
+test('client username color map matches the server renderer for all Hit tiers and overrides', () => {
+  const syzoj = { utils: {}, adminUserIds: new Set([1]), cheaterUserIds: new Set([1, 7]),
+    userHitScores: new Map([[1, { total: 0 }], [2, { total: 350 }], [3, { total: 280 }],
+      [4, { total: 200 }], [5, { total: 100 }], [6, { total: 0 }], [7, { total: 400 }], [8, { total: 99 }]]) };
+  const context = { syzoj };
+  vm.runInNewContext(read('custom/modules/_username_renderer.js'), context);
+  const header = read('custom/views/app_header.ejs');
+  const map = vm.runInNewContext(header.slice(header.indexOf('let appTierMap ='), header.indexOf('const appCheatedJudgeIds =')) + '\nappTierMap;', context);
+  for (let id = 1; id <= 9; id++) assert.equal(map[id] || 'default', syzoj.utils.calcUserTier({ id }));
+  assert.equal(map[1], 'admin');
+  assert.equal(map[7], 'cheater');
+  assert.equal(map[6], 'gray');
+});
+
 test('self profile v2 includes registration identity and protects committed fields', () => {
   const registration = read('custom/modules/_registration_identity.js');
   const identity = read('custom/modules/_api_v2_identity.js');

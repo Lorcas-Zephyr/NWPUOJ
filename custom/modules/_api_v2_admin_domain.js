@@ -7,6 +7,7 @@ const TypeORM = require('typeorm');
 const contentDomain = require('../libs/content-domain');
 const { ensureRegistrationProfileSchema } = require('../libs/registration-profile-schema');
 const { isValidManagedTemporaryUsername } = require('../libs/contest-temp-accounts');
+const { validSignature } = require('../libs/user-signature');
 const User = syzoj.model('user');
 const Problem = syzoj.model('problem');
 const JudgeState = syzoj.model('judge_state');
@@ -17,8 +18,7 @@ const JOB_STATES = new Set(['queued', 'running', 'paused', 'cancelling', 'comple
 const CONFIG_FIELDS = Object.freeze({
   site_title: { type: 'string', mutable: true, minimum: 1, maximum: 80 },
   default_user_rating: { type: 'integer', mutable: true, minimum: 1, maximum: 10000 },
-  enabled_languages: { type: 'string_array', mutable: false, sensitive: false },
-  provider_credentials: { type: 'secret_reference', mutable: false, sensitive: true }
+  enabled_languages: { type: 'string_array', mutable: false, sensitive: false }
 });
 let configSchemaPromise = null;
 let contentSchemaPromise = null;
@@ -191,7 +191,6 @@ function configMetadataResource(overrides) {
   return {
     version: syzoj.config.nwpuoj_version || null,
     fields: Object.entries(CONFIG_FIELDS).map(([name, definition]) => ({ name, ...definition, value: definition.sensitive ? '[redacted]' : Object.prototype.hasOwnProperty.call(values, name) ? values[name] : configValue(name) })),
-    providers: ['uoj', 'hdu', 'poj'],
     secrets_redacted: true
   };
 }
@@ -331,19 +330,8 @@ function operationReason(req) {
 }
 
 async function ensureJobSchemas() {
-  const schemas = [syzoj.utils.vjudgeV2, syzoj.utils.problemWorkflowV2, syzoj.utils.submissionV2, syzoj.utils.ratingV2, syzoj.utils.contestStandingsV2, syzoj.utils.migrationV2];
+  const schemas = [syzoj.utils.problemWorkflowV2, syzoj.utils.submissionV2, syzoj.utils.ratingV2, syzoj.utils.contestStandingsV2, syzoj.utils.migrationV2];
   await Promise.all(schemas.filter(Boolean).map(value => value.ensureSchema()).concat([ensureRejudgeBatchSchema(), ensureMaintenanceSchema()]));
-}
-
-function serializeVjudge(row) {
-  return {
-    id: row.id, kind: 'vjudge_import', subtype: row.provider, state: row.state, stage: row.stage,
-    actor_id: Number(row.actor_id), approved_by: null, impact: { provider: row.provider, requested: Number(row.total || 0) },
-    progress: { processed: Number(row.processed || 0), total: Number(row.total || 0), failed: Number(row.failed || 0), imported: Number(row.imported || 0), skipped: Number(row.skipped || 0) },
-    current_object: row.current_remote_id ? { type: 'remote_problem', id: row.current_remote_id } : null,
-    failures: safeJson(row.failures_json, []), error: safeJson(row.error_json, null),
-    created_at: iso(row.created_at), updated_at: iso(row.updated_at)
-  };
 }
 
 function serializeProblem(row) {
@@ -450,8 +438,7 @@ async function loadJobs(cursor, filters = {}) {
   const before = cursor && cursor.updated_at ? new Date(cursor.updated_at) : null;
   const state = String(filters.state || ''); const kind = String(filters.kind || ''); const params = [before, before, state, state, 151];
   const problemKinds = new Set(['problem_testdata', 'problem_bulk_action']);
-  const [vjudgeRows, problemRows, submissionRows, rejudgeBatchRows, ratingRows, standingsRows, migrationRows, maintenanceRows] = await Promise.all([
-    kind && kind !== 'vjudge_import' ? [] : connection.query("SELECT * FROM vjudge_v2_import_job WHERE (? IS NULL OR updated_at<=?) AND (?='' OR state=?) ORDER BY updated_at DESC,id DESC LIMIT ?", params),
+  const [problemRows, submissionRows, rejudgeBatchRows, ratingRows, standingsRows, migrationRows, maintenanceRows] = await Promise.all([
     kind && !problemKinds.has(kind) ? [] : connection.query("SELECT * FROM problem_v2_job WHERE (? IS NULL OR updated_at<=?) AND (?='' OR state=?) ORDER BY updated_at DESC,id DESC LIMIT ?", params),
     kind && !['submission_rejudge', 'submission_projection_rebuild'].includes(kind) ? [] : connection.query("SELECT submission.* FROM submission_v2_job submission WHERE (? IS NULL OR submission.updated_at<=?) AND (?='' OR submission.state=?) AND NOT EXISTS (SELECT 1 FROM admin_v2_rejudge_item item WHERE item.child_job_id=submission.id) ORDER BY submission.updated_at DESC,submission.id DESC LIMIT ?", params),
     kind && kind !== 'submission_bulk_rejudge' ? [] : connection.query("SELECT * FROM admin_v2_rejudge_job WHERE (? IS NULL OR updated_at<=?) AND (?='' OR state=?) ORDER BY updated_at DESC,id DESC LIMIT ?", params),
@@ -460,8 +447,8 @@ async function loadJobs(cursor, filters = {}) {
     kind && kind !== 'migration' ? [] : connection.query("SELECT * FROM api_v2_migration_run WHERE (? IS NULL OR updated_at<=?) AND (?='' OR state=?) ORDER BY updated_at DESC,id DESC LIMIT ?", params),
     kind && kind !== 'maintenance' ? [] : connection.query("SELECT * FROM admin_v2_maintenance_job WHERE (? IS NULL OR updated_at<=?) AND (?='' OR state=?) ORDER BY updated_at DESC,id DESC LIMIT ?", params)
   ]);
-  return vjudgeRows.map(serializeVjudge)
-    .concat(problemRows.map(serializeProblem), submissionRows.map(serializeSubmission), rejudgeBatchRows.map(serializeRejudgeBatch), ratingRows.map(serializeRating), standingsRows.map(serializeStandings), migrationRows.map(serializeMigration), maintenanceRows.map(serializeMaintenance))
+  return problemRows.map(serializeProblem)
+    .concat(submissionRows.map(serializeSubmission), rejudgeBatchRows.map(serializeRejudgeBatch), ratingRows.map(serializeRating), standingsRows.map(serializeStandings), migrationRows.map(serializeMigration), maintenanceRows.map(serializeMaintenance))
     .filter(job => !kind || job.kind === kind);
 }
 
@@ -479,7 +466,6 @@ function isBeforeCursor(job, cursor) {
 
 async function findJob(id, expectedKind) {
   await ensureJobSchemas(); const connection = TypeORM.getConnection(); const jobs = [];
-  if (!expectedKind || expectedKind === 'vjudge_import') { const rows = await connection.query('SELECT * FROM vjudge_v2_import_job WHERE id=? LIMIT 1', [id]); if (rows.length) jobs.push(serializeVjudge(rows[0])); }
   if (!expectedKind || ['problem_testdata', 'problem_bulk_action'].includes(expectedKind)) { const rows = await connection.query('SELECT * FROM problem_v2_job WHERE id=? LIMIT 1', [id]); if (rows.length) { const serialized = serializeProblem(rows[0]); if (!expectedKind || serialized.kind === expectedKind) jobs.push(serialized); } }
   if (!expectedKind || ['submission_rejudge', 'submission_projection_rebuild'].includes(expectedKind)) {
     const rows = await connection.query('SELECT * FROM submission_v2_job WHERE id=? LIMIT 1', [id]);
@@ -500,7 +486,7 @@ async function findJob(id, expectedKind) {
 }
 
 const JOB_CAPABILITIES = Object.freeze({
-  vjudge_import: 'vjudge:import.create', problem_testdata: 'problem:testdata.write', problem_bulk_action: 'problem:archive',
+  problem_testdata: 'problem:testdata.write', problem_bulk_action: 'problem:archive',
   submission_rejudge: 'submission:rejudge', submission_projection_rebuild: 'submission:rejudge',
   submission_bulk_rejudge: 'submission:rejudge',
   rating_recalculation: 'rating:recalculate',
@@ -515,7 +501,6 @@ async function requireJobCapability(req, res, job) {
 }
 
 function jobEventStream(job) {
-  if (job.kind === 'vjudge_import') return `vjudge-import:${job.id}`;
   if (job.kind === 'problem_testdata' || job.kind === 'problem_bulk_action') return `problem-job:${job.id}`;
   if (job.kind === 'submission_rejudge' || job.kind === 'submission_projection_rebuild') return `submission-job:${job.id}`;
   if (job.kind === 'submission_bulk_rejudge') return `submission-rejudge-job:${job.id}`;
@@ -591,7 +576,6 @@ async function cancelJob(req, res, expectedKind) {
   if (!await requireJobCapability(req, res, job)) return;
   if (TERMINAL_STATES.has(job.state)) return api().fail(res, 409, 'JOB_TERMINAL', 'The job has already finished.');
   const nextState = job.state === 'running' ? 'cancelling' : 'cancelled'; const connection = TypeORM.getConnection();
-  if (job.kind === 'vjudge_import') await connection.query('UPDATE vjudge_v2_import_job SET cancel_requested=1,state=?,stage=?,cancelled_at=CASE WHEN ?=\'cancelled\' THEN UTC_TIMESTAMP(3) ELSE cancelled_at END,updated_at=UTC_TIMESTAMP(3) WHERE id=?', [nextState, nextState, nextState, job.id]);
   if (job.kind === 'problem_testdata' || job.kind === 'problem_bulk_action') await connection.query('UPDATE problem_v2_job SET cancel_requested=1,state=?,updated_at=UTC_TIMESTAMP(3) WHERE id=?', [nextState, job.id]);
   if (['submission_rejudge', 'submission_projection_rebuild'].includes(job.kind)) await connection.query('UPDATE submission_v2_job SET cancel_requested=1,state=?,updated_at=UTC_TIMESTAMP(3) WHERE id=?', [nextState, job.id]);
   if (job.kind === 'submission_bulk_rejudge') {
@@ -622,11 +606,7 @@ app.post('/api/v2/admin/jobs/:id/retry', requireCapability('admin:job.manage', {
   if (job.kind === 'rating_recalculation' && job.state === 'completed' && job.stage === 'completed') return api().fail(res, 409, 'JOB_NOT_RETRYABLE', 'An applied Rating recalculation must be rolled back before it can be run again.');
   if (job.kind === 'submission_bulk_rejudge' && job.state === 'completed' && Number(job.progress.failed || 0) === 0) return api().fail(res, 409, 'JOB_NOT_RETRYABLE', 'A completed bulk rejudge without failures cannot be retried.');
   const connection = TypeORM.getConnection();
-  if (job.kind === 'vjudge_import') {
-    await connection.query("UPDATE vjudge_v2_import_item SET state='retrying',error_code=NULL,error_message=NULL,updated_at=UTC_TIMESTAMP(3) WHERE job_id=? AND state='failed' AND attempts<3", [job.id]);
-    await connection.query("UPDATE vjudge_v2_import_job SET state='queued',stage='retrying',cancel_requested=0,error_json=NULL,failures_json=NULL,updated_at=UTC_TIMESTAMP(3) WHERE id=?", [job.id]);
-    setImmediate(() => syzoj.utils.vjudgeV2.runImportJob(job.id));
-  } else if (job.kind === 'problem_testdata' || job.kind === 'problem_bulk_action') {
+  if (job.kind === 'problem_testdata' || job.kind === 'problem_bulk_action') {
     await connection.query("UPDATE problem_v2_job SET state='queued',progress=0,cancel_requested=0,result_json=NULL,error_json=NULL,updated_at=UTC_TIMESTAMP(3) WHERE id=?", [job.id]);
     setImmediate(() => syzoj.utils.problemWorkflowV2.run(job.id));
   } else if (['submission_rejudge', 'submission_projection_rebuild'].includes(job.kind)) {
@@ -812,7 +792,8 @@ app.patch('/api/v2/admin/users/:id', requireCapability('admin:user.manage'), asy
       const identity = identitySubmitted
         ? await syzoj.utils.registrationIdentityV2.saveProfileFields(manager, targetId, body, true)
         : syzoj.utils.registrationIdentityV2.profileResource(profileRows[0]);
-      const information = body.information == null ? String(target.information || '') : String(body.information).slice(0, 10000);
+      const information = body.information == null ? String(target.information || '') : String(body.information);
+      if (!validSignature(information)) throw managedUserError('VALIDATION_FAILED', '个性签名不能超过 50 个字符。', 422, { information: 'maximum length is 50' });
       const sex = normalizeSex(body.sex, normalizeSex(target.sex, '0') || '0');
       if (sex === null) throw managedUserError('VALIDATION_FAILED', 'Sex must be -1, 0, or 1.', 422, { sex: 'invalid' });
       const publicEmail = inputBoolean(body.public_email, !!target.public_email);

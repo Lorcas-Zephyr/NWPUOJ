@@ -1,6 +1,6 @@
 'use strict';
 
-const REQUIRED_ROLLOUT_DOMAINS = Object.freeze(['api', 'problem', 'submission', 'contest', 'rating', 'vjudge', 'content', 'admin']);
+const REQUIRED_ROLLOUT_DOMAINS = Object.freeze(['api', 'problem', 'submission', 'contest', 'rating', 'content', 'admin']);
 
 function normalizeRollouts(rows) {
   return (Array.isArray(rows) ? rows : []).map(row => ({

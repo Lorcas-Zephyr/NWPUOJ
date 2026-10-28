@@ -11,10 +11,10 @@
         <tbody>
           <% submissions.forEach(function (item) { const running = item.pending || ['Waiting', 'Judging', 'Compiling', 'Running', 'Unknown'].includes(item.status); %>
             <tr data-submission-id="<%= item.submission_id %>">
-              <td><a href="/submission/<%= item.submission_id %>">#<%= item.submission_id %></a></td>
+              <td><a href="/submission/<%= item.submission_id %>?problem_set=<%= problemSet.id %>">#<%= item.submission_id %></a></td>
               <td class="app-cell-primary"><a href="/problem-set/<%= problemSet.id %>/problem/<%= item.problem_ordinal %>"><%= item.problem_title %></a></td>
               <% if (canManageProblemSet) { %><td><%- syzoj.utils.renderUsername({ id: item.user_id, username: item.username }) %></td><% } %>
-              <td><% if (canManageProblemSet) { %><a class="app-status <%= running ? 'app-status-running' : item.status === 'Accepted' ? 'app-status-accepted' : 'app-status-muted' %>" href="/submission/<%= item.submission_id %>?problem_set=<%= problemSet.id %>" data-submission-status><%= running ? 'Running' : item.status %></a><% } else { %><span class="app-status <%= running ? 'app-status-running' : item.status === 'Accepted' ? 'app-status-accepted' : 'app-status-muted' %>" data-submission-status><%= running ? 'Running' : item.status %></span><% } %></td>
+              <td><% const displayStatus = item.status === 'Presentation Error' ? '格式错误' : (running ? 'Running' : item.status); %><% if (canManageProblemSet) { %><a class="app-status <%= running ? 'app-status-running' : item.status === 'Accepted' ? 'app-status-accepted' : item.status === 'Presentation Error' ? 'app-verdict app-verdict-format' : 'app-status-muted' %>" href="/submission/<%= item.submission_id %>?problem_set=<%= problemSet.id %>" data-submission-status><%= displayStatus %></a><% } else { %><span class="app-status <%= running ? 'app-status-running' : item.status === 'Accepted' ? 'app-status-accepted' : item.status === 'Presentation Error' ? 'app-verdict app-verdict-format' : 'app-status-muted' %>" data-submission-status><%= displayStatus %></span><% } %></td>
               <td><span data-submission-score><%= item.score == null ? '-' : Math.round(Number(item.score)) %></span></td>
               <td><% if (item.language_display) { %><strong><%= item.language_display %></strong><% } else { %>-<% } %></td>
               <td><%= syzoj.utils.formatDate(item.submitted_at) %></td>
@@ -40,15 +40,18 @@
     var value = String(status || '').toLowerCase();
     if (value === 'accepted') return 'app-status-accepted';
     if (value === 'waiting' || value === 'judging' || value === 'compiling' || value === 'running' || value.startsWith('running ')) return 'app-status-running';
+    if (value === 'presentation error' || value === '格式错误') return 'app-verdict app-verdict-format';
     return 'app-status-muted';
   }
+
+  function statusLabel(status) { return String(status || '') === 'Presentation Error' ? '格式错误' : status; }
 
   function applyStatus(update) {
     var row = document.querySelector('[data-submission-id="' + update.submissionId + '"]');
     if (!row) return;
     var label = update.pending ? 'Running' : (update.result && update.result.result) || 'Unknown';
     var status = row.querySelector('[data-submission-status]');
-    if (status) { status.textContent = label; status.className = 'app-status ' + statusClass(label); }
+    if (status) { status.textContent = statusLabel(label); status.className = 'app-status ' + statusClass(label); }
     var score = row.querySelector('[data-submission-score]');
     if (score && !update.pending) score.textContent = update.result && update.result.score != null ? Math.round(Number(update.result.score)) : '-';
     if (!update.pending) pendingTasks.delete(String(update.taskId));

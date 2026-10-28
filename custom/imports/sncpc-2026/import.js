@@ -18,7 +18,7 @@ const actorId = 1;
 const editableFields = [
   'title', 'description', 'input_format', 'output_format', 'example', 'limit_and_hint',
   'time_limit', 'python_time_limit_multiplier', 'memory_limit', 'file_io',
-  'file_io_input_name', 'file_io_output_name', 'type', 'vjudge_config'
+  'file_io_input_name', 'file_io_output_name', 'type'
 ];
 
 function orderedContent(source) {
@@ -106,12 +106,12 @@ async function main() {
         `INSERT INTO problem
           (title,user_id,publicizer_id,is_anonymous,description,input_format,output_format,example,limit_and_hint,
            time_limit,python_time_limit_multiplier,memory_limit,ac_num,submit_num,is_public,file_io,
-           file_io_input_name,file_io_output_name,publicize_time,type,vjudge_config)
-         VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, NULL, ?, ?)`,
+           file_io_input_name,file_io_output_name,publicize_time,type)
+         VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, NULL, ?)`,
         [content.title, actorId, metadata.is_anonymous ? 1 : 0, content.description, content.input_format,
           content.output_format, content.example, content.limit_and_hint, content.time_limit,
           content.python_time_limit_multiplier, content.memory_limit, content.file_io ? 1 : 0,
-          content.file_io_input_name, content.file_io_output_name, content.type, content.vjudge_config]
+          content.file_io_input_name, content.file_io_output_name, content.type]
       );
       const problemId = Number(result.insertId);
       const serialized = JSON.stringify(content);

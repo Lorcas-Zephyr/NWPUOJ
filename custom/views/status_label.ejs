@@ -2,6 +2,7 @@
 const iconList = {
   'Accepted': 'checkmark', 'Wrong Answer': 'remove', 'Runtime Error': 'bomb',
   'Invalid Interaction': 'ban', 'Time Limit Exceeded': 'clock',
+  'Presentation Error': 'warning sign',
   'Memory Limit Exceeded': 'microchip', 'Output Limit Exceeded': 'print',
   'File Error': 'file outline', 'Waiting': 'hourglass half', 'Pending': 'hourglass half',
   'Running': 'spinner', 'Compiling': 'spinner', 'Judging': 'spinner',
@@ -15,6 +16,7 @@ Vue.component('status-label', {
   props: ['status', 'indetail', 'progress'],
   computed: {
     normalizedStatus() { return String(this.status || 'Unknown').startsWith('Running') ? 'Running' : String(this.status || 'Unknown'); },
+    displayStatus() { return this.normalizedStatus === 'Presentation Error' ? '格式错误' : this.normalizedStatus; },
     icon() { return iconList[this.normalizedStatus] || 'question circle'; },
     colorClass() { return (this.indetail ? 'status_detail ' : '') + this.normalizedStatus.toLowerCase().split(' ').join('_'); },
     semanticClass() { return 'nwpuoj-judge-status'; },
@@ -34,6 +36,6 @@ Vue.component('status-label', {
     <template v-if="['Running', 'Waiting'].includes(normalizedStatus) && getProgress && getProgress.total">
       <span style="text-align: left; display: inline-block; width: 58px;">{{ normalizedStatus }}</span>{{ getProgress.finished }}/{{ getProgress.total }}
     </template>
-    <template v-else>{{ normalizedStatus }}</template>
+    <template v-else>{{ displayStatus }}</template>
   </span>
 </script>

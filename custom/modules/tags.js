@@ -1,23 +1,19 @@
-let ProblemTag = syzoj.model('problem_tag');
-let ProblemTagMap = syzoj.model('problem_tag_map');
 const TypeORM = require('typeorm');
 
 // 标签列表页：展示所有标签 + 每个标签下的题目数
 app.get('/tags', async (req, res) => {
   try {
-    // 取出所有标签
-    let tags = await ProblemTag.find({});
     if (syzoj.utils.problemWorkflowV2) await syzoj.utils.problemWorkflowV2.ensureSchema();
-    const categoryRows = await TypeORM.getConnection().query('SELECT id,category FROM problem_tag');
-    const categories = new Map(categoryRows.map(row => [Number(row.id), row.category]));
-
-    // 为每个标签查询关联的题目数量
-    // 注意：这里只统计了 problem_tag_map 中的关联数，
-    // 不区分 public/private，简单实现先这样
-    for (let tag of tags) {
-      tag.problemCount = await ProblemTagMap.count({ tag_id: tag.id });
-      tag.category = categories.get(Number(tag.id)) || null;
-    }
+    // One aggregate query instead of one count query per tag. Preserve the
+    // existing association-count semantics and include unused catalog tags.
+    const rows = await TypeORM.getConnection().query(`
+      SELECT tag.id,tag.name,tag.color,tag.category,COUNT(map.problem_id) AS problem_count
+      FROM problem_tag tag LEFT JOIN problem_tag_map map ON map.tag_id=tag.id
+      GROUP BY tag.id,tag.name,tag.color,tag.category`);
+    const tags = rows.map(row => ({
+      id: Number(row.id), name: row.name, color: row.color,
+      category: row.category || null, problemCount: Number(row.problem_count || 0)
+    }));
 
     // 按类型和名字排序，让同类标签保持稳定顺序。
     tags.sort((a, b) => {

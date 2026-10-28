@@ -2,7 +2,7 @@
 
 NWPUOJ 是面向高校程序设计教学、训练和竞赛的在线评测与社区平台。项目以 SYZOJ 作为底层 Web、数据模型和 Judge 协议框架，在其上提供现代化题库、比赛、评测、管理和社区能力。
 
-当前发行版：**v2.1.0**
+当前发行版：**v2.2.0**
 
 > 项目沿革：NWPUOJ 由 AlgoBeat Online Judge 现有代码与功能继续改版而来。自 NWPUOJ 起重新采用独立版本序列，并保留 SYZOJ 作为后台框架及相关技术标识。
 
@@ -11,12 +11,16 @@ NWPUOJ 是面向高校程序设计教学、训练和竞赛的在线评测与社�
 详细文档：[使用手册](docs/USER_GUIDE.md) · [部署与维护手册](docs/MAINTENANCE.md) ·
 [发布与回滚](RELEASE.md) · [v2 兼容性边界](COMPATIBILITY.md)
 
+v2.2.0 新增 [基地工作区](docs/base-workspace.md)、[周赛总榜](docs/weekly-ranklist.md)、
+[比赛代码查重](docs/contest-plagiarism.md) 和 [Vditor 编辑器](docs/vditor-integration.md)。
+完整变更及升级注意事项见 [CHANGELOG.md](CHANGELOG.md)。
+
 ## 系统能力
 
 ### 在线评测
 
 - 支持 C、C++、Java、Python、Node.js、Pascal、C#、Ruby、Haskell 等已启用语言。
-- 支持传统题、文件输入输出、交互题、提交答案题和 VJudge 题型。
+- 支持传统题、文件输入输出、交互题、提交答案题题型。
 - Judge Daemon 与 Runner 通过 RabbitMQ 分发任务，Redis 保存编译缓存。
 - 默认生产配置为 16 个 Judge Daemon 和 16 个 Judge Runner。
 - 提交状态采用事件驱动更新，不进行固定 2/3 秒轮询。
@@ -26,21 +30,13 @@ NWPUOJ 是面向高校程序设计教学、训练和竞赛的在线评测与社�
 
 ### 题库
 
-- 题库分为全部题库、主题库、UOJ、HDU 和 POJ。
+- 题库使用本地评测，支持主题库与独立的基地题库；VJudge 远程评测已移除。
 - 支持题号、标题、做题状态、来源和标签筛选。
 - 标签支持搜索、多选和交集筛选，并按来源、算法、类型和难度分组。
 - 题目列表将标签放在题目名称右侧、通过数量左侧。
 - 支持 Markdown 题面、TeX 公式、样例、提示和本地测试数据。
 - 添加题目直接进入统一 Markdown 编辑器；列表支持受审计的批量公开、隐藏、归档和删除。
 - 超级管理员可以批量删除当前页题目，被比赛引用的题目会阻止删除。
-
-### VJudge
-
-- UOJ：登录检测、题面导入、批量导入、远程提交、子任务和测试点结果同步。
-- HDU：GB18030 题面转换、批量导入、Tesseract 本地验证码识别和远程评测。
-- POJ：题面导入、批量导入、远程提交和重启续判。
-- 外部题目使用独立展示编号，并自动添加来源标签。
-- 比赛中的 VJudge 默认关闭，必须明确确认源码可见性和上游账号风险后启用。
 
 ### 比赛
 
@@ -74,7 +70,7 @@ NWPUOJ 是面向高校程序设计教学、训练和竞赛的在线评测与社�
 
 | 服务 | 作用 | 持久化 |
 | --- | --- | --- |
-| `web` | SYZOJ Web 与 NWPUOJ 定制模块 | `nwpuoj_config`、`nwpuoj_uploads` |
+| `web` | SYZOJ Web 与 NWPUOJ 定制模块 | `nwpuoj_config`、`nwpuoj_uploads`、`nwpuoj_web_sessions` |
 | `mariadb` | 用户、题目、比赛、提交和社区数据 | `nwpuoj_database` |
 | `redis` | Judge 编译缓存 | 无持久化要求 |
 | `rabbitmq` | Judge 任务队列 | 当前配置不承诺持久化 |
@@ -212,6 +208,11 @@ docker compose restart web
 docker compose up -d --force-recreate web
 ```
 
+登录会话保存在命名卷 `nwpuoj_web_sessions` 中；重启、重建 Web 或重启服务器后，未过期的
+登录仍然有效。普通登录有效期为最近活动起 12 小时，勾选“记住我”为 30 天。保留卷和
+`SYZOJ_WEB_SECRET_SESSION`，不要删除会话卷或用旧备份覆盖它；注销、会话吊销和到期仍会生效。
+从旧版 tmpfs 首次升级时，须在停止 Web 前迁移 `/app/sessions`，否则现有用户需要重新登录。
+
 ## HTTPS 部署
 
 生产环境应将 Web 仅绑定到回环地址，并由 Nginx 终止 TLS。
@@ -238,31 +239,6 @@ systemctl reload nginx
 ```
 
 详细说明见 [deploy/README.md](deploy/README.md)。
-
-## VJudge 配置
-
-建议为每个平台使用独立普通账号，不要使用个人主账号。
-
-```env
-SYZOJ_WEB_UOJ_ENDPOINT=https://uoj.ac
-SYZOJ_WEB_UOJ_USERNAME=
-SYZOJ_WEB_UOJ_PASSWORD=
-SYZOJ_WEB_UOJ_ALLOW_CONTESTS=false
-
-SYZOJ_WEB_HDU_ENDPOINT=https://acm.hdu.edu.cn
-SYZOJ_WEB_HDU_USERNAME=
-SYZOJ_WEB_HDU_PASSWORD=
-SYZOJ_WEB_HDU_ALLOW_CONTESTS=false
-
-SYZOJ_WEB_POJ_ENDPOINT=http://poj.org
-SYZOJ_WEB_POJ_USERNAME=
-SYZOJ_WEB_POJ_PASSWORD=
-SYZOJ_WEB_POJ_ALLOW_CONTESTS=false
-```
-
-注意：POJ 当前只提供 HTTP，上游登录凭据和提交源码会明文传输。UOJ、HDU、POJ 的页面协议不是稳定公开 API，上游改版后可能需要同步更新 provider。
-
-VJudge 导入和提交队列位于单个 Web 进程内。启用 VJudge 时不要直接扩展为多个 Web 副本。
 
 ## 从旧 Compose 项目迁移
 
@@ -377,7 +353,7 @@ docker compose exec mariadb mariadb -uroot syzoj
 
 ## 版本与发布
 
-NWPUOJ 使用独立语义化版本。当前发行版为 `v2.1.0`。
+NWPUOJ 使用独立语义化版本。当前发行版为 `v2.2.0`。
 
 版本号同时保存在：
 
@@ -391,7 +367,8 @@ NWPUOJ 使用独立语义化版本。当前发行版为 `v2.1.0`。
 
 ```bash
 node custom/tests/version_consistency.test.js
-git tag -a v2.1.0 -m "NWPUOJ v2.1.0"
+git tag -a v2.2.0 -m "NWPUOJ v2.2.0"
+git push --atomic origin main v2.2.0
 ```
 
 发布检查和回滚流程见 [RELEASE.md](RELEASE.md)，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
@@ -403,7 +380,7 @@ git tag -a v2.1.0 -m "NWPUOJ v2.1.0"
 .
 ├── VERSION                         # NWPUOJ 发行版本
 ├── docker-compose.yml              # Web、数据库、缓存、队列和 Judge
-├── env-app.example                 # 密钥、SMTP 和 VJudge 配置模板
+├── env-app.example                 # 密钥和 SMTP 配置模板
 ├── deploy/                         # HTTPS 反向代理示例
 ├── docs/                           # 用户使用与生产维护手册
 ├── custom/
@@ -414,7 +391,7 @@ git tag -a v2.1.0 -m "NWPUOJ v2.1.0"
 │   ├── models/                     # TypeORM 模型声明
 │   ├── models-built/               # 运行时模型 JavaScript
 │   ├── libs/                       # 业务库
-│   ├── libs-built/                 # Judge 与 VJudge 运行时代码
+│   ├── libs-built/                 # 本地评测运行时代码
 │   ├── content/                    # 默认帮助内容
 │   ├── tests/                      # 单元、协议和负载测试
 │   ├── static-libs/                # 本地化浏览器依赖

@@ -214,7 +214,7 @@ async function validateProblems(problemIds, user) {
   for (const id of problemIds) {
     const problem = byId.get(id);
     if (!problem) throw Object.assign(new Error(`题目 #${id} 不存在。`), { field: 'problem_ids' });
-    if (String(problem.type || '').startsWith('vjudge:')) throw Object.assign(new Error(`题目 #${id} 是 VJudge 题，暂不能加入题单。`), { field: 'problem_ids' });
+    if (syzoj.utils.baseWorkspace && await syzoj.utils.baseWorkspace.contains('problem', id)) throw Object.assign(new Error('基地题目不能加入普通题单。'), { field: 'problem_ids' });
     if (!problem.is_public && !classGroups.isUnrestricted(user) && Number(problem.user_id) !== Number(user.id)) throw Object.assign(new Error(`您没有使用题目 #${id} 的权限。`), { field: 'problem_ids' });
   }
 }
@@ -267,19 +267,39 @@ app.get('/problem-sets', async (req, res) => {
     await ensureSchema();
     const userId = Number(res.locals.user && res.locals.user.id || 0);
     const unrestricted = classGroups.isUnrestricted(res.locals.user);
-    const rows = await TypeORM.getConnection().query(
-      `SELECT set_table.*,owner.username AS owner_username,
-              COUNT(DISTINCT item.id) AS problem_count,COUNT(DISTINCT participant.user_id) AS participant_count,
-              MAX(self_participant.user_id IS NOT NULL) AS registered
-         FROM problem_set set_table INNER JOIN user owner ON owner.id=set_table.owner_id
-         LEFT JOIN problem_set_item item ON item.problem_set_id=set_table.id
-         LEFT JOIN problem_set_participant participant ON participant.problem_set_id=set_table.id
-         LEFT JOIN problem_set_participant self_participant ON self_participant.problem_set_id=set_table.id AND self_participant.user_id=?
-        WHERE set_table.status<>'archived' AND (set_table.status='published' AND set_table.visibility='public' OR set_table.owner_id=? OR ?=1 OR self_participant.user_id IS NOT NULL)
-        GROUP BY set_table.id ORDER BY set_table.updated_at DESC,set_table.id DESC`, [userId, userId, unrestricted ? 1 : 0]
-    );
+    const problemSetListFilters = {
+      state: ['open', 'ended'].includes(req.query.state) ? req.query.state : 'all',
+      mine: !!userId && req.query.mine === '1',
+      participating: !!userId && req.query.participating === '1'
+    };
+    const params = [userId, userId, unrestricted ? 1 : 0];
+    let fromWhere = `FROM problem_set set_table INNER JOIN user owner ON owner.id=set_table.owner_id
+      LEFT JOIN problem_set_participant self_participant ON self_participant.problem_set_id=set_table.id AND self_participant.user_id=?
+      WHERE set_table.status<>'archived' AND (set_table.status='published' AND set_table.visibility='public' OR set_table.owner_id=? OR ?=1 OR self_participant.user_id IS NOT NULL)`;
+    if (problemSetListFilters.mine) { fromWhere += ' AND set_table.owner_id=?'; params.push(userId); }
+    if (problemSetListFilters.participating) fromWhere += ' AND self_participant.user_id IS NOT NULL';
+    const now = syzoj.utils.getCurrentDate();
+    const db = TypeORM.getConnection();
+    const countRows = await db.query(`SELECT COUNT(*) AS total,
+      COALESCE(SUM(set_table.deadline_at IS NOT NULL AND set_table.deadline_at>0 AND set_table.deadline_at<=?),0) AS ended ${fromWhere}`, [now].concat(params));
+    const problemSetListCounts = { all: Number(countRows[0].total), ended: Number(countRows[0].ended) };
+    problemSetListCounts.open = problemSetListCounts.all - problemSetListCounts.ended;
+    if (problemSetListFilters.state === 'ended') {
+      fromWhere += ' AND set_table.deadline_at IS NOT NULL AND set_table.deadline_at>0 AND set_table.deadline_at<=?'; params.push(now);
+    } else if (problemSetListFilters.state === 'open') {
+      fromWhere += ' AND (set_table.deadline_at IS NULL OR set_table.deadline_at=0 OR set_table.deadline_at>?)'; params.push(now);
+    }
+    const problemSetListTotal = problemSetListCounts[problemSetListFilters.state];
+    const perPage = syzoj.config.page.problem_set || syzoj.config.page.contest;
+    const paginate = syzoj.utils.paginate(problemSetListTotal, req.query.page, perPage);
+    const rows = await db.query(`SELECT set_table.*,owner.username AS owner_username,
+      (SELECT COUNT(*) FROM problem_set_item item WHERE item.problem_set_id=set_table.id) AS problem_count,
+      (SELECT COUNT(*) FROM problem_set_participant participant WHERE participant.problem_set_id=set_table.id) AS participant_count,
+      (self_participant.user_id IS NOT NULL) AS registered
+      ${fromWhere} ORDER BY set_table.updated_at DESC,set_table.id DESC LIMIT ? OFFSET ?`,
+    params.concat(perPage, Math.max(0, paginate.currPage - 1) * perPage));
     const canCreate = !!(res.locals.user && await syzoj.utils.authorizationV2.authorize(res.locals.user, 'problemset:create', null, { scope: 'global' }));
-    res.render('problem_sets', { problemSets: rows, canCreateProblemSet: canCreate });
+    res.render('problem_sets', { problemSets: rows, canCreateProblemSet: canCreate, paginate, problemSetListFilters, problemSetListCounts, problemSetListTotal });
   } catch (error) { res.status(error.statusCode || 500).render('error', { err: error }); }
 });
 
@@ -335,7 +355,7 @@ async function renderProblemSetProblem(req, res, submit) {
   await problem.loadRelationships();
   const testcases = await renderProblemPresentation(problem);
   const [state, lastLanguage] = await Promise.all([problem.getJudgeState(res.locals.user, false), res.locals.user ? res.locals.user.getLastSubmitLanguage() : null]);
-  const options = { pid: ordinal, contest: null, problemSet, problemSetCanParticipate: access.canParticipate, problem, state, lastLanguage, testcases, languages: problem.getVJudgeLanguages() };
+  const options = { pid: ordinal, contest: null, problemSet, problemSetCanParticipate: access.canParticipate, problem, state, lastLanguage, testcases, languages: null };
   if (submit) options.problemContext = { problem, section: 'submit', testcases, contest: null, problemSet, problemSetProblemId: ordinal, problemSetCanParticipate: access.canParticipate };
   res.render(submit ? 'problem_submit' : 'problem', options);
 }

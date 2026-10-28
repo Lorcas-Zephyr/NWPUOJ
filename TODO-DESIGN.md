@@ -1,3 +1,5 @@
+> 2026-10-27：远程题库与远程评测已退役；下列 VJudge 完成项仅为历史记录，不再属于现有功能。
+
 # NWPUOJ 2.0 Design Implementation TODO
 
 Source of truth: [DESIGN.md](./DESIGN.md)

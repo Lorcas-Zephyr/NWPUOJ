@@ -1,0 +1,1318 @@
+{
+  "source": "https://www.luogu.com.cn/_lfe/tags",
+  "retrieved_at": "2026-09-30",
+  "source_type": 2,
+  "description": "洛谷公开算法标签快照；仅导入算法，不导入赛事、年份、难度或地区。",
+  "tags": [
+    {
+      "id": -2,
+      "name": "语言入门",
+      "parent": null
+    },
+    {
+      "id": 1,
+      "name": "模拟",
+      "parent": 110
+    },
+    {
+      "id": 2,
+      "name": "字符串",
+      "parent": null
+    },
+    {
+      "id": 3,
+      "name": "动态规划 DP",
+      "parent": null
+    },
+    {
+      "id": 4,
+      "name": "搜索",
+      "parent": null
+    },
+    {
+      "id": 5,
+      "name": "数学",
+      "parent": null
+    },
+    {
+      "id": 6,
+      "name": "图论",
+      "parent": null
+    },
+    {
+      "id": 7,
+      "name": "贪心",
+      "parent": 110
+    },
+    {
+      "id": 8,
+      "name": "计算几何",
+      "parent": null
+    },
+    {
+      "id": 9,
+      "name": "暴力数据结构",
+      "parent": 308
+    },
+    {
+      "id": 10,
+      "name": "高精度",
+      "parent": 308
+    },
+    {
+      "id": 11,
+      "name": "树形数据结构",
+      "parent": null
+    },
+    {
+      "id": 12,
+      "name": "递推",
+      "parent": 110
+    },
+    {
+      "id": 13,
+      "name": "博弈论",
+      "parent": null
+    },
+    {
+      "id": 41,
+      "name": "莫队",
+      "parent": 308
+    },
+    {
+      "id": 42,
+      "name": "线段树",
+      "parent": 11
+    },
+    {
+      "id": 43,
+      "name": "倍增",
+      "parent": 110
+    },
+    {
+      "id": 44,
+      "name": "线性数据结构",
+      "parent": null
+    },
+    {
+      "id": 45,
+      "name": "二分",
+      "parent": 110
+    },
+    {
+      "id": 47,
+      "name": "并查集",
+      "parent": 11
+    },
+    {
+      "id": 49,
+      "name": "点分治",
+      "parent": 230
+    },
+    {
+      "id": 50,
+      "name": "平衡树",
+      "parent": 11
+    },
+    {
+      "id": 51,
+      "name": "堆",
+      "parent": 11
+    },
+    {
+      "id": 53,
+      "name": "树状数组",
+      "parent": 11
+    },
+    {
+      "id": 54,
+      "name": "递归",
+      "parent": 110
+    },
+    {
+      "id": 55,
+      "name": "树上启发式合并",
+      "parent": 230
+    },
+    {
+      "id": 56,
+      "name": "单调队列",
+      "parent": 44
+    },
+    {
+      "id": 63,
+      "name": "LGV 引理",
+      "parent": 271
+    },
+    {
+      "id": 64,
+      "name": "矩阵树定理",
+      "parent": 271
+    },
+    {
+      "id": 65,
+      "name": "颜色段均摊（珂朵莉树 ODT）",
+      "parent": 44
+    },
+    {
+      "id": 66,
+      "name": "原根",
+      "parent": 72
+    },
+    {
+      "id": 67,
+      "name": "三分",
+      "parent": 308
+    },
+    {
+      "id": 68,
+      "name": "Kruskal 重构树",
+      "parent": 6
+    },
+    {
+      "id": 69,
+      "name": "多项式",
+      "parent": null
+    },
+    {
+      "id": 71,
+      "name": "矩阵运算",
+      "parent": 271
+    },
+    {
+      "id": 72,
+      "name": "数论",
+      "parent": null
+    },
+    {
+      "id": 78,
+      "name": "离散化",
+      "parent": 308
+    },
+    {
+      "id": 79,
+      "name": "网络流",
+      "parent": 6
+    },
+    {
+      "id": 100,
+      "name": "cdq 分治",
+      "parent": 11
+    },
+    {
+      "id": 101,
+      "name": "后缀自动机 SAM",
+      "parent": 2
+    },
+    {
+      "id": 110,
+      "name": "﻿基础算法",
+      "parent": null
+    },
+    {
+      "id": 111,
+      "name": "枚举",
+      "parent": 110
+    },
+    {
+      "id": 112,
+      "name": "分治",
+      "parent": 110
+    },
+    {
+      "id": 113,
+      "name": "排序",
+      "parent": 110
+    },
+    {
+      "id": 122,
+      "name": "信息论",
+      "parent": 5
+    },
+    {
+      "id": 126,
+      "name": "广度优先搜索 BFS",
+      "parent": 4
+    },
+    {
+      "id": 127,
+      "name": "深度优先搜索 DFS",
+      "parent": 4
+    },
+    {
+      "id": 128,
+      "name": "剪枝",
+      "parent": 4
+    },
+    {
+      "id": 129,
+      "name": "记忆化搜索",
+      "parent": 4
+    },
+    {
+      "id": 130,
+      "name": "启发式搜索",
+      "parent": 4
+    },
+    {
+      "id": 131,
+      "name": "迭代加深搜索",
+      "parent": 4
+    },
+    {
+      "id": 132,
+      "name": "启发式迭代加深搜索 IDA*",
+      "parent": 4
+    },
+    {
+      "id": 133,
+      "name": "Dancing Links",
+      "parent": 4
+    },
+    {
+      "id": 134,
+      "name": "爬山算法 Local search",
+      "parent": 4
+    },
+    {
+      "id": 135,
+      "name": "模拟退火",
+      "parent": 4
+    },
+    {
+      "id": 136,
+      "name": "随机调整",
+      "parent": 4
+    },
+    {
+      "id": 137,
+      "name": "遗传算法",
+      "parent": 4
+    },
+    {
+      "id": 139,
+      "name": "背包 DP",
+      "parent": 3
+    },
+    {
+      "id": 141,
+      "name": "数位 DP",
+      "parent": 3
+    },
+    {
+      "id": 144,
+      "name": "区间 DP",
+      "parent": 3
+    },
+    {
+      "id": 146,
+      "name": "动态规划优化",
+      "parent": null
+    },
+    {
+      "id": 148,
+      "name": "优先队列",
+      "parent": 146
+    },
+    {
+      "id": 149,
+      "name": "矩阵加速",
+      "parent": 146
+    },
+    {
+      "id": 150,
+      "name": "斜率优化",
+      "parent": 146
+    },
+    {
+      "id": 151,
+      "name": "状态合并",
+      "parent": 146
+    },
+    {
+      "id": 152,
+      "name": "树形 DP",
+      "parent": 3
+    },
+    {
+      "id": 153,
+      "name": "凸完全单调性（wqs 二分）",
+      "parent": 146
+    },
+    {
+      "id": 154,
+      "name": "四边形不等式",
+      "parent": 146
+    },
+    {
+      "id": 155,
+      "name": "图论建模",
+      "parent": 6
+    },
+    {
+      "id": 158,
+      "name": "图遍历",
+      "parent": 6
+    },
+    {
+      "id": 159,
+      "name": "拓扑排序",
+      "parent": 6
+    },
+    {
+      "id": 160,
+      "name": "最短路",
+      "parent": 6
+    },
+    {
+      "id": 166,
+      "name": "生成树",
+      "parent": 6
+    },
+    {
+      "id": 172,
+      "name": "平面图",
+      "parent": 6
+    },
+    {
+      "id": 173,
+      "name": "最小环",
+      "parent": 6
+    },
+    {
+      "id": 174,
+      "name": "负权环",
+      "parent": 6
+    },
+    {
+      "id": 175,
+      "name": "连通块",
+      "parent": 6
+    },
+    {
+      "id": 176,
+      "name": "2-SAT",
+      "parent": 6
+    },
+    {
+      "id": 177,
+      "name": "平面图欧拉公式",
+      "parent": 6
+    },
+    {
+      "id": 179,
+      "name": "强连通分量",
+      "parent": 6
+    },
+    {
+      "id": 180,
+      "name": "Tarjan",
+      "parent": 6
+    },
+    {
+      "id": 181,
+      "name": "双连通分量",
+      "parent": 6
+    },
+    {
+      "id": 182,
+      "name": "欧拉回路",
+      "parent": 6
+    },
+    {
+      "id": 185,
+      "name": "差分约束",
+      "parent": 6
+    },
+    {
+      "id": 186,
+      "name": "仙人掌",
+      "parent": 6
+    },
+    {
+      "id": 187,
+      "name": "二分图",
+      "parent": 6
+    },
+    {
+      "id": 189,
+      "name": "一般图的最大匹配",
+      "parent": 6
+    },
+    {
+      "id": 197,
+      "name": "上下界网络流",
+      "parent": 6
+    },
+    {
+      "id": 198,
+      "name": "最小割",
+      "parent": 6
+    },
+    {
+      "id": 202,
+      "name": "分数规划",
+      "parent": 467
+    },
+    {
+      "id": 204,
+      "name": "费用流",
+      "parent": 6
+    },
+    {
+      "id": 208,
+      "name": "树的遍历",
+      "parent": 230
+    },
+    {
+      "id": 211,
+      "name": "最近公共祖先 LCA",
+      "parent": 230
+    },
+    {
+      "id": 213,
+      "name": "树的直径",
+      "parent": 230
+    },
+    {
+      "id": 214,
+      "name": "霍夫曼树",
+      "parent": 308
+    },
+    {
+      "id": 215,
+      "name": "可并堆",
+      "parent": 11
+    },
+    {
+      "id": 228,
+      "name": "树链剖分",
+      "parent": 230
+    },
+    {
+      "id": 229,
+      "name": "动态树 LCT",
+      "parent": 11
+    },
+    {
+      "id": 230,
+      "name": "树论",
+      "parent": null
+    },
+    {
+      "id": 232,
+      "name": "树套树",
+      "parent": 11
+    },
+    {
+      "id": 233,
+      "name": "可持久化线段树",
+      "parent": 11
+    },
+    {
+      "id": 234,
+      "name": "可持久化",
+      "parent": 11
+    },
+    {
+      "id": 235,
+      "name": "哈希 hashing",
+      "parent": 308
+    },
+    {
+      "id": 239,
+      "name": "素数判断",
+      "parent": 72
+    },
+    {
+      "id": 241,
+      "name": "最大公约数 gcd",
+      "parent": 72
+    },
+    {
+      "id": 242,
+      "name": "扩展欧几里德算法",
+      "parent": 72
+    },
+    {
+      "id": 243,
+      "name": "不定方程",
+      "parent": 72
+    },
+    {
+      "id": 244,
+      "name": "进制",
+      "parent": 72
+    },
+    {
+      "id": 246,
+      "name": "群论",
+      "parent": null
+    },
+    {
+      "id": 247,
+      "name": "置换",
+      "parent": 246
+    },
+    {
+      "id": 248,
+      "name": "Pólya 定理",
+      "parent": 246
+    },
+    {
+      "id": 249,
+      "name": "虚树",
+      "parent": 230
+    },
+    {
+      "id": 250,
+      "name": "中国剩余定理 CRT",
+      "parent": 72
+    },
+    {
+      "id": 251,
+      "name": "莫比乌斯反演",
+      "parent": 72
+    },
+    {
+      "id": 252,
+      "name": "组合数学",
+      "parent": null
+    },
+    {
+      "id": 253,
+      "name": "排列组合",
+      "parent": 252
+    },
+    {
+      "id": 254,
+      "name": "前缀和",
+      "parent": 44
+    },
+    {
+      "id": 255,
+      "name": "二项式定理",
+      "parent": 252
+    },
+    {
+      "id": 256,
+      "name": "康托展开",
+      "parent": 252
+    },
+    {
+      "id": 258,
+      "name": "鸽笼原理",
+      "parent": 252
+    },
+    {
+      "id": 259,
+      "name": "容斥原理",
+      "parent": 252
+    },
+    {
+      "id": 260,
+      "name": "Fibonacci 数列",
+      "parent": 252
+    },
+    {
+      "id": 261,
+      "name": "Catalan 数",
+      "parent": 252
+    },
+    {
+      "id": 262,
+      "name": "Stirling 数",
+      "parent": 252
+    },
+    {
+      "id": 263,
+      "name": "A*  算法",
+      "parent": 4
+    },
+    {
+      "id": 264,
+      "name": "生成函数",
+      "parent": 252
+    },
+    {
+      "id": 265,
+      "name": "线性规划",
+      "parent": 467
+    },
+    {
+      "id": 266,
+      "name": "概率论",
+      "parent": null
+    },
+    {
+      "id": 270,
+      "name": "期望",
+      "parent": 266
+    },
+    {
+      "id": 271,
+      "name": "线性代数",
+      "parent": null
+    },
+    {
+      "id": 272,
+      "name": "矩阵乘法",
+      "parent": 271
+    },
+    {
+      "id": 273,
+      "name": "线性递推",
+      "parent": 271
+    },
+    {
+      "id": 274,
+      "name": "高斯消元",
+      "parent": 271
+    },
+    {
+      "id": 276,
+      "name": "逆元",
+      "parent": 72
+    },
+    {
+      "id": 277,
+      "name": "线性基",
+      "parent": 271
+    },
+    {
+      "id": 278,
+      "name": "微积分",
+      "parent": null
+    },
+    {
+      "id": 280,
+      "name": "导数",
+      "parent": 278
+    },
+    {
+      "id": 281,
+      "name": "积分",
+      "parent": 278
+    },
+    {
+      "id": 282,
+      "name": "定积分",
+      "parent": 278
+    },
+    {
+      "id": 283,
+      "name": "三维计算几何",
+      "parent": 8
+    },
+    {
+      "id": 284,
+      "name": "级数",
+      "parent": 278
+    },
+    {
+      "id": 286,
+      "name": "向量",
+      "parent": 8
+    },
+    {
+      "id": 287,
+      "name": "栈",
+      "parent": 44
+    },
+    {
+      "id": 288,
+      "name": "队列",
+      "parent": 44
+    },
+    {
+      "id": 289,
+      "name": "分块",
+      "parent": 44
+    },
+    {
+      "id": 290,
+      "name": "ST 表",
+      "parent": 44
+    },
+    {
+      "id": 291,
+      "name": "凸包",
+      "parent": 8
+    },
+    {
+      "id": 292,
+      "name": "叉积",
+      "parent": 8
+    },
+    {
+      "id": 293,
+      "name": "线段相交",
+      "parent": 8
+    },
+    {
+      "id": 295,
+      "name": "半平面交",
+      "parent": 8
+    },
+    {
+      "id": 298,
+      "name": "扫描线",
+      "parent": 308
+    },
+    {
+      "id": 299,
+      "name": "旋转卡壳",
+      "parent": 8
+    },
+    {
+      "id": 300,
+      "name": "字典树 Trie",
+      "parent": 2
+    },
+    {
+      "id": 301,
+      "name": "AC 自动机",
+      "parent": 2
+    },
+    {
+      "id": 302,
+      "name": "KMP 算法",
+      "parent": 2
+    },
+    {
+      "id": 303,
+      "name": "后缀数组 SA",
+      "parent": 2
+    },
+    {
+      "id": 304,
+      "name": "后缀树",
+      "parent": 2
+    },
+    {
+      "id": 305,
+      "name": "有限状态自动机",
+      "parent": 2
+    },
+    {
+      "id": 308,
+      "name": "其它技巧",
+      "parent": null
+    },
+    {
+      "id": 309,
+      "name": "随机化",
+      "parent": 308
+    },
+    {
+      "id": 311,
+      "name": "博弈树",
+      "parent": 13
+    },
+    {
+      "id": 313,
+      "name": "快速傅里叶变换 FFT",
+      "parent": 69
+    },
+    {
+      "id": 314,
+      "name": "位运算",
+      "parent": 308
+    },
+    {
+      "id": 316,
+      "name": "整体二分",
+      "parent": 11
+    },
+    {
+      "id": 318,
+      "name": "构造",
+      "parent": 308
+    },
+    {
+      "id": 320,
+      "name": "基环树",
+      "parent": 230
+    },
+    {
+      "id": 321,
+      "name": "K-D Tree",
+      "parent": 11
+    },
+    {
+      "id": 322,
+      "name": "Lucas 定理",
+      "parent": 72
+    },
+    {
+      "id": 323,
+      "name": "轮廓线 DP",
+      "parent": 3
+    },
+    {
+      "id": 324,
+      "name": "快速数论变换 NTT",
+      "parent": 69
+    },
+    {
+      "id": 325,
+      "name": "回文自动机 PAM",
+      "parent": 2
+    },
+    {
+      "id": 326,
+      "name": "快速沃尔什变换 FWT",
+      "parent": 69
+    },
+    {
+      "id": 327,
+      "name": "快速莫比乌斯变换 FMT",
+      "parent": 69
+    },
+    {
+      "id": 329,
+      "name": "Manacher 算法",
+      "parent": 2
+    },
+    {
+      "id": 330,
+      "name": "差分",
+      "parent": 44
+    },
+    {
+      "id": 345,
+      "name": "双指针 two-pointer",
+      "parent": 308
+    },
+    {
+      "id": 350,
+      "name": "圆方树",
+      "parent": 6
+    },
+    {
+      "id": 353,
+      "name": "顺序结构",
+      "parent": -2
+    },
+    {
+      "id": 354,
+      "name": "分支结构",
+      "parent": -2
+    },
+    {
+      "id": 355,
+      "name": "循环结构",
+      "parent": -2
+    },
+    {
+      "id": 356,
+      "name": "数组",
+      "parent": -2
+    },
+    {
+      "id": 357,
+      "name": "字符串（入门）",
+      "parent": -2
+    },
+    {
+      "id": 358,
+      "name": "结构体",
+      "parent": -2
+    },
+    {
+      "id": 359,
+      "name": "函数与递归",
+      "parent": -2
+    },
+    {
+      "id": 360,
+      "name": "链表",
+      "parent": 44
+    },
+    {
+      "id": 364,
+      "name": "Dilworth 定理",
+      "parent": 252
+    },
+    {
+      "id": 365,
+      "name": "Ad-hoc",
+      "parent": 308
+    },
+    {
+      "id": 368,
+      "name": "笛卡尔树",
+      "parent": 308
+    },
+    {
+      "id": 369,
+      "name": "拟阵",
+      "parent": 467
+    },
+    {
+      "id": 370,
+      "name": "Nim 积",
+      "parent": 13
+    },
+    {
+      "id": 371,
+      "name": "根号分治",
+      "parent": 308
+    },
+    {
+      "id": 372,
+      "name": "拉格朗日反演",
+      "parent": 252
+    },
+    {
+      "id": 373,
+      "name": "模拟费用流",
+      "parent": 308
+    },
+    {
+      "id": 374,
+      "name": "分散层叠",
+      "parent": 308
+    },
+    {
+      "id": 375,
+      "name": "均摊分析",
+      "parent": 308
+    },
+    {
+      "id": 376,
+      "name": "分类讨论",
+      "parent": 308
+    },
+    {
+      "id": 377,
+      "name": "李超线段树",
+      "parent": 11
+    },
+    {
+      "id": 378,
+      "name": "吉司机线段树 segment tree beats",
+      "parent": 11
+    },
+    {
+      "id": 379,
+      "name": "线段树合并",
+      "parent": 11
+    },
+    {
+      "id": 380,
+      "name": "折半搜索 meet in the middle",
+      "parent": 4
+    },
+    {
+      "id": 382,
+      "name": "动态树分治",
+      "parent": 230
+    },
+    {
+      "id": 385,
+      "name": "单调栈",
+      "parent": 44
+    },
+    {
+      "id": 387,
+      "name": "杨表",
+      "parent": 252
+    },
+    {
+      "id": 388,
+      "name": "类欧几里得算法",
+      "parent": 72
+    },
+    {
+      "id": 391,
+      "name": "Berlekamp-Massey(BM) 算法",
+      "parent": 69
+    },
+    {
+      "id": 396,
+      "name": "梯度下降法",
+      "parent": 4
+    },
+    {
+      "id": 410,
+      "name": "Prüfer 序列",
+      "parent": 230
+    },
+    {
+      "id": 411,
+      "name": "调和级数",
+      "parent": 72
+    },
+    {
+      "id": 412,
+      "name": "拉格朗日乘数法",
+      "parent": 5
+    },
+    {
+      "id": 413,
+      "name": "近似算法",
+      "parent": 308
+    },
+    {
+      "id": 415,
+      "name": "欧拉降幂",
+      "parent": 72
+    },
+    {
+      "id": 416,
+      "name": "集合幂级数，子集卷积",
+      "parent": 69
+    },
+    {
+      "id": 417,
+      "name": "拉格朗日插值法",
+      "parent": 5
+    },
+    {
+      "id": 419,
+      "name": "Lyndon 分解",
+      "parent": 2
+    },
+    {
+      "id": 423,
+      "name": "Stern-Brocot 树",
+      "parent": 72
+    },
+    {
+      "id": 435,
+      "name": "DP 套 DP",
+      "parent": 146
+    },
+    {
+      "id": 443,
+      "name": "动态 DP",
+      "parent": 146
+    },
+    {
+      "id": 444,
+      "name": "线性 DP",
+      "parent": 3
+    },
+    {
+      "id": 445,
+      "name": "SG 函数",
+      "parent": 13
+    },
+    {
+      "id": 446,
+      "name": "线段树分治",
+      "parent": 308
+    },
+    {
+      "id": 447,
+      "name": "离线处理",
+      "parent": 308
+    },
+    {
+      "id": 448,
+      "name": "整除分块",
+      "parent": 72
+    },
+    {
+      "id": 449,
+      "name": "极角排序",
+      "parent": 8
+    },
+    {
+      "id": 450,
+      "name": "弦图",
+      "parent": 6
+    },
+    {
+      "id": 451,
+      "name": "Dirichlet 卷积",
+      "parent": 72
+    },
+    {
+      "id": 452,
+      "name": "大步小步算法 BSGS",
+      "parent": 72
+    },
+    {
+      "id": 453,
+      "name": "二次剩余",
+      "parent": 72
+    },
+    {
+      "id": 454,
+      "name": "行列式",
+      "parent": 271
+    },
+    {
+      "id": 455,
+      "name": "Bézout 定理",
+      "parent": 72
+    },
+    {
+      "id": 457,
+      "name": "随机游走 Markov Chain",
+      "parent": 266
+    },
+    {
+      "id": 458,
+      "name": "鞅的停时定理",
+      "parent": 266
+    },
+    {
+      "id": 461,
+      "name": "杜教筛",
+      "parent": 72
+    },
+    {
+      "id": 462,
+      "name": "欧拉函数",
+      "parent": 72
+    },
+    {
+      "id": 463,
+      "name": "决策单调性",
+      "parent": 146
+    },
+    {
+      "id": 464,
+      "name": "状压 DP",
+      "parent": 3
+    },
+    {
+      "id": 465,
+      "name": "bitset",
+      "parent": 308
+    },
+    {
+      "id": 466,
+      "name": "特征值",
+      "parent": 271
+    },
+    {
+      "id": 467,
+      "name": "组合优化",
+      "parent": null
+    },
+    {
+      "id": 468,
+      "name": "整数规划",
+      "parent": 467
+    },
+    {
+      "id": 470,
+      "name": "原始对偶",
+      "parent": 467
+    },
+    {
+      "id": 471,
+      "name": "最大流最小割定理",
+      "parent": 467
+    },
+    {
+      "id": 472,
+      "name": "全局平衡二叉树",
+      "parent": 230
+    },
+    {
+      "id": 473,
+      "name": "哈希表",
+      "parent": 44
+    },
+    {
+      "id": 474,
+      "name": "Z 函数",
+      "parent": 2
+    },
+    {
+      "id": 475,
+      "name": "线性筛法",
+      "parent": 72
+    },
+    {
+      "id": 476,
+      "name": "Floyd 算法",
+      "parent": 6
+    },
+    {
+      "id": 477,
+      "name": "启发式合并",
+      "parent": 308
+    },
+    {
+      "id": 480,
+      "name": "单位根反演",
+      "parent": 5
+    },
+    {
+      "id": 482,
+      "name": "平面几何",
+      "parent": 8
+    },
+    {
+      "id": 483,
+      "name": "树的重心",
+      "parent": 230
+    },
+    {
+      "id": 484,
+      "name": "保序回归",
+      "parent": 467
+    },
+    {
+      "id": 496,
+      "name": "后缀平衡树",
+      "parent": 2
+    },
+    {
+      "id": 504,
+      "name": "STL",
+      "parent": 110
+    },
+    {
+      "id": 507,
+      "name": "整体转移",
+      "parent": 146
+    },
+    {
+      "id": 508,
+      "name": "斜率维护技巧 slope trick",
+      "parent": 146
+    },
+    {
+      "id": 524,
+      "name": "反悔贪心",
+      "parent": 308
+    },
+    {
+      "id": 525,
+      "name": "闵可夫斯基和 Minkowski sum",
+      "parent": 8
+    },
+    {
+      "id": 530,
+      "name": "广义串并联图",
+      "parent": 6
+    },
+    {
+      "id": 531,
+      "name": "二区间合并（猫树分治）",
+      "parent": 11
+    },
+    {
+      "id": 539,
+      "name": "KTT / Kinetic Tournament Tree",
+      "parent": 11
+    },
+    {
+      "id": 540,
+      "name": "亚线性快速求和算法",
+      "parent": 72
+    },
+    {
+      "id": 541,
+      "name": "Hall 定理",
+      "parent": 6
+    }
+  ]
+}

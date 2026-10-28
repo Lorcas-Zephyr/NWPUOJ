@@ -578,6 +578,7 @@
 .app-verdict-accepted { --app-verdict-color: var(--app-success); --app-verdict-soft: var(--app-success-soft); }
 .app-verdict-wrong { --app-verdict-color: var(--app-danger); --app-verdict-soft: var(--app-danger-soft); }
 .app-verdict-runtime { --app-verdict-color: var(--app-verdict-runtime); --app-verdict-soft: var(--app-verdict-runtime-soft); }
+.app-verdict-format { --app-verdict-color: var(--app-warning); --app-verdict-soft: var(--app-warning-soft); }
 .app-verdict-time { --app-verdict-color: var(--app-warning); --app-verdict-soft: var(--app-warning-soft); }
 .app-verdict-memory { --app-verdict-color: var(--app-verdict-memory); --app-verdict-soft: var(--app-verdict-memory-soft); }
 .app-verdict-compile { --app-verdict-color: var(--app-verdict-compile); --app-verdict-soft: var(--app-verdict-compile-soft); }
@@ -1083,6 +1084,73 @@
   border: 1px solid var(--app-line);
   background: var(--app-markdown-code-bg);
   color: var(--app-markdown-code-text);
+}
+
+.app-statement-code-block {
+  position: relative;
+  min-width: 0;
+  max-width: 100%;
+  margin: 1em 0;
+  overflow: hidden;
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-small);
+  background: var(--app-markdown-code-bg);
+}
+
+.app-statement-code-toolbar {
+  position: absolute;
+  top: 6px;
+  right: 7px;
+  z-index: 1;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.app-statement-code-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 84px;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--app-markdown-code-bg);
+  color: var(--app-accent);
+  font: 500 12px/1.5 var(--app-font-sans, sans-serif);
+  cursor: pointer;
+  transition: color 120ms ease, background-color 120ms ease;
+}
+
+.app-statement-code-copy:hover {
+  background: var(--app-accent-soft);
+  color: var(--app-accent-hover);
+}
+
+.app-statement-code-copy:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: -2px;
+}
+
+.app-statement-code-copy.is-copied { color: var(--app-success); }
+.app-statement-code-copy svg { width: 14px; height: 14px; }
+
+.app-markdown .app-statement-code-block > pre {
+  min-height: 48px;
+  margin: 0;
+  padding-right: 108px;
+  border: 0;
+  border-radius: 0;
+}
+
+@media print {
+  .app-statement-code-toolbar { display: none; }
+  .app-markdown .app-statement-code-block > pre { padding-right: 17px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-statement-code-copy { transition: none; }
 }
 
 .app-code {

@@ -15,6 +15,8 @@ fs.readdir = function orderedReaddir(directory, options, callback) {
 
   const wrappedCallback = function (error, files) {
     if (!error && Array.isArray(files) && path.resolve(String(directory)) === '/app/modules') {
+      // Retire providers shipped in the upstream image as well as local modules.
+      files = files.filter(file => !/(?:^|_)vjudge(?:_|\.)|^_api_v2_vjudge_domain\.js$/.test(typeof file === 'string' ? file : file.name));
       files.sort((left, right) => {
         const leftName = typeof left === 'string' ? left : left.name;
         const rightName = typeof right === 'string' ? right : right.name;
@@ -22,9 +24,11 @@ fs.readdir = function orderedReaddir(directory, options, callback) {
         if (rightName === '_api_v2_contract.js') return -1;
         const priorities = [
            '_request_security.js',
-           '_user_privilege_loader.js',
-           '_admin_overview.js',
            '_contest_temp_accounts.js',
+           '_base_access.js',
+           '_user_privilege_loader.js',
+           '_legal_documents.js',
+           '_admin_overview.js',
            '_admin_users.js',
            '_auth_security.js',
           'email_verification.js',
@@ -36,6 +40,7 @@ fs.readdir = function orderedReaddir(directory, options, callback) {
            '_api_v2_rollout.js',
            '_api_v2_search.js',
            '_api_v2_authorization.js',
+           '_base_workspace.js',
            '_api_v2_identity.js',
            '_api_v2_avatar.js',
            '_image_host.js',
@@ -45,13 +50,15 @@ fs.readdir = function orderedReaddir(directory, options, callback) {
            '_api_v2_submission_domain.js',
            '_api_v2_contest_domain.js',
            '_contest_notices.js',
+           '_contest_plagiarism.js',
            '_ai_contest.js',
            '_api_v2_contest_temp_accounts.js',
            '_class_groups.js',
+           '_weekly_ranklist.js',
            '_problem_sets.js',
            '_api_v2_rating_domain.js',
-           '_api_v2_vjudge_domain.js',
            '_api_v2_content_domain.js',
+           '_legal_document_editor.js',
            '_admin_notifications.js',
            '_judge_workers_admin.js',
            '_api_v2_admin_domain.js',

@@ -2,7 +2,7 @@
 <% include app_header %>
 <div class="app-page app-contest-notices-page">
   <header class="app-page-header"><div class="app-page-heading"><a class="app-back-link" href="<%= syzoj.utils.makeUrl(['contest', contest.id]) %>"><i data-lucide="arrow-left"></i>返回比赛</a><span class="app-kicker">CONTEST MANAGEMENT</span><h1 class="app-page-title"><%= contest.title %></h1><p class="app-page-description">发布本场比赛的赛时通知，并查看通知历史。</p></div></header>
-  <nav class="app-tabs app-contest-admin-tabs" aria-label="比赛管理"><a href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'edit']) %>"><i data-lucide="square-pen"></i>比赛内容</a><a href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'registrations']) %>"><i data-lucide="users-round"></i>报名管理</a><a class="is-active" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'notices']) %>" aria-current="page"><i data-lucide="bell-ring"></i>发布通知</a></nav>
+  <nav class="app-tabs app-contest-admin-tabs" aria-label="比赛管理"><a href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'edit']) %>"><i data-lucide="square-pen"></i>比赛内容</a><a href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'registrations']) %>"><i data-lucide="users-round"></i>报名管理</a><a class="is-active" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'notices']) %>" aria-current="page"><i data-lucide="bell-ring"></i>发布通知</a><a href="/contest/<%= contest.id %>/plagiarism"><i data-lucide="scan-text"></i>代码查重</a></nav>
   <form class="app-form" data-contest-notice-publish data-contest-id="<%= contest.id %>">
     <section class="app-settings-section">
       <div class="app-settings-copy"><span class="app-kicker">PUBLISH</span><h2>发布通知</h2><p>通知立即显示在比赛详情页；比赛进行中，已报名的普通账户和临时比赛账户会收到弹窗。</p><p>仅支持纯文本。发布后保留历史，如需更正，请发布一条新通知。</p></div>

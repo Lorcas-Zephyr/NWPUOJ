@@ -11,16 +11,10 @@ const bulkQueuedCount = Math.max(0, Math.min(200, Number(req.query.bulk_queued) 
 const bulkAction = ['publish', 'unpublish', 'archive'].includes(String(req.query.bulk_action || '')) ? String(req.query.bulk_action) : '';
 const bulkActionLabels = { publish: '公开', unpublish: '隐藏', archive: '归档' };
 const bulkActionLabel = bulkActionLabels[bulkAction] || '处理';
-const currentRepository = typeof repository !== 'undefined' && ['all', 'main', 'uoj', 'hdu', 'poj'].includes(repository) ? repository : 'all';
+const currentRepository = 'all';
 const currentProgress = typeof progress !== 'undefined' ? progress : 'all';
 const currentOrder = curOrder ? 'asc' : 'desc';
-const repositories = [
-  { key: 'all', label: '全部' },
-  { key: 'main', label: '主题库' },
-  { key: 'uoj', label: 'UOJ' },
-  { key: 'hdu', label: 'HDU' },
-  { key: 'poj', label: 'POJ' }
-];
+const repositories = [{ key: 'all', label: '题库' }];
 const tagFilterGroups = [
   { key: 'source', label: '题目来源', items: [] },
   { key: 'category', label: '算法大类', items: [] },
@@ -84,6 +78,7 @@ function judgeStateClass(state) {
   if (value === 'waiting') return 'app-status-waiting';
   if (value === 'judging' || value === 'running' || value === 'compiling') return 'app-status-judging';
   if (value === 'partially correct') return 'app-status-partial';
+  if (value === 'presentation error') return 'app-verdict app-verdict-format';
   if (value === '作弊' || value === 'cheated' || value === 'wrong answer') return 'app-verdict app-verdict-wrong';
   if (value === 'runtime error' || value === 'invalid interaction') return 'app-verdict app-verdict-runtime';
   if (value === 'time limit exceeded') return 'app-verdict app-verdict-time';
@@ -195,7 +190,7 @@ function judgeStateClass(state) {
             <tr>
               <% if (canBulkActions) { %><td class="app-problem-select-cell"><% if (problem.allowedPublish || problem.allowedArchive || problem.allowedTag) { %><input type="checkbox" name="problem_ids" value="<%= problem.id %>" data-select-item aria-label="选择 <%= problem.getDisplayId() %> <%= problem.title %>"><% } %></td><% } %>
               <% if (user) { %>
-                <td><% if (problem.judge_state) { %><a href="<%= syzoj.utils.makeUrl(['submission', problem.judge_state.id]) %>" class="app-status <%= judgeStateClass(problem.judge_state.status) %>"><%= problem.judge_state.status %></a><% } else { %><span class="app-status">未提交</span><% } %></td>
+                <td><% if (problem.judge_state) { %><a href="<%= syzoj.utils.makeUrl(['submission', problem.judge_state.id]) %>" class="app-status <%= judgeStateClass(problem.judge_state.status) %>"><%= problem.judge_state.status === 'Presentation Error' ? '格式错误' : problem.judge_state.status %></a><% } else { %><span class="app-status">未提交</span><% } %></td>
               <% } %>
               <td class="app-cell-number"><strong><%= problem.getDisplayId() %></strong></td>
               <td class="app-cell-primary">

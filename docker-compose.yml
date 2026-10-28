@@ -20,22 +20,34 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.web
-    image: nwpuoj-web:v2.1.0
+    image: nwpuoj-web:v2.2.0
     restart: unless-stopped
     depends_on:
       judge-control: { condition: service_healthy }
     ports:
       - "${SYZOJ_WEB_BIND:-127.0.0.1}:${SYZOJ_WEB_PORT:-80}:80"
-    tmpfs:
-      - /app/sessions
     volumes:
       - config:/app/config
       - uploads:/app/uploads
+      # Keep signed login sessions across Web restarts and container replacement.
+      - web-sessions:/app/sessions
+      - plagiarism-reports:/app/private-plagiarism
+      - ./custom/tools/jplag:/opt/jplag:ro
+      - ./custom/libs/contest-plagiarism.js:/app/libs/contest-plagiarism.js:ro
+      - ./custom/modules/_contest_plagiarism.js:/app/modules/_contest_plagiarism.js:ro
+      - ./custom/modules/_weekly_ranklist.js:/app/modules/_weekly_ranklist.js:ro
+      - ./custom/libs/weekly-standings.js:/app/libs/weekly-standings.js:ro
+      - ./custom/views/weekly_ranklist.ejs:/app/views/weekly_ranklist.ejs:ro
+      - ./custom/weekly-ranklist.js:/app/static/self/weekly-ranklist.js:ro
+      - ./custom/weekly-ranklist.css:/app/static/self/weekly-ranklist.css:ro
+      - ./custom/views/contest_plagiarism.ejs:/app/views/contest_plagiarism.ejs:ro
+      - ./custom/contest-plagiarism.js:/app/static/self/contest-plagiarism.js:ro
       - problem-assets:/app/static/self/problem-assets
       - image-assets:/app/static/self/image-assets
       - judge-control-auth:/run/judge-control:ro
       - ./custom/favicon.png:/app/static/self/favicon.png:ro
       - ./custom/header.ejs:/app/views/header.ejs:ro
+      - ./custom/views/util.ejs:/app/views/util.ejs:ro
       - ./custom/views/app_header.ejs:/app/views/app_header.ejs:ro
       - ./custom/views/app_footer.ejs:/app/views/app_footer.ejs:ro
       - ./custom/views/app_page_state.ejs:/app/views/app_page_state.ejs:ro
@@ -73,6 +85,12 @@ services:
       - ./custom/views/admin_privilege.ejs:/app/views/admin_privilege.ejs:ro
       - ./custom/views/admin_ai.ejs:/app/views/admin_ai.ejs:ro
       - ./custom/modules/_request_security.js:/app/modules/_request_security.js:ro
+      - ./custom/modules/_base_access.js:/app/modules/_base_access.js:ro
+      - ./custom/modules/_base_workspace.js:/app/modules/_base_workspace.js:ro
+      - ./custom/libs/base-workspace.js:/app/libs/base-workspace.js:ro
+      - ./custom/libs/base-problem-migration.js:/app/libs/base-problem-migration.js:ro
+      - ./custom/views/base_workspace.ejs:/app/views/base_workspace.ejs:ro
+      - ./custom/views/base_problem_actions.ejs:/app/views/base_problem_actions.ejs:ro
       - ./custom/modules/_api_v2_foundation.js:/app/modules/_api_v2_foundation.js:ro
       - ./custom/modules/_api_v2_search.js:/app/modules/_api_v2_search.js:ro
       - ./custom/modules/_api_v2_rollout.js:/app/modules/_api_v2_rollout.js:ro
@@ -88,7 +106,6 @@ services:
       - ./custom/modules/_contest_notices.js:/app/modules/_contest_notices.js:ro
       - ./custom/modules/_api_v2_contest_temp_accounts.js:/app/modules/_api_v2_contest_temp_accounts.js:ro
       - ./custom/modules/_api_v2_rating_domain.js:/app/modules/_api_v2_rating_domain.js:ro
-      - ./custom/modules/_api_v2_vjudge_domain.js:/app/modules/_api_v2_vjudge_domain.js:ro
       - ./custom/modules/_api_v2_content_domain.js:/app/modules/_api_v2_content_domain.js:ro
       - ./custom/modules/_admin_notifications.js:/app/modules/_admin_notifications.js:ro
       - ./custom/modules/_api_v2_admin_domain.js:/app/modules/_api_v2_admin_domain.js:ro
@@ -106,6 +123,12 @@ services:
       - ./custom/modules/_contest_rating.js:/app/modules/_contest_rating.js:ro
       - ./custom/modules/_user_privilege_loader.js:/app/modules/_user_privilege_loader.js:ro
       - ./custom/modules/_help_page.js:/app/modules/_help_page.js:ro
+      - ./custom/modules/_legal_documents.js:/app/modules/_legal_documents.js:ro
+      - ./custom/modules/_legal_document_editor.js:/app/modules/_legal_document_editor.js:ro
+      - ./custom/libs/legal-documents.js:/app/libs/legal-documents.js:ro
+      - ./custom/content/legal:/app/content/legal:ro
+      - ./custom/views/legal.ejs:/app/views/legal.ejs:ro
+      - ./custom/views/legal_edit.ejs:/app/views/legal_edit.ejs:ro
       - ./custom/modules/_contest_registration.js:/app/modules/_contest_registration.js:ro
       - ./custom/modules/_ai_contest.js:/app/modules/_ai_contest.js:ro
       - ./custom/modules/_registration_identity.js:/app/modules/_registration_identity.js:ro
@@ -113,6 +136,7 @@ services:
       - ./custom/modules/_submission_routes.js:/app/modules/_submission_routes.js:ro
       - ./custom/modules/_problem_lifecycle_guard.js:/app/modules/_problem_lifecycle_guard.js:ro
       - ./custom/modules/_contest_interactions.js:/app/modules/_contest_interactions.js:ro
+      - ./custom/libs/contest-code-export.js:/app/libs/contest-code-export.js:ro
       - ./custom/modules/_content_security.js:/app/modules/_content_security.js:ro
       - ./custom/module-order.js:/app/module-order.js:ro
       - ./custom/logo.png:/app/static/self/logo.png:ro
@@ -199,6 +223,7 @@ services:
       - ./custom/views/contest_notice_table.ejs:/app/views/contest_notice_table.ejs:ro
       - ./custom/views/contest_notice_client.ejs:/app/views/contest_notice_client.ejs:ro
       - ./custom/views/contest_context.ejs:/app/views/contest_context.ejs:ro
+      - ./custom/views/contest_rating.ejs:/app/views/contest_rating.ejs:ro
       - ./custom/views/contest_registration_v2_script.ejs:/app/views/contest_registration_v2_script.ejs:ro
       - ./custom/views/contests.ejs:/app/views/contests.ejs:ro
       - ./custom/views/user.ejs:/app/views/user.ejs:ro
@@ -241,12 +266,9 @@ services:
       - ./custom/modules/_user_tag_loader.js:/app/modules/_user_tag_loader.js:ro
       - ./custom/views/admin_user_tags.ejs:/app/views/admin_user_tags.ejs:ro
       - ./custom/libs-built/judger.js:/app/libs/judger.js:ro
+      - ./custom/libs-built/rendererd.js:/app/libs/rendererd.js:ro
       - ./custom/libs/python-time-limit.js:/app/libs/python-time-limit.js:ro
       - ./custom/libs/compiler-message.js:/app/libs/compiler-message.js:ro
-      - ./custom/libs-built/vjudge.js:/app/libs/vjudge.js:ro
-      - ./custom/libs-built/vjudge/uoj.js:/app/libs/vjudge/uoj.js:ro
-      - ./custom/libs-built/vjudge/hdu.js:/app/libs/vjudge/hdu.js:ro
-      - ./custom/libs-built/vjudge/poj.js:/app/libs/vjudge/poj.js:ro
       - ./custom/libs-built/submissions_process.js:/app/libs/submissions_process.js:ro
       - ./custom/libs-built/problem_repositories.js:/app/libs/problem_repositories.js:ro
       - ./custom/libs/site-mail.js:/app/libs/site-mail.js:ro
@@ -260,12 +282,11 @@ services:
       - ./custom/libs/submission-scheduler.js:/app/libs/submission-scheduler.js:ro
       - ./custom/libs/submission-storage.js:/app/libs/submission-storage.js:ro
       - ./custom/libs/judge-status.js:/app/libs/judge-status.js:ro
+      - ./custom/libs/fixed-group-scoring.js:/app/libs/fixed-group-scoring.js:ro
       - ./custom/libs/migration-consistency.js:/app/libs/migration-consistency.js:ro
       - ./custom/libs/migration-release-gate.js:/app/libs/migration-release-gate.js:ro
       - ./custom/libs/migration-cycle-evidence.js:/app/libs/migration-cycle-evidence.js:ro
       - ./custom/libs/credential-vault.js:/app/libs/credential-vault.js:ro
-      - ./custom/libs/vjudge-credential-context.js:/app/libs/vjudge-credential-context.js:ro
-      - ./custom/libs/vjudge-job-recovery.js:/app/libs/vjudge-job-recovery.js:ro
       - ./custom/libs/judge-task-signature.js:/app/libs/judge-task-signature.js:ro
       - ./custom/libs/compile-cache-key.js:/app/libs/compile-cache-key.js:ro
       - ./custom/libs/judge-monitor.js:/app/libs/judge-monitor.js:ro
@@ -284,6 +305,7 @@ services:
       - ./custom/libs/contest-deletion.js:/app/libs/contest-deletion.js:ro
       - ./custom/libs/contest-temp-accounts.js:/app/libs/contest-temp-accounts.js:ro
       - ./custom/libs/registration-profile-schema.js:/app/libs/registration-profile-schema.js:ro
+      - ./custom/libs/user-signature.js:/app/libs/user-signature.js:ro
       - ./custom/libs/contest-lifecycle.js:/app/libs/contest-lifecycle.js:ro
       - ./custom/libs/contest-standings.js:/app/libs/contest-standings.js:ro
       - ./custom/libs/contest-ranklist-export.js:/app/libs/contest-ranklist-export.js:ro
@@ -295,16 +317,9 @@ services:
       - ./custom/libs/rating-notification.js:/app/libs/rating-notification.js:ro
       - ./custom/libs/glicko2.js:/app/libs/glicko2.js:ro
       - ./custom/libs/contest-rating.js:/app/libs/contest-rating.js:ro
-      - ./custom/libs/vjudge-import-status.js:/app/libs/vjudge-import-status.js:ro
-      - ./custom/libs/vjudge-import-policy.js:/app/libs/vjudge-import-policy.js:ro
-      - ./custom/libs/vjudge-provider-scheduler.js:/app/libs/vjudge-provider-scheduler.js:ro
-      - ./custom/libs/vjudge-remote-submission.js:/app/libs/vjudge-remote-submission.js:ro
       - ./custom/content/default-help.md:/app/default-help.md:ro
       - ./custom/models/problem.ts:/app/models/problem.ts:ro
       - ./custom/models-built/problem.js:/app/models-built/problem.js:ro
-      - ./custom/modules/uoj_vjudge.js:/app/modules/uoj_vjudge.js:ro
-      - ./custom/modules/hdu_vjudge.js:/app/modules/hdu_vjudge.js:ro
-      - ./custom/modules/poj_vjudge.js:/app/modules/poj_vjudge.js:ro
       - ./custom/language-config.json:/app/language-config.json:ro
       - ./custom/views/admin_other.ejs:/app/views/admin_other.ejs:ro
       - ./custom/views/admin_header.ejs:/app/views/admin_header.ejs:ro
@@ -426,7 +441,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.judge
-    image: nwpuoj-judge:v2.1.0
+    image: nwpuoj-judge:v2.2.0
     restart: unless-stopped
     scale: 16
     volumes:
@@ -438,12 +453,6 @@ services:
     env_file: env-app # For SYZOJ_WEB_SECRET_JUDGE
     environment:
       - TZ=Asia/Shanghai
-      - SYZOJ_WEB_UOJ_USERNAME=
-      - SYZOJ_WEB_UOJ_PASSWORD=
-      - SYZOJ_WEB_HDU_USERNAME=
-      - SYZOJ_WEB_HDU_PASSWORD=
-      - SYZOJ_WEB_POJ_USERNAME=
-      - SYZOJ_WEB_POJ_PASSWORD=
       - SYZOJ_JUDGE_WEB_URL=http://web
       - SYZOJ_JUDGE_RABBITMQ_URI=amqp://rabbitmq/
       - SYZOJ_JUDGE_TESTDATA_PATH=/app/testdata/testdata # "uploads" is mounted on /app/testdata
@@ -464,7 +473,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.judge
-    image: nwpuoj-judge:v2.1.0
+    image: nwpuoj-judge:v2.2.0
     restart: unless-stopped
     scale: 16
     privileged: true
@@ -473,6 +482,7 @@ services:
     volumes:
       - config:/app/config
       - uploads:/app/testdata
+      - ./custom/judge/runner-judge.js:/app/lib/runner/judge.js:ro
     depends_on:
       redis: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
@@ -485,10 +495,14 @@ services:
       - SYZOJ_JUDGE_CGROUP=judge-runner-1
     command: runner
 volumes:
+  web-sessions:
+    name: nwpuoj_web_sessions
   config:
     name: nwpuoj_config
   uploads:
     name: nwpuoj_uploads
+  plagiarism-reports:
+    name: nwpuoj_plagiarism_reports
   problem-assets:
     name: nwpuoj_problem_assets
   image-assets:

@@ -1,7 +1,12 @@
       </main>
-      <footer class="app-footer">
-        <span>NWPUOJ · 西北工业大学程序设计训练平台</span>
-        <a href="https://github.com/Lorcas-Zephyr/NWPUOJ" target="_blank" rel="noopener">项目源码</a>
+      <footer class="app-footer" tabindex="0" aria-label="协议、备案、版权与联系信息">
+        <div class="app-footer-meta">
+          <% if (syzoj.utils.legalDocuments) { %><nav class="app-footer-legal" aria-label="协议与规则"><a href="/legal/terms">用户协议</a><span aria-hidden="true">·</span><a href="/legal/privacy">隐私政策</a><span aria-hidden="true">·</span><a href="/legal/competition">比赛规则</a><span aria-hidden="true">·</span><a href="/legal/copyright">版权与投诉</a></nav><% } %>
+          <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">陕ICP备05010979号</a>
+          <span>版权所有 © 西北工业大学程序设计创新实践基地</span>
+          <span>联系邮箱：<a href="mailto:npuicpc@163.com">npuicpc@163.com</a></span>
+        </div>
+        <a class="app-footer-source" href="https://github.com/Lorcas-Zephyr/NWPUOJ" target="_blank" rel="noopener">项目源码</a>
       </footer>
     </div>
   </div>
@@ -53,6 +58,7 @@
     })();
   </script>
   <% include contest_notice_client %>
-  <script src="/self/app-v2.js?v=<%= encodeURIComponent(syzoj.config.nwpuoj_version || '2.1.0') %>&amp;rev=20260919-1"></script>
+  <script src="/self/app-v2.js?v=<%= encodeURIComponent(syzoj.config.nwpuoj_version || '2.2.0') %>&amp;rev=20261020-code-copy-1"></script>
+  <script src="/self/lib/noj-markdown.js?rev=20261012-1" data-upload-allowed="<%= user && ((typeof appHasCapability === 'function' && appHasCapability('problem:edit')) || (typeof baseMember !== 'undefined' && baseMember)) ? '1' : '0' %>"></script>
 </body>
 </html>

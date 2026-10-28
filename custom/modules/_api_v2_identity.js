@@ -2,10 +2,15 @@ const TypeORM = require('typeorm');
 const crypto = require('crypto');
 const { sendSiteMail } = require('../libs/site-mail');
 const contentDomain = require('../libs/content-domain');
+const { ORDINARY_STUDENT_ID_SCOPE, ensureRegistrationProfileSchema } = require('../libs/registration-profile-schema');
 const User = syzoj.model('user');
+const { validSignature, installPlainTextSignature } = require('../libs/user-signature');
+installPlainTextSignature(User);
 
 const loginFailures = new Map();
-const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+// Keep the lockout short enough for a mistyped temporary-account password to
+// be corrected without affecting existing authenticated sessions.
+const LOGIN_WINDOW_MS = 60 * 1000;
 const LOGIN_MAX_FAILURES = 5;
 const MFA_TTL_SECONDS = 10 * 60;
 const RESET_TTL_SECONDS = 60 * 60;
@@ -24,7 +29,27 @@ function ensureIdentitySchema() {
 }
 
 function api() { return syzoj.utils.apiV2; }
-function loginKey(req, username) { return `${req.ip || 'unknown'}:${String(username || '').trim().toLowerCase()}`; }
+function loginKey(req, username) { return `${req.ip || 'unknown'}:identifier:${String(username || '').trim().toLowerCase()}`; }
+async function findLoginUser(identifier) {
+  // Preserve existing numeric and managed temporary usernames. Never fall
+  // through to a different account after a username's password fails.
+  const namedUser = await User.fromName(identifier);
+  if (namedUser) return namedUser;
+  let rows;
+  if (identifier.includes('@')) {
+    rows = await TypeORM.getConnection().query('SELECT id FROM user WHERE email=? LIMIT 2', [identifier.toLowerCase()]);
+  } else if (/^\d{10}$/.test(identifier)) {
+    await ensureRegistrationProfileSchema();
+    rows = await TypeORM.getConnection().query(
+      'SELECT user_id AS id FROM user_registration_profile WHERE student_id_scope=? AND student_id=? LIMIT 2',
+      [ORDINARY_STUDENT_ID_SCOPE, identifier]
+    );
+  } else {
+    return null;
+  }
+  // Fail closed if legacy data is ambiguous; never pick an arbitrary account.
+  return rows.length === 1 ? User.findById(Number(rows[0].id)) : null;
+}
 function loginBlocked(key) {
   const state = loginFailures.get(key);
   if (!state || state.resetAt <= Date.now()) { loginFailures.delete(key); return false; }
@@ -105,32 +130,39 @@ function escapeHtml(value) { return String(value || '').replace(/[&<>"']/g, char
 app.post('/api/v2/auth/login', async (req, res) => {
   const username = String(req.body && req.body.username || '').trim();
   const password = String(req.body && req.body.password || '');
+  const rememberMe = req.body && req.body.remember_me;
   const key = loginKey(req, username);
-  if (!username || !password) return api().fail(res, 422, 'VALIDATION_FAILED', 'Username and password are required.', { username: !username ? 'required' : undefined, password: !password ? 'required' : undefined });
+  if (!username || !password) return api().fail(res, 422, 'VALIDATION_FAILED', 'An account identifier and password are required.', { username: !username ? 'required' : undefined, password: !password ? 'required' : undefined });
+  if (rememberMe !== undefined && typeof rememberMe !== 'boolean') return api().fail(res, 422, 'VALIDATION_FAILED', 'Remember me must be a boolean.', { remember_me: 'boolean_required' });
   if (loginBlocked(key)) return api().fail(res, 429, 'LOGIN_RATE_LIMITED', 'Too many failed sign-in attempts. Try again later.');
   try {
-    const user = await User.fromName(username);
+    const user = await findLoginUser(username);
+    // All identifiers for one account share its IP-scoped failure counter.
+    const throttleKey = user ? `${req.ip || 'unknown'}:account:${user.id}` : key;
+    if (loginBlocked(throttleKey)) return api().fail(res, 429, 'LOGIN_RATE_LIMITED', 'Too many failed sign-in attempts. Try again later.');
     if (!user || !await syzoj.utils.verifyPassword(password, user.password)) {
-      recordFailure(key);
-      return api().fail(res, 401, 'INVALID_CREDENTIALS', 'The username or password is incorrect.');
+      recordFailure(throttleKey);
+      return api().fail(res, 401, 'INVALID_CREDENTIALS', 'The account identifier or password is incorrect.');
     }
     if (syzoj.utils.isUserAccountActive && !await syzoj.utils.isUserAccountActive(user.id)) {
       return api().fail(res, 403, 'ACCOUNT_DISABLED', 'This account has been disabled. Contact an administrator.');
     }
     if (syzoj.utils.isTemporaryAccountLoginAllowed && !await syzoj.utils.isTemporaryAccountLoginAllowed(user.id)) {
-      recordFailure(key);
-      return api().fail(res, 401, 'INVALID_CREDENTIALS', 'The username or password is incorrect.');
+      recordFailure(throttleKey);
+      return api().fail(res, 401, 'INVALID_CREDENTIALS', 'The account identifier or password is incorrect.');
     }
     if (syzoj.utils.passwordNeedsUpgrade(user.password)) {
       user.password = await syzoj.utils.hashPassword(password);
       await user.save();
     }
     loginFailures.delete(key);
-    await syzoj.utils.establishAuthenticatedSession(req, user.id);
+    loginFailures.delete(throttleKey);
+    await syzoj.utils.establishAuthenticatedSession(req, user.id, { rememberMe: rememberMe === true });
     syzoj.utils.clearLegacyLoginCookie(req, res);
     res.locals.user = user;
     await syzoj.utils.authorizationV2.recordAudit(req, { action: 'auth:login', resourceType: 'user', resourceId: user.id });
-    return api().send(res, { authenticated: true, user: publicMe(user) });
+    const temporary = syzoj.utils.isTemporaryContestAccount && await syzoj.utils.isTemporaryContestAccount(user.id);
+    return api().send(res, { authenticated: true, user: publicMe(user), redirect_url: temporary ? '/contests' : null });
   } catch (error) {
     syzoj.log('[identity-v2] login failed: ' + (error.stack || error.message));
     return api().fail(res, 503, 'AUTHENTICATION_UNAVAILABLE', 'Sign-in is temporarily unavailable.');
@@ -268,7 +300,8 @@ app.patch('/api/v2/me', async (req, res) => {
   } catch (error) {
     return api().fail(res, 422, 'VALIDATION_FAILED', error.message, { new_password: 'invalid' });
   }
-  const information = body.information == null ? String(user.information || '') : String(body.information).slice(0, 10000);
+  const information = body.information == null ? String(user.information || '') : String(body.information);
+  if (!validSignature(information)) return api().fail(res, 422, 'VALIDATION_FAILED', '个性签名不能超过 50 个字符。', { information: 'maximum length is 50' });
   const sex = normalizeSex(body.sex, normalizeSex(user.sex, '0') || '0');
   if (sex === null) return api().fail(res, 422, 'VALIDATION_FAILED', 'Sex must be -1, 0, or 1.', { sex: 'invalid' });
   const publicEmail = booleanInput(body.public_email, !!user.public_email);

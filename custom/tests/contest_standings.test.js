@@ -7,6 +7,26 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { buildContestRanklistCsv, buildContestRanklistRows, csvCell, problemAlias } = require('../libs/contest-ranklist-export');
 const { normalizeFreezeAfterMinutes, resolveStandingsFreeze, selectStandingsView, scoreDetailsBefore, frozenScoreDetails } = require('../libs/contest-standings');
+const { normalizeMedalPercentages, medalForRank } = require('../libs/contest-standings');
+
+test('contest medal shares use cumulative rounded-up boundaries across all participants', () => {
+  assert.deepEqual(normalizeMedalPercentages(), { gold: 10, silver: 20, bronze: 30 });
+  const awards = normalizeMedalPercentages({ gold: 10, silver: 20, bronze: 30 });
+  for (const [rank, medal] of [[1, 'gold'], [45, 'gold'], [46, 'silver'], [135, 'silver'],
+    [136, 'bronze'], [270, 'bronze'], [271, null], [450, null]]) {
+    assert.equal(medalForRank(rank, 450, awards), medal);
+  }
+  assert.equal(medalForRank(1, 1, awards), 'gold');
+  assert.equal(medalForRank(2, 3, awards), 'bronze');
+  assert.equal(medalForRank(2, 2, { gold: 0, silver: 0, bronze: 0 }), null);
+  assert.deepEqual(normalizeMedalPercentages({ gold: 70, silver: 50, bronze: 30 }), { gold: 70, silver: 50, bronze: 30 });
+  assert.equal(medalForRank(70, 100, { gold: 70, silver: 50, bronze: 30 }), 'gold');
+  assert.equal(medalForRank(100, 100, { gold: 70, silver: 50, bronze: 30 }), 'silver');
+  for (const value of [{ gold: 101, silver: 0, bronze: 0 }, { gold: -1, silver: 20, bronze: 30 },
+    { gold: 10.5, silver: 20, bronze: 30 }, { gold: 10, silver: 20 }, [10, 20, 30]]) {
+    assert.throws(() => normalizeMedalPercentages(value), { code: 'CONTEST_MEDALS_INVALID', statusCode: 422 });
+  }
+});
 
 test('freeze configuration accepts disabled, zero and integer minutes, rejects invalid or end-boundary values', () => {
   for (const value of [null, undefined, '']) assert.equal(normalizeFreezeAfterMinutes(value, 100, 3700), null);

@@ -11,6 +11,34 @@ const root = path.resolve(__dirname, '../..');
 const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf8');
 const icons = require(path.join(root, 'custom/lucide-1.27.0.min.js'));
 
+test('file selections share safe name rendering, multi-file lists, reset handling and refreshed assets', () => {
+  const script = read('custom/app-v2.js');
+  assert.match(script, /function setupFileInputs\(\)/);
+  assert.match(script, /name\.textContent = file\.name/);
+  assert.match(script, /name\.title = file\.name/);
+  assert.match(script, /已选择.*个文件/);
+  assert.match(script, /document\.addEventListener\('reset'/);
+  assert.match(script, /\['input', 'change', 'cancel'\]/);
+  assert.match(script, /setAttribute\('aria-describedby'/);
+  assert.match(script, /setupFileInputs\(\);/);
+  assert.match(read('custom/views/app_header.ejs'), /app-features\.css[^\n]*rev=\d{8}-[\w-]+/);
+  assert.match(read('custom/views/app_footer.ejs'), /app-v2\.js[^\n]*rev=\d{8}-[\w-]+/);
+  for (const file of fs.readdirSync(path.join(root, 'custom/views')).filter(file => file.endsWith('.ejs'))) {
+    const source = read('custom/views/' + file);
+    const inputs = source.match(/<input\b[^>]*\btype="file"[^>]*>/g) || [];
+    const fields = (source.match(/<label\b[^>]*class="[^"]*\bapp-file-field\b[^"]*"[^>]*>[\s\S]*?<\/label>/g) || [])
+      .filter(field => /type="file"/.test(field));
+    assert.equal(fields.length, inputs.length, file + ' should use shared upload styling');
+  }
+});
+
+test('base context strip and its divider are removed without removing base navigation', () => {
+  const header = read('custom/views/app_header.ejs');
+  assert.doesNotMatch(header, /app-base-context-bar|返回基地|基地内部内容/);
+  assert.doesNotMatch(read('custom/app-shared.css'), /app-base-context-bar/);
+  assert.match(header, /href="\/base"/);
+});
+
 test('long statements reveal at 0.1 percent visibility while retaining the scroll fade', () => {
   const script = read('custom/app-v2.js');
   const source = script.slice(script.indexOf('function setupReveals()'), script.indexOf('function setupGlobalEvents()'));

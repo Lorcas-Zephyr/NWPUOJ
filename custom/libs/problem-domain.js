@@ -16,12 +16,10 @@ async function ensureLegacyProblemSchema(connection) {
 
 const EDITABLE_FIELDS = Object.freeze([
   'title', 'description', 'input_format', 'output_format', 'example', 'limit_and_hint',
-  'time_limit', 'python_time_limit_multiplier', 'java_time_limit_multiplier', 'memory_limit', 'file_io', 'file_io_input_name', 'file_io_output_name', 'type',
-  'vjudge_config'
+  'time_limit', 'python_time_limit_multiplier', 'java_time_limit_multiplier', 'memory_limit', 'file_io', 'file_io_input_name', 'file_io_output_name', 'type'
 ]);
 const PROBLEM_TYPES = new Set([
-  'traditional', 'submit-answer', 'interaction',
-  'vjudge:luogu', 'vjudge:uoj', 'vjudge:hdu', 'vjudge:poj'
+  'traditional', 'submit-answer', 'interaction'
 ]);
 const JUDGE_CONFIGURATION_FIELDS = Object.freeze([
   'type', 'time_limit', 'python_time_limit_multiplier', 'java_time_limit_multiplier', 'memory_limit', 'file_io', 'file_io_input_name', 'file_io_output_name'
@@ -86,9 +84,6 @@ function validateContent(content) {
   if (content.java_time_limit_multiplier != null && (!Number.isFinite(Number(content.java_time_limit_multiplier)) || Number(content.java_time_limit_multiplier) <= 0 || Number(content.java_time_limit_multiplier) > 1000)) fields.java_time_limit_multiplier = 'a number greater than 0 and at most 1000 is required';
   if (content.memory_limit != null && (!Number.isSafeInteger(Number(content.memory_limit)) || Number(content.memory_limit) < 1)) fields.memory_limit = 'positive integer required';
   if (content.type != null && !PROBLEM_TYPES.has(String(content.type))) fields.type = 'unsupported problem type';
-  const remote = content.vjudge_config == null ? '' : String(content.vjudge_config);
-  if (String(content.type || '').startsWith('vjudge:') && (!remote || remote !== remote.trim())) fields.vjudge_config = 'remote identifier required without surrounding whitespace';
-  else if (remote.length > 80) fields.vjudge_config = 'maximum length is 80';
   return fields;
 }
 
@@ -105,35 +100,12 @@ function statementMarkdown(problem) {
   ].filter(item => item[1]).map(item => `## ${item[0]}\n\n${item[1]}`).join('\n\n');
 }
 
-function sourceMetadata(problem) {
-  const type = String(problem && problem.type || 'traditional');
-  const match = /^vjudge:([a-z0-9_-]+)$/.exec(type);
-  if (!match) return { kind: 'local', provider: null, remote_id: null };
-  return {
-    kind: 'vjudge',
-    provider: match[1],
-    remote_id: problem && problem.vjudge_config == null ? null : String(problem.vjudge_config)
-  };
+function sourceMetadata() {
+  return { kind: 'local', provider: null, remote_id: null };
 }
 
-async function syncSourceProjection(manager, problem) {
-  const source = sourceMetadata(problem);
-  const problemId = Number(problem && problem.id);
-  if (!Number.isSafeInteger(problemId) || problemId <= 0) throw Object.assign(new Error('A persisted problem is required for source projection.'), { code: 'VJUDGE_SOURCE_INVALID', statusCode: 422 });
-  if (source.kind !== 'vjudge') {
-    const current = await manager.query('SELECT provider,remote_id,local_problem_id FROM vjudge_v2_remote_problem WHERE local_problem_id=? FOR UPDATE', [problemId]);
-    if (current.length) await manager.query('DELETE FROM vjudge_v2_remote_problem WHERE local_problem_id=?', [problemId]);
-    return { source, changed: current.length > 0 };
-  }
-  if (!source.provider || !source.remote_id || source.remote_id.length > 80) throw Object.assign(new Error('The VJudge source is incomplete.'), { code: 'VJUDGE_SOURCE_INVALID', statusCode: 422 });
-  const rows = await manager.query(`SELECT provider,remote_id,local_problem_id FROM vjudge_v2_remote_problem
-    WHERE (provider=? AND remote_id=?) OR local_problem_id=? FOR UPDATE`, [source.provider, source.remote_id, problemId]);
-  const exact = rows.find(row => row.provider === source.provider && String(row.remote_id) === source.remote_id && Number(row.local_problem_id) === problemId);
-  if (exact) return { source, changed: false };
-  if (rows.some(row => Number(row.local_problem_id) !== problemId)) throw Object.assign(new Error('The VJudge source is already linked to another problem.'), { code: 'VJUDGE_SOURCE_CONFLICT', statusCode: 409 });
-  if (rows.length) await manager.query('DELETE FROM vjudge_v2_remote_problem WHERE local_problem_id=?', [problemId]);
-  await manager.query('INSERT INTO vjudge_v2_remote_problem (provider,remote_id,local_problem_id,imported_at,updated_at) VALUES (?,?,?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))', [source.provider, source.remote_id, problemId]);
-  return { source, changed: true };
+async function syncSourceProjection() {
+  return { source: sourceMetadata(), changed: false };
 }
 
 function problemResource(problem) {
@@ -248,7 +220,7 @@ async function insertJudgeConfigurationSnapshot(manager, problemId, version, con
 
   const testdataHash = currentSnapshot && currentSnapshot.testdata_hash || null;
   const testdataPath = currentSnapshot && currentSnapshot.testdata_path || null;
-  const providerConfig = content.vjudge_config == null ? null : content.vjudge_config;
+  const providerConfig = null;
   const requestedId = (snapshotIdFactory || (() => `ps_${crypto.randomUUID().replace(/-/g, '')}`))();
   let snapshotId = requestedId;
   try {
@@ -369,8 +341,7 @@ async function publishProblemAggregate(manager, problem, versionId, actorId, sna
 
   const version = versionRows[0];
   const content = parseStoredContent(version.content_json);
-  const providerConfig = content.vjudge_config == null ? problem.vjudge_config || null : content.vjudge_config;
-  content.vjudge_config = providerConfig;
+  const providerConfig = null;
   const canonicalContent = serializeContent(content);
   const canonicalHash = contentHash(content);
   // Legacy versions created before language multiplier columns may omit them or
@@ -455,8 +426,7 @@ async function refreshTestdataSnapshotAggregate(manager, problem, actorId, reque
     }
     const version = versions[0];
     const content = parseStoredContent(version.content_json);
-    const providerConfig = content.vjudge_config == null ? problem.vjudge_config || null : content.vjudge_config;
-    content.vjudge_config = providerConfig;
+    const providerConfig = null;
     base = {
       version_id: version.id,
       content_hash: version.content_hash,
@@ -529,7 +499,7 @@ async function materializeCurrentVersionSnapshotAggregate(manager, problem, acto
   }
 
   const content = parseStoredContent(version.content_json);
-  const providerConfig = content.vjudge_config == null ? problem.vjudge_config || null : content.vjudge_config;
+  const providerConfig = null;
   let snapshots = await manager.query(
     'SELECT id FROM problem_v2_snapshot WHERE problem_id=? AND content_hash=? AND testdata_hash <=> ? LIMIT 1',
     [problem.id, version.content_hash, current.testdata_hash]
@@ -563,6 +533,7 @@ async function materializeCurrentVersionSnapshotAggregate(manager, problem, acto
 }
 
 async function archiveProblemAggregate(manager, problemId) {
+  if (typeof syzoj !== 'undefined' && syzoj.utils.baseWorkspace) await syzoj.utils.baseWorkspace.assertMayHideProblem(manager, problemId);
   await manager.query(
     `INSERT INTO problem_v2_state (problem_id,lifecycle_status,current_version_id,current_snapshot_id,archived_at,updated_at)
      VALUES (?,'archived',NULL,NULL,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))
@@ -573,6 +544,7 @@ async function archiveProblemAggregate(manager, problemId) {
 }
 
 async function unpublishProblemAggregate(manager, problemId) {
+  if (typeof syzoj !== 'undefined' && syzoj.utils.baseWorkspace) await syzoj.utils.baseWorkspace.assertMayHideProblem(manager, problemId);
   await manager.query(
     `INSERT INTO problem_v2_state (problem_id,lifecycle_status,current_version_id,current_snapshot_id,archived_at,updated_at)
      VALUES (?,'draft',NULL,NULL,NULL,UTC_TIMESTAMP(3))

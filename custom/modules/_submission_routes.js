@@ -7,11 +7,10 @@ const Problem = syzoj.model('problem');
 const submissionsProcess = require('../libs/submissions_process');
 const judger = require('../libs/judger');
 const compilerMessage = require('../libs/compiler-message');
-const vjudge = require('../libs/vjudge');
 const TypeORM = require('typeorm');
 const { submissionHiddenByFreeze, frozenSubmissionResult } = require('../libs/contest-standings');
 
-app.use(['/submissions', '/submission/:id', '/contest/:id/submissions', '/contest/submission/:id', '/problem-set/:id/submissions'], (req, res, next) => {
+app.use(['/submissions', '/base/submissions', '/submission/:id', '/contest/:id/submissions', '/contest/submission/:id', '/problem-set/:id/submissions'], (req, res, next) => {
   if (req.method === 'GET' || req.method === 'HEAD') {
     res.setHeader('Cache-Control', 'private, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
@@ -21,7 +20,7 @@ app.use(['/submissions', '/submission/:id', '/contest/:id/submissions', '/contes
 });
 
 const VALID_STATUSES = new Set([
-  'Accepted', 'Wrong Answer', 'Runtime Error', 'Invalid Interaction',
+  'Accepted', 'Wrong Answer', 'Runtime Error', 'Invalid Interaction', 'Presentation Error',
   'Time Limit Exceeded', 'Memory Limit Exceeded', 'Output Limit Exceeded',
   'File Error', 'Waiting', 'Compile Error', 'System Error', 'No Testdata',
   'Partially Correct', 'Judgement Failed', 'Unknown', 'Cancelled', 'Cheated'
@@ -82,9 +81,6 @@ function parseProblemId(value) {
 function validateLanguage(language) {
   if (!language || ['submit-answer', 'non-submit-answer'].includes(language)) return;
   const languages = new Set(syzoj.config.filter_enabled_languages || []);
-  for (const provider of Object.keys(vjudge.languages || {})) {
-    for (const value of Object.keys(vjudge.languages[provider] || {})) languages.add(value);
-  }
   if (!languages.has(language)) throw new ErrorMessage('语言筛选参数不正确。');
 }
 
@@ -201,6 +197,7 @@ function makeSubmissionStatusToken(judge, contestId, viewerId, view) {
 syzoj.utils.makeSubmissionStatusToken = makeSubmissionStatusToken;
 
 async function canAccessContestList(contest, user) {
+  if (syzoj.utils.baseWorkspace && !await syzoj.utils.baseWorkspace.canAccessContest(contest.id, user)) return false;
   if (await isContestSupervisor(contest, user)) return true;
   if (contest.isEnded()) return !!contest.is_public;
   return !!(syzoj.utils.canParticipateInContest && await syzoj.utils.canParticipateInContest(contest, user));
@@ -211,12 +208,25 @@ async function renderSubmissionList(req, res, contest, options = {}) {
   const inContest = !!contest;
   const problemSet = options.problemSet || null;
   const inProblemSet = !!problemSet;
+  const inBase = options.workspace === 'base' && !inContest && !inProblemSet;
+  const base = syzoj.utils.baseWorkspace;
+  if (inBase && (!base || !await base.isMember(curUser))) {
+    return res.status(403).render('error', { err: new ErrorMessage('仅基地成员可以查看基地提交记录。') });
+  }
   if (contest && !await canAccessContestList(contest, curUser)) {
     return res.status(403).render('error', { err: new ErrorMessage('您没有权限查看该比赛的提交记录。') });
   }
-  const displayConfig = contest ? await contestDisplayConfig(contest, curUser) : Object.assign(practiceDisplayConfig(), { inProblemSet });
+  const displayConfig = contest ? await contestDisplayConfig(contest, curUser) : Object.assign(practiceDisplayConfig(), { inProblemSet, inBase });
+  // Base ACM contests can filter by the stored score without adding a score
+  // column or changing disclosure in details/live updates. Resolve workspace
+  // membership from the contest itself, never from a client query parameter.
+  displayConfig.showScoreFilter = displayConfig.showScore || !!(
+    contest && contest.type === 'acm' && base && await base.contains('contest', contest.id)
+  );
   const freezeView = contest ? await syzoj.utils.contestV2.standingsView(contest, curUser) : null;
   const query = JudgeState.createQueryBuilder('js');
+  if (syzoj.utils.baseWorkspace) query.andWhere(syzoj.utils.baseWorkspace.visibleSubmissions('js', curUser));
+  if (inBase) query.andWhere(base.practiceSubmissionScope('js', curUser));
   const hiddenCondition = freezeView && freezeView.frozen && !freezeView.canManage
     ? '(js.submit_time >= :freezeAt AND js.user_id != :freezeViewerId)' : null;
   if (hiddenCondition) query.setParameters({ freezeAt: freezeView.freezeAt, freezeViewerId: Number(curUser && curUser.id || 0) });
@@ -254,7 +264,7 @@ async function renderSubmissionList(req, res, contest, options = {}) {
   if (minScore != null && maxScore != null && minScore > maxScore) {
     throw new ErrorMessage('最低分不能高于最高分。');
   }
-  if ((minScore != null || maxScore != null) && !displayConfig.showScore) {
+  if ((minScore != null || maxScore != null) && !displayConfig.showScoreFilter) {
     throw new ErrorMessage('当前比赛不公开分数筛选。');
   }
   const effectiveScore = `CASE WHEN EXISTS (
@@ -293,11 +303,13 @@ async function renderSubmissionList(req, res, contest, options = {}) {
       if (!problemId) throw new ErrorMessage('题单中没有该题目。');
     } else {
       const problem = await Problem.findById(problemId);
-      if (!problem || !await problem.isAllowedUseBy(curUser)) throw new ErrorMessage('无此题目。');
+      if (!problem || (inBase
+        ? !await base.contains('problem', problemId) || !await base.canReadProblem(problem, curUser)
+        : !await problem.isAllowedUseBy(curUser))) throw new ErrorMessage('无此题目。');
     }
     query.andWhere('js.problem_id = :filterProblemId', { filterProblemId: problemId });
     isFiltered = true;
-  } else if (!contest && !problemSet && !(curUser && await curUser.hasPrivilege('manage_problem'))) {
+  } else if (!contest && !problemSet && !inBase && !(curUser && await curUser.hasPrivilege('manage_problem'))) {
     query.andWhere('js.is_public = 1');
     query.andWhere(`NOT EXISTS (
       SELECT 1 FROM contest active_contest
@@ -345,9 +357,10 @@ async function renderSubmissionList(req, res, contest, options = {}) {
 
   const pushType = displayConfig.showResult ? 'rough' : 'compile';
   res.render('submissions', {
-    vjudge,
     contest,
     problemSet,
+    baseContext: inBase || !!res.locals.baseContext,
+    paginationBasePath: inBase ? ['base', 'submissions'] : undefined,
     problemSetAccess: problemSet ? { manager: !!options.canManageDetails } : null,
     submissionFreeze: freezeView ? submissionFreezeState(contest, freezeView) : null,
     items: judges.map(judge => {
@@ -357,7 +370,7 @@ async function renderSubmissionList(req, res, contest, options = {}) {
       });
       return {
         info: submissionsProcess.getSubmissionInfo(judge, displayConfig),
-        token: frozen ? null : makeSubmissionStatusToken(judge, contest && contest.id, curUser && curUser.id, problemSet ? 'problem-set' : 'list'),
+        token: frozen ? null : makeSubmissionStatusToken(judge, contest && contest.id, curUser && curUser.id, problemSet ? 'problem-set' : inBase ? 'base' : 'list'),
         result: frozen ? frozenSubmissionResult() : effectiveRoughResult(judge, itemDisplayConfig, actions[judge.id], true),
         running: frozen ? false : !!judge.pending
       };
@@ -372,6 +385,14 @@ async function renderSubmissionList(req, res, contest, options = {}) {
 }
 
 syzoj.utils.renderSubmissionList = renderSubmissionList;
+
+app.get('/base/submissions', async (req, res) => {
+  try { await renderSubmissionList(req, res, null, { workspace: 'base' }); }
+  catch (error) {
+    syzoj.log('[base-submission-list] ' + (error.stack || error));
+    res.status(error.statusCode || 400).render('error', { err: error });
+  }
+});
 
 function submissionFreezeState(contest, view) {
   return { frozen: view.frozen, freezeAt: view.freezeAt, canManage: view.canManage,
@@ -434,7 +455,12 @@ app.get(['/submission/:id', '/contest/submission/:id'], async (req, res, next) =
     const id = parseProblemId(req.params.id);
     const judge = id && await JudgeState.findById(id);
     let latestContestTitle = null;
+    let managerDisplayConfig = null;
     if (judge && Number(judge.type) === 1) {
+      const contest = await Contest.findById(Number(judge.type_info));
+      if (contest && await isContestSupervisor(contest, res.locals.user)) {
+        managerDisplayConfig = await contestDisplayConfig(contest, res.locals.user);
+      }
       const rows = await TypeORM.getConnection().query(
         `SELECT JSON_UNQUOTE(JSON_EXTRACT(version.content_json,'$.title')) AS title
            FROM problem_v2_state state
@@ -447,6 +473,17 @@ app.get(['/submission/:id', '/contest/submission/:id'], async (req, res, next) =
     const originalRender = res.render.bind(res);
     res.render = function renderSubmissionWithSafeSocket(view, options) {
       if (view === 'submission' && options && options.info && options.displayConfig) {
+        // The legacy contest detail renderer filters results as a participant,
+        // including when the submitter is an administrator. Re-project the
+        // stored result with the same manager policy as the contest list.
+        if (managerDisplayConfig) {
+          options.displayConfig = Object.assign({}, options.displayConfig, managerDisplayConfig, {
+            inContest: options.displayConfig.inContest,
+            showRejudge: options.displayConfig.showRejudge
+          });
+          options.roughResult = submissionsProcess.getRoughResult(judge, options.displayConfig, false);
+          options.detailResult = submissionsProcess.processOverallResult(judge.result, options.displayConfig);
+        }
         options.socketToken = null;
         options.submissionPending = !!(judge && judge.pending);
         options.submissionStatusToken = makeSubmissionStatusToken(
@@ -503,7 +540,7 @@ function verifyStatusTokens(tokens, viewerId) {
       if (payload.scope !== 'submission-list' || Number(payload.viewerId || 0) !== viewerId ||
         !Number.isSafeInteger(Number(payload.submissionId)) || !payload.taskId ||
         !Number.isSafeInteger(Number(payload.contestId || 0)) ||
-        !['list', 'detail', 'problem-set'].includes(String(payload.view || 'list'))) continue;
+        !['list', 'detail', 'problem-set', 'base'].includes(String(payload.view || 'list'))) continue;
       payloads.push(payload);
     } catch (error) {}
   }
@@ -545,6 +582,7 @@ async function getListStatuses(payloads, user) {
   for (const payload of payloads) {
     const judge = judgeById.get(Number(payload.submissionId));
     if (!judge || String(judge.task_id || '') !== String(payload.taskId)) continue;
+    if (syzoj.utils.baseWorkspace && !await syzoj.utils.baseWorkspace.canAccessSubmission(judge, user)) continue;
     const contestId = Number(payload.contestId || 0);
     let currentDisplayConfig;
     if (contestId) {
@@ -560,9 +598,11 @@ async function getListStatuses(payloads, user) {
         (!user || Number(judge.user_id) !== Number(user.id))) continue;
     } else {
       if (Number(judge.type) !== 0) continue;
+      const basePractice = payload.view === 'base';
+      if (basePractice && (!syzoj.utils.baseWorkspace || !await syzoj.utils.baseWorkspace.canReadPracticeSubmission(judge, user))) continue;
       const canAccessDetail = payload.view === 'detail' && syzoj.utils.canViewSubmissionDetail &&
         await syzoj.utils.canViewSubmissionDetail(judge, user);
-      if (!canManagePractice && !canAccessDetail && payload.view !== 'problem-set' &&
+      if (!canManagePractice && !canAccessDetail && !basePractice && payload.view !== 'problem-set' &&
         (!judge.is_public || activeContestProblemIds.has(Number(judge.problem_id)))) continue;
       currentDisplayConfig = practiceDisplayConfig();
     }
@@ -619,6 +659,13 @@ app.post("/api/v2/submissions/events", async (req, res, next) => {
         return syzoj.utils.apiV2.fail(res, 403, 'SUBMISSION_FORBIDDEN', 'Submission status credentials are invalid or expired.');
       }
       return res.status(403).json({ error: '状态凭证已失效。' });
+    }
+    if (res.locals.temporaryContestSession && syzoj.utils.temporaryContestContentAllowed) {
+      for (const payload of payloads) {
+        if (!Number(payload.contestId) || !await syzoj.utils.temporaryContestContentAllowed(viewerId, Number(payload.contestId))) {
+          return syzoj.utils.apiV2.fail(res, 403, 'TEMPORARY_CONTEST_SCOPE', '临时比赛账户只能访问已报名比赛。');
+        }
+      }
     }
 
     beginEventStream(res);

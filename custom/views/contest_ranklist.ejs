@@ -104,13 +104,14 @@ for (const problem of problems) {
   <% if (ranklist.length) { %>
     <div class="app-table-region" role="region" aria-label="比赛排行榜" tabindex="0">
       <table class="app-table app-contest-rank-table">
-        <thead><tr><th>名次</th><th class="app-cell-primary">参赛者</th><% if (contest.type === 'acm') { %><th>通过</th><th>罚时</th><% } %><% for (let i = 0; i < problems.length; i += 1) { %><th class="app-rank-problem"><a href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'problem', i + 1]) %>" title="<%= syzoj.utils.removeTitleTag(problems[i].title) %>"><%= this.alpha(i + 1) %></a></th><% } %><% if (contest.type === 'noi' || contest.type === 'ioi') { %><th>总分</th><% } %><% if (typeof contestRatingFinalized !== 'undefined' && contestRatingFinalized) { %><th>Rating</th><% } %></tr></thead>
+        <thead><tr><th>名次</th><th class="app-cell-primary">参赛者</th><% if (contest.type === 'acm') { %><th>通过</th><th>罚时</th><% } %><% if (contest.type === 'ioi') { %><th>总分</th><% } %><% for (let i = 0; i < problems.length; i += 1) { %><th class="app-rank-problem"><a href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'problem', i + 1]) %>" title="<%= syzoj.utils.removeTitleTag(problems[i].title) %>"><%= this.alpha(i + 1) %></a></th><% } %><% if (contest.type === 'noi') { %><th>总分</th><% } %><% if (typeof contestRatingFinalized !== 'undefined' && contestRatingFinalized) { %><th>Rating</th><% } %></tr></thead>
         <tbody>
           <% let appRow = typeof rankOffset !== 'undefined' ? rankOffset : 0; for (const item of ranklist) { appRow += 1; const appRank = item.player.standing_rank || appRow; const appOverallRank = item.player.overall_standing_rank || null; const appPenalty = contest.type === 'acm' ? appAcmPenalty(item) : 0; const appDisplayUser = appRankDisplayUser(item); %>
             <tr data-rank-user-id="<%= item.user.id %>" class="<%= item.player.isCheater ? 'app-rank-cheater ' : '' %><%= user && user.id === item.user.id ? 'app-row-current' : '' %>">
-              <td><span class="app-rank-number<%= appRank <= 3 ? ' is-top' : '' %>"><%= appRank %></span><% if (appOverallRank) { %><small class="app-rank-overall">（<%= appOverallRank %>）</small><% } %></td>
+              <td><span class="app-rank-number<%= !item.player.isCheater && item.player.medal ? ' is-' + item.player.medal : '' %>"<% if (!item.player.isCheater && item.player.medal) { %> title="<%= { gold: '金奖', silver: '银奖', bronze: '铜奖' }[item.player.medal] %>区（按当前排名）"<% } %>><%= appRank %></span><% if (appOverallRank) { %><small class="app-rank-overall">（<%= appOverallRank %>）</small><% } %></td>
               <td class="app-cell-primary"><span class="app-rank-user"><%- syzoj.utils.renderUsername(appDisplayUser) %><% if (item.user.isAiAccount) { %><span class="app-status app-status-info">AI</span><% } %><% if (item.player.isCheater) { %><span class="app-status app-status-error">作弊</span><% } %></span></td>
               <% if (contest.type === 'acm') { %><td class="app-cell-number"><strong><%= Math.max(0, item.player.score) %></strong></td><td class="app-cell-number"><%= syzoj.utils.formatTime(appPenalty) %></td><% } %>
+              <% if (contest.type === 'ioi') { %><td class="app-cell-number"><strong class="app-score"><%= item.player.score %></strong></td><% } %>
               <% for (const problem of problems) { const detail = item.player.score_details[problem.id]; const canOpen = !!(user && (appRankSupervisor || user.id === item.user.id)); %>
                 <td class="app-rank-result<%= problem.appFirstUserId === item.user.id ? ' is-first' : '' %>">
                   <% if (detail && detail.frozenAttempts && !(contest.type === 'acm' && detail.accepted)) { %>
@@ -126,7 +127,7 @@ for (const problem of problems) {
                   <% if (canOpen && detail.judge_id) { %></a><% } %><% } %>
                 </td>
               <% } %>
-              <% if (contest.type === 'noi' || contest.type === 'ioi') { %><td class="app-cell-number"><strong class="app-score"><%= item.player.score %></strong></td><% } %>
+              <% if (contest.type === 'noi') { %><td class="app-cell-number"><strong class="app-score"><%= item.player.score %></strong></td><% } %>
               <% if (typeof contestRatingFinalized !== 'undefined' && contestRatingFinalized) { %><td class="app-cell-number"><% if (item.ratingChange) { const appDelta = item.ratingChange.after - item.ratingChange.before; %><strong><%= item.ratingChange.after %></strong> <span class="<%= appDelta >= 0 ? 'app-rating-up' : 'app-rating-down' %>"><%= appDelta >= 0 ? '+' : '' %><%= appDelta %></span><% } else { %>—<% } %></td><% } %>
             </tr>
           <% } %>

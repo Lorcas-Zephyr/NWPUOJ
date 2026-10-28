@@ -10,6 +10,7 @@ const JUDGE_STATUS_MAP = Object.freeze({
   'Output Limit Exceeded': 'output_limit',
   'File Error': 'file_error',
   'Invalid Interaction': 'invalid_interaction',
+  'Presentation Error': 'presentation_error',
   'Partially Correct': 'partially_correct',
   'No Testdata': 'system_error',
   'System Error': 'system_error',
@@ -44,6 +45,7 @@ function sqlStatusCase(statusColumn, pendingColumn) {
     WHEN 'Output Limit Exceeded' THEN 'output_limit'
     WHEN 'File Error' THEN 'file_error'
     WHEN 'Invalid Interaction' THEN 'invalid_interaction'
+    WHEN 'Presentation Error' THEN 'presentation_error'
     WHEN 'Partially Correct' THEN 'partially_correct'
     WHEN 'No Testdata' THEN 'system_error'
     WHEN 'System Error' THEN 'system_error'

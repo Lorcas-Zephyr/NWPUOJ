@@ -57,12 +57,10 @@ test('Markdown editors use a live split workspace on wide screens and tabs on na
   assert.match(css, /@media \(max-width: 960px\)/);
 });
 
-test('clipboard Markdown panes keep equal geometry and synchronize in both directions', () => {
+test('clipboard uses the shared Vditor instead of a second Markdown parser and preview pane', () => {
   const view = read('custom/views/clipboard_edit.ejs');
-  const css = readAppCss();
-
-  assert.match(view, /function syncScroll\(source, target\)/);
-  assert.match(view, /textarea\.addEventListener\('scroll'[^\n]*syncScroll\(textarea, preview\)/);
-  assert.match(view, /preview\.addEventListener\('scroll'[^\n]*syncScroll\(preview, textarea\)/);
-  assert.match(css, /\.app-clipboard-editor\s*\{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/s);
+  assert.match(view, /is-vditor-workspace/);
+  assert.doesNotMatch(view, /window\.markdownit|clipboard-edit-preview|katex-auto-render/);
+  assert.match(read('custom/static-libs/noj-markdown.js'), /\[data-clipboard-v2="save"\] textarea\[name="content"\]/);
+  assert.match(read('custom/views/clipboard_view.ejs'), /item\.contentRendered/);
 });

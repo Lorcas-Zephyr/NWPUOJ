@@ -14,7 +14,7 @@ const appOtherTags = [];
 for (const tag of tags) { const group = appGroupedTags.find(function (candidate) { return candidate.match(tag); }); if (group) group.items.push(tag); else appOtherTags.push(tag); }
 const appDifficulty = appGroupedTags.find(function (group) { return group.key === 'difficulty'; });
 if (appDifficulty) appDifficulty.items.sort(function (a, b) { const ai = appDifficulty.order.indexOf(a.color); const bi = appDifficulty.order.indexOf(b.color); return ai === bi ? String(a.name).localeCompare(String(b.name), 'zh-CN') : ai - bi; });
-function appTagUrl(tag) { const repository = { UOJ: 'uoj', HDU: 'hdu', POJ: 'poj' }[tag.name] || 'all'; return syzoj.utils.makeUrl(['problems', 'tag', tag.id], repository === 'all' ? {} : { repository: repository }); }
+function appTagUrl(tag) { return syzoj.utils.makeUrl(['problems', 'tag', tag.id]); }
 %>
 
 <div class="app-page app-tags-page">

@@ -63,26 +63,17 @@ var user_1 = require("./user");
 var file_1 = require("./file");
 var judge_state_1 = require("./judge_state");
 var contest_1 = require("./contest");
-var problem_tag_1 = require("./problem_tag");
 var problem_tag_map_1 = require("./problem_tag_map");
 var submission_statistics_1 = require("./submission_statistics");
 var fs = require("fs-extra");
 var path = require("path");
 var util = require("util");
-var LRUCache = require("lru-cache");
 var DeepCopy = require("deepcopy");
-var problemTagCache = new LRUCache({
-    max: syzoj.config.db.cache_size
-});
 var ProblemType;
 (function (ProblemType) {
     ProblemType["Traditional"] = "traditional";
     ProblemType["SubmitAnswer"] = "submit-answer";
     ProblemType["Interaction"] = "interaction";
-    ProblemType["VJudge_Luogu"] = "vjudge:luogu";
-    ProblemType["VJudge_UOJ"] = "vjudge:uoj";
-    ProblemType["VJudge_HDU"] = "vjudge:hdu";
-    ProblemType["VJudge_POJ"] = "vjudge:poj";
 })(ProblemType || (ProblemType = {}));
 var statisticsTypes = {
     fastest: ['total_time', 'ASC'],
@@ -736,39 +727,12 @@ var Problem = /** @class */ (function (_super) {
         });
     };
     Problem.prototype.getTags = function () {
-        return __awaiter(this, void 0, void 0, function () {
-            var tagIDs, maps, res;
-            var _this = this;
-            return __generator(this, function (_a) {
-                switch (_a.label) {
-                    case 0:
-                        if (!problemTagCache.has(this.id)) return [3 /*break*/, 1];
-                        tagIDs = problemTagCache.get(this.id);
-                        return [3 /*break*/, 3];
-                    case 1: return [4 /*yield*/, problem_tag_map_1["default"].find({
-                            where: {
-                                problem_id: this.id
-                            }
-                        })];
-                    case 2:
-                        maps = _a.sent();
-                        tagIDs = maps.map(function (x) { return x.tag_id; });
-                        problemTagCache.set(this.id, tagIDs);
-                        _a.label = 3;
-                    case 3: return [4 /*yield*/, tagIDs.mapAsync(function (tagID) { return __awaiter(_this, void 0, void 0, function () {
-                            return __generator(this, function (_a) {
-                                return [2 /*return*/, problem_tag_1["default"].findById(tagID)];
-                            });
-                        }); })];
-                    case 4:
-                        res = _a.sent();
-                        res.sort(function (a, b) {
-                            return a.color > b.color ? 1 : -1;
-                        });
-                        return [2 /*return*/, res];
-                }
-            });
-        });
+        // Keep this read aligned with the transactional V2 tag writers.
+        return TypeORM.getConnection().query(
+            'SELECT tag.id,tag.name,tag.color,tag.category FROM problem_tag_map map ' +
+            'JOIN problem_tag tag ON tag.id=map.tag_id WHERE map.problem_id=? ORDER BY tag.color ASC,tag.id ASC',
+            [this.id]
+        );
     };
     Problem.prototype.setTags = function (newTagIDs) {
         return __awaiter(this, void 0, void 0, function () {
@@ -820,7 +784,6 @@ var Problem = /** @class */ (function (_super) {
                         _a++;
                         return [3 /*break*/, 7];
                     case 11:
-                        problemTagCache.set(this.id, newTagIDs);
                         return [2 /*return*/];
                 }
             });
@@ -903,9 +866,6 @@ var Problem = /** @class */ (function (_super) {
                         return [4 /*yield*/, Problem_1.deleteFromCache(oldID)];
                     case 20:
                         _a.sent();
-                        return [4 /*yield*/, problemTagCache.del(oldID)];
-                    case 21:
-                        _a.sent();
                         return [2 /*return*/];
                 }
             });
@@ -965,7 +925,6 @@ var Problem = /** @class */ (function (_super) {
                         _c++;
                         return [3 /*break*/, 4];
                     case 8:
-                        problemTagCache.del(this.id);
                         return [4 /*yield*/, Promise.all([
                                 entityManager.query('DELETE FROM `judge_state_admin_action` WHERE `affected_problem_id` = ' + this.id),
                                 entityManager.query('DELETE FROM `article_comment` WHERE `article_id` IN (SELECT `id` FROM `article` WHERE `problem_id` = ' + this.id + ')'),
@@ -996,26 +955,10 @@ var Problem = /** @class */ (function (_super) {
         });
     };
     Problem.prototype.getDisplayId = function () {
-        if (this.type === ProblemType.VJudge_UOJ && /^\d+$/.test(this.vjudge_config || '')) {
-            return "U" + this.vjudge_config;
-        }
-        if (this.type === ProblemType.VJudge_HDU && /^\d+$/.test(this.vjudge_config || '')) {
-            return "H" + this.vjudge_config;
-        }
-        if (this.type === ProblemType.VJudge_POJ && /^\d+$/.test(this.vjudge_config || '')) {
-            return "P" + this.vjudge_config;
-        }
         return "#" + this.id;
-    };
-    Problem.prototype.getVJudgeLanguages = function () {
-        var vjudge = typeof this.type === 'string' && this.type.startsWith('vjudge:') ? this.type.split(':')[1] : null;
-        return vjudge ? require("../libs/vjudge").languages[vjudge] : null;
     };
     var Problem_1;
     Problem.cache = true;
-    Problem.invalidateTagCache = function (problemId) {
-        problemTagCache.del(Number(problemId));
-    };
     __decorate([
         TypeORM.PrimaryGeneratedColumn(),
         __metadata("design:type", Number)
@@ -1115,10 +1058,6 @@ var Problem = /** @class */ (function (_super) {
         }),
         __metadata("design:type", String)
     ], Problem.prototype, "type");
-    __decorate([
-        TypeORM.Column({ nullable: true, type: "varchar", length: 80 }),
-        __metadata("design:type", String)
-    ], Problem.prototype, "vjudge_config");
     Problem = Problem_1 = __decorate([
         TypeORM.Entity()
     ], Problem);

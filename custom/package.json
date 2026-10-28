@@ -1,30 +1,35 @@
 {
   "name": "nwpuoj-custom",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "private": true,
   "scripts": {
     "postinstall": "npm install --prefix node_modules/markdown-it --omit=dev --no-package-lock --no-save",
-    "test": "npm run verify:design && npm run test:syntax && npm run test:languages && npm run test:contest-freeze && npm run test:contest-notices && npm run test:unit && npm run test:profile && npm run test:vjudge",
+    "test": "npm run verify:design && npm run test:syntax && npm run test:languages && npm run test:contest-freeze && npm run test:contest-notices && npm run test:algorithm-tags && npm run test:unit && npm run test:profile",
+    "test:algorithm-tags": "node --test tests/algorithm_tag_catalog.test.js tests/problem_tags.test.js",
     "test:contest-notices": "node --test tests/contest_notices.test.js tests/contest_live_performance.test.js",
+    "test:contest-plagiarism": "node --test tests/contest_plagiarism.test.js",
+    "test:weekly": "node --test tests/weekly_standings.test.js",
+    "test:legal": "node --test tests/legal_documents.test.js",
+    "test:legal:mysql": "node --test tests/legal_documents.mysql.test.js",
+    "test:legal:browser": "node --test tests/legal_documents.browser.test.js",
+    "test:legal:live": "node --test tests/legal_documents.live.test.js",
+    "test:weekly:mysql": "node --test tests/weekly_ranklist.mysql.test.js",
+    "test:weekly:browser": "node --test tests/weekly_ranklist.browser.test.js",
     "test:contest-freeze": "node --test tests/contest_freeze.test.js tests/contest_submission_freeze.test.js",
     "verify:design": "node tests/verify-design-checklist.js",
     "test:web:smoke": "bash tests/web_render_smoke.sh",
     "test:syntax": "find libs libs-built modules scripts tests -type f -name '*.js' -exec node --check {} \\;",
     "test:languages": "node --test tests/judge_languages.test.js tests/python_time_limit.test.js tests/java_time_limit.test.js",
-    "test:profile": "node --test tests/user_profile_v2.test.js tests/user_management_v2.test.js",
-    "test:unit": "node --test tests/design_api_inventory.test.js tests/compatibility_inventory.test.js tests/ai_contest.test.js tests/user_follow_v2.test.js tests/user_avatar_v2.test.js tests/image_host.test.js tests/admin_audit_coverage.test.js tests/v2_route_retirement.test.js tests/announcement_order.test.js tests/admin_notifications.test.js tests/rating.test.js tests/rating_projection.test.js tests/rating_recalculation.test.js tests/rating_reversal.test.js tests/rating_notification.test.js tests/rating_admin_flow.test.js tests/rating_job_lifecycle.test.js tests/problem_bulk_action.test.js tests/problem_domain.test.js tests/testdata_snapshot.test.js tests/testdata_upload.test.js tests/content_domain.test.js tests/submission_domain.test.js tests/submission_scheduler.test.js tests/submission_storage.test.js tests/migration_submission_consistency.test.js tests/migration_domain.test.js tests/admin_operations_assurance.test.js tests/version_consistency.test.js tests/admin_reason_policy.test.js tests/admin_list_ui.test.js tests/problem_context_ui.test.js tests/app_shell_ui.test.js tests/frontend_foundation_ui.test.js tests/contest_editor_ui.test.js tests/contest_workspace_ui.test.js tests/problem_library_ui.test.js tests/submit_workspace_ui.test.js tests/markdown_editor_draft.test.js tests/accessibility_responsive.test.js tests/judge_monitor.test.js tests/contest_temp_accounts.test.js tests/contest_lifecycle.test.js tests/contest_standings.test.js tests/api_v2_foundation.test.js tests/authorization_v2.test.js tests/authorization_domain.test.js tests/credential_vault.test.js tests/vjudge_credential_context.test.js tests/vjudge_workspace_ui.test.js tests/compile_cache_key.test.js tests/judge_task_signature.test.js tests/vjudge_job_recovery.test.js tests/vjudge_import_policy.test.js tests/vjudge_provider_scheduler.test.js tests/vjudge_remote_submission.test.js",
-    "test:vjudge": "bash tests/run-vjudge-tests.sh"
+    "test:profile": "node --test tests/auth_login.test.js tests/user_profile_v2.test.js tests/user_management_v2.test.js",
+    "test:base": "node --test tests/base_workspace.test.js tests/base_workspace_routes.test.js tests/base_problem_migration.test.js tests/base_problem_sync.test.js tests/base_submissions.test.js",
+    "test:unit": "node --test tests/submission_detail_permissions.test.js tests/design_api_inventory.test.js tests/compatibility_inventory.test.js tests/ai_contest.test.js tests/user_follow_v2.test.js tests/user_avatar_v2.test.js tests/image_host.test.js tests/admin_audit_coverage.test.js tests/v2_route_retirement.test.js tests/announcement_order.test.js tests/admin_notifications.test.js tests/rating.test.js tests/rating_projection.test.js tests/rating_recalculation.test.js tests/rating_reversal.test.js tests/rating_notification.test.js tests/rating_admin_flow.test.js tests/rating_job_lifecycle.test.js tests/problem_bulk_action.test.js tests/problem_domain.test.js tests/problem_tags.test.js tests/testdata_snapshot.test.js tests/testdata_upload.test.js tests/content_domain.test.js tests/submission_domain.test.js tests/submission_scheduler.test.js tests/submission_storage.test.js tests/migration_submission_consistency.test.js tests/migration_domain.test.js tests/admin_operations_assurance.test.js tests/version_consistency.test.js tests/admin_reason_policy.test.js tests/admin_list_ui.test.js tests/problem_context_ui.test.js tests/app_shell_ui.test.js tests/frontend_foundation_ui.test.js tests/contest_editor_ui.test.js tests/contest_workspace_ui.test.js tests/problem_library_ui.test.js tests/submit_workspace_ui.test.js tests/markdown_editor_draft.test.js tests/accessibility_responsive.test.js tests/judge_monitor.test.js tests/contest_temp_accounts.test.js tests/contest_code_export.test.js tests/contest_lifecycle.test.js tests/contest_standings.test.js tests/api_v2_foundation.test.js tests/authorization_v2.test.js tests/authorization_domain.test.js tests/credential_vault.test.js tests/compile_cache_key.test.js tests/judge_task_signature.test.js tests/vjudge_removal.test.js"
   },
   "dependencies": {
-    "@tesseract.js-data/eng": "1.0.0",
     "bcryptjs": "2.4.3",
     "fs-extra": "7.0.1",
     "linkify-it": "5.0.2",
     "markdown-it": "14.3.0",
     "nodemailer": "6.9.7",
-    "tesseract.js": "5.1.1",
-    "turndown": "7.2.0",
-    "turndown-plugin-gfm": "1.0.2",
     "yauzl": "2.10.0"
   }
 }

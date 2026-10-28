@@ -284,12 +284,38 @@ async function policyDecision(subject, capability, resource, context, scope) {
   return decision;
 }
 
+async function assignedContestAdministratorAllows(subject, capability, resource, scope) {
+  if (!resource || !capability.startsWith('contest:') || !RESOURCE_OWNER_RESTRICTED_CAPABILITIES.has(capability)) return false;
+  const requested = normalizeScope(scope);
+  const contestId = Number(requested.id);
+  if (requested.type !== 'contest' || !Number.isSafeInteger(contestId) || contestId < 1 || resource.id != null && Number(resource.id) !== contestId) return false;
+  if (resource.scope) {
+    const resourceScope = normalizeScope(resource.scope);
+    if (resourceScope.type !== 'contest' || Number(resourceScope.id) !== contestId) return false;
+  }
+  if (syzoj.utils.baseWorkspace && await syzoj.utils.baseWorkspace.contains('contest', contestId)) return false;
+  // Read the saved assignment, not caller input or the legacy model cache.
+  // GET-only request memoization cannot retain grants after removal.
+  const rows = await requestReads.memo(`auth:contest-administrators:${contestId}`, () => TypeORM.getConnection().query(
+    'SELECT id,admins FROM contest WHERE id=? LIMIT 1', [contestId]
+  ));
+  const contest = rows[0];
+  return !!contest && String(contest.admins || '').split('|').some(id => /^[1-9]\d*$/.test(id) && Number(id) === Number(subject.id));
+}
+
 async function authorize(subject, capability, resource, context = {}) {
   if (!subject) return false;
   const scope = context.scope || (resource && resource.scope) || 'global';
+  if (syzoj.utils.baseWorkspace) {
+    const workspaceDecision = await syzoj.utils.baseWorkspace.authorize(subject, capability, resource, scope);
+    if (workspaceDecision === false) return false;
+    if (workspaceDecision === true) return (await policyDecision(subject, capability, resource, context, scope)).effect !== 'deny';
+  }
   const unrestricted = !!subject.is_admin || Number(subject.id) === Number(syzoj.siteOwnerUserId || 0);
-  if (resource && RESOURCE_OWNER_RESTRICTED_CAPABILITIES.has(capability) && !unrestricted && !resourceOwnerAllows(subject, capability, resource)) return false;
-  const baseAllowed = resourceOwnerAllows(subject, capability, resource) ||
+  const ownerAllowed = resourceOwnerAllows(subject, capability, resource);
+  const assignedAdministrator = !unrestricted && !ownerAllowed && await assignedContestAdministratorAllows(subject, capability, resource, scope);
+  if (resource && RESOURCE_OWNER_RESTRICTED_CAPABILITIES.has(capability) && !unrestricted && !ownerAllowed && !assignedAdministrator) return false;
+  const baseAllowed = ownerAllowed || assignedAdministrator ||
     (await effectiveCapabilities(subject, scope)).some(value => capabilityMatches(value, capability));
   if (capability === 'owner:transfer') return baseAllowed;
   const decision = await policyDecision(subject, capability, resource, context, scope);

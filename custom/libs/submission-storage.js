@@ -1,7 +1,7 @@
 'use strict';
 
 const TERMINAL_JUDGE_STATUSES = new Set([
-  'Accepted', 'Wrong Answer', 'Compile Error', 'Runtime Error', 'Time Limit Exceeded', 'Memory Limit Exceeded'
+  'Accepted', 'Wrong Answer', 'Compile Error', 'Runtime Error', 'Time Limit Exceeded', 'Memory Limit Exceeded', 'Invalid Interaction', 'Presentation Error'
 ]);
 
 function storageError(code, message, statusCode) {

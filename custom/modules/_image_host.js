@@ -49,6 +49,11 @@ function isUnrestricted(user) {
 async function canUseImageHost(user, req) {
   if (!user) return false;
   if (isUnrestricted(user)) return true;
+  // Base members are allowed to use the image host for their base-workspace
+  // problem statements even when they do not have the global problem editor
+  // capability. The workspace membership check remains server-side and is
+  // shared with the base problem creation/editing routes.
+  if (syzoj.utils.baseWorkspace && typeof syzoj.utils.baseWorkspace.isMember === 'function' && await syzoj.utils.baseWorkspace.isMember(user)) return true;
   if (syzoj.utils.authorizationV2 && typeof syzoj.utils.authorizationV2.authorize === 'function') {
     return !!await syzoj.utils.authorizationV2.authorize(user, 'problem:edit', null, { req, scope: 'global' });
   }

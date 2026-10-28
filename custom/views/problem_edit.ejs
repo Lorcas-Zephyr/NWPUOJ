@@ -1,4 +1,4 @@
-<% this.title = problem.new ? '新建题目' : '编辑题目'; this.active = 'problems'; %>
+<% const appProblemCanUseImageHost = !!(user && ((typeof appHasCapability === 'function' && appHasCapability('problem:edit')) || (typeof baseMember !== 'undefined' && baseMember))); this.title = problem.new ? '新建题目' : '编辑题目'; this.active = 'problems'; %>
 <% include app_header %>
 <%
 const appLegacyStatementParts = [
@@ -14,7 +14,7 @@ const appStatementMarkdown = appUsesSplitStatement
   : (problem.description || '');
 %>
 <main class="app-page app-problem-editor-page">
-  <header class="app-page-header"><div class="app-page-heading"><a class="app-back-link" href="<%= problem.id ? syzoj.utils.makeUrl(['problem', problem.id]) : syzoj.utils.makeUrl(['problems']) %>"><i data-lucide="arrow-left"></i><%= problem.id ? '返回题目' : '返回题库' %></a><span class="app-kicker">PROBLEM WORKSPACE</span><h1 class="app-page-title"><%= problem.new ? '新建题目' : '编辑题目' %></h1><p class="app-page-description">使用一份 Markdown 编写完整题面。</p></div><% if (user && typeof appHasCapability === 'function' && appHasCapability('problem:edit')) { %><div class="app-page-actions"><a class="app-button app-button-secondary" href="/image-host"><i data-lucide="images"></i>打开图床</a></div><% } %></header>
+  <header class="app-page-header"><div class="app-page-heading"><a class="app-back-link" href="<%= problem.id ? syzoj.utils.makeUrl(['problem', problem.id]) : syzoj.utils.makeUrl(['problems']) %>"><i data-lucide="arrow-left"></i><%= problem.id ? '返回题目' : '返回题库' %></a><span class="app-kicker">PROBLEM WORKSPACE</span><h1 class="app-page-title"><%= problem.new ? '新建题目' : '编辑题目' %></h1><p class="app-page-description">使用一份 Markdown 编写完整题面。</p></div><% if (appProblemCanUseImageHost) { %><div class="app-page-actions"><a class="app-button app-button-secondary" href="/image-host"><i data-lucide="images"></i>打开图床</a></div><% } %></header>
   <form class="app-form" method="post" data-problem-editor-v2 data-problem-id="<%= problem.id || 0 %>" data-can-publish="<%= problem.allowedManage ? '1' : '0' %>">
     <div class="app-editor-bar"><div class="app-segmented" role="tablist"><button class="is-active" type="button" role="tab" aria-selected="true" data-problem-editor-tab="edit"><i data-lucide="square-pen"></i>编辑</button><button type="button" role="tab" aria-selected="false" data-problem-editor-tab="preview"><i data-lucide="eye"></i>预览</button></div></div>
     <div class="app-problem-editor-fields" data-problem-editor-panel="edit">
@@ -64,7 +64,9 @@ const appStatementMarkdown = appUsesSplitStatement
         var content = versionBody && versionBody.data && versionBody.data.content;
         if (!content) return;
         form.elements.title.value = content.title || '';
-        form.elements.description.value = content.description || '';
+        var parts = [['题目描述', content.description], ['输入格式', content.input_format], ['输出格式', content.output_format], ['样例', content.example], ['数据范围与提示', content.limit_and_hint]];
+        var split = parts.slice(1).some(function (part) { return part[1] != null && String(part[1]).trim(); });
+        form.elements.description.value = split ? parts.filter(function (part) { return part[1] != null && String(part[1]).trim(); }).map(function (part) { return '## ' + part[0] + '\n\n' + part[1]; }).join('\n\n') : (content.description || '');
       })
       .then(function () {
         contentFields.forEach(function (field) { field.readOnly = false; });
@@ -108,6 +110,7 @@ const appStatementMarkdown = appUsesSplitStatement
       var tagIds = Array.prototype.map.call(form.querySelectorAll('input[name="tags"]'), function (input) { return Number(input.value); });
       var headers = { 'Content-Type': 'application/json' };
       var payload = {
+        workspace: <%- JSON.stringify(typeof baseContext !== 'undefined' && baseContext ? 'base' : 'global') %>,
         id: id ? undefined : (form.elements.id && form.elements.id.value || null),
         title: form.elements.title.value,
         description: form.elements.description.value,

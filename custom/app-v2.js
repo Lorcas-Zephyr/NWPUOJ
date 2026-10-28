@@ -299,6 +299,30 @@
     });
   }
 
+  function setupActionMenus() {
+    function closeOutside(target) {
+      document.querySelectorAll('details.app-action-menu[open]').forEach(function (menu) {
+        if (!target || !menu.contains(target)) menu.open = false;
+      });
+    }
+    // Capture also covers pages whose local click handlers stop propagation.
+    document.addEventListener('click', function (event) { closeOutside(event.target); }, true);
+    document.addEventListener('toggle', function (event) {
+      if (event.target.matches && event.target.matches('details.app-action-menu') && event.target.open) closeOutside(event.target);
+    }, true);
+    document.addEventListener('keydown', function (event) {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      var active = document.activeElement;
+      var menu = active && active.closest('details.app-action-menu[open]');
+      closeOutside(null);
+      if (menu) {
+        var summary = menu.querySelector('summary');
+        if (summary) summary.focus();
+        event.preventDefault();
+      }
+    });
+  }
+
   function setupSelectionGroups() {
     document.querySelectorAll('[data-select-group]').forEach(function (group) {
       var master = group.querySelector('[data-select-all]');
@@ -324,6 +348,32 @@
       });
       items.forEach(function (item) { item.addEventListener('change', update); });
       update();
+    });
+  }
+
+  function setupStatementCopies() {
+    var sequence = 0;
+    document.querySelectorAll('.app-problem-statement .app-markdown pre').forEach(function (pre) {
+      if (pre.closest('.app-statement-code-block, .app-vditor-host, [contenteditable="true"]')) return;
+      var wrapper = document.createElement('div');
+      wrapper.className = 'app-statement-code-block';
+      do { wrapper.id = 'app-statement-code-' + (++sequence); } while (document.getElementById(wrapper.id));
+      var toolbar = document.createElement('div');
+      toolbar.className = 'app-statement-code-toolbar';
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'app-statement-code-copy';
+      button.title = '复制代码';
+      button.setAttribute('aria-label', '复制代码');
+      // The button lives outside <pre>: copying/selecting code never includes
+      // its label, and horizontal scrolling cannot move it off screen.
+      button.setAttribute('data-copy', '#' + wrapper.id + ' > pre');
+      button.innerHTML = '<i data-lucide="copy"></i><span data-copy-label>复制</span>';
+      toolbar.appendChild(button);
+      pre.parentNode.insertBefore(wrapper, pre);
+      wrapper.appendChild(toolbar);
+      wrapper.appendChild(pre);
+      refreshIcons(button);
     });
   }
 
@@ -376,16 +426,27 @@
       var source = document.querySelector(button.getAttribute('data-copy'));
       if (!source) return;
       var value = 'value' in source ? source.value : source.textContent;
+      var label = button.querySelector('[data-copy-label]');
+      window.clearTimeout(button.__copyResetTimer);
       button.dataset.copying = 'true';
       try {
         await copyText(value);
         button.setAttribute('aria-label', '已复制');
+        if (label) label.textContent = '已复制';
+        button.classList.add('is-copied');
         showToast('已复制到剪贴板', 'success');
       } catch (error) {
+        button.classList.remove('is-copied');
+        if (label) label.textContent = '复制失败';
+        button.setAttribute('aria-label', '复制失败，请手动选择内容');
         showToast('复制失败，请手动选择内容', 'danger');
       } finally {
         delete button.dataset.copying;
-        window.setTimeout(function () { button.setAttribute('aria-label', button.getAttribute('title') || '复制'); }, 1200);
+        button.__copyResetTimer = window.setTimeout(function () {
+          button.setAttribute('aria-label', button.getAttribute('title') || '复制');
+          button.classList.remove('is-copied');
+          if (label) label.textContent = '复制';
+        }, 1600);
       }
     });
   }
@@ -402,6 +463,90 @@
       button.innerHTML = '<i data-lucide="' + (reveal ? 'eye-off' : 'eye') + '"></i>';
       refreshIcons(button);
     });
+  }
+
+  function setupFileInputs() {
+    var controls = new WeakMap();
+    var sequence = 0;
+
+    function sync(input) {
+      if (!input || !input.matches || !input.matches('input[type="file"]') || !input.parentNode) return;
+      // Vditor uploads immediately and owns its toolbar/status feedback.
+      // Ordinary upload fields still retain their selected filename lists.
+      if (input.closest('.app-vditor-host')) return;
+      var control = controls.get(input);
+      if (!control) {
+        var field = input.closest('.app-file-field');
+        var surface = field && field.querySelector('span');
+        var status = surface && surface.querySelector('[data-file-selection]');
+        if (!status) {
+          status = document.createElement('span');
+          if (surface) surface.appendChild(status);
+          else input.insertAdjacentElement('afterend', status);
+        }
+        status.classList.add('app-file-selection');
+        status.setAttribute('data-file-selection', '');
+        status.setAttribute('role', 'status');
+        status.setAttribute('aria-live', 'polite');
+        status.setAttribute('aria-atomic', 'true');
+        if (!status.id) {
+          do { status.id = 'app-file-selection-' + (++sequence); } while (document.getElementById(status.id) !== status);
+        }
+        var descriptions = (input.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean);
+        if (descriptions.indexOf(status.id) === -1) descriptions.push(status.id);
+        input.setAttribute('aria-describedby', descriptions.join(' '));
+        control = { status: status, signature: null };
+        controls.set(input, control);
+      }
+      var files = Array.from(input.files || []);
+      var signature = JSON.stringify(files.map(function (file) { return [file.name, file.size, file.lastModified]; }));
+      if (control.signature === signature) return;
+      control.signature = signature;
+      var status = control.status;
+      status.textContent = '';
+      status.classList.toggle('is-selected', files.length > 0);
+      if (!files.length) { status.textContent = '未选择文件'; return; }
+      var summary = document.createElement('span');
+      summary.textContent = files.length === 1 ? '已选择：' : '已选择 ' + files.length + ' 个文件：';
+      status.appendChild(summary);
+      var list = document.createElement('span');
+      list.className = 'app-file-selection-list';
+      list.setAttribute('role', 'list');
+      list.setAttribute('aria-label', '已选择的文件');
+      if (files.length > 1) list.tabIndex = 0;
+      files.forEach(function (file) {
+        var name = document.createElement('span');
+        name.className = 'app-file-selection-name';
+        name.setAttribute('role', 'listitem');
+        name.textContent = file.name;
+        name.title = file.name;
+        list.appendChild(name);
+      });
+      status.appendChild(list);
+    }
+
+    function scan(scope) {
+      if (scope.matches && scope.matches('input[type="file"]')) sync(scope);
+      if (scope.querySelectorAll) scope.querySelectorAll('input[type="file"]').forEach(sync);
+    }
+    scan(document);
+    ['input', 'change', 'cancel'].forEach(function (eventName) {
+      document.addEventListener(eventName, function (event) { sync(event.target); }, true);
+    });
+    // The reset event fires before the browser clears the native FileList.
+    document.addEventListener('reset', function (event) {
+      var form = event.target;
+      window.setTimeout(function () {
+        Array.from(form.elements || []).forEach(sync);
+      }, 0);
+    }, true);
+    window.addEventListener('pageshow', function () { scan(document); });
+    // Support file inputs added by dialogs or later partial-page updates.
+    if (window.MutationObserver) new MutationObserver(function (records) {
+      records.forEach(function (record) {
+        record.addedNodes.forEach(function (node) { if (node.nodeType === 1) scan(node); });
+      });
+    }).observe(document.body, { childList: true, subtree: true });
   }
 
   function setupDateTimePickers() {
@@ -557,9 +702,12 @@
     setupConnectivityState();
     setupAccessibleRegions();
     setupCommandPanel();
+    setupActionMenus();
     setupSelectionGroups();
+    setupStatementCopies();
     setupCopies();
     setupPasswordToggles();
+    setupFileInputs();
     setupDateTimePickers();
     refreshUsernameTiers();
     setupReveals();

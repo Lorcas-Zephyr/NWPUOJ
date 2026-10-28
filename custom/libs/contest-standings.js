@@ -1,5 +1,34 @@
 'use strict';
 
+const defaultMedalPercentages = Object.freeze({ gold: 10, silver: 20, bronze: 30 });
+
+function normalizeMedalPercentages(value) {
+  if (value == null) return { ...defaultMedalPercentages };
+  const invalid = () => Object.assign(new Error('金、银、铜奖比例各自必须是 0 到 100 的整数。'), {
+    code: 'CONTEST_MEDALS_INVALID', statusCode: 422
+  });
+  if (typeof value !== 'object' || Array.isArray(value)) throw invalid();
+  const result = {};
+  for (const medal of ['gold', 'silver', 'bronze']) {
+    const percent = value[medal];
+    if ((typeof percent !== 'number' && typeof percent !== 'string') ||
+        !/^\d+$/.test(String(percent)) || !Number.isSafeInteger(Number(percent)) || Number(percent) > 100) throw invalid();
+    result[medal] = Number(percent);
+  }
+  return result;
+}
+
+function medalForRank(rank, total, percentages) {
+  const position = Number(rank);
+  const participants = Number(total);
+  if (!Number.isSafeInteger(position) || !Number.isSafeInteger(participants) || position < 1 || participants < 1 || position > participants) return null;
+  const awards = normalizeMedalPercentages(percentages);
+  if (position <= Math.ceil(participants * awards.gold / 100)) return 'gold';
+  if (position <= Math.ceil(participants * (awards.gold + awards.silver) / 100)) return 'silver';
+  if (position <= Math.ceil(participants * (awards.gold + awards.silver + awards.bronze) / 100)) return 'bronze';
+  return null;
+}
+
 function normalizeFreezeAfterMinutes(value, startTime, endTime) {
   if (value == null || value === '') return null;
   if ((typeof value !== 'number' && typeof value !== 'string') ||
@@ -232,4 +261,4 @@ function advanceStandingsPointers(current, versionId, kind, status) {
 
 module.exports = { advanceStandingsPointers, calculateStandingRows, normalizeProblemDetails, publicProblemDetails, serializeStandingRow,
   normalizeFreezeAfterMinutes, resolveStandingsFreeze, selectStandingsView, scoreDetailsBefore, loadFrozenScoreDetails,
-  frozenScoreDetails, submissionHiddenByFreeze, frozenSubmissionResult };
+  frozenScoreDetails, submissionHiddenByFreeze, frozenSubmissionResult, normalizeMedalPercentages, medalForRank };

@@ -4,4 +4,7 @@ COPY custom/scripts/retire-v1-routes.js /app/retire-v1-routes.js
 RUN node /app/retire-v1-routes.js --write --modules-root=/app/modules \
     && node /app/retire-v1-routes.js --modules-root=/app/modules \
     && rm /app/modules/legacy.js \
-    && rm /app/retire-v1-routes.js
+    && rm /app/retire-v1-routes.js \
+    && sed -i '/vjudge: require("..\/libs\/vjudge"),/d;s/(judge.problem.getVJudgeLanguages() || syzoj.languages)/syzoj.languages/g;s/problem.getVJudgeLanguages()/null/g' /app/modules/problem.js /app/modules/submission.js /app/modules/contest.js \
+    && rm -f /app/libs/vjudge.js /app/modules/uoj_vjudge.js /app/modules/hdu_vjudge.js /app/modules/poj_vjudge.js /app/modules/luogu_vjudge.js /app/modules/lugou_vjudge.js \
+    && rm -rf /app/libs/vjudge

@@ -226,6 +226,7 @@ async function deleteUserAccount(req, actor, targetId) {
     }
     await manager.query('UPDATE class_group_member SET added_by=? WHERE added_by=?', [deletedAccountId, targetId]);
     await manager.query('DELETE FROM class_group_member WHERE user_id=?', [targetId]);
+    if (syzoj.utils.baseWorkspace) await manager.query('DELETE FROM base_workspace_member WHERE user_id=?', [targetId]);
     await manager.query('DELETE FROM auth_user_state WHERE user_id=?', [targetId]);
     await manager.query('DELETE FROM email_verification_token WHERE user_id=?', [targetId]);
     await manager.query('DELETE FROM content_form_token WHERE user_id=?', [targetId]);
@@ -270,6 +271,7 @@ async function deleteUserAccount(req, actor, targetId) {
   if (syzoj.userHitHidden) syzoj.userHitHidden.delete(targetId);
   if (syzoj.cheaterUserIds) syzoj.cheaterUserIds.delete(targetId);
   if (syzoj.utils.revokeUserSessions) await syzoj.utils.revokeUserSessions(req, targetId);
+  if (syzoj.utils.baseWorkspace) syzoj.utils.baseWorkspace.revokeConnections([targetId]);
   if (syzoj.refreshAdminUserIds) await syzoj.refreshAdminUserIds();
   if (syzoj.utils.refreshVerifiedCache) await syzoj.utils.refreshVerifiedCache();
   if (syzoj.utils.refreshAvatarCache) await syzoj.utils.refreshAvatarCache();

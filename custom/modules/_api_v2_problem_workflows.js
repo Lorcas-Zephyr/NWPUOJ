@@ -18,14 +18,19 @@ const TAG_TYPE_COLORS = Object.freeze({
   problem_type: 'olive',
   difficulty: 'orange'
 });
+// Large official CCSP archives can exceed several hundred MiB.  The upload
+// gateway, multer and ZIP extractor all use the same 8 GiB ceiling; the
+// extractor still enforces per-file and entry-count limits below.
+const TESTDATA_ARCHIVE_LIMIT = 8 * 1024 * 1024 * 1024;
+const TESTDATA_MAX_FILE_COUNT = 100000;
 let schemaPromise = null;
 const testdataUploadMiddleware = multer({
   dest: os.tmpdir(),
-  limits: { fileSize: 200 * 1024 * 1024, files: 1 },
+  limits: { fileSize: TESTDATA_ARCHIVE_LIMIT, files: 1 },
   fileFilter: (req, file, callback) => callback(/\.zip$/i.test(String(file.originalname || '')) ? null : Object.assign(new Error('Only ZIP archives are supported.'), { code: 'TESTDATA_UPLOAD_INVALID' }), /\.zip$/i.test(String(file.originalname || '')))
 }).single('archive');
 const TESTDATA_CHUNK_SIZE = 512 * 1024;
-const TESTDATA_MAX_CHUNKS = Math.ceil((200 * 1024 * 1024) / TESTDATA_CHUNK_SIZE);
+const TESTDATA_MAX_CHUNKS = Math.ceil(TESTDATA_ARCHIVE_LIMIT / TESTDATA_CHUNK_SIZE);
 const testdataChunkMiddleware = multer({
   dest: os.tmpdir(),
   limits: { fileSize: TESTDATA_CHUNK_SIZE, files: 1 }
@@ -33,8 +38,8 @@ const testdataChunkMiddleware = multer({
 const testdataFilesMiddleware = multer({
   dest: os.tmpdir(),
   limits: {
-    fileSize: Number(syzoj.config.limit && syzoj.config.limit.testdata || 200 * 1024 * 1024),
-    files: Math.min(1000, Number(syzoj.config.limit && syzoj.config.limit.testdata_filecount || 100))
+    fileSize: Number(syzoj.config.limit && syzoj.config.limit.testdata || TESTDATA_ARCHIVE_LIMIT),
+    files: Math.min(TESTDATA_MAX_FILE_COUNT, Number(syzoj.config.limit && syzoj.config.limit.testdata_filecount || TESTDATA_MAX_FILE_COUNT))
   },
   fileFilter: (_req, file, callback) => {
     try {
@@ -47,7 +52,7 @@ const testdataFilesMiddleware = multer({
 }).array('files');
 const additionalFileMiddleware = multer({
   dest: os.tmpdir(),
-  limits: { fileSize: Number(syzoj.config.limit && syzoj.config.limit.data_size || 200 * 1024 * 1024), files: 1 },
+  limits: { fileSize: Number(syzoj.config.limit && syzoj.config.limit.data_size || TESTDATA_ARCHIVE_LIMIT), files: 1 },
   fileFilter: (_req, file, callback) => callback(/\.zip$/i.test(String(file.originalname || '')) ? null : Object.assign(new Error('Only ZIP archives are supported.'), { code: 'TESTDATA_UPLOAD_INVALID' }), /\.zip$/i.test(String(file.originalname || '')))
 }).single('archive');
 function testdataUploadRoot() { return path.join(syzoj.config.upload_dir, 'testdata-upload'); }
@@ -208,7 +213,6 @@ async function runBulkArchiveJob(jobId) {
     const actor = await User.findById(Number(job.actor_id));
     if (!actor) throw Object.assign(new Error('The job creator no longer exists.'), { code: 'ACTOR_NOT_FOUND' });
     await syzoj.utils.problemV2.ensureSchema();
-    if (input.action === 'publish' && syzoj.utils.vjudgeV2) await syzoj.utils.vjudgeV2.ensureSchema();
     await connection.query("UPDATE problem_v2_job SET state='running',progress=0,updated_at=UTC_TIMESTAMP(3) WHERE id=?", [jobId]);
     for (const problemId of input.problem_ids) {
       const control = await connection.query('SELECT cancel_requested FROM problem_v2_job WHERE id=? LIMIT 1', [jobId]);
@@ -230,9 +234,7 @@ async function runBulkArchiveJob(jobId) {
         try {
           if (input.action === 'publish') {
             requestedSnapshotId = `ps_${crypto.randomUUID().replace(/-/g, '')}`;
-            testdata = String(problem.type || '').startsWith('vjudge:')
-              ? { id: requestedSnapshotId, path: null, hash: null, files: [], created: false }
-              : await testdataSnapshots.capture(syzoj.config.upload_dir, problem.id, requestedSnapshotId);
+            testdata = await testdataSnapshots.capture(syzoj.config.upload_dir, problem.id, requestedSnapshotId);
           }
           changed = await connection.transaction(async manager => {
             if (input.action === 'archive') {
@@ -270,7 +272,7 @@ async function runBulkArchiveJob(jobId) {
         } else result.skipped++;
       } catch (error) {
         result.failed++;
-        if (result.failures.length < 50) result.failures.push({ problem_id: problemId, code: error.code || 'PROBLEM_BULK_ARCHIVE_FAILED' });
+        if (result.failures.length < 50) result.failures.push({ problem_id: problemId, code: error.code || 'PROBLEM_BULK_ARCHIVE_FAILED', message: error.statusCode ? error.message : null });
       }
       result.processed++;
       await updateBulkJob(connection, jobId, 'running', result);
@@ -452,8 +454,6 @@ async function applyBulkTag(req, user, value) {
     return { added, skipped };
   });
   for (const problem of problems) {
-    if (typeof Problem.invalidateTagCache === 'function') Problem.invalidateTagCache(problem.id);
-    else await Problem.deleteFromCache(problem.id);
     await api().appendEvent({
       stream: `problem:${problem.id}`,
       type: 'problem.tags.updated',
@@ -639,7 +639,7 @@ app.post('/api/v2/problems/:id/testdata/upload/complete', requireTestdataWriter,
       const stat = await fs.stat(part).catch(() => null);
       if (!stat || !stat.isFile()) throw Object.assign(new Error(`Upload chunk ${index + 1} is missing.`), { code: 'TESTDATA_UPLOAD_INVALID', statusCode: 422 });
       totalBytes += Number(stat.size);
-      if (totalBytes > 200 * 1024 * 1024) throw Object.assign(new Error('The uploaded ZIP exceeds the allowed size.'), { code: 'SOURCE_TOO_LARGE', statusCode: 413 });
+      if (totalBytes > TESTDATA_ARCHIVE_LIMIT) throw Object.assign(new Error('The uploaded ZIP exceeds the allowed size.'), { code: 'SOURCE_TOO_LARGE', statusCode: 413 });
       await fs.appendFile(assembled, await fs.readFile(part));
     }
     const hash = await sha256File(assembled);
@@ -802,7 +802,10 @@ app.post('/api/v2/problems/bulk-actions', async (req, res) => {
   } catch (error) { return contentFailure(res, error); }
 });
 app.post('/api/v2/problems/bulk-tags', async (req, res) => {
-  const user = await requireTagAssigner(req, res);
+  const base = syzoj.utils.baseWorkspace;
+  const baseIds = Array.isArray(req.body && req.body.problem_ids) ? req.body.problem_ids : [];
+  const baseBatch = !!(base && req.body.workspace === 'base' && baseIds.length && baseIds.length <= 200 && await base.isMember(res.locals.user) && (await Promise.all(baseIds.map(id => base.contains('problem', id)))).every(Boolean));
+  const user = baseBatch ? res.locals.user : await requireTagAssigner(req, res);
   if (!user) return;
   try {
     const result = await applyBulkTag(req, user, req.body);

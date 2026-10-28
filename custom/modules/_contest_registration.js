@@ -19,6 +19,10 @@ const registrationSettingCache = new Map();
 const registrationRemovalCache = new Map();
 const endedContestAutoSubmitCache = new Map();
 const contestSubmissionQueues = new Map();
+// Ended contests are checked while rendering both the contest list and contest
+// pages. Keep the corresponding writes in one process-wide queue so concurrent
+// page renders cannot lock contest_player ranges in different orders.
+let endedContestAutoSubmitQueue = Promise.resolve();
 
 Contest.cache = false;
 ContestRanklist.cache = false;
@@ -188,15 +192,43 @@ async function autoSubmitEndedContest(contestId) {
   const cached = endedContestAutoSubmitCache.get(key);
   if (cached && cached.expiresAt > now) return cached.promise;
   const entry = { expiresAt: Infinity, promise: null };
-  const promise = ensureRegistrationIndex().then(() => TypeORM.getConnection().query(
-    `UPDATE contest_player participant
-        INNER JOIN contest contest_row ON contest_row.id=participant.contest_id
-        SET participant.submitted_at=contest_row.end_time
-      WHERE participant.contest_id=?
-        AND contest_row.end_time <= UNIX_TIMESTAMP()
-        AND participant.submitted_at IS NULL`,
-    [key]
-  )).then(result => Number(result.affectedRows || 0)).then(result => {
+  const run = async () => {
+    await ensureRegistrationIndex();
+    const connection = TypeORM.getConnection();
+    let attempt = 0;
+    while (true) {
+      try {
+        // Read the end time first, then update through the contest_id index.
+        // The former UPDATE ... JOIN caused InnoDB to scan and lock rows from
+        // other contests, which deadlocked when list pages checked contests
+        // concurrently.
+        const contests = await connection.query(
+          'SELECT end_time FROM contest WHERE id=? AND end_time<=UNIX_TIMESTAMP() LIMIT 1',
+          [key]
+        );
+        if (!contests.length) return 0;
+        const endTime = Number(contests[0].end_time);
+        const result = await connection.query(
+          'UPDATE contest_player SET submitted_at=? WHERE contest_id=? AND submitted_at IS NULL',
+          [endTime, key]
+        );
+        return Number(result.affectedRows || 0);
+      } catch (error) {
+        const code = String(error && (error.code || error.errno || '')).toUpperCase();
+        if (!['ER_LOCK_DEADLOCK', 'ER_LOCK_WAIT_TIMEOUT', '1213', '1205'].includes(code) || attempt >= 2) {
+          throw error;
+        }
+        attempt++;
+        await new Promise(resolve => setTimeout(resolve, 100 * attempt));
+      }
+    }
+  };
+  const previous = endedContestAutoSubmitQueue;
+  const queued = previous.catch(error => {
+    syzoj.log('[contest-registration] ended contest update queue recovered: ' + (error.stack || error));
+  }).then(run);
+  endedContestAutoSubmitQueue = queued.catch(() => {});
+  const promise = queued.then(result => {
     entry.expiresAt = Date.now() + 5000;
     return result;
   }).catch(error => {
@@ -228,6 +260,7 @@ async function canManageContest(contest, user, capability = 'contest:edit') {
 }
 
 async function canViewContestProblems(contest, user) {
+  if (syzoj.utils.baseWorkspace && !await syzoj.utils.baseWorkspace.canAccessContest(contest.id, user)) return false;
   if (await contest.isSupervisior(user)) return true;
   if (contest.isEnded()) return true;
   if (contest.isRunning() && user) {
@@ -238,6 +271,7 @@ async function canViewContestProblems(contest, user) {
 }
 
 async function canParticipateInContest(contest, user) {
+  if (syzoj.utils.baseWorkspace && !await syzoj.utils.baseWorkspace.canAccessContest(contest.id, user)) return false;
   if (await contest.isSupervisior(user)) return true;
   if (!user) return false;
   const registration = await findRegistration(contest.id, user.id);
@@ -259,6 +293,7 @@ async function isContestSubmitted(contestId, userId) {
 }
 
 async function canAccessProblemOutsideContest(problemId, user) {
+  if (syzoj.utils.baseWorkspace && await syzoj.utils.baseWorkspace.contains('problem', problemId)) return syzoj.utils.baseWorkspace.canReadProblem(await Problem.findById(Number(problemId)), user);
   if (await isProblemManager(user)) return true;
   const now = syzoj.utils.getCurrentDate();
   const rows = await TypeORM.getConnection().query(
@@ -447,7 +482,7 @@ async function guardContestEditor(req, res, next) {
     const contestId = Number(req.params.id);
     if (!Number.isSafeInteger(contestId) || contestId < 0) return next();
     if (contestId === 0) {
-      const canCreate = res.locals.user && await syzoj.utils.authorizationV2.authorize(
+      const canCreate = res.locals.baseContext && res.locals.baseMember || res.locals.user && await syzoj.utils.authorizationV2.authorize(
         res.locals.user,
         'contest:create',
         null,
@@ -473,6 +508,7 @@ async function guardContestEditor(req, res, next) {
     }
     const contestConfig = await syzoj.utils.contestV2.ensureConfig(contest);
     res.locals.contestFreezeAfterMinutes = contestConfig.security.standings_freeze_after_minutes;
+    res.locals.contestMedalPercentages = contestConfig.security.medal_percentages;
     if (!res.locals.user.is_admin) {
       const elevatedUser = Object.create(res.locals.user);
       elevatedUser.is_admin = true;
@@ -491,7 +527,10 @@ app.use('/contest/:id', async (req, res, next) => {
     const contestId = Number(req.params.id);
     if (!Number.isSafeInteger(contestId) || contestId <= 0) return next();
     const contest = await Contest.findById(contestId);
-    if (!contest || contest.is_public || (res.locals.user && res.locals.user.is_admin)) return next();
+    const temporaryParticipant = !!(res.locals.temporaryContestSession && res.locals.user &&
+      syzoj.utils.temporaryContestParticipant &&
+      await syzoj.utils.temporaryContestParticipant(res.locals.user.id, contest && contest.id));
+    if (!contest || contest.is_public || (res.locals.user && res.locals.user.is_admin) || temporaryParticipant) return next();
     if (!res.locals.user || !await contest.isSupervisior(res.locals.user)) {
       return res.status(403).render('error', { err: new ErrorMessage('该比赛已隐藏，仅管理员可以访问。') });
     }
@@ -656,7 +695,10 @@ app.get('/contest/:id/participants', async (req, res) => {
     const contest = Number.isSafeInteger(contestId) && contestId > 0 ? await Contest.findById(contestId) : null;
     if (!contest) throw new ErrorMessage('无此比赛。');
     const canManage = await canManageRegistrations(contest, res.locals.user);
-    if (!contest.is_public && !canManage) {
+    const temporaryParticipant = !!(res.locals.temporaryContestSession && res.locals.user &&
+      syzoj.utils.temporaryContestParticipant &&
+      await syzoj.utils.temporaryContestParticipant(res.locals.user.id, contest.id));
+    if (!contest.is_public && !canManage && !temporaryParticipant) {
       return res.status(403).render('error', { err: new ErrorMessage('比赛未公开，请耐心等待。') });
     }
     if (!res.locals.user && !canManage) {
@@ -752,7 +794,7 @@ async function guardContestContent(req, res, next) {
     const contest = await Contest.findById(Number(req.params.id));
     if (!contest) return next();
     const state = res.locals.contestRegistration;
-    const isRanklist = /^\/contest\/\d+\/ranklist\/?$/.test(req.path) || req.path === '/ranklist' || req.path === '/ranklist/';
+    const isRanklist = /^\/contest\/\d+\/(?:ranklist|rating)\/?$/.test(req.path) || req.path === '/ranklist' || req.path === '/ranklist/';
     const supervisor = await contest.isSupervisior(res.locals.user);
     const publicRanklist = isRanklist && !!contest.is_public && !supervisor;
     const canView = publicRanklist || (state && Number(state.contestId) === Number(contest.id)

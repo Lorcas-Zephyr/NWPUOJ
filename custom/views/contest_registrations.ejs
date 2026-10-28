@@ -3,7 +3,7 @@
 
 <div class="app-page app-contest-registrations-page">
   <header class="app-page-header"><div class="app-page-heading"><a class="app-back-link" href="<%= syzoj.utils.makeUrl(['contest', contest.id]) %>"><i data-lucide="arrow-left"></i>返回比赛</a><span class="app-kicker">CONTEST MANAGEMENT</span><h1 class="app-page-title"><%= contest.title %></h1><p class="app-page-description">维护参赛资格、报名资料与临时比赛账户。</p></div></header>
-  <nav class="app-tabs app-contest-admin-tabs"><a href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'edit']) %>"><i data-lucide="square-pen"></i>比赛内容</a><a class="is-active" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'registrations']) %>" aria-current="page"><i data-lucide="users-round"></i>报名管理</a><a href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'notices']) %>"><i data-lucide="bell-ring"></i>发布通知</a></nav>
+  <nav class="app-tabs app-contest-admin-tabs"><a href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'edit']) %>"><i data-lucide="square-pen"></i>比赛内容</a><a class="is-active" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'registrations']) %>" aria-current="page"><i data-lucide="users-round"></i>报名管理</a><a href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'notices']) %>"><i data-lucide="bell-ring"></i>发布通知</a><a href="/contest/<%= contest.id %>/plagiarism"><i data-lucide="scan-text"></i>代码查重</a></nav>
   <div class="app-section-header app-contest-participant-header">
     <div><h2 class="app-section-title">参赛者管理</h2><p class="app-section-description"><%= registrations.length %> 名有效报名用户</p></div>
     <div class="app-page-actions">
@@ -14,6 +14,7 @@
   </div>
 
   <% if (canManageRegistrations && !contest.isEnded()) { %>
+    <% if (typeof baseContext === 'undefined' || !baseContext) { %>
     <section class="app-temp-account-section">
       <div><span class="app-kicker">TEMPORARY ACCOUNTS</span><h2>批量创建临时参赛用户</h2><p>上传包含“姓名、学号、学院”表头的 UTF-8 CSV。系统会自动创建并报名，随机密码只在本次下载中提供。</p><small>比赛结束后账户自动禁止登录，用户主页、提交和排行榜成绩会永久保留。</small></div>
       <form class="app-form" method="post" enctype="multipart/form-data" data-temporary-accounts-v2 data-contest-id="<%= contest.id %>">
@@ -22,6 +23,7 @@
         <div class="app-form-actions app-form-actions-split"><a class="app-button app-button-quiet" href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'temporary-accounts', 'template']) %>" data-temporary-accounts-template><i data-lucide="download"></i>下载模板</a><button class="app-button app-button-primary" type="submit"><i data-lucide="upload"></i>批量创建并下载密码</button></div>
       </form>
     </section>
+    <% } else { %><p class="app-help">基地比赛仅限基地成员报名。请先由全站管理员在基地成员管理中添加账户，再导入报名名单。</p><% } %>
     <section class="app-temp-account-section app-ordinary-account-section">
       <div><span class="app-kicker">ORDINARY ACCOUNTS</span><h2>按学号批量添加普通参赛用户</h2><p>上传仅包含“学号”列的 UTF-8 CSV。系统会匹配已注册的普通账户，并加入本场比赛报名名单；比赛是否开放自行报名不影响此操作。</p><small>学号必须是唯一的 10 位数字，未找到的学号会在结果中列出。</small></div>
       <form class="app-form" method="post" enctype="multipart/form-data" data-ordinary-registration-v2 data-contest-id="<%= contest.id %>">
@@ -356,14 +358,18 @@ document.querySelectorAll('form[data-contest-participant-v2]').forEach(function 
   var form = document.querySelector('[data-temporary-accounts-v2]');
   if (!form) return;
 
-  function csvCell(value) {
+  function csvCell(value, options) {
     var text = String(value == null ? '' : value);
-    if (/^[=+\-@\t\r]/.test(text)) text = "'" + text;
+    if (!(options && options.literal) && /^[=+\-@\t\r]/.test(text)) text = "'" + text;
     return '"' + text.replace(/"/g, '""') + '"';
   }
 
   function downloadCsv(filename, rows) {
-    var csv = '\uFEFF' + rows.map(function (row) { return row.map(csvCell).join(','); }).join('\r\n') + '\r\n';
+    var csv = '\uFEFF' + rows.map(function (row) {
+      return row.map(function (value, index) {
+        return csvCell(value, { literal: index === 1 && row[0] === '用户名' });
+      }).join(',');
+    }).join('\r\n') + '\r\n';
     var url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
     var link = document.createElement('a');
     link.href = url;

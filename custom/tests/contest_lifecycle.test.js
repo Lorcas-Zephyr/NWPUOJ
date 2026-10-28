@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 const test = require('node:test');
 const { TRANSITIONS, contestConfigurationLocked, resolveContestStatus, snapshotRefreshAllowed, standingsVisibility, transitionAllowed } = require('../libs/contest-lifecycle');
 
@@ -10,6 +11,173 @@ const contestMutationSource = fs.readFileSync(path.join(__dirname, '../libs/cont
 const contestRouteSource = fs.readFileSync(path.join(__dirname, '../modules/_contest_registration.js'), 'utf8');
 const contestApiSource = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_contest_domain.js'), 'utf8');
 const contestSubmissionSource = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_submission_domain.js'), 'utf8');
+
+// Execute the production save path with transactional state and a fixed clock.
+// No live contests, registrations, or submissions are changed by this fixture.
+function scheduleFixture(initialStatus) {
+  let clock = 150;
+  let stored = { contest: null, state: null, config: null, setting: null, ranklist: null, events: [] };
+  let failEvent = false;
+  const db = {
+    async query(sql, args = []) {
+      if (sql.startsWith('SELECT UNIX_TIMESTAMP()')) return [{ now: clock }];
+      if (sql.startsWith('SELECT * FROM contest WHERE')) return [{ ...stored.contest }];
+      if (sql.startsWith('SELECT allow_registration')) return [{ ...stored.setting }];
+      if (sql.startsWith('SELECT id,ranking_params,ranklist')) return [{ ...stored.ranklist }];
+      if (sql.startsWith('SELECT is_rated')) return [{ is_rated: 0 }];
+      if (/^SELECT (?:status|\*) FROM contest_v2_state/.test(sql)) return stored.state ? [{ ...stored.state }] : [];
+      if (sql.startsWith('SELECT * FROM contest_v2_config')) return stored.config ? [{ ...stored.config }] : [];
+      if (sql.startsWith('INSERT INTO contest_ranklist')) { stored.ranklist = { id: 1, ranking_params: args[0], ranklist: args[1] }; return { insertId: 1 }; }
+      if (/^INSERT INTO contest\s/.test(sql)) {
+        stored.contest = { id: 21, start_time: args[2], end_time: args[3], holder_id: args[4], type: args[5], problems: args[7], ranklist_id: args[9] };
+        return { insertId: 21 };
+      }
+      if (sql.startsWith('INSERT INTO contest_registration_setting')) {
+        if (!stored.setting) stored.setting = { revision: 1, allow_registration: args[1], allow_late_registration: args[2] };
+        return {};
+      }
+      if (sql.startsWith('INSERT INTO contest_v2_state')) { stored.state = { status: args[1], revision: 1 }; return {}; }
+      if (sql.startsWith('UPDATE contest_v2_state')) {
+        if (sql.includes('SET status=?')) stored.state.status = args[0];
+        stored.state.revision++;
+        return {};
+      }
+      if (sql.startsWith('INSERT INTO contest_v2_config')) {
+        stored.config = { rules_json: args[2], scoring_json: args[3], security_json: args[5], registration_json: args[6], teams_json: args[7] };
+        return {};
+      }
+      if (sql.startsWith('UPDATE contest SET')) { Object.assign(stored.contest, { start_time: args[2], end_time: args[3], problems: args[5] }); return {}; }
+      if (sql.startsWith('UPDATE contest_registration_setting')) { stored.setting.revision++; return {}; }
+      if (sql.startsWith('UPDATE contest_ranklist SET ranking_params')) { stored.ranklist.ranking_params = args[0]; return {}; }
+      if (sql.startsWith('INSERT INTO api_v2_event')) { if (failEvent) throw Error('event unavailable'); stored.events.push(args[1]); return {}; }
+      if (/^(?:INSERT(?: IGNORE)? INTO contest_rating_config|UPDATE contest_rating_config|INSERT IGNORE INTO contest_v2_standings_current)/.test(sql)) return {};
+      throw Error('Unexpected query: ' + sql);
+    },
+    async transaction(_level, work) {
+      const before = JSON.parse(JSON.stringify(stored));
+      try { return await work(db); } catch (error) { stored = before; throw error; }
+    },
+    createQueryRunner() { return { async connect() {}, async release() {}, async query() { return [{ acquired: 1 }]; } }; }
+  };
+  const context = vm.createContext({
+    module: { exports: {} },
+    syzoj: { utils: { contestV2: { status: (contest, state) => resolveContestStatus(contest, state, clock) } } },
+    Date: class extends Date { static now() { return clock * 1000; } },
+    setTimeout,
+    require(name) {
+      if (name === 'typeorm') return { getConnection: () => db };
+      if (name === './migration-cycle-evidence') return {};
+      if (name === './contest-ranklist-export') return require('../libs/contest-ranklist-export');
+      throw Error('Unexpected dependency: ' + name);
+    }
+  });
+  vm.runInContext(contestMutationSource, context);
+  vm.runInContext(contestSubmissionSource.slice(
+    contestSubmissionSource.indexOf('async function contestAcceptsSubmissions('),
+    contestSubmissionSource.indexOf('async function resolveContestProblem(')
+  ), context);
+  return {
+    async save(changes = {}) {
+      const input = Object.assign({ id: stored.contest ? 21 : 0, actorId: 7, title: 'Schedule regression', subtitle: '',
+        startTime: 300, endTime: 400, type: 'acm', problems: '', admins: '', information: '', rankingParams: {},
+        isPublic: true, isRated: false, allowRegistration: true, allowLateRegistration: true,
+        revision: stored.setting ? stored.setting.revision : 0 }, changes);
+      const id = await context.module.exports.saveContest(input);
+      if (initialStatus) { stored.state.status = initialStatus; initialStatus = null; }
+      return id;
+    },
+    get stored() { return stored; },
+    setNow(value) { clock = value; },
+    failEvent() { failEvent = true; },
+    accepts: () => context.contestAcceptsSubmissions(stored.contest)
+  };
+}
+
+test('empty contest drafts become scheduled or running when problems and dates are saved', async () => {
+  const f = scheduleFixture();
+  await f.save();
+  assert.equal(f.stored.state.status, 'draft');
+  assert.equal(await f.accepts(), false);
+  await f.save({ problems: '11|12' });
+  assert.equal(f.stored.state.status, 'scheduled');
+  assert.equal(await f.accepts(), false);
+  await f.save({ problems: '11|12', startTime: 100 });
+  assert.equal(f.stored.state.status, 'running');
+  assert.equal(f.stored.state.revision, 3);
+  assert.equal(await f.accepts(), true);
+  assert.deepEqual(f.stored.events, ['contest.created', 'contest.updated', 'contest.updated']);
+  f.setNow(400);
+  assert.equal(await f.accepts(), false, 'end boundary is exclusive');
+});
+
+test('award shares persist through contest saves and remain editable after start', async () => {
+  const f = scheduleFixture();
+  await f.save({ problems: '11', startTime: 100, medalPercentages: { gold: 10, silver: 20, bronze: 30 } });
+  assert.equal(f.stored.state.status, 'running');
+  assert.deepEqual(JSON.parse(f.stored.config.security_json).medal_percentages, { gold: 10, silver: 20, bronze: 30 });
+  await f.save({ problems: '11', startTime: 100, medalPercentages: { gold: 5, silver: 15, bronze: 30 } });
+  assert.deepEqual(JSON.parse(f.stored.config.security_json).medal_percentages, { gold: 5, silver: 15, bronze: 30 });
+});
+
+test('reordering before start updates stored problems and scoring aliases without relaxing the running lock', async () => {
+  const f = scheduleFixture();
+  await f.save({ problems: '11|12|13' });
+  await f.save({ problems: '13|11|12' });
+  assert.equal(f.stored.contest.problems, '13|11|12');
+  assert.deepEqual(JSON.parse(f.stored.config.scoring_json).problems.map(problem => [problem.problem_id, problem.alias]),
+    [[13, 'A'], [11, 'B'], [12, 'C']]);
+  const before = JSON.parse(JSON.stringify(f.stored));
+  f.setNow(300);
+  await assert.rejects(f.save({ problems: '11|12|13' }), /比赛开始后不能修改题目/);
+  assert.deepEqual(f.stored, before, 'rejected running changes do not alter either representation');
+});
+
+test('contest scoring aliases continue from Z to AA and AB after saving', async () => {
+  const f = scheduleFixture();
+  const ids = Array.from({ length: 60 }, (_, index) => 900000 + index);
+  await f.save({ problems: ids.join('|') });
+  const aliases = JSON.parse(f.stored.config.scoring_json).problems.map(problem => problem.alias);
+  assert.equal(aliases[25], 'Z');
+  assert.equal(aliases[26], 'AA');
+  assert.equal(aliases[27], 'AB');
+  assert.equal(aliases[51], 'AZ');
+  assert.equal(aliases[52], 'BA');
+  assert.equal(new Set(aliases).size, 60);
+});
+
+test('saving added problems repairs stale drafts already inside the submission window', async () => {
+  const f = scheduleFixture('draft');
+  await f.save({ problems: '11', startTime: 100 });
+  assert.equal(await f.accepts(), false);
+  await f.save({ problems: '11', startTime: 100 });
+  assert.equal(f.stored.state.status, 'running');
+  assert.equal(await f.accepts(), true);
+  f.setNow(100);
+  assert.equal(await f.accepts(), true, 'start boundary is inclusive');
+  f.setNow(99);
+  assert.equal(await f.accepts(), false, 'a stored running status cannot bypass the start time');
+});
+
+test('ordinary saves preserve explicit review, freeze, end, rating and archive states', async () => {
+  for (const status of ['review', 'frozen', 'ended', 'rated', 'archived']) {
+    const f = scheduleFixture(status);
+    await f.save({ problems: '11', startTime: 100 });
+    await f.save({ problems: '11', startTime: 100 });
+    assert.equal(f.stored.state.status, status);
+    assert.equal(await f.accepts(), status === 'frozen');
+  }
+});
+
+test('removing all problems returns an unstarted contest to draft and projection writes are atomic', async () => {
+  const f = scheduleFixture();
+  await f.save({ problems: '11' });
+  await f.save();
+  assert.equal(f.stored.state.status, 'draft');
+  const before = JSON.parse(JSON.stringify(f.stored));
+  f.failEvent();
+  await assert.rejects(f.save({ problems: '11', startTime: 100 }), /event unavailable/);
+  assert.deepEqual(f.stored, before);
+});
 
 test('contest lifecycle contains every designed state and only explicit transitions', () => {
   assert.deepEqual(Object.keys(TRANSITIONS), ['draft', 'review', 'scheduled', 'running', 'frozen', 'ended', 'rated', 'archived']);
@@ -36,6 +204,17 @@ test('scheduled and running states advance from database time without overriding
 test('critical contest configuration is locked from running through archive', () => {
   assert.equal(contestConfigurationLocked('scheduled'), false);
   for (const status of ['running', 'frozen', 'ended', 'rated', 'archived']) assert.equal(contestConfigurationLocked(status), true);
+});
+
+test('ended contest auto-submit uses an indexed update and serializes list-page writes', () => {
+  const start = contestRouteSource.indexOf('async function autoSubmitEndedContest');
+  const end = contestRouteSource.indexOf('\nasync function isProblemManager', start);
+  const implementation = contestRouteSource.slice(start, end);
+  assert.match(implementation, /endedContestAutoSubmitQueue/);
+  assert.match(implementation, /SELECT end_time FROM contest WHERE id=\? AND end_time<=UNIX_TIMESTAMP\(\)/);
+  assert.match(implementation, /UPDATE contest_player SET submitted_at=\? WHERE contest_id=\? AND submitted_at IS NULL/);
+  assert.doesNotMatch(implementation, /INNER JOIN contest contest_row/);
+  assert.match(implementation, /ER_LOCK_DEADLOCK/);
 });
 
 test('contest snapshots are refreshed while publishing, never while entering the running state', () => {
@@ -94,7 +273,7 @@ test('contest hand-in locks an active participant to details and ranking views',
   assert.match(contestRouteSource, /app\.post\('\/api\/v2\/contests\/:id\/submit'/);
   assert.match(contestRouteSource, /UPDATE contest_player SET submitted_at=COALESCE\(submitted_at, \?\)/);
   assert.match(contestRouteSource, /autoSubmitEndedContest/);
-  assert.match(contestRouteSource, /participant\.submitted_at=contest_row\.end_time/);
+  assert.match(contestRouteSource, /UPDATE contest_player SET submitted_at=\? WHERE contest_id=\? AND submitted_at IS NULL/);
   assert.match(contestRouteSource, /invalidateRegistrationCache\(contest\.id, user\.id\)/);
   assert.match(contestRouteSource, /submitted/);
   assert.match(contestRouteSource, /relativePath === '\/details' \|\| relativePath === '\/ranklist'/);
@@ -148,7 +327,7 @@ test('authorized deletion supports a running contest and removes every submissio
 
   assert.match(contestRatingSource, /allowStarted: true,[\s\S]*allowPending: true,[\s\S]*deleteSubmissions: true/);
   for (const table of [
-    'vjudge_v2_submission_sync', 'admin_v2_rejudge_item', 'submission_v2_job',
+    'admin_v2_rejudge_item', 'submission_v2_job',
     'submission_v2_result_revision', 'submission_v2_attempt', 'submission_v2_projection',
     'submission_v2_code_version', 'judge_state_admin_action', 'judge_state'
   ]) assert.match(contestMutationSource, new RegExp('DELETE[^;]+' + table, 's'));

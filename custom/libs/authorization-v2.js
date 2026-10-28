@@ -13,7 +13,6 @@ const BUILT_IN_ROLES = Object.freeze({
   judge_operator: Object.freeze(['judge:read', 'judge:worker.restart', 'submission:rejudge']),
   content_moderator: Object.freeze(['discussion:moderate', 'solution:moderate', 'announcement:manage', 'ticket:manage', 'ticket:create']),
   rating_manager: Object.freeze(['rating:read', 'rating:preview', 'rating:publish', 'rating:recalculate']),
-  vjudge_manager: Object.freeze(['vjudge:source.manage', 'vjudge:import.create', 'vjudge:submission.create']),
   site_admin: Object.freeze([
     'admin:health.read', 'admin:audit.read', 'admin:user.manage', 'admin:permission.grant',
     'admin:config.read', 'admin:config.write', 'admin:job.manage', 'admin:content.manage',
@@ -23,7 +22,6 @@ const BUILT_IN_ROLES = Object.freeze({
     'problemset:read', 'problemset:create', 'problemset:edit', 'problemset:delete', 'problemset:publish',
     'problemset:archive', 'problemset:registration.manage', 'problemset:standings.export',
     'judge:read', 'judge:worker.restart', 'submission:rejudge',
-    'vjudge:source.manage', 'vjudge:import.create', 'vjudge:submission.create',
     'discussion:moderate', 'solution:moderate', 'announcement:manage',
     'ticket:manage', 'rating:read'
   ]),
@@ -45,7 +43,7 @@ const LEGACY_CAPABILITY_MAP = Object.freeze({
 
 const HIGH_RISK_CAPABILITIES = new Set([
   'problem:archive', 'rating:publish', 'rating:recalculate', 'judge:worker.restart',
-  'submission:rejudge', 'vjudge:import.create', 'vjudge:source.manage', 'admin:permission.grant', 'admin:config.write',
+  'submission:rejudge', 'admin:permission.grant', 'admin:config.write',
   'admin:user.disable', 'admin:secret.read', 'owner:transfer'
 ]);
 const RESOURCE_OWNER_CAPABILITIES = new Set([
@@ -92,7 +90,6 @@ const AUTHORIZATION_ERRORS = Object.freeze({
 const ADMIN_WORKSPACES = Object.freeze([
   Object.freeze({ capability: 'admin:health.read', path: '/admin/info' }),
   Object.freeze({ capability: 'judge:read', path: '/admin/judge-workers' }),
-  Object.freeze({ capability: 'vjudge:source.manage', path: '/admin/other' }),
   Object.freeze({ capability: 'rating:read', path: '/admin/rating' }),
   Object.freeze({ capability: 'admin:user.manage', path: '/admin/users' }),
   Object.freeze({ capability: 'announcement:manage', path: '/admin/announcements' }),

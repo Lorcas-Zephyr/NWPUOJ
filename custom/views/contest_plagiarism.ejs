@@ -1,0 +1,29 @@
+<% this.title = '代码查重 - ' + contest.title %>
+<% include app_header %>
+<div class="app-page app-plagiarism-page" data-contest-plagiarism="<%= contest.id %>" data-can-start="<%= plagiarismReady && plagiarismEnded ? '1' : '0' %>">
+  <header class="app-page-header"><div class="app-page-heading"><a class="app-back-link" href="<%= syzoj.utils.makeUrl(['contest', contest.id]) %>"><i data-lucide="arrow-left"></i>返回比赛</a><span class="app-kicker">CONTEST MANAGEMENT</span><h1 class="app-page-title"><%= contest.title %></h1><p class="app-page-description">使用 JPlag 检查本场比赛的代码相似度，查看对应提交与相似片段。</p></div></header>
+  <nav class="app-tabs app-contest-admin-tabs" aria-label="比赛管理"><a href="/contest/<%= contest.id %>/edit"><i data-lucide="square-pen"></i>比赛内容</a><a href="/contest/<%= contest.id %>/registrations"><i data-lucide="users-round"></i>报名管理</a><a href="/contest/<%= contest.id %>/notices"><i data-lucide="bell-ring"></i>发布通知</a><a class="is-active" aria-current="page" href="/contest/<%= contest.id %>/plagiarism"><i data-lucide="scan-text"></i>代码查重</a></nav>
+  <section class="app-plagiarism-intro">
+    <div><h2 class="app-section-title">比赛代码查重</h2><p>比较赛时提交。每人每题每种语言取最后一次 AC，没有 AC 则取最后一次提交。C/C++ 合并比较，Python/PyPy 合并比较，其他支持的语言分别比较。</p><p class="app-help">代码仅在本机分析，报告仅比赛管理员可见。相似度用于人工核查，不代表作弊结论，不会自动修改成绩或 Rating。</p></div>
+    <button class="app-button app-button-primary" type="button" data-plagiarism-start<%= plagiarismReady && plagiarismEnded ? '' : ' disabled' %>><i data-lucide="scan-text"></i><span>一键查重</span></button>
+  </section>
+  <% if (!plagiarismReady || !plagiarismEnded) { %><div class="app-notice"><i data-lucide="info"></i><span><%= !plagiarismReady ? 'JPlag 运行环境尚未就绪，请联系站长。' : '比赛结束后可以启动查重；已有历史报告仍可查看。' %></span></div><% } %>
+  <p class="app-text-danger" role="alert" data-plagiarism-error hidden></p>
+  <div class="app-plagiarism-toolbar"><label class="app-field"><span class="app-label">查重历史</span><select class="app-select" data-plagiarism-jobs aria-label="查重历史"><option value="">正在加载…</option></select></label><button type="button" class="app-button app-button-secondary" data-plagiarism-history-more hidden>更早记录</button><button type="button" class="app-button app-button-secondary" data-plagiarism-refresh><i data-lucide="refresh-cw"></i>刷新</button></div>
+  <div class="app-empty app-empty-compact" data-plagiarism-empty hidden><div class="app-empty-inner"><i data-lucide="scan-text"></i><strong>暂无查重记录</strong><p>点击“一键查重”创建后台任务，完成后结果会保留在这里。</p></div></div>
+  <section data-plagiarism-result hidden>
+    <div class="app-section-header"><div><h2 class="app-section-title">查重结果 <span class="app-status" data-plagiarism-state></span></h2><p class="app-section-description" role="status" data-plagiarism-progress></p></div></div>
+    <p class="app-help" data-plagiarism-summary></p>
+    <details class="app-plagiarism-groups"><summary>分组结果与报告</summary><p class="app-help">“下载网页报告”可用浏览器直接打开，离线查看相似度、提交代码和高亮片段，无需安装 JPlag。无法解析、人数不足或不支持的代码不会被当作“无相似”。</p><div class="app-table-region"><table class="app-table"><thead><tr><th>题目 / 语言</th><th>代码份数</th><th>结果</th><th>报告</th></tr></thead><tbody data-plagiarism-groups></tbody></table></div></details>
+    <form class="app-plagiarism-toolbar" data-plagiarism-filter><label class="app-field"><span class="app-label">题目 / 语言</span><select class="app-select" data-plagiarism-group><option value="">全部分组</option></select></label><label class="app-field"><span class="app-label">最低平均相似度</span><select class="app-select" data-plagiarism-minimum><option value="30">30%</option><option value="50" selected>50%</option><option value="70">70%</option><option value="80">80%</option><option value="90">90%</option><option value="100">100%</option></select></label><button class="app-button app-button-secondary" type="submit">筛选</button></form>
+    <p class="app-help">按平均相似度从高到低排列，每页 50 对。报告保留相似度不低于 30% 的比较；较短的代码或公共模板也可能有较高相似度。</p>
+    <div class="app-table-region"><table class="app-table"><thead><tr><th>题目</th><th>语言</th><th>选手一 / 提交</th><th>选手二 / 提交</th><th>平均相似度</th><th>操作</th></tr></thead><tbody data-plagiarism-pairs></tbody></table></div>
+    <div class="app-plagiarism-pagination"><button class="app-button app-button-secondary" type="button" data-plagiarism-prev>上一页</button><span data-plagiarism-page></span><button class="app-button app-button-secondary" type="button" data-plagiarism-next>下一页</button></div>
+  </section>
+</div>
+<dialog class="app-dialog app-plagiarism-dialog" id="plagiarism-comparison" aria-labelledby="plagiarism-comparison-title">
+  <div class="app-dialog-header"><h2 id="plagiarism-comparison-title">代码比对</h2><button type="button" class="app-icon-button" data-dialog-close aria-label="关闭"><i data-lucide="x"></i></button></div>
+  <div class="app-dialog-body"><p data-plagiarism-comparison-status role="status"></p><div class="app-plagiarism-match-nav"><button class="app-button app-button-secondary" type="button" data-plagiarism-match-prev>上一处</button><span data-plagiarism-match-label></span><button class="app-button app-button-secondary" type="button" data-plagiarism-match-next>下一处</button></div><div class="app-plagiarism-columns"><section><h3 data-plagiarism-first-title></h3><pre class="app-plagiarism-code" tabindex="0" aria-label="选手一代码" data-plagiarism-first-code></pre></section><section><h3 data-plagiarism-second-title></h3><pre class="app-plagiarism-code" tabindex="0" aria-label="选手二代码" data-plagiarism-second-code></pre></section></div></div>
+</dialog>
+<script src="/self/contest-plagiarism.js?v=2" defer></script>
+<% include app_footer %>

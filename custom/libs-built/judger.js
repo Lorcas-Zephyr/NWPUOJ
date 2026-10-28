@@ -7,7 +7,11 @@ const fs = require('fs-extra');
 const FastPriorityQueue = require('fastpriorityqueue');
 const interface = require('./judger_interfaces');
 const judgeResult = require('./judgeResult');
-const vjudge = require("./vjudge");
+// The Web base image has its own copy of the Judge protocol. Register the
+// additive verdict before its existing result reducer handles local reports.
+interface.TestcaseResultType.PresentationError = 11;
+interface.TestcaseResultType[11] = 'PresentationError';
+judgeResult.statusToString[interface.TestcaseResultType.PresentationError] = 'Presentation Error';
 const TypeORM = require('typeorm');
 const EventEmitter = require('events');
 const taskSignatures = require('../libs/judge-task-signature');
@@ -96,32 +100,12 @@ async function hasCancelledAction(judgeId) {
   return rows.length > 0;
 }
 
-const vjudgeStatusStrings = {
-  1: 'Accepted',
-  2: 'Wrong Answer',
-  3: 'Partially Correct',
-  4: 'Memory Limit Exceeded',
-  5: 'Time Limit Exceeded',
-  6: 'Output Limit Exceeded',
-  7: 'File Error',
-  8: 'Runtime Error',
-  9: 'Judgement Failed',
-  10: 'Invalid Interaction'
-};
-
-function applyVJudgeSummary(convertedResult, source) {
-  const summary = source && source.vjudgeSummary;
-  if (!summary || !vjudgeStatusStrings[summary.type]) return convertedResult;
-  convertedResult.statusString = vjudgeStatusStrings[summary.type];
-  if (Number.isFinite(summary.score)) convertedResult.score = summary.score;
-  if (Number.isFinite(summary.time)) convertedResult.time = summary.time;
-  if (Number.isFinite(summary.memory)) convertedResult.memory = summary.memory;
-  return convertedResult;
-}
-
-const convertResultWithoutVJudgeSummary = judgeResult.convertResult;
+const convertLocalResult = judgeResult.convertResult;
 judgeResult.convertResult = function convertResult(taskId, source) {
-  return applyVJudgeSummary(convertResultWithoutVJudgeSummary(taskId, source), source);
+  const fixed = require('../libs/fixed-group-scoring').applyFixedGroupScoring(source);
+  const converted = convertLocalResult(taskId, source);
+  if (fixed && Number.isFinite(source.judge.fixedGroupTotal)) converted.score = Math.floor(source.judge.fixedGroupTotal + 1e-9);
+  return converted;
 };
 
 function getRunningTaskStatusString(result) {
@@ -302,6 +286,7 @@ async function connect() {
         });
         progressPusher.updateProgress(progress.taskId, progress.progress);
       } else if (progress.type === interface.ProgressReportType.Finished) {
+        judgeResult.convertResult(progress.taskId, progress.progress);
         setJudgeDetail(progress.taskId, progress.progress);
         progressPusher.updateResult(progress.taskId, progress.progress);
         setTimeout(() => {
@@ -395,141 +380,7 @@ async function connect() {
 }
 module.exports.connect = connect;
 
-async function findActiveVJudgeState(id, taskId, requirePending) {
-  const JudgeState = syzoj.model('judge_state');
-  for (let attempt = 0; attempt < (requirePending ? 40 : 1); attempt++) {
-    const state = await JudgeState.findOne({ where: { id: id, task_id: taskId } });
-    if (!state) return null;
-    if (await hasCancelledAction(state.id)) return null;
-    if (!requirePending || state.pending) return state;
-    await new Promise(resolve => setTimeout(resolve, 50));
-  }
-  return null;
-}
-
-async function handleVJudgeProgress(judgeStateId, progress) {
-  console.log(progress);
-  const currentJudgeState = await findActiveVJudgeState(judgeStateId, progress.taskId, false);
-  if (!currentJudgeState) {
-    cleanupJudgeCaches(progress.taskId);
-    progressPusher.cleanupProgress(progress.taskId);
-    return false;
-  }
-
-  if (progress.type === interface.ProgressReportType.Started || progress.type === interface.ProgressReportType.Compiled) {
-    await projectJudgeRuntimeState(progress.taskId, 'compiling');
-  }
-  if (progress.type === interface.ProgressReportType.Compiled) {
-    setJudgeDetail(progress.taskId, Object.assign({}, judgeDetailCache.get(progress.taskId) || {}, {
-      compile: progress.progress
-    }));
-    progressPusher.updateCompileStatus(progress.taskId, progress.progress);
-  } else if (progress.type === interface.ProgressReportType.Progress) {
-    await projectJudgeRuntimeState(progress.taskId, 'judging');
-    setJudgeDetail(progress.taskId, progress.progress);
-    const convertedResult = judgeResult.convertResult(progress.taskId, progress.progress);
-    judgeStateCache.set(progress.taskId, {
-      result: getRunningTaskStatusString(progress.progress),
-      score: convertedResult.score,
-      time: convertedResult.time,
-      memory: convertedResult.memory
-    });
-    progressPusher.updateProgress(progress.taskId, progress.progress);
-  } else if (progress.type === interface.ProgressReportType.Finished) {
-    setJudgeDetail(progress.taskId, progress.progress);
-    const activeState = await findActiveVJudgeState(judgeStateId, progress.taskId, true);
-    if (!activeState) {
-      cleanupJudgeCaches(progress.taskId);
-      return false;
-    }
-
-    const convertedResult = judgeResult.convertResult(progress.taskId, progress.progress);
-    const updateResult = await TypeORM.getConnection().query(
-      `UPDATE judge_state js SET score=?,pending=0,status=?,total_time=?,max_memory=?,result=?,compilation=?
-       WHERE js.id=? AND js.task_id=? AND js.pending=1
-         AND NOT EXISTS (SELECT 1 FROM judge_state_admin_action action
-           WHERE action.judge_id=js.id AND action.action_type='cancelled')`,
-      [
-        convertedResult.score == null ? 0 : convertedResult.score,
-        convertedResult.statusString,
-        convertedResult.time,
-        convertedResult.memory,
-        JSON.stringify(convertedResult.result),
-        progress.progress.compile ? JSON.stringify(progress.progress.compile) : null,
-        judgeStateId,
-        progress.taskId
-      ]
-    );
-    if (!updateResult || updateResult.affectedRows !== 1) {
-      cleanupJudgeCaches(progress.taskId);
-      emitJudgeStateChange(progress.taskId);
-      return false;
-    }
-
-    try {
-      progressPusher.updateResult(progress.taskId, progress.progress);
-      const finalJudgeState = await syzoj.model('judge_state').findOne({
-        where: { id: judgeStateId, task_id: progress.taskId }
-      });
-      if (finalJudgeState) {
-        await projectJudgeFinalState(finalJudgeState);
-        for (let attempt = 1; attempt <= 3; attempt++) {
-          try {
-            await finalJudgeState.updateRelatedInfo(false);
-            break;
-          } catch (e) {
-            if (attempt === 3) {
-              winston.error(`Failed to update VJudge statistics for ${progress.taskId}: ${e.stack || e}`);
-            } else {
-              await new Promise(resolve => setTimeout(resolve, 200 * attempt));
-            }
-          }
-        }
-      }
-    } finally {
-      emitJudgeStateChange(progress.taskId);
-      setTimeout(() => {
-        cleanupJudgeCaches(progress.taskId);
-        progressPusher.cleanupProgress(progress.taskId);
-      }, 5000);
-    }
-  }
-  if (progress.type !== interface.ProgressReportType.Finished) emitJudgeStateChange(progress.taskId);
-  return true;
-}
-
-function enqueueVJudgeProgress(judgeStateId, progress) {
-  return enqueueJudgeReport(progress.taskId, () => handleVJudgeProgress(judgeStateId, progress));
-}
-
-module.exports.handleVJudgeProgress = enqueueVJudgeProgress;
-module.exports.applyVJudgeSummary = applyVJudgeSummary;
-module.exports.initializeRecoveredVJudge = function initializeRecoveredVJudge(judgeState) {
-  if (judgeStateCache.has(judgeState.task_id)) return;
-  progressPusher.createTask(judgeState.task_id);
-  setJudgeDetail(judgeState.task_id, {});
-  judgeStateCache.set(judgeState.task_id, {
-    result: 'Pending',
-    score: Number(judgeState.score || 0),
-    time: Number(judgeState.total_time || 0),
-    memory: Number(judgeState.max_memory || 0)
-  });
-};
-
 module.exports.judge = async function (judge_state, problem, priority, execution = {}) {
-  if (typeof problem.type === 'string' && problem.type.startsWith('vjudge:')) {
-    progressPusher.createTask(judge_state.task_id);
-    setJudgeDetail(judge_state.task_id, {});
-    judgeStateCache.set(judge_state.task_id, {
-      result: 'Pending',
-      score: 0,
-      time: 0,
-      memory: 0
-    });
-
-    return vjudge(judge_state, problem, progress => enqueueVJudgeProgress(judge_state.id, progress));
-  }
-
   let type, param, extraData = null;
   switch (problem.type) {
     case 'submit-answer':

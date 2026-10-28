@@ -14,9 +14,66 @@ async function ensureSchema(){if(schemaPromise)return schemaPromise;schemaPromis
 async function load(id,lock,m){const rs=await(m||db()).query(`SELECT * FROM site_notification WHERE id=? LIMIT 1${lock?' FOR UPDATE':''}`,[Number(id)]);return rs[0]||null;}
 async function addRecipients(m,row,actor,at){if(typeof syzoj.utils.ensureAccountStateSchema==='function')await syzoj.utils.ensureAccountStateSchema();let where="COALESCE(state.status,'active') <> 'disabled'",p=[row.title,row.content,'/notifications',Number(row.id),Number(actor),at];if(row.audience==='users'){const a=ids(JSON.parse(row.target_user_ids_json||'[]'));if(!a.length)return;where+=` AND u.id IN (${a.map(()=>'?').join(',')})`;p=p.concat(a);}if(row.audience==='participants'){const a=(await m.query('SELECT user_id FROM contest_player WHERE contest_id=?',[Number(row.audience_ref)])).map(x=>Number(x.user_id)).filter(Boolean);if(!a.length)return;where+=` AND u.id IN (${a.map(()=>'?').join(',')})`;p=p.concat(a);}await m.query(`INSERT INTO notification (recipient_id,type,title,content,source_url,source_id,actor_id,is_read,created_at) SELECT u.id,'site_notification',?,?,?,?,?,0,? FROM user u LEFT JOIN auth_user_state state ON state.user_id=u.id WHERE ${where}`,p);}
 async function audit(req,action,id,m){if(syzoj.utils.authorizationV2&&syzoj.utils.authorizationV2.recordAudit)return syzoj.utils.authorizationV2.recordAudit(req,{action,resourceType:'site_notification',resourceId:Number(id),reason:syzoj.utils.operationReason(req,action)},m);return null;}
-app.get('/admin/notifications',async(req,res)=>{try{if(!isAdmin(res))throw new ErrorMessage('只有全站管理员可以管理通知。');await ensureSchema();const rs=await db().query("SELECT n.*,(SELECT COUNT(*) FROM notification r WHERE r.type='site_notification' AND r.source_id=n.id) AS recipient_count,(SELECT COUNT(*) FROM notification r WHERE r.type='site_notification' AND r.source_id=n.id AND r.is_read=1) AS read_count FROM site_notification n ORDER BY n.updated_at DESC,n.id DESC LIMIT 100");res.render('admin_notifications',{notifications:rs.map(row=>{const value=resource(row);return Object.assign(value,{etag:api().etagFor(value)});})});}catch(e){syzoj.log(e);res.status(e.statusCode||403).render('error',{err:e});}});
+
+// Keep generated notifications in their original table: reading this list must
+// neither resend notifications nor change a recipient's read state.
+async function listAdminNotifications(query = {}) {
+  const filter = ['all', 'manual', 'system', 'rating'].includes(query.filter) ? query.filter : 'all';
+  const ratingWhere = "(type='contest_rating' OR LEFT(type,15)='contest_rating_')";
+  const systemWhere = filter === 'rating' ? ratingWhere : "type<>'site_notification'";
+  const sources = [];
+  if (filter === 'all' || filter === 'manual') {
+    sources.push("SELECT id,'manual' AS origin,updated_at AS sort_at FROM site_notification");
+  }
+  if (filter !== 'manual') {
+    sources.push(`SELECT id,'system' AS origin,created_at AS sort_at FROM notification WHERE ${systemWhere}`);
+  }
+  const union = sources.join(' UNION ALL ');
+  const counts = await db().query(`SELECT COUNT(*) AS total FROM (${union}) items`);
+  const totalCount = Number(counts[0].total);
+  const pageSize = 50;
+  const paginate = syzoj.utils.paginate(totalCount, query.page, pageSize);
+  paginate.currPage = Math.max(1, paginate.currPage);
+  const keys = await db().query(
+    `SELECT * FROM (${union}) items ORDER BY sort_at DESC,origin ASC,id DESC LIMIT ? OFFSET ?`,
+    [pageSize, (paginate.currPage - 1) * pageSize]
+  );
+  const manualIds = keys.filter(row => row.origin === 'manual').map(row => Number(row.id));
+  const systemIds = keys.filter(row => row.origin === 'system').map(row => Number(row.id));
+  const entries = new Map();
+  if (manualIds.length) {
+    const rows = await db().query(`SELECT n.*,
+      (SELECT COUNT(*) FROM notification r WHERE r.type='site_notification' AND r.source_id=n.id) AS recipient_count,
+      (SELECT COUNT(*) FROM notification r WHERE r.type='site_notification' AND r.source_id=n.id AND r.is_read=1) AS read_count
+      FROM site_notification n WHERE n.id IN (?)`, [manualIds]);
+    for (const row of rows) {
+      // Delivery counts are live metadata, not part of the editable resource.
+      const etag = api().etagFor(resource({ ...row, read_count: 0, recipient_count: 0 }));
+      entries.set(`manual:${row.id}`, { ...resource(row), origin: 'manual', etag });
+    }
+  }
+  if (systemIds.length) {
+    const rows = await db().query(`SELECT n.*,u.username AS recipient_username
+      FROM notification n LEFT JOIN user u ON u.id=n.recipient_id WHERE n.id IN (?)`, [systemIds]);
+    for (const row of rows) {
+      const type = String(row.type || '');
+      const isRating = type === 'contest_rating' || type.startsWith('contest_rating_');
+      const url = String(row.source_url || '');
+      entries.set(`system:${row.id}`, {
+        id: Number(row.id), origin: 'system', notification_type: type,
+        type_label: isRating ? 'Rating 变化' : '系统通知', title: row.title || '', content: row.content || '',
+        recipient_id: Number(row.recipient_id), recipient_username: row.recipient_username || null,
+        is_read: !!Number(row.is_read), published_at: iso(row.created_at), read_at: iso(row.read_at),
+        source_url: /^\/(?!\/)/.test(url) && !/[\\\x00-\x20]/.test(url) ? url : null
+      });
+    }
+  }
+  return { notifications: keys.map(row => entries.get(`${row.origin}:${row.id}`)).filter(Boolean), filter, paginate, totalCount };
+}
+
+app.get('/admin/notifications',async(req,res)=>{try{if(!isAdmin(res))throw new ErrorMessage('只有全站管理员可以管理通知。');await ensureSchema();res.render('admin_notifications',await listAdminNotifications(req.query));}catch(e){syzoj.log(e);res.status(e.statusCode||403).render('error',{err:e});}});
 app.get('/admin/notification/:id/edit',async(req,res)=>{try{if(!isAdmin(res))throw new ErrorMessage('只有全站管理员可以管理通知。');await ensureSchema();const row=Number(req.params.id)?await load(req.params.id):null;if(Number(req.params.id)&&!row)throw new ErrorMessage('通知不存在。');res.render('admin_notification_edit',{notification:row||{id:0,title:'',content:'',level:'none',audience:'all',status:'draft'},notificationEtag:row?api().etagFor(resource(row)):''});}catch(e){syzoj.log(e);res.status(e.statusCode||403).render('error',{err:e});}});
-app.get('/api/v2/admin/notifications',async(req,res)=>{if(!isAdmin(res))return fail(res,403,'CAPABILITY_REQUIRED','Only site administrators can manage notifications.');await ensureSchema();return api().send(res,(await db().query('SELECT * FROM site_notification ORDER BY updated_at DESC,id DESC LIMIT 100')).map(resource));});
+app.get('/api/v2/admin/notifications',async(req,res)=>{if(!isAdmin(res))return fail(res,403,'CAPABILITY_REQUIRED','Only site administrators can manage notifications.');await ensureSchema();const result=await listAdminNotifications(req.query);Object.assign(res.locals.apiMeta,{page:result.paginate.currPage,total:result.totalCount,page_count:result.paginate.pageCnt,limit:50});return api().send(res,result.notifications);});
 app.get('/api/v2/admin/notifications/:id',async(req,res)=>{if(!isAdmin(res))return fail(res,403,'CAPABILITY_REQUIRED','Only site administrators can manage notifications.');await ensureSchema();const row=await load(req.params.id);if(!row)return fail(res,404,'NOTIFICATION_NOT_FOUND','Notification was not found.');return api().send(res,resource(row));});
 app.post('/api/v2/admin/notifications',async(req,res)=>{if(!isAdmin(res))return fail(res,403,'CAPABILITY_REQUIRED','Only site administrators can manage notifications.');await ensureSchema();const c=validate(req.body);if(Object.keys(c.errors).length)return fail(res,422,'VALIDATION_FAILED','Notification fields are invalid.',c.errors);const t=now();try{const out=await db().transaction(async m=>{const q=await m.query('INSERT INTO site_notification (title,content,level,audience,audience_ref,target_user_ids_json,status,scheduled_at,require_ack,is_pinned,allow_markdown,allow_images,created_by,updated_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?, ?,?,?,?,?,?,?,?,?)',[c.value.title,c.value.content,c.value.level,c.value.audience,c.value.audience_ref,c.value.target_user_ids.length?JSON.stringify(c.value.target_user_ids):null,c.value.scheduled_at?'scheduled':'draft',c.value.scheduled_at,c.value.require_ack?1:0,c.value.is_pinned?1:0,c.value.allow_markdown?1:0,c.value.allow_images?1:0,res.locals.user.id,res.locals.user.id,t,t]);return{ id:q.insertId,audit:await audit(req,'admin:notification.create',q.insertId,m)};});res.locals.apiMeta.audit_event_id=out.audit;return api().send(res,resource(await load(out.id)),201);}catch(e){return fail(res,500,'NOTIFICATION_CREATE_FAILED',e.message);}});
 app.patch('/api/v2/admin/notifications/:id',async(req,res)=>{if(!isAdmin(res))return fail(res,403,'CAPABILITY_REQUIRED','Only site administrators can manage notifications.');if(!(req.get('If-Match')||req.body&&req.body.if_match))return fail(res,428,'PRECONDITION_REQUIRED','If-Match is required when editing a notification.');await ensureSchema();try{const out=await db().transaction(async m=>{const row=await load(req.params.id,true,m);if(!row)throw Object.assign(new Error('Notification was not found.'),{statusCode:404,code:'NOTIFICATION_NOT_FOUND'});if(['published','revoked','archived'].includes(row.status))throw Object.assign(new Error('当前状态不可编辑。'),{statusCode:409,code:'NOTIFICATION_STATE_INVALID'});if(!api().ifMatch(req,resource(row)))throw Object.assign(new Error('Notification changed.'),{statusCode:412,code:'ETAG_MISMATCH'});const c=validate(req.body,row);if(Object.keys(c.errors).length)throw Object.assign(new Error('Notification fields are invalid.'),{statusCode:422,code:'VALIDATION_FAILED',fields:c.errors});const t=now();await m.query('UPDATE site_notification SET title=?,content=?,level=?,audience=?,audience_ref=?,target_user_ids_json=?,status=?,scheduled_at=?,require_ack=?,is_pinned=?,allow_markdown=?,allow_images=?,updated_by=?,updated_at=? WHERE id=?',[c.value.title,c.value.content,c.value.level,c.value.audience,c.value.audience_ref,c.value.target_user_ids.length?JSON.stringify(c.value.target_user_ids):null,c.value.scheduled_at?'scheduled':'draft',c.value.scheduled_at,c.value.require_ack?1:0,c.value.is_pinned?1:0,c.value.allow_markdown?1:0,c.value.allow_images?1:0,res.locals.user.id,t,Number(req.params.id)]);return{audit:await audit(req,'admin:notification.update',req.params.id,m)};});res.locals.apiMeta.audit_event_id=out.audit;return api().send(res,resource(await load(req.params.id)));}catch(e){return fail(res,e.statusCode||500,e.code||'NOTIFICATION_UPDATE_FAILED',e.message,e.fields);}});

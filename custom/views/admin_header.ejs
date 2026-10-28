@@ -11,7 +11,7 @@ const appAdminCapabilities = {
   announcements: ['announcement:manage'], notifications: ['admin:content.manage'], banners: ['announcement:manage'], help: ['admin:config.read'],
   'user-tags': ['admin:user.manage'], privilege: ['admin:permission.grant'],
   rating: ['rating:read'], rejudge: ['submission:rejudge'], jobs: ['admin:job.manage', 'submission:rejudge'], links: ['admin:content.manage'],
-  config: ['admin:config.read'], other: ['vjudge:source.manage'], ai: ['contest:edit']
+  config: ['admin:config.read'], other: ['admin:config.write'], ai: ['contest:edit']
 };
 const appIsFullAdmin = !!(user && (user.is_admin || (typeof isSiteOwner !== 'undefined' && isSiteOwner)));
 const appVisibleAdminItems = Object.keys(appAdminItems).filter(function (key) {

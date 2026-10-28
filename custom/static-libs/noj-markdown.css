@@ -1,0 +1,161 @@
+/* Shared Vditor integration; all colors follow the existing OJ theme. */
+.app-vditor-host {
+  --panel-background-color: var(--app-surface);
+  --toolbar-background-color: var(--app-surface-raised);
+  --toolbar-icon-color: var(--app-text-secondary);
+  --toolbar-icon-hover-color: var(--app-accent);
+  --toolbar-height: 36px;
+  --border-color: var(--app-line);
+  --textarea-background-color: var(--app-surface);
+  --textarea-text-color: var(--app-text);
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid var(--app-line);
+  border-radius: 12px;
+  background: var(--app-surface);
+  box-shadow: 0 2px 8px rgba(20, 38, 68, 0.035);
+  font-family: inherit;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+.app-vditor-host[hidden] { display: none !important; }
+.app-vditor-host .vditor-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 9px 12px;
+  border-radius: 12px 12px 0 0;
+  background: var(--app-surface-raised);
+  border-bottom: 1px solid var(--app-line);
+}
+.app-vditor-host .vditor-toolbar > .vditor-toolbar__item { float: none; flex: 0 0 auto; }
+.app-vditor-host .vditor-toolbar__item > .vditor-tooltipped {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  padding: 7px;
+  border-radius: 6px;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.app-vditor-host .vditor-toolbar__item > .vditor-tooltipped:hover,
+.app-vditor-host .vditor-toolbar__item:has(input[type="file"]:hover) > .vditor-tooltipped {
+  color: var(--app-accent);
+  background: var(--app-accent-soft);
+}
+.app-vditor-host button:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
+.app-vditor-host .vditor-toolbar button.vditor-menu--current { background: var(--app-accent-soft); color: var(--app-accent); box-shadow: none; }
+.app-vditor-host .vditor-toolbar button:disabled { opacity: .38; cursor: not-allowed; }
+.app-vditor-host .vditor-toolbar__divider { float: none; height: 16px; margin: 0 5px; border-color: var(--app-line); }
+.app-vditor-host .vditor-toolbar__item > button[data-type="edit-mode"],
+.app-vditor-host .vditor-toolbar__item > button[data-type="both"],
+.app-vditor-host .vditor-toolbar__item > [data-type="upload"],
+.app-vditor-host .vditor-toolbar__item > button[data-type="image-library"] { width: auto; padding-inline: 9px; font-family: inherit; font-size: 12px; font-weight: 500; line-height: 1.3; }
+.app-vditor-host .vditor-toolbar__item:has(> button[data-type="edit-mode"]) { margin-left: auto; }
+.app-vditor-host .vditor-toolbar__item > button[data-type="edit-mode"] { background: var(--app-bg); color: var(--app-text-secondary); }
+.app-vditor-host .app-editor-chevron { width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg) translateY(-2px); margin-left: 3px; }
+.app-vditor-host .vditor-toolbar__item input[type="file"] { inset: 0; width: 100%; height: 100%; }
+.app-vditor-host .vditor-toolbar svg { width: 16px; height: 16px; }
+.app-vditor-host .vditor-hint,
+.app-vditor-host .vditor-panel { border: 1px solid var(--app-line); border-radius: 9px; box-shadow: var(--app-shadow-menu); padding: 6px; }
+.app-vditor-host .vditor-hint button { border-radius: 5px; min-height: 32px; font-family: inherit; }
+.app-vditor-host .vditor-reset { padding: 22px 26px !important; font-size: 15px; line-height: 1.85; color: var(--app-text); }
+/* Rich-mode block markers sit 29px left of the text; reserve their gutter
+   even when the compact layout reduces the other content paddings. */
+.app-vditor-host .vditor-ir > .vditor-reset,
+.app-vditor-host .vditor-wysiwyg > .vditor-reset { padding-left: 38px !important; }
+.app-vditor-host textarea.vditor-sv { font-family: ui-monospace, "Cascadia Code", Consolas, "Microsoft YaHei", monospace; font-size: 14px; line-height: 1.8; tab-size: 4; padding: 22px 26px !important; }
+.app-vditor-host .vditor-reset p { margin-top: 0; margin-bottom: 1em; }
+.app-vditor-host .vditor-reset pre { border-radius: 8px; }
+.app-vditor-host .vditor-reset table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+.app-vditor-host .vditor-reset th,
+.app-vditor-host .vditor-reset td { border: 1px solid var(--app-line); padding: 8px 12px; }
+.app-vditor-host .vditor-reset th { background: var(--app-bg); }
+.app-vditor-host .vditor-content { min-width: 0; }
+.app-vditor-host.vditor--fullscreen { z-index: 1600; max-width: none; border-radius: 0; }
+.app-vditor-host:focus-within { border-color: color-mix(in srgb, var(--app-accent) 50%, var(--app-line)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--app-accent) 7%, transparent); }
+.app-vditor-statusbar { display: flex; align-items: center; justify-content: space-between; flex: 0 0 auto; gap: 12px; padding: 7px 14px; border-top: 1px solid var(--app-line); color: var(--app-text-muted); font-size: 12px; line-height: 1.5; }
+.app-vditor-statusbar > span:last-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.app-vditor-statusbar.is-uploading { color: var(--app-accent); }
+.app-vditor-statusbar.is-uploading > span:first-child::before { content: ''; display: inline-block; width: 11px; height: 11px; margin-right: 7px; border: 1.5px solid var(--app-line); border-top-color: currentColor; border-radius: 50%; animation: noj-editor-spin 800ms linear infinite; }
+@keyframes noj-editor-spin { to { transform: rotate(360deg); } }
+.app-image-library { width: min(800px, calc(100vw - 32px)); max-height: min(820px, 90vh); padding: 0; border-radius: 14px; }
+.app-image-library[open] { display: flex; flex-direction: column; animation: noj-editor-dialog-in 140ms ease-out; }
+.app-image-library .app-dialog-header { padding: 20px 24px 14px; }
+.app-image-library .app-dialog-header p { margin: 4px 0 0; color: var(--app-text-muted); font-size: 13px; }
+.app-image-library-tools { display: flex; gap: 12px; padding: 0 24px 16px; }
+.app-image-library-tools input { flex: 1; min-width: 0; }
+.app-image-library-tools button { flex: 0 0 auto; }
+.app-image-library-scroll { min-height: 160px; overflow-y: auto; overscroll-behavior: contain; padding: 0 24px 20px; }
+.app-image-library-message { color: var(--app-text-secondary); font-size: 13px; }
+.app-image-library-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.app-image-library-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 8px; text-align: left; padding: 8px; border: 1px solid var(--app-line); border-radius: 9px; background: var(--app-surface); color: var(--app-text); font: inherit; cursor: pointer; transition: border-color 120ms ease, background-color 120ms ease; }
+.app-image-library-item:hover, .app-image-library-item:focus-visible { border-color: var(--app-accent); background: var(--app-accent-soft); outline-color: var(--app-accent); }
+.app-image-library-preview { display: grid; place-items: center; grid-column: 1 / -1; width: 100%; aspect-ratio: 16/10; border-radius: 5px; margin-bottom: 5px; background: var(--app-bg); }
+.app-image-library-preview img { width: 100%; height: 100%; object-fit: contain; border-radius: inherit; }
+.app-image-library-preview img[hidden] { display: none; }
+.app-image-library-preview.is-unavailable::after { content: '图片暂不可预览'; color: var(--app-text-muted); font-size: 12px; }
+.app-image-library-item > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.app-image-library-item small { align-self: center; color: var(--app-text-muted); font-size: 11px; }
+.app-image-library [data-library-more] { margin-top: 16px; width: 100%; }
+.app-image-library .app-dialog-actions { margin-top: auto; flex: 0 0 auto; padding: 14px 24px; border-top: 1px solid var(--app-line); }
+.app-image-library .app-dialog-actions > span { margin-right: auto; color: var(--app-text-muted); font-size: 12px; }
+@keyframes noj-editor-dialog-in { from { opacity: .4; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+.app-vditor-source {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  clip-path: inset(50%);
+  overflow: hidden !important;
+  opacity: 0;
+  pointer-events: none;
+}
+/* Vditor owns its mode switch and split preview; avoid nested legacy panes. */
+.has-vditor [data-problem-editor-panel="preview"],
+.has-vditor [data-editor-panel="preview"],
+.has-vditor .app-editor-toolbar .app-segmented,
+.has-vditor .app-editor-bar { display: none !important; }
+.has-vditor [data-problem-editor-panel="edit"],
+.has-vditor [data-editor-panel="edit"] { display: block !important; }
+.has-vditor .app-editor-workspace,
+.has-vditor.is-split-editor .app-editor-workspace {
+  display: block !important;
+  height: auto !important;
+  min-height: 0;
+  overflow: visible;
+}
+.has-vditor .app-editor-workspace > [data-editor-panel="edit"] {
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+  border: 0;
+}
+.has-vditor .app-editor-content-field { height: auto; min-height: 0; }
+.app-clipboard-editor.is-vditor-workspace { display: block; height: auto; overflow: visible; border: 0; }
+.app-clipboard-editor.is-vditor-workspace .app-editor-pane { height: auto; min-height: 0; border: 0; overflow: visible; }
+@media (max-width: 760px) {
+  .app-vditor-host { max-height: 70vh; }
+  .app-vditor-host.vditor--fullscreen { max-height: none; }
+  .app-vditor-host .vditor-toolbar { padding: 6px; gap: 2px; }
+  .app-vditor-host .vditor-reset,
+  .app-vditor-host textarea.vditor-sv { padding: 16px !important; font-size: 14px; }
+  .app-vditor-host .vditor-toolbar__divider { margin-inline: 2px; }
+  .app-vditor-host .vditor-toolbar__item { padding: 0; }
+  .app-vditor-statusbar { padding: 7px 10px; font-size: 11px; }
+  .app-image-library { width: calc(100vw - 20px); max-height: 88vh; }
+  .app-image-library .app-dialog-header, .app-image-library .app-dialog-actions { padding: 14px 16px; }
+  .app-image-library-tools { padding: 0 16px 12px; gap: 8px; }
+  .app-image-library-scroll { padding: 0 16px 16px; }
+  .app-image-library-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .app-image-library .app-dialog-actions > span { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-vditor-host, .app-vditor-host button, .app-image-library[open], .app-image-library-item, .app-vditor-statusbar.is-uploading > span:first-child::before { animation: none !important; transition: none !important; }
+}

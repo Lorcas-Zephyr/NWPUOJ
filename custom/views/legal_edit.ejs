@@ -1,0 +1,55 @@
+<% this.title = '编辑' + legalPage.title; %>
+<% include app_header %>
+<div class="app-page app-legal-page">
+  <header class="app-page-header">
+    <div class="app-page-heading"><span class="app-kicker">规则与权益</span><h1 class="app-page-title">编辑<%= legalPage.title %></h1><p class="app-page-description">当前版本 <%= legalPage.version %>。保存后立即生效，旧版本与已有确认记录保留。</p></div>
+    <a class="app-button app-button-secondary" href="/legal/<%= legalPage.slug %>"><i data-lucide="arrow-left"></i>返回正文</a>
+  </header>
+  <form class="app-form" data-markdown-editor data-legal-editor data-slug="<%= legalPage.slug %>" data-etag="<%= legalEtag %>">
+    <div class="app-notice app-notice-danger" data-legal-edit-error role="alert" hidden><i data-lucide="circle-alert"></i><span></span></div>
+    <label class="app-field app-field-full app-editor-content-field"><span class="app-label">正文</span><textarea class="app-textarea app-admin-editor" name="content" rows="28" required><%= legalPage.content %></textarea></label>
+    <p class="app-help">支持 Markdown，默认分屏预览。若其他管理员已更新协议，会提示重新加载，不覆盖你的编辑内容。</p>
+    <div class="app-form-actions"><span class="app-form-status" data-legal-edit-status aria-live="polite"></span><a class="app-button app-button-secondary" href="/legal/<%= legalPage.slug %>">取消</a><button class="app-button app-button-primary" type="submit"><i data-lucide="save"></i>保存并发布</button></div>
+  </form>
+</div>
+<script>
+(function () {
+  var form = document.querySelector('[data-legal-editor]');
+  if (!form) return;
+  var content = form.elements.content;
+  var original = content.value;
+  var busy = false;
+  var saved = false;
+  var button = form.querySelector('[type="submit"]');
+  var errorBox = form.querySelector('[data-legal-edit-error]');
+  var status = form.querySelector('[data-legal-edit-status]');
+  window.addEventListener('beforeunload', function (event) {
+    if (!saved && content.value !== original) { event.preventDefault(); event.returnValue = ''; }
+  });
+  form.addEventListener('submit', async function (event) {
+    event.preventDefault();
+    if (busy) return;
+    errorBox.hidden = true;
+    if (!content.value.trim()) { errorBox.querySelector('span').textContent = '正文不能为空。'; errorBox.hidden = false; return; }
+    busy = true; button.disabled = true; form.setAttribute('aria-busy', 'true'); status.textContent = '正在保存…';
+    try {
+      var etag = form.dataset.etag;
+      var response = await fetch('/api/v2/admin/legal/' + encodeURIComponent(form.dataset.slug), {
+        method: 'PATCH', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'If-Match': etag },
+        body: JSON.stringify({ content: content.value, if_match: etag })
+      });
+      var result = await response.json();
+      if (!response.ok) throw new Error(result && result.error && result.error.message || '协议保存失败，请稍后重试。');
+      form.dataset.etag = response.headers.get('ETag') || result.meta && result.meta.etag || etag;
+      saved = true; status.textContent = '已保存';
+      window.location.assign('/legal/' + encodeURIComponent(form.dataset.slug));
+    } catch (error) {
+      errorBox.querySelector('span').textContent = error.message || '协议保存失败，请稍后重试。';
+      errorBox.hidden = false; status.textContent = '未保存，编辑内容已保留';
+      button.disabled = false; busy = false; form.removeAttribute('aria-busy');
+    }
+  });
+})();
+</script>
+<% include app_footer %>

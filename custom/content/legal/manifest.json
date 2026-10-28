@@ -1,0 +1,19 @@
+{
+  "status": "approved",
+  "version": "2026-10-16.1",
+  "updated_at": "2026-10-16",
+  "effective_date": "2026-10-16",
+  "operator": "西北工业大学程序设计创新实践基地",
+  "contact_email": "npuicpc@163.com",
+  "allow_under_14": true,
+  "guardian_consent_status": "pending",
+  "publication_basis": "operator_approved_current_state",
+  "publication_approved_on": "2026-10-16",
+  "review_pending": [],
+  "implementation_pending": [
+    "guardian_consent",
+    "retained_personal_data_handling",
+    "external_service_verification",
+    "scenario_specific_consent"
+  ]
+}

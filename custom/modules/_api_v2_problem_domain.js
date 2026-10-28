@@ -102,10 +102,6 @@ async function ensureProblemSchema() {
       if (snapshotIndexes.length) await connection.query('ALTER TABLE problem_v2_snapshot DROP INDEX uq_problem_v2_snapshot_hash');
       await connection.query('ALTER TABLE problem_v2_snapshot ADD UNIQUE KEY uq_problem_v2_snapshot_hash (problem_id,content_hash,testdata_hash)');
     }
-    await connection.query(`UPDATE problem_v2_snapshot snapshot
-      JOIN problem legacy_problem ON legacy_problem.id=snapshot.problem_id
-      SET snapshot.provider_config=legacy_problem.vjudge_config
-      WHERE snapshot.provider_config IS NULL AND legacy_problem.vjudge_config IS NOT NULL`);
     await connection.query(`
       CREATE TABLE IF NOT EXISTS problem_v2_state (
         problem_id INT NOT NULL PRIMARY KEY,
@@ -212,7 +208,7 @@ async function canReadDraftVersions(problem, user) {
 }
 
 function needsLocalTestdata(problem) {
-  return !String(problem && problem.type || '').startsWith('vjudge:');
+  return true;;
 }
 
 async function captureTestdataSnapshot(problem, snapshotId) {
@@ -256,6 +252,7 @@ async function loadProblem(req, res, requireRead = true) {
 }
 
 async function canReadProblem(problem, user) {
+  if (syzoj.utils.baseWorkspace && await syzoj.utils.baseWorkspace.contains('problem', problem.id)) return syzoj.utils.baseWorkspace.canReadProblem(problem, user);
   if (problem.is_public) return true;
   if (!user) return false;
   return syzoj.utils.authorizationV2.authorize(
@@ -305,7 +302,7 @@ async function ensureCurrentSnapshot(problem, actorId) {
       const testdata = await captureTestdataSnapshot(problem, snapshotId);
       await manager.query(
         'INSERT INTO problem_v2_snapshot (id,problem_id,version_id,content_hash,content_json,provider_config,testdata_hash,testdata_path,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(3))',
-        [snapshotId, problem.id, version.id, version.content_hash, version.content_json, problem.vjudge_config || null, testdata.hash, testdata.path, actorId]
+        [snapshotId, problem.id, version.id, version.content_hash, version.content_json, null, testdata.hash, testdata.path, actorId]
       );
       snapshotRows = [{ id: snapshotId }];
     }
@@ -405,6 +402,7 @@ app.get('/api/v2/problems', async (req, res) => {
       `SELECT problem.*,state.lifecycle_status,state.current_version_id,state.current_snapshot_id
          FROM problem LEFT JOIN problem_v2_state state ON state.problem_id=problem.id
         WHERE problem.id>? ${keyword ? 'AND (problem.title LIKE ? OR problem.id=?)' : ''}
+          AND NOT EXISTS (SELECT 1 FROM base_workspace_problem bp WHERE bp.problem_id=problem.id)
           AND COALESCE(state.lifecycle_status,'draft')<>'archived'
         ORDER BY problem.id ASC LIMIT ?`,
       params
@@ -426,7 +424,10 @@ app.get('/api/v2/problems', async (req, res) => {
   return api.send(res, page);
 });
 
-app.post('/api/v2/problems', requireCapability('problem:create'), async (req, res) => {
+app.post('/api/v2/problems', async (req, res, next) => {
+  if (syzoj.utils.baseWorkspace && await syzoj.utils.baseWorkspace.allowCreate(req, res.locals.user)) return next();
+  return requireCapability('problem:create')(req, res, next);
+}, async (req, res) => {
   const api = syzoj.utils.apiV2;
   const Problem = syzoj.model('problem');
   const content = contentFromInput(req.body || {}, { type: 'traditional', time_limit: 1000, python_time_limit_multiplier: 2, java_time_limit_multiplier: 2, memory_limit: 256 });
@@ -437,7 +438,6 @@ app.post('/api/v2/problems', requireCapability('problem:create'), async (req, re
   if (tagIds.length > 20 || tagIds.some(id => !Number.isSafeInteger(id) || id < 1) || new Set(tagIds).size !== tagIds.length) fields.tag_ids = 'up to 20 unique positive integers required';
   if (Object.keys(fields).length) return api.fail(res, 422, 'VALIDATION_FAILED', 'Problem data is invalid.', fields);
   await ensureProblemSchema();
-  await syzoj.utils.vjudgeV2.ensureSchema();
   const created = await TypeORM.getConnection().transaction(async manager => {
     if (requestedId != null) {
       const existing = await manager.query('SELECT id FROM problem WHERE id=? LIMIT 1 FOR UPDATE', [requestedId]);
@@ -449,6 +449,10 @@ app.post('/api/v2/problems', requireCapability('problem:create'), async (req, re
       if (tags.length !== tagIds.length) throw Object.assign(new Error('One or more tags were not found.'), { code: 'TAG_NOT_FOUND', statusCode: 404 });
     }
     const value = await createProblemAggregate(manager, Problem, content, res.locals.user.id, { id: requestedId, isAnonymous: req.body && req.body.is_anonymous === true });
+    if (req.body.workspace === 'base') {
+      if (!await syzoj.utils.baseWorkspace.isMember(res.locals.user)) throw Object.assign(new Error('仅基地成员可以创建基地题目。'), { statusCode: 403 });
+      await manager.query('INSERT INTO base_workspace_problem (problem_id,created_by,created_at) VALUES (?,?,UTC_TIMESTAMP(3))', [value.problem.id, res.locals.user.id]);
+    }
     for (const tagId of tagIds) await manager.query('INSERT INTO problem_tag_map (problem_id,tag_id) VALUES (?,?)', [value.problem.id, tagId]);
     await syncSourceProjection(manager, value.problem);
     return value;
@@ -679,7 +683,6 @@ app.post('/api/v2/problems/:id/publish', async (req, res, next) => {
     if (error) return next(error);
     const reason = syzoj.utils.operationReason(req, '发布题目');
     await ensureProblemSchema();
-    await syzoj.utils.vjudgeV2.ensureSchema();
     const requestedSnapshotId = `ps_${crypto.randomUUID().replace(/-/g, '')}`;
     let testdata;
     let published;
@@ -809,6 +812,11 @@ async function extractBulkImportArchive(file) {
   if (!folders.length) throw bulkImportError('ZIP 根目录下至少需要一个题目文件夹。');
   if (folders.some(folder => folder.name.includes('?'))) throw bulkImportError('ZIP 文件夹名称无法按 UTF-8 解析，请使用 UTF-8 文件名重新压缩。');
   if (folders.length > 100) throw bulkImportError('一次最多导入 100 道题目。');
+  // readdir/ZIP entry order is not an import contract. Numeric folder prefixes
+  // define a stable order (1, 2, 10), independent of extraction/filesystem order.
+  const folderOrder = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'variant' });
+  folders.sort((left, right) => folderOrder.compare(left.name, right.name) ||
+    (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
   const items = [];
   for (const folder of folders) {
     const folderPath = path.join(extracted, folder.name);
@@ -838,7 +846,6 @@ async function importBulkProblems(req, res) {
       try { retryFolders = new Set(JSON.parse(String(req.body.retry_folders)).map(value => String(value))); } catch (_) { throw bulkImportError('失败项列表格式无效。'); }
     }
     await ensureProblemSchema();
-    await syzoj.utils.vjudgeV2.ensureSchema();
     for (const item of extracted.items.filter(item => !retryFolders || retryFolders.has(item.name))) {
       try {
         const body = item.content || {};

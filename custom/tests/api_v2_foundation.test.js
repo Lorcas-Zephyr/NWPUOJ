@@ -55,7 +55,6 @@ test('large v2 collections expose bounded keyset pagination metadata', () => {
   const submissionSource = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_submission_domain.js'), 'utf8');
   const authorizationSource = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_authorization.js'), 'utf8');
   const adminSource = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_admin_domain.js'), 'utf8');
-  const vjudgeSource = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_vjudge_domain.js'), 'utf8');
   assert.match(contentSource, /app\.get\('\/api\/v2\/clipboard'[\s\S]*api\(\)\.parseLimit\(req, 30, 100\)[\s\S]*LIMIT \?[\s\S]*api\(\)\.encodeCursor\(\{ updated_at:/);
   assert.match(workflowSource, /app\.get\('\/api\/v2\/tags'[\s\S]*api\(\)\.parseLimit\(req, 50, 100\)[\s\S]*ORDER BY tag\.name ASC,tag\.id ASC LIMIT \?[\s\S]*api\(\)\.encodeCursor\(\{ name:/);
   assert.match(workflowSource, /app\.get\('\/api\/v2\/problems\/:id\/solutions'[\s\S]*api\(\)\.parseLimit\(req, 30, 100\)[\s\S]*ORDER BY solution\.id DESC LIMIT \?[\s\S]*api\(\)\.encodeCursor\(Number\(last\.id\)\)/);
@@ -65,7 +64,7 @@ test('large v2 collections expose bounded keyset pagination metadata', () => {
   assert.doesNotMatch(contentSource, /ticket_reply[\s\S]{0,300}LIMIT 1000/);
   assert.match(ratingSource, /app\.get\(\['\/api\/v2\/ratings\/users\/:id\/history'[\s\S]*api\(\)\.parseLimit\(req, 50, 100\)[\s\S]*event\.id>\?[\s\S]*next_cursor/);
   assert.match(ratingSource, /app\.get\('\/api\/v2\/contests\/:id\/rating\/overrides'[\s\S]*user_id>\?[\s\S]*ORDER BY user_id ASC LIMIT \?[\s\S]*next_cursor/);
-  for (const source of [contentSource, workflowSource, ratingSource, contestSource, submissionSource, authorizationSource, adminSource, vjudgeSource]) {
+  for (const source of [contentSource, workflowSource, ratingSource, contestSource, submissionSource, authorizationSource, adminSource]) {
     const boundedLists = Array.from(source.matchAll(/parseLimit\(req/g)).length;
     const exposedLimits = Array.from(source.matchAll(/apiMeta\.limit/g)).length;
     assert.ok(exposedLimits >= boundedLists, 'every bounded list must expose its effective limit');
@@ -73,7 +72,6 @@ test('large v2 collections expose bounded keyset pagination metadata', () => {
   assert.match(contestSource, /problem-snapshots'[\s\S]*apiMeta\.next_cursor\s*=\s*hasMore[\s\S]*:\s*null/);
   assert.match(contestSource, /standings\/versions'[\s\S]*apiMeta\.next_cursor\s*=\s*rows\.length > limit[\s\S]*:\s*null/);
   assert.match(submissionSource, /result-revisions'[\s\S]*apiMeta\.next_cursor[\s\S]*apiMeta\.limit = limit/);
-  assert.match(vjudgeSource, /vjudge\/imports'[\s\S]*apiMeta\.limit = limit[\s\S]*apiMeta\.next_cursor/);
   assert.match(adminSource, /admin\/users'[\s\S]*apiMeta\.limit = limit[\s\S]*apiMeta\.next_cursor/);
 });
 
@@ -137,8 +135,8 @@ test('gateway keeps the JSON limit while delegating known multipart uploads to r
   const source = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_foundation.js'), 'utf8');
   assert.match(source, /const requestPath = `\$\{req\.baseUrl \|\| ''\}\$\{req\.path \|\| ''\}` \|\| req\.originalUrl/);
   assert.match(source, /apiHelpers\.requestBodyLimit\(requestPath, req\.get\('content-type'\)/);
-  assert.match(source, /problemImportArchiveBytes: 100 \* 1024 \* 1024/);
-  assert.match(source, /testdataArchiveBytes: 200 \* 1024 \* 1024/);
+  assert.match(source, /problemImportArchiveBytes: 8 \* 1024 \* 1024 \* 1024/);
+  assert.match(source, /testdataArchiveBytes: Number\(syzoj\.config\.limit/);
   assert.match(source, /testdataFilesBytes: Number\(syzoj\.config\.limit/);
   assert.match(source, /additionalFileBytes: Number\(syzoj\.config\.limit/);
   assert.match(source, /imageHostBytes: 10 \* 1024 \* 1024/);
@@ -176,7 +174,8 @@ test('foundation isolates anonymous idempotency keys and preserves the original 
 
 test('operation status and SSE streams share owner-or-job-manager authorization', () => {
   const source = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_foundation.js'), 'utf8');
-  assert.match(source, /async function loadReadableOperation\(req, res\)[\s\S]*SELECT id,actor_id,status,response_status,response_json,created_at,updated_at,expires_at FROM api_v2_operation WHERE id=\? LIMIT 1/);
+  assert.match(source, /async function loadReadableOperation\(req, res\)[\s\S]*SELECT id,actor_id,path,status,response_status,response_json,created_at,updated_at,expires_at FROM api_v2_operation WHERE id=\? LIMIT 1/);
+  assert.match(source, /baseWorkspace\.canReadOperation\(operation, res.locals.user\)/);
   assert.match(source, /const isJobManager = await authorizeCurrent\(res\.locals\.user, 'admin:job\.manage', null, \{ req, scope: 'global' \}\);/);
   assert.match(source, /!isJobManager && Number\(operation\.actor_id\) !== Number\(res\.locals\.user\.id\)[\s\S]*OPERATION_FORBIDDEN/);
   assert.match(source, /app\.get\('\/api\/v2\/operations\/:id'[^]*?const operation = await loadReadableOperation\(req, res\);/);

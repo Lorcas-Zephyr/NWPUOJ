@@ -13,7 +13,7 @@ const css = readAppCss();
 test('contest editor keeps one server form and adds a four-step workflow', () => {
   assert.match(view, /id="contest-editor-form"/);
   assert.match(view, /data-contest-editor-v2/);
-  assert.match(view, /var stepLabels = \['基本信息', '题目与管理员', '赛程与赛制'/);
+  assert.match(view, /var stepLabels = \['基本信息', baseContest \? '比赛题目' : '题目与管理员', '赛程与赛制'/);
   assert.match(view, /dataset\.contestStepTarget/);
   assert.match(view, /function validateStep\(index\)/);
   assert.match(view, /function moveToStep\(target\)/);
@@ -61,6 +61,19 @@ test('a contest draft may submit an explicitly empty problem list', () => {
   assert.match(view, /data-review-problems/);
 });
 
+test('contest problems move in place with boundary buttons and retain form and review order', () => {
+  assert.match(view, /app-entity-selected app-contest-problem-list/);
+  assert.match(view, /type="button" data-picker-move="up"/);
+  assert.match(view, /type="button" data-picker-move="down"/);
+  assert.match(view, /function syncOrderButtons\(\)/);
+  assert.match(view, /disabled = index === 0/);
+  assert.match(view, /disabled = index === rows\.length - 1/);
+  assert.match(view, /selected\.insertBefore\(row, sibling\)/);
+  assert.match(view, /selected\.insertBefore\(sibling, row\)/);
+  assert.match(view, /focus\.focus\(\{ preventScroll: true \}\)/);
+  assert.match(css, /\.app-contest-problem-list > \[data-picker-value\]\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\) repeat\(3, 32px\)/s);
+});
+
 test('contest schedule uses minute-precision native pickers and saves zero seconds', () => {
   assert.equal((view.match(/type="datetime-local"/g) || []).length, 2);
   assert.equal((view.match(/step="60"/g) || []).length, 2);
@@ -72,7 +85,8 @@ test('contest schedule uses minute-precision native pickers and saves zero secon
 
 test('contest editor can restrict participation to generated contest accounts', () => {
   assert.match(view, /name="allow_registration"/);
-  assert.match(view, /关闭后仅可通过管理员生成的比赛账号参赛/);
+  assert.match(view, /关闭后仅可通过管理员添加的参赛账户参赛/);
+  assert.match(view, /仅基地成员可报名；关闭后由比赛管理员添加基地成员参赛/);
   assert.match(view, /allow_registration: !!editorForm\.querySelector/);
   assert.match(view, /仅限比赛账号/);
 });

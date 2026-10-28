@@ -95,7 +95,7 @@ app.get('/clipboard/:id', async (req, res) => {
     // 给前端用的分享 URL(只在作者本人页面显示)
     let shareUrl = null;
     if (isOwn && item.visibility === 'link' && item.share_token) {
-      shareUrl = syzoj.utils.makeUrl(['clipboard', 'share', item.share_token]);
+      shareUrl = syzoj.utils.getPublicBaseUrl(req) + syzoj.utils.makeUrl(['clipboard', 'share', item.share_token]);
     }
 
     res.render('clipboard_view', {

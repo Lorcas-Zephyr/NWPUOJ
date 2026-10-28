@@ -1,5 +1,6 @@
 const TypeORM = require('typeorm');
 const migrationCycleEvidence = require('./migration-cycle-evidence');
+const { problemAlias } = require('./contest-ranklist-export');
 
 const RETRYABLE_ERRORS = new Set(['ER_LOCK_DEADLOCK', 'ER_LOCK_WAIT_TIMEOUT', '1213', '1205']);
 const ranklistRefreshTimers = new Map();
@@ -30,11 +31,15 @@ function contestProblemIds(value) {
 async function syncContestV2Projection(manager, contestId, input, isNew, now) {
   const problemIds = contestProblemIds(input.problems);
   const stateRows = await manager.query('SELECT status FROM contest_v2_state WHERE contest_id=? FOR UPDATE', [contestId]);
+  // The editor supports creating an empty draft and adding problems later.
+  // Keep these automatic states aligned with the saved problems and schedule,
+  // without undoing explicit review/freeze/end/rating/archive transitions.
+  const scheduledStatus = !problemIds.length ? 'draft' : input.endTime <= now ? 'ended' : input.startTime <= now ? 'running' : 'scheduled';
   if (!stateRows.length) {
-    const status = !problemIds.length ? 'draft' : input.endTime <= now ? 'ended' : input.startTime <= now ? 'running' : 'scheduled';
-    await manager.query('INSERT INTO contest_v2_state (contest_id,status,revision,updated_at,updated_by) VALUES (?,?,1,UTC_TIMESTAMP(3),?)', [contestId, status, input.actorId]);
+    await manager.query('INSERT INTO contest_v2_state (contest_id,status,revision,updated_at,updated_by) VALUES (?,?,1,UTC_TIMESTAMP(3),?)', [contestId, scheduledStatus, input.actorId]);
   } else {
-    await manager.query('UPDATE contest_v2_state SET revision=revision+1,updated_at=UTC_TIMESTAMP(3),updated_by=? WHERE contest_id=?', [input.actorId, contestId]);
+    const status = ['draft', 'scheduled'].includes(stateRows[0].status) ? scheduledStatus : stateRows[0].status;
+    await manager.query('UPDATE contest_v2_state SET status=?,revision=revision+1,updated_at=UTC_TIMESTAMP(3),updated_by=? WHERE contest_id=?', [status, input.actorId, contestId]);
   }
 
   const configRows = await manager.query('SELECT * FROM contest_v2_config WHERE contest_id=? FOR UPDATE', [contestId]);
@@ -45,13 +50,14 @@ async function syncContestV2Projection(manager, contestId, input, isNew, now) {
     penalty_minutes: Number(currentScoring.penalty_minutes == null ? 20 : currentScoring.penalty_minutes),
     problems: problemIds.map((problemId, index) => ({
       problem_id: problemId,
-      alias: String.fromCharCode(65 + index),
+      alias: problemAlias(index),
       score: Number(input.rankingParams[problemId] == null ? 1 : input.rankingParams[problemId]),
       penalty: Number(currentScoring.penalty_minutes == null ? 20 : currentScoring.penalty_minutes)
     }))
   });
-  const security = parseJson(current.security_json, { result_visibility: 'public_after_end', submission_visibility: 'own_during_contest', allow_vjudge: false });
+  const security = parseJson(current.security_json, { result_visibility: 'public_after_end', submission_visibility: 'own_during_contest' });
   if (input.freezeAfterMinutes !== undefined) security.standings_freeze_after_minutes = input.freezeAfterMinutes;
+  if (input.medalPercentages !== undefined) security.medal_percentages = input.medalPercentages;
   const registration = Object.assign({}, parseJson(current.registration_json, { enabled: true, approval_required: false }), { enabled: !!input.allowRegistration, allow_late_registration: !!input.allowLateRegistration });
   const teams = parseJson(current.teams_json, { enabled: false, minimum_size: 1, maximum_size: 1 });
   const ratedProfile = input.isRated ? (input.type === 'acm' ? 'icpc' : 'ioi') : null;
@@ -423,6 +429,10 @@ async function databaseNow(manager) {
 }
 
 async function registerUser(contestId, userId, options = {}) {
+  if (syzoj.utils.baseWorkspace && await syzoj.utils.baseWorkspace.contains('contest', contestId)) {
+    const user = await syzoj.model('user').findById(Number(userId));
+    if (!await syzoj.utils.baseWorkspace.isMember(user)) throw mutationError('只有基地成员可以报名基地比赛，请先添加基地成员。', 403);
+  }
   return withContestLock(contestId, () => withTransactionRetry(async manager => {
     const context = await lockContestAndSetting(manager, contestId);
     const now = await databaseNow(manager);
@@ -523,7 +533,16 @@ async function restoreUser(contestId, userId) {
 }
 
 async function saveContest(input) {
+  if (input.baseWorkspace || syzoj.utils.baseWorkspace && await syzoj.utils.baseWorkspace.contains('contest', input.id)) {
+    input.baseWorkspace = true;
+    input.isRated = false;
+    input.admins = '';
+  }
   return withContestLock(input.id, () => withTransactionRetry(async manager => {
+    if (syzoj.utils.baseWorkspace) {
+      if (input.baseWorkspace && !await syzoj.utils.baseWorkspace.isMember(await syzoj.model('user').findById(input.actorId))) throw mutationError('您的基地成员资格已撤销。', 403);
+      await syzoj.utils.baseWorkspace.validateContestSelection(manager, contestProblemIds(input.problems), !!input.baseWorkspace);
+    }
     const now = await databaseNow(manager);
     if (!input.id) {
       const ranklistResult = await manager.query(
@@ -538,6 +557,7 @@ async function saveContest(input) {
           input.problems,input.admins,Number(ranklistResult.insertId),input.isPublic ? 1 : 0,input.hideStatistics ? 1 : 0]
       );
       const contestId = Number(contestResult.insertId);
+      if (input.baseWorkspace) await manager.query('INSERT INTO base_workspace_contest (contest_id,created_by,created_at) VALUES (?,?,UTC_TIMESTAMP(3))', [contestId, input.actorId]);
       await manager.query(
         `INSERT INTO contest_rating_config (contest_id,is_rated,updated_at,updated_by)
          VALUES (?,?,?,?)`,
@@ -653,12 +673,10 @@ async function deleteContestInTransaction(manager, contestId, options) {
         await manager.query('SELECT id FROM submission_v2_result_revision WHERE submission_id IN (?) FOR UPDATE', [submissionIds]);
         await manager.query('SELECT id FROM submission_v2_attempt WHERE submission_id IN (?) FOR UPDATE', [submissionIds]);
         await manager.query('SELECT id FROM submission_v2_code_version WHERE submission_id IN (?) FOR UPDATE', [submissionIds]);
-        await manager.query('SELECT local_submission_id FROM vjudge_v2_submission_sync WHERE local_submission_id IN (?) FOR UPDATE', [submissionIds]);
         const rejudgeItems = await manager.query(
           'SELECT job_id,submission_id FROM admin_v2_rejudge_item WHERE submission_id IN (?) FOR UPDATE',
           [submissionIds]
         );
-        await manager.query('DELETE FROM vjudge_v2_submission_sync WHERE local_submission_id IN (?)', [submissionIds]);
         await manager.query('DELETE FROM admin_v2_rejudge_item WHERE submission_id IN (?)', [submissionIds]);
         await manager.query('DELETE FROM submission_v2_job WHERE submission_id IN (?)', [submissionIds]);
         await manager.query('DELETE FROM submission_v2_result_revision WHERE submission_id IN (?)', [submissionIds]);
@@ -712,6 +730,7 @@ async function deleteContestInTransaction(manager, contestId, options) {
     await manager.query('DELETE FROM contest_v2_problem_snapshot WHERE contest_id=?', [contestId]);
     await manager.query('DELETE FROM contest_v2_config WHERE contest_id=?', [contestId]);
     await manager.query('DELETE FROM contest_v2_state WHERE contest_id=?', [contestId]);
+    if (syzoj.utils.baseWorkspace) await manager.query('DELETE FROM base_workspace_contest WHERE contest_id=?', [contestId]);
     await manager.query('DELETE FROM contest WHERE id=?', [contestId]);
     await manager.query('DELETE FROM contest_ranklist WHERE id=?', [context.contest.ranklist_id]);
     return context.contest;

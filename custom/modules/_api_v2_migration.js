@@ -118,7 +118,6 @@ async function migrateIdentities(runId) {
 }
 
 async function migrateProblems(runId) {
-  await syzoj.utils.vjudgeV2.ensureSchema();
   const connection = TypeORM.getConnection();
   const problems = await Problem.find(); let processed = 0; const failures = [];
   for (const problem of problems) { await assertMigrationActive(runId, `problem:${problem.id}`); try { await retryMigrationStep(() => syzoj.utils.problemV2.ensureCurrentSnapshot(problem, null)); await retryMigrationStep(() => migrateProblemSource(connection, problem)); } catch (error) { if (failures.length < 100) failures.push({ id: problem.id, code: error.code || 'MIGRATION_FAILED', message: error.message }); } processed++; if (processed % 25 === 0) await connection.query('UPDATE api_v2_migration_run SET processed=?,failure_count=?,failures_json=?,updated_at=UTC_TIMESTAMP(3) WHERE id=?', [processed, failures.length, JSON.stringify(failures), runId]); }
@@ -355,7 +354,6 @@ async function migrationConsistencyReport() {
   await Promise.all([
     syzoj.utils.ensureAccountStateSchema(),
     syzoj.utils.problemV2.ensureSchema(),
-    syzoj.utils.vjudgeV2.ensureSchema(),
     syzoj.utils.submissionV2.ensureSchema(),
     syzoj.utils.contestV2.ensureSchema(),
     syzoj.utils.ratingV2.ensureSchema()
@@ -373,11 +371,6 @@ async function migrationConsistencyReport() {
     (SELECT COUNT(*) FROM problem legacy LEFT JOIN problem_v2_state projection ON projection.problem_id=legacy.id WHERE projection.problem_id IS NULL) AS problems_legacy_missing_v2,
     (SELECT COUNT(*) FROM problem_v2_state projection LEFT JOIN problem legacy ON legacy.id=projection.problem_id WHERE legacy.id IS NULL) AS problems_v2_orphaned,
     (SELECT COUNT(*) FROM problem legacy INNER JOIN problem_v2_state projection ON projection.problem_id=legacy.id LEFT JOIN problem_v2_snapshot snapshot ON snapshot.id=projection.current_snapshot_id WHERE projection.current_snapshot_id IS NULL OR snapshot.id IS NULL) AS problems_missing_snapshot,
-    (SELECT COUNT(*) FROM problem legacy LEFT JOIN vjudge_v2_remote_problem source ON source.provider=SUBSTRING(legacy.type,8) AND source.remote_id=legacy.vjudge_config AND source.local_problem_id=legacy.id WHERE legacy.type LIKE 'vjudge:%' AND legacy.vjudge_config IS NOT NULL AND legacy.vjudge_config<>'' AND source.local_problem_id IS NULL) AS problems_remote_source_missing,
-    (SELECT COUNT(*) FROM vjudge_v2_remote_problem source LEFT JOIN problem legacy ON legacy.id=source.local_problem_id WHERE legacy.id IS NULL) AS problems_remote_source_orphaned,
-    (SELECT COUNT(*) FROM vjudge_v2_remote_problem source INNER JOIN problem legacy ON legacy.id=source.local_problem_id WHERE legacy.type<>CONCAT('vjudge:',source.provider) OR NOT (legacy.vjudge_config <=> source.remote_id)) AS problems_remote_source_mismatch,
-    (SELECT COUNT(*) FROM problem legacy WHERE legacy.type LIKE 'vjudge:%' AND (legacy.vjudge_config IS NULL OR legacy.vjudge_config='' OR CHAR_LENGTH(legacy.vjudge_config)>80)) AS problems_remote_source_invalid,
-    (SELECT COALESCE(SUM(duplicates.duplicate_count-1),0) FROM (SELECT COUNT(*) AS duplicate_count FROM problem WHERE type LIKE 'vjudge:%' AND vjudge_config IS NOT NULL AND vjudge_config<>'' GROUP BY type,vjudge_config HAVING COUNT(*)>1) duplicates) AS problems_remote_source_duplicates,
     (SELECT COUNT(*) FROM judge_state) AS submissions_legacy,
     (SELECT COUNT(*) FROM submission_v2_projection) AS submissions_v2,
     (SELECT COUNT(*) FROM judge_state legacy LEFT JOIN submission_v2_projection projection ON projection.submission_id=legacy.id WHERE projection.submission_id IS NULL) AS submissions_legacy_missing_v2,
@@ -410,7 +403,7 @@ async function migrationConsistencyReport() {
   const row = rows[0];
   const domains = [
     migrationConsistency.item('identity', row.identities_legacy, row.identities_v2, { legacy_missing_v2: row.identities_legacy_missing_v2, v2_orphaned: row.identities_v2_orphaned, invalid_status: row.identities_invalid_status, missing_event_baseline: row.identities_missing_event_baseline }),
-    migrationConsistency.item('problems', row.problems_legacy, row.problems_v2, { legacy_missing_v2: row.problems_legacy_missing_v2, v2_orphaned: row.problems_v2_orphaned, missing_snapshot: row.problems_missing_snapshot, remote_source_missing: row.problems_remote_source_missing, remote_source_orphaned: row.problems_remote_source_orphaned, remote_source_mismatch: row.problems_remote_source_mismatch, remote_source_invalid: row.problems_remote_source_invalid, remote_source_duplicates: row.problems_remote_source_duplicates }),
+    migrationConsistency.item('problems', row.problems_legacy, row.problems_v2, { legacy_missing_v2: row.problems_legacy_missing_v2, v2_orphaned: row.problems_v2_orphaned, missing_snapshot: row.problems_missing_snapshot }),
     migrationConsistency.item('submissions', row.submissions_legacy, row.submissions_v2, { legacy_missing_v2: row.submissions_legacy_missing_v2, v2_orphaned: row.submissions_v2_orphaned, missing_event_baseline: row.submissions_missing_event_baseline, missing_snapshot: row.submissions_missing_snapshot, missing_code_version: row.submissions_missing_code_version, code_version_orphaned: row.submissions_code_version_orphaned, code_version_mismatch: row.submissions_code_version_mismatch, code_version_event_missing: row.submissions_code_version_event_missing, status_mismatch: row.submissions_status_mismatch, identity_mismatch: row.submissions_identity_mismatch }),
     migrationConsistency.item('contests', row.contests_legacy, row.contests_state_v2, { legacy_missing_state: row.contests_legacy_missing_state, state_orphaned: row.contests_state_orphaned, legacy_missing_config: row.contests_legacy_missing_config, config_orphaned: row.contests_config_orphaned, legacy_missing_standings: row.contests_legacy_missing_standings, standings_orphaned: row.contests_standings_orphaned }),
     migrationConsistency.item('ratings', row.ratings_legacy, row.ratings_v2, { legacy_missing_v2: row.ratings_legacy_missing_v2, v2_orphaned: row.ratings_v2_orphaned, value_mismatch: row.ratings_value_mismatch, current_missing: row.ratings_current_missing, current_value_mismatch: row.ratings_current_value_mismatch })

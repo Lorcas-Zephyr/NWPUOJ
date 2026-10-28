@@ -1,13 +1,12 @@
 const TypeORM = require('typeorm');
 const crypto = require('crypto');
 let schemaPromise = null;
-const DOMAINS = ['api', 'problem', 'submission', 'contest', 'rating', 'vjudge', 'content', 'admin'];
+const DOMAINS = ['api', 'problem', 'submission', 'contest', 'rating', 'content', 'admin'];
 const DOMAIN_ROUTES = Object.freeze([
   ['problem', /^\/problems?(?:\/|$)/],
   ['submission', /^\/submissions?(?:\/|$)/],
   ['contest', /^\/contests?(?:\/|$)/],
   ['rating', /^\/?ratings?(?:\/|$)/],
-  ['vjudge', /^\/vjudge(?:\/|$)/],
   ['content', /^\/(?:announcements?|discussions?|messages?|notifications?|clipboard|tickets?|solutions?)(?:\/|$)/],
   ['admin', /^\/admin(?:\/|$)/]
 ]);

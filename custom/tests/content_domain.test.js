@@ -2024,7 +2024,7 @@ test('content API routes use transactions and stable permission/error handling',
   assert.match(route, /contentDomain\.assignTicket/);
   assert.match(route, /contentDomain\.setTicketStatus/);
   assert.match(route, /contentDomain\.closeTicket/);
-  assert.match(route, /current => api\(\)\.ifMatch\(req, serializeClipboard\(current\)\)/);
+  assert.match(route, /current => api\(\)\.ifMatch\(req, serializeClipboard\(current, req\)\)/);
   assert.doesNotMatch(route, /ClipboardItem\.(?:create|findById|findOne)/);
   assert.doesNotMatch(route, /item\.(?:save|destroy)\(\)/);
   assert.equal((route.match(/Capability required: clipboard:own\./g) || []).length, 6);

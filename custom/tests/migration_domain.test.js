@@ -38,6 +38,7 @@ test('judge status rules match the runtime queue semantics', () => {
   assert.equal(status.statusForJudge({ status: 'Compiling', pending: 1 }), 'compiling');
   assert.equal(status.statusForJudge({ status: 'Judging', pending: 1 }), 'judging');
   assert.equal(status.statusForJudge({ status: 'Accepted', pending: 0 }), 'accepted');
+  assert.equal(status.statusForJudge({ status: 'Presentation Error', pending: 0 }), 'presentation_error');
   assert.equal(status.statusForJudge({ status: 'Unknown', pending: '1' }), 'judging');
   assert.equal(status.statusForJudge({ status: 'Unknown', pending: '0' }), 'queued');
   assert.equal(status.statusForJudge({ status: 'Accepted', pending: 0 }, 'cancelled'), 'cancelled');
@@ -45,7 +46,7 @@ test('judge status rules match the runtime queue semantics', () => {
 
 test('migration status SQL contains the same explicit legacy states', () => {
   const sql = status.sqlStatusCase('legacy.status', 'legacy.pending');
-  for (const state of ['Waiting', 'Compiling', 'Judging', 'Accepted', 'Cancelled']) assert.match(sql, new RegExp(`WHEN '${state}'`));
+  for (const state of ['Waiting', 'Compiling', 'Judging', 'Accepted', 'Presentation Error', 'Cancelled']) assert.match(sql, new RegExp(`WHEN '${state}'`));
   assert.match(sql, /legacy\.pending=1/);
 });
 
@@ -148,17 +149,11 @@ test('compatibility observation cannot start while any projection is inconsisten
   assert.ok(startRoute.indexOf('MIGRATION_NOT_CONSISTENT') < startRoute.indexOf('api_v2_migration_compatibility'));
 });
 
-test('problem migration backfills stable VJudge source mappings and audits mapping discrepancies', () => {
+test('local problem migration has no dependency on retired remote tables', () => {
   const source = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_migration.js'), 'utf8');
-  const problemDomainSource = fs.readFileSync(path.join(__dirname, '../libs/problem-domain.js'), 'utf8');
-  assert.match(source, /problemDomain\.syncSourceProjection\(manager, problem\)/);
+  const domain = fs.readFileSync(path.join(__dirname, '../libs/problem-domain.js'), 'utf8');
   assert.match(source, /async function migrateProblemSource/);
-  assert.match(problemDomainSource, /INSERT INTO vjudge_v2_remote_problem/);
-  assert.match(problemDomainSource, /VJUDGE_SOURCE_CONFLICT/);
-  assert.match(source, /syzoj\.utils\.vjudgeV2\.ensureSchema\(\)/);
-  for (const field of ['remote_source_missing', 'remote_source_orphaned', 'remote_source_mismatch', 'remote_source_invalid', 'remote_source_duplicates']) {
-    assert.match(source, new RegExp(field));
-  }
+  assert.doesNotMatch(source + domain, /vjudgeV2|vjudge_v2_remote_problem|VJUDGE_SOURCE_CONFLICT/);
 });
 
 test('problem migration retries transient lock failures before recording a real failure', () => {

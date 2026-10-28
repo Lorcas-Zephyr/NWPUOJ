@@ -1,6 +1,7 @@
 <% this.title = '比赛' %>
 <%
-const canManageContests = !!(user && typeof appHasCapability === 'function' && appHasCapability('contest:create'));
+const temporaryContestList = typeof temporaryContestSession !== 'undefined' && temporaryContestSession;
+const canManageContests = !temporaryContestList && !!(user && typeof appHasCapability === 'function' && appHasCapability('contest:create'));
 const contestNow = syzoj.utils.getCurrentDate();
 function contestListState(contest) {
   if (contestNow < contest.start_time) return { key: 'upcoming', label: '未开始', className: 'app-status-waiting' };
@@ -22,10 +23,12 @@ function contestDuration(contest) {
 const contestRows = contests.map(function (contest) {
   return { contest: contest, state: contestListState(contest) };
 });
-const contestCounts = contestRows.reduce(function (counts, item) {
+const listFilters = typeof contestListFilters !== 'undefined' ? contestListFilters : { state: 'all', mine: false, participating: false };
+const contestCounts = typeof contestListCounts !== 'undefined' ? contestListCounts : contestRows.reduce(function (counts, item) {
   counts[item.state.key] += 1;
   return counts;
-}, { running: 0, upcoming: 0, ended: 0 });
+}, { all: contestRows.length, running: 0, upcoming: 0, ended: 0 });
+const listTotal = typeof contestListTotal !== 'undefined' ? contestListTotal : contestRows.length;
 %>
 <% include app_header %>
 
@@ -34,7 +37,7 @@ const contestCounts = contestRows.reduce(function (counts, item) {
     <div class="app-page-heading">
       <span class="app-kicker">CONTESTS</span>
       <h1 class="app-page-title">比赛</h1>
-      <p class="app-page-description">查看当前赛程、报名状态和比赛结果。</p>
+      <p class="app-page-description"><%= temporaryContestList ? '仅显示此临时账号已报名的比赛。' : '查看当前赛程、报名状态和比赛结果。' %></p>
     </div>
     <% if (canManageContests) { %>
       <div class="app-page-actions"><a class="app-button app-button-primary" href="<%= syzoj.utils.makeUrl(['contest', 0, 'edit']) %>"><i data-lucide="plus"></i>创建比赛</a></div>
@@ -43,18 +46,23 @@ const contestCounts = contestRows.reduce(function (counts, item) {
 
   <% if (Number(req.query.deleted) === 1) { %><div class="app-notice app-notice-success"><i data-lucide="circle-check"></i><span><strong>比赛已删除</strong><small>已按顺序重新计算 <%= Math.max(0, Number(req.query.rating_contests) || 0) %> 场后续 Rated 比赛，更新 <%= Math.max(0, Number(req.query.rating_users) || 0) %> 名用户。</small></span></div><% } %>
 
-  <% if (contestRows.length) { %>
     <div class="app-contest-toolbar">
       <div class="app-segmented" role="group" aria-label="按比赛状态筛选">
-        <button type="button" data-contest-filter="all" aria-pressed="true">全部 <span><%= contestRows.length %></span></button>
-        <button type="button" data-contest-filter="running" aria-pressed="false">进行中 <span><%= contestCounts.running %></span></button>
-        <button type="button" data-contest-filter="upcoming" aria-pressed="false">未开始 <span><%= contestCounts.upcoming %></span></button>
-        <button type="button" data-contest-filter="ended" aria-pressed="false">已结束 <span><%= contestCounts.ended %></span></button>
+        <button type="button" data-contest-filter="all" aria-pressed="<%= listFilters.state === 'all' %>">全部 <span><%= contestCounts.all %></span></button>
+        <button type="button" data-contest-filter="running" aria-pressed="<%= listFilters.state === 'running' %>">进行中 <span><%= contestCounts.running %></span></button>
+        <button type="button" data-contest-filter="upcoming" aria-pressed="<%= listFilters.state === 'upcoming' %>">未开始 <span><%= contestCounts.upcoming %></span></button>
+        <button type="button" data-contest-filter="ended" aria-pressed="<%= listFilters.state === 'ended' %>">已结束 <span><%= contestCounts.ended %></span></button>
       </div>
-      <% if (user) { %><button class="app-button app-button-secondary" type="button" data-contest-owner-filter aria-pressed="false"><i data-lucide="user-round"></i>我创建的</button><button class="app-button app-button-secondary" type="button" data-contest-participant-filter aria-pressed="false"><i data-lucide="check-circle-2"></i>我参加的</button><% } %>
-      <span class="app-contest-result-count" aria-live="polite">显示 <strong data-contest-visible-count><%= contestRows.length %></strong> 场</span>
+      <% if (user && !temporaryContestList) { %>
+      <div class="app-contest-personal-filters" role="group" aria-label="与我相关的比赛">
+        <button class="app-button app-button-secondary app-filter-toggle" type="button" data-contest-owner-filter aria-pressed="<%= listFilters.mine %>"><i data-lucide="user-round"></i>我创建的</button>
+        <button class="app-button app-button-secondary app-filter-toggle" type="button" data-contest-participant-filter aria-pressed="<%= listFilters.participating %>"><i data-lucide="check-circle-2"></i>我参加的</button>
+      </div>
+      <% } %>
+      <span class="app-contest-result-count" aria-live="polite">共 <strong data-contest-visible-count><%= listTotal %></strong> 场</span>
     </div>
 
+  <% if (contestRows.length) { %>
     <section class="app-contest-list" data-contest-list aria-label="比赛列表">
       <% for (const item of contestRows) {
         const contest = item.contest;
@@ -97,55 +105,32 @@ const contestCounts = contestRows.reduce(function (counts, item) {
         </article>
       <% } %>
     </section>
-    <div class="app-empty app-empty-compact" data-contest-filter-empty hidden><div class="app-empty-inner"><i data-lucide="calendar-search"></i><strong>当前分类没有比赛</strong><p>切换其他状态查看赛程。</p></div></div>
-    <% include app_pagination %>
   <% } else { %>
-    <div class="app-empty"><div class="app-empty-inner"><i data-lucide="calendar-x"></i><strong>暂无比赛</strong><p>新的比赛发布后会显示在这里。</p><% if (canManageContests) { %><a class="app-button app-button-primary" href="<%= syzoj.utils.makeUrl(['contest', 0, 'edit']) %>">创建第一场比赛</a><% } %></div></div>
+    <div class="app-empty" data-contest-filter-empty><div class="app-empty-inner"><i data-lucide="calendar-x"></i><strong>当前条件没有比赛</strong><p>切换筛选条件查看其他比赛。</p></div></div>
   <% } %>
+  <% include app_pagination %>
 </div>
 
 <script>
 (function () {
-  var list = document.querySelector('[data-contest-list]');
-  if (!list) return;
   var buttons = Array.prototype.slice.call(document.querySelectorAll('[data-contest-filter]'));
-  var rows = Array.prototype.slice.call(list.querySelectorAll('[data-contest-state]'));
-  var count = document.querySelector('[data-contest-visible-count]');
-  var empty = document.querySelector('[data-contest-filter-empty]');
   var ownerButton = document.querySelector('[data-contest-owner-filter]');
   var participantButton = document.querySelector('[data-contest-participant-filter]');
-  var activeFilter = 'all';
-  var mineOnly = false;
-  var participatingOnly = false;
-  var currentUserId = <%= user ? Number(user.id) : 0 %>;
-  function select(filter) {
-    activeFilter = filter;
-    var visible = 0;
-    rows.forEach(function (row) {
-      var matches = (filter === 'all' || row.dataset.contestState === filter) && (!mineOnly || Number(row.dataset.contestOwner) === currentUserId) && (!participatingOnly || row.dataset.contestRegistered === '1');
-      row.hidden = !matches;
-      if (matches) visible += 1;
-    });
-    buttons.forEach(function (button) {
-      button.setAttribute('aria-pressed', button.dataset.contestFilter === filter ? 'true' : 'false');
-    });
-    if (count) count.textContent = String(visible);
-    if (empty) empty.hidden = visible !== 0;
+  function select(key, value) {
+    var url = new URL(window.location.href);
+    url.searchParams.delete('page');
+    if (value) url.searchParams.set(key, value);
+    else url.searchParams.delete(key);
+    window.location.assign(url.pathname + url.search);
   }
   buttons.forEach(function (button) {
-    button.addEventListener('click', function () { select(button.dataset.contestFilter); });
+    button.addEventListener('click', function () { select('state', button.dataset.contestFilter === 'all' ? '' : button.dataset.contestFilter); });
   });
   if (ownerButton) ownerButton.addEventListener('click', function () {
-    mineOnly = !mineOnly;
-    ownerButton.setAttribute('aria-pressed', mineOnly ? 'true' : 'false');
-    ownerButton.classList.toggle('is-active', mineOnly);
-    select(activeFilter);
+    select('mine', ownerButton.getAttribute('aria-pressed') === 'true' ? '' : '1');
   });
   if (participantButton) participantButton.addEventListener('click', function () {
-    participatingOnly = !participatingOnly;
-    participantButton.setAttribute('aria-pressed', participatingOnly ? 'true' : 'false');
-    participantButton.classList.toggle('is-active', participatingOnly);
-    select(activeFilter);
+    select('participating', participantButton.getAttribute('aria-pressed') === 'true' ? '' : '1');
   });
 })();
 </script>

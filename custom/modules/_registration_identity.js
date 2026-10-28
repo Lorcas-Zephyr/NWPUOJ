@@ -44,12 +44,44 @@ const COLLEGES = [
 ];
 
 let registrationSchemaPromise = null;
+async function normalizeUserEmails(connection) {
+  // Do not update the whole user table in one statement during startup. That
+  // keeps hundreds of row locks open and can deadlock with AI-account setup or
+  // an administrator editing one of the same users.
+  while (true) {
+    const rows = await connection.query(
+      `SELECT id,email FROM user
+        WHERE email IS NOT NULL AND email != LOWER(TRIM(email))
+        ORDER BY id ASC LIMIT 100`
+    );
+    if (!rows.length) return;
+    for (const row of rows) {
+      const email = String(row.email || '').trim().toLowerCase();
+      let attempt = 0;
+      while (true) {
+        try {
+          await connection.query(
+            'UPDATE user SET email=? WHERE id=? AND email=?',
+            [email, Number(row.id), row.email]
+          );
+          break;
+        } catch (error) {
+          const code = String(error && (error.code || error.errno || '')).toUpperCase();
+          if (!['ER_LOCK_DEADLOCK', 'ER_LOCK_WAIT_TIMEOUT', '1213', '1205'].includes(code) || attempt >= 2) throw error;
+          attempt++;
+          await new Promise(resolve => setTimeout(resolve, 100 * attempt));
+        }
+      }
+    }
+  }
+}
+
 function ensureRegistrationSchema() {
   if (!registrationSchemaPromise) {
     registrationSchemaPromise = (async () => {
       await ensureRegistrationProfileSchema();
       const connection = TypeORM.getConnection();
-      await connection.query("UPDATE user SET email = LOWER(TRIM(email)) WHERE email IS NOT NULL AND email != LOWER(TRIM(email))");
+      await normalizeUserEmails(connection);
       await connection.query('CREATE UNIQUE INDEX IF NOT EXISTS uq_user_email ON user (email)');
     })().catch(error => {
       registrationSchemaPromise = null;
@@ -227,6 +259,8 @@ async function saveMissingProfileFields(userId, body, allowChanges) {
 
 async function validateAccount(body, passwordHash) {
   if (!body) throw 2001;
+  await syzoj.utils.legalDocuments.refresh();
+  const legalAcknowledgement = syzoj.utils.legalDocuments.validateRegistration(body);
   const username = cleanText(body.username);
   const password = String(body.password || '');
   const email = normalizeEmail(body.email);
@@ -245,10 +279,13 @@ async function validateAccount(body, passwordHash) {
   if (await User.findOne({ where: { email } })) throw 2009;
   const identity = validateIdentity(body, true);
   await ensureStudentIdAvailable(identity.studentId, 0);
-  return { username, password, passwordHash: passwordHash || null, email, identity };
+  return { username, password, passwordHash: passwordHash || null, email, identity, legalAcknowledgement };
 }
 
 async function createAccount(data) {
+  const legal = syzoj.utils.legalDocuments;
+  const legalAcknowledgement = legal.validateRegistration(data.legalAcknowledgement);
+  if (legalAcknowledgement) await legal.ensureSchema();
   await ensureRegistrationSchema();
   await syzoj.utils.ensureSiteOwner();
   await Promise.all([
@@ -264,7 +301,7 @@ async function createAccount(data) {
       const result = await manager.query(
         `INSERT INTO user
           (username,password,email,is_admin,is_show,public_email,prefer_formatted_code,rating,register_time)
-         VALUES (?,?,?,0,?,1,1,?,?)`,
+         VALUES (?,?,?,0,?,0,1,?,?)`,
         [
           data.username,
           passwordHash,
@@ -275,6 +312,7 @@ async function createAccount(data) {
         ]
       );
       userId = Number(result.insertId);
+      await legal.persistAcknowledgement(manager, userId, legalAcknowledgement);
       await manager.query(
         `INSERT INTO user_registration_profile
           (user_id,student_id,real_name,college,created_at,updated_at) VALUES (?,?,?,?,?,?)`,
@@ -364,9 +402,13 @@ syzoj.utils.registrationIdentityV2 = Object.freeze({
   validateAccount
 });
 
-function renderSignUp(req, res, options) {
+async function renderSignUp(req, res, options) {
   const settings = options || {};
+  await syzoj.utils.legalDocuments.refresh();
+  const policy = syzoj.utils.legalDocuments.registrationPolicy();
+  res.setHeader('Cache-Control', 'private, no-store');
   res.render('sign_up', {
+    registrationLegal: { ...policy, enabled: policy.enabled || !!settings.legalPreview, preview: !!settings.legalPreview },
     colleges: COLLEGES,
     registrationCsrfToken: ensureRegistrationCsrf(req),
     registrationPrevUrl: safeRegistrationRedirect(settings.prevUrl || req.query.url),
@@ -385,7 +427,16 @@ app.get('/sign_up', async (req, res) => {
       })
     });
   }
-  renderSignUp(req, res);
+  try { await renderSignUp(req, res); }
+  catch (error) { syzoj.log('[registration-legal] ' + error.message); res.status(503).render('error', { err: new ErrorMessage('注册服务暂时不可用，请稍后重试。') }); }
+});
+
+// The review uses the real signup template but never submits account data.
+app.get('/legal/registration-preview', async (req, res) => {
+  if (syzoj.utils.legalDocuments.bundle.manifest.status !== 'draft') return res.redirect(303, '/sign_up');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+  try { return await renderSignUp(req, res, { legalPreview: true }); }
+  catch (error) { return res.status(503).render('error', { err: new ErrorMessage('注册预览暂时不可用。') }); }
 });
 
 async function loadUserEditContext(req, res) {

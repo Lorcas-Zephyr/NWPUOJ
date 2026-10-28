@@ -18,3 +18,14 @@ Thumbs.db
 *.zip
 custom/node_modules/
 custom/uploads/
+custom/tools/jplag/
+
+# Local exports, backups, caches, and private problem-import workspaces.
+/output/
+/release-backup/
+__pycache__/
+*.pyc
+/custom/imports/ccsp-history/
+/custom/imports/ccsp2024/
+/custom/imports/ccsp2026/
+/custom/imports/icpc-asia-2023-2025/

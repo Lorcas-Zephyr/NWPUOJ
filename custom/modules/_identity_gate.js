@@ -16,6 +16,7 @@ function isProfileComplete(profile) {
 }
 
 function mayCompleteIdentity(req, userId) {
+  if ((req.method === 'GET' || req.method === 'HEAD') && /^\/legal\/(?:terms|privacy|competition|copyright)\/?$/.test(req.path)) return true;
   if (/^\/(?:self|static|socket\.io)(?:\/|$)/.test(req.path) || req.path === '/favicon.ico') return true;
   if (/^\/(?:login|logout|sign_up|password\/reset)(?:\/|$)/.test(req.path)) return true;
   if (/^\/api\/v2\/auth\/password\/reset(?:\/|$)/.test(req.path)) return true;

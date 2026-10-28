@@ -26,14 +26,13 @@ test('all documented built-in roles exist', () => {
   assert.deepEqual(Object.keys(BUILT_IN_ROLES), [
     'guest', 'member', 'participant', 'problem_editor', 'problem_reviewer',
     'contest_manager', 'problemset_manager', 'judge_operator', 'content_moderator', 'rating_manager',
-    'vjudge_manager', 'site_admin', 'owner'
+    'site_admin', 'owner'
   ]);
 });
 
 test('dedicated high-risk roles own their capabilities', () => {
   assert.equal(roleAllows('rating_manager', 'rating:publish'), true);
   assert.equal(roleAllows('judge_operator', 'judge:worker.restart'), true);
-  assert.equal(roleAllows('vjudge_manager', 'vjudge:source.manage'), true);
   assert.equal(roleAllows('problem_editor', 'problem:delete'), true);
   assert.equal(roleAllows('contest_manager', 'contest:delete'), true);
   assert.equal(roleAllows('contest_manager', 'contest:standings.export'), true);
@@ -43,7 +42,6 @@ test('site admin follows the documented operations matrix', () => {
   assert.equal(roleAllows('site_admin', 'rating:publish'), false);
   assert.equal(roleAllows('site_admin', 'rating:recalculate'), false);
   assert.equal(roleAllows('site_admin', 'judge:worker.restart'), true);
-  assert.equal(roleAllows('site_admin', 'vjudge:source.manage'), true);
   assert.equal(roleAllows('site_admin', 'admin:config.write'), true);
   assert.equal(roleAllows('site_admin', 'contest:standings.export'), true);
 });
@@ -67,7 +65,6 @@ test('built-in roles follow the documented domain permission matrix', () => {
     judge_operator: ['judge:read', 'submission:rejudge'],
     rating_manager: ['rating:preview', 'rating:publish', 'rating:recalculate'],
     content_moderator: ['solution:moderate', 'discussion:moderate', 'announcement:manage', 'ticket:manage'],
-    vjudge_manager: ['vjudge:source.manage', 'vjudge:import.create', 'vjudge:submission.create'],
     site_admin: ['admin:user.manage', 'admin:permission.grant', 'admin:config.write']
   };
   for (const [role, capabilities] of Object.entries(expected)) {
@@ -81,7 +78,6 @@ test('built-in roles follow the documented domain permission matrix', () => {
 
 test('specialist roles land in the first workspace they can actually use', () => {
   assert.equal(firstAdminWorkspace(BUILT_IN_ROLES.judge_operator), '/admin/judge-workers');
-  assert.equal(firstAdminWorkspace(BUILT_IN_ROLES.vjudge_manager), '/admin/other');
   assert.equal(firstAdminWorkspace(BUILT_IN_ROLES.rating_manager), '/admin/rating');
   assert.equal(firstAdminWorkspace(BUILT_IN_ROLES.content_moderator), '/admin/announcements');
   assert.equal(firstAdminWorkspace(BUILT_IN_ROLES.member), null);
@@ -109,7 +105,6 @@ test('every built-in role has an explicit allowed and denied matrix branch', () 
     judge_operator: { allow: 'judge:worker.restart', deny: 'admin:user.manage' },
     content_moderator: { allow: 'discussion:moderate', deny: 'problem:testdata.write' },
     rating_manager: { allow: 'rating:publish', deny: 'admin:config.write' },
-    vjudge_manager: { allow: 'vjudge:source.manage', deny: 'rating:publish' },
     site_admin: { allow: 'admin:permission.grant', deny: 'rating:publish' },
     owner: { allow: 'owner:transfer', deny: null }
   };

@@ -3,7 +3,7 @@
 
 <div class="app-auth">
   <section class="app-auth-intro">
-    <img src="/self/logo.png?v=<%= encodeURIComponent(syzoj.config.nwpuoj_version || '2.1.0') %>" alt="" width="52" height="52">
+    <img src="/self/logo.png?v=<%= encodeURIComponent(syzoj.config.nwpuoj_version || '2.2.0') %>" alt="" width="52" height="52">
     <h1>回到你的训练进度</h1>
     <p>登录后继续做题、查看提交、报名比赛，并同步个人训练记录。</p>
   </section>
@@ -12,8 +12,12 @@
     <p>使用 NWPUOJ 账户进入工作区。</p>
     <div class="app-notice app-notice-danger" id="login-message" role="alert" hidden><i data-lucide="circle-alert"></i><span id="login-message-content"></span></div>
     <form class="app-form" id="login-form">
-      <label class="app-field app-field-full"><span class="app-label">用户名</span><span class="app-input-wrap"><i data-lucide="user-round"></i><input class="app-input" name="username" type="text" id="username" autocomplete="username" required autofocus></span></label>
+      <label class="app-field app-field-full"><span class="app-label">用户名 / 邮箱 / 学号</span><span class="app-input-wrap"><i data-lucide="user-round"></i><input class="app-input" name="username" type="text" id="username" autocomplete="username" placeholder="请输入用户名、邮箱或学号" required autofocus></span></label>
       <label class="app-field app-field-full"><span class="app-label">密码</span><span class="app-input-wrap app-password-wrap"><i data-lucide="lock-keyhole"></i><input class="app-input" name="password" type="password" id="password" maxlength="128" autocomplete="current-password" required><button class="app-password-toggle" type="button" data-password-toggle="password" aria-label="显示密码"><i data-lucide="eye"></i></button></span></label>
+      <div class="app-field app-field-full">
+        <label class="app-check"><input type="checkbox" name="remember_me" id="remember-me" aria-describedby="remember-me-hint"><span>记住我</span></label>
+        <span class="app-help" id="remember-me-hint">30 天内免登录，持续访问自动续期。公共设备请勿勾选。</span>
+      </div>
       <button type="submit" class="app-button app-button-primary app-auth-submit" id="login-button">登录</button>
     </form>
     <div class="app-auth-links"><a href="<%= syzoj.utils.makeUrl(['forget']) %>">忘记密码</a><span>没有账户？ <a href="<%= syzoj.utils.makeUrl(['sign_up'], { url: req.query.url || req.originalUrl }) %>">创建账户</a></span></div>
@@ -33,15 +37,15 @@
     button.disabled = true;
     button.textContent = '正在登录…';
     message.hidden = true;
-    fetch('/api/v2/auth/login', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: form.elements.username.value, password: form.elements.password.value }) })
+    fetch('/api/v2/auth/login', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: form.elements.username.value, password: form.elements.password.value, remember_me: form.elements.remember_me.checked }) })
       .then(function (response) { return response.json().then(function (data) { return { status: response.status, data: data }; }); })
       .then(function (result) {
-        if (result.data && result.data.data && result.data.data.authenticated) return window.location.assign(redirectUrl);
+        if (result.data && result.data.data && result.data.data.authenticated) return window.location.assign(result.data.data.redirect_url === '/contests' ? '/contests' : redirectUrl);
         var code = result.data && result.data.error && result.data.error.code;
         if (code === 'LOGIN_RATE_LIMITED' || result.status === 429) showError('登录尝试过于频繁，请稍后再试。');
         else if (code === 'ACCOUNT_DISABLED') showError('账户已停用，请联系管理员。');
         else if (code === 'AUTHENTICATION_UNAVAILABLE' || result.status >= 500) showError('登录服务暂时不可用。');
-        else showError('用户名或密码错误。');
+        else showError('账号或密码错误。');
         button.disabled = false;
         button.textContent = '登录';
       })

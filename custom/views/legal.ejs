@@ -1,0 +1,27 @@
+<% this.title = legalDocument.title; %>
+<% include app_header %>
+<div class="app-page app-legal-page">
+  <header class="app-page-header">
+    <div class="app-page-heading">
+      <span class="app-kicker">规则与权益</span>
+      <h1 class="app-page-title"><%= legalDocument.title %></h1>
+      <p class="app-page-description"><%= legalManifest.operator %> · 更新于 <%= legalManifest.updated_at %> · <%= legalManifest.status === 'draft' ? '待审核，尚未生效' : '生效日期：' + legalManifest.effective_date %></p>
+    </div>
+    <div class="app-page-actions">
+      <a class="app-button app-button-secondary" href="mailto:<%= legalManifest.contact_email %>"><i data-lucide="mail"></i>联系我们</a>
+      <% if (typeof legalCanEdit !== 'undefined' && legalCanEdit) { %><a class="app-button app-button-primary" href="/legal/<%= legalDocument.slug %>/edit"><i data-lucide="square-pen"></i>编辑</a><% } %>
+    </div>
+  </header>
+  <nav class="app-legal-nav" aria-label="协议与规则">
+    <% legalDocuments.forEach(function (item) { %><a href="/legal/<%= item.slug %>?version=<%= legalRevision %>"<% if (item.slug === legalDocument.slug) { %> aria-current="page"<% } %>><%= item.title %></a><% }); %>
+  </nav>
+  <% if (legalManifest.status === 'draft') { %>
+  <div class="app-notice app-notice-warning app-legal-review" role="note"><i data-lucide="file-clock"></i><div><strong>审核稿，不作为生效条款</strong><p>请先审核内容和数据处理范围。保存期限、第三方处理安排等尚待确认；注册流程也可先预览，不会创建账户。</p><a href="/legal/registration-preview">查看注册确认预览</a></div></div>
+  <% } %>
+  <div class="app-help-layout app-legal-layout">
+    <aside class="app-help-toc" aria-label="本页目录"><strong>本页目录</strong><nav><% legalHeadings.forEach(function (heading) { %><a href="#<%= heading.id %>"><%= heading.title %></a><% }); %></nav></aside>
+    <article class="app-markdown app-help-content app-legal-content" aria-label="<%= legalDocument.title %>正文"><%- legalHtml %></article>
+  </div>
+  <p class="app-legal-version">版本 <%= legalManifest.version %> · <%= legalManifest.contact_email %></p>
+</div>
+<% include app_footer %>

@@ -5,12 +5,14 @@ const Contest = syzoj.model('contest');
 const User = syzoj.model('user');
 const Problem = syzoj.model('problem');
 const contestMutation = require('../libs/contest-mutation');
+const { problemAlias } = require('../libs/contest-ranklist-export');
 const contestDeletion = require('../libs/contest-deletion');
 const { normalizeStudentIdRows } = require('../libs/contest-temp-accounts');
 const { ensureRegistrationProfileSchema, ORDINARY_STUDENT_ID_SCOPE } = require('../libs/registration-profile-schema');
 const { contestConfigurationLocked, resolveContestStatus, snapshotRefreshAllowed, standingsVisibility, transitionAllowed } = require('../libs/contest-lifecycle');
 const { advanceStandingsPointers, calculateStandingRows, serializeStandingRow, normalizeFreezeAfterMinutes,
-  resolveStandingsFreeze, selectStandingsView, loadFrozenScoreDetails, submissionHiddenByFreeze } = require('../libs/contest-standings');
+  resolveStandingsFreeze, selectStandingsView, loadFrozenScoreDetails, submissionHiddenByFreeze,
+  normalizeMedalPercentages } = require('../libs/contest-standings');
 
 let schemaPromise = null;
 const ordinaryRegistrationUpload = multer({
@@ -184,9 +186,9 @@ async function loadContestConfig(contest) {
   const rules = { mode: ['acm', 'ioi', 'noi'].includes(contest.type) ? contest.type : 'acm', tie_break: contest.type === 'acm' ? 'penalty' : 'score' };
   const scoring = {
     penalty_minutes: 20,
-    problems: problemIds.map((problemId, index) => ({ problem_id: problemId, alias: String.fromCharCode(65 + index), score: Number(weights[problemId] == null ? 1 : weights[problemId]), penalty: 20 }))
+    problems: problemIds.map((problemId, index) => ({ problem_id: problemId, alias: problemAlias(index), score: Number(weights[problemId] == null ? 1 : weights[problemId]), penalty: 20 }))
   };
-  const security = { result_visibility: 'public_after_end', submission_visibility: 'own_during_contest', allow_vjudge: false };
+  const security = { result_visibility: 'public_after_end', submission_visibility: 'own_during_contest' };
   const registration = { enabled: allowRegistration, allow_late_registration: allowLate, approval_required: false };
   const teams = { enabled: false, minimum_size: 1, maximum_size: 1 };
   await connection.query(`INSERT IGNORE INTO contest_v2_config
@@ -212,16 +214,20 @@ function normalizedContestConfig(body, current, problemIds) {
   const ratedProfile = body.rated_profile === undefined ? current.rated_profile : (body.rated_profile == null || body.rated_profile === '' ? null : String(body.rated_profile));
   if (!validTimezone(timezone)) throw Object.assign(new Error('A valid IANA timezone is required.'), { code: 'CONTEST_CONFIG_INVALID', statusCode: 422 });
   if (![rules, scoring, security, registration, teams].every(plainObject) || [rules, scoring, security, registration, teams].some(value => jsonSize(value) > 20000)) throw Object.assign(new Error('Contest configuration sections must be objects no larger than 20 KB.'), { code: 'CONTEST_CONFIG_INVALID', statusCode: 422 });
+  const normalizedSecurity = Object.assign({}, security, {
+    medal_percentages: normalizeMedalPercentages(security.medal_percentages === undefined
+      ? current.security.medal_percentages : security.medal_percentages)
+  });
   if (!['acm', 'ioi', 'noi', 'custom'].includes(String(rules.mode || ''))) throw Object.assign(new Error('Contest rule mode must be acm, ioi, noi, or custom.'), { code: 'CONTEST_CONFIG_INVALID', statusCode: 422 });
   if (!['public', 'private'].includes(visibility)) throw Object.assign(new Error('Contest visibility must be public or private.'), { code: 'CONTEST_CONFIG_INVALID', statusCode: 422 });
-  if (ratedProfile && !['icpc', 'ioi', 'practice', 'vjudge'].includes(ratedProfile)) throw Object.assign(new Error('Unknown Rating profile.'), { code: 'CONTEST_CONFIG_INVALID', statusCode: 422 });
+  if (ratedProfile && !['icpc', 'ioi', 'practice'].includes(ratedProfile)) throw Object.assign(new Error('Unknown Rating profile.'), { code: 'CONTEST_CONFIG_INVALID', statusCode: 422 });
   const configuredProblems = Array.isArray(scoring.problems) ? scoring.problems : [];
   if (configuredProblems.length !== problemIds.length) throw Object.assign(new Error('Scoring must configure every contest problem exactly once.'), { code: 'CONTEST_CONFIG_INVALID', statusCode: 422 });
   const seenProblems = new Set();
   const seenAliases = new Set();
   const normalizedProblems = configuredProblems.map((item, index) => {
     const problemId = Number(item && item.problem_id);
-    const alias = String(item && item.alias || String.fromCharCode(65 + index)).trim().toUpperCase();
+    const alias = String(item && item.alias || problemAlias(index)).trim().toUpperCase();
     const score = Number(item && item.score);
     const penalty = Number(item && item.penalty != null ? item.penalty : scoring.penalty_minutes);
     if (!problemIds.includes(problemId) || seenProblems.has(problemId) || !/^[A-Z0-9]{1,12}$/.test(alias) || seenAliases.has(alias) || !Number.isFinite(score) || score < 0 || score > 100000 || !Number.isSafeInteger(penalty) || penalty < 0 || penalty > 600) throw Object.assign(new Error('Problem scoring contains an invalid problem, alias, score, or penalty.'), { code: 'CONTEST_SCORING_INVALID', statusCode: 422 });
@@ -236,7 +242,7 @@ function normalizedContestConfig(body, current, problemIds) {
   return {
     timezone, rules: Object.assign({}, rules, { mode: String(rules.mode) }),
     scoring: Object.assign({}, scoring, { penalty_minutes: penaltyMinutes, problems: normalizedProblems }),
-    visibility, security, registration: Object.assign({}, registration, { enabled: registration.enabled !== false, allow_late_registration: !!registration.allow_late_registration, approval_required: !!registration.approval_required }),
+    visibility, security: normalizedSecurity, registration: Object.assign({}, registration, { enabled: registration.enabled !== false, allow_late_registration: !!registration.allow_late_registration, approval_required: !!registration.approval_required }),
     teams: Object.assign({}, teams, { enabled: !!teams.enabled, minimum_size: minimumSize, maximum_size: maximumSize }), rated_profile: ratedProfile
   };
 }
@@ -259,7 +265,9 @@ async function standingsViewFor(contest, user, requestedView) {
   const [config, state, canManage] = await Promise.all([
     loadContestConfig(contest), stateFor(contest.id), canManageContest(contest, user, 'contest:standings.export')
   ]);
-  return selectStandingsView(resolveStandingsFreeze(contest, config, state), canManage, requestedView);
+  return Object.assign(selectStandingsView(resolveStandingsFreeze(contest, config, state), canManage, requestedView), {
+    medalPercentages: normalizeMedalPercentages(config.security.medal_percentages)
+  });
 }
 
 async function isSubmissionFrozen(judge, user, views = new Map()) {
@@ -321,7 +329,7 @@ async function snapshotProblems(contest, user, req, options) {
     const existingSnapshot = existingByProblem.get(problemId);
     const problem = await syzoj.model('problem').findById(problemId);
     if (!problem) continue;
-    const scoring = scoringByProblem.get(problemId) || { alias: String.fromCharCode(65 + index), score: 1, penalty: 20 };
+    const scoring = scoringByProblem.get(problemId) || { alias: problemAlias(index), score: 1, penalty: 20 };
     const materialized = await syzoj.utils.problemV2.snapshotForCurrentVersion(problem, user && user.id || problem.user_id, {
       includeDraft: true,
       activate: !problem.is_public
@@ -631,17 +639,21 @@ syzoj.utils.contestV2 = {
 app.get('/api/v2/contests', async (req, res) => {
   const api = syzoj.utils.apiV2;
   await ensureContestV2Schema();
+  const temporaryUserId = res.locals.temporaryContestSession ? Number(res.locals.user.id) : null;
   const limit = api.parseLimit(req, 30, 100); const cursor = Number(api.decodeCursor(req.query.cursor) || 0);
   const items = [];
   let scanAfter = cursor;
   while (items.length <= limit) {
-    const rows = await TypeORM.getConnection().query('SELECT * FROM contest WHERE id>? ORDER BY id ASC LIMIT 200', [scanAfter]);
+    const membershipFilter = temporaryUserId == null ? '' : ` AND EXISTS (SELECT 1 FROM contest_player player WHERE player.contest_id=contest.id AND player.user_id=?)
+      AND NOT EXISTS (SELECT 1 FROM contest_registration_removal removal WHERE removal.contest_id=contest.id AND removal.user_id=?)`;
+    const params = temporaryUserId == null ? [scanAfter] : [scanAfter, temporaryUserId, temporaryUserId];
+    const rows = await TypeORM.getConnection().query(`SELECT * FROM contest WHERE id>? AND NOT EXISTS (SELECT 1 FROM base_workspace_contest bc WHERE bc.contest_id=contest.id)${membershipFilter} ORDER BY id ASC LIMIT 200`, params);
     if (!rows.length) break;
     for (const contest of rows) {
       scanAfter = Number(contest.id);
       const manager = await canManageContest(contest, res.locals.user, 'contest:edit');
       const state = await stateFor(contest.id);
-      if (lifecycleFor(contest, state) !== 'archived' && (contest.is_public || manager)) items.push(serializeContest(contest, state, manager));
+      if (lifecycleFor(contest, state) !== 'archived' && (contest.is_public || manager || temporaryUserId != null)) items.push(serializeContest(contest, state, manager));
       if (items.length > limit) break;
     }
     if (rows.length < 200 || items.length > limit) break;
@@ -679,8 +691,7 @@ app.get('/api/v2/contests/:id/config', async (req, res) => {
     scoring, visibility: config.visibility,
     security: {
       result_visibility: config.security.result_visibility || 'public_after_end',
-      submission_visibility: config.security.submission_visibility || 'own_during_contest',
-      allow_vjudge: !!config.security.allow_vjudge
+      submission_visibility: config.security.submission_visibility || 'own_during_contest'
     },
     registration: config.registration, teams: config.teams, rated_profile: config.rated_profile,
     revision: config.revision, updated_at: config.updated_at
@@ -721,6 +732,7 @@ app.put('/api/v2/contests/:id/config', async (req, res) => {
     if (!api.ifMatch(req, current)) return api.fail(res, 412, 'ETAG_MISMATCH', 'The contest configuration changed. Refresh it and try again.');
     const problemIds = (await contest.getProblems()).map(Number);
     const next = normalizedContestConfig(req.body || {}, current, problemIds);
+    if (syzoj.utils.baseWorkspace && await syzoj.utils.baseWorkspace.contains('contest', contest.id)) next.rated_profile = null;
     next.security = Object.assign({}, next.security, {
       standings_freeze_after_minutes: normalizeFreezeAfterMinutes(next.security.standings_freeze_after_minutes, contest.start_time, contest.end_time)
     });
@@ -770,8 +782,10 @@ app.put('/api/v2/contests/:id/config', async (req, res) => {
 async function saveContestV2(req, res, contestId) {
   const api = syzoj.utils.apiV2; const user = res.locals.user; if (!user) return api.fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.');
   const existing = contestId ? await Contest.findById(contestId) : null;
+  const baseContest = !!(syzoj.utils.baseWorkspace && (existing ? await syzoj.utils.baseWorkspace.contains('contest', existing.id) : await syzoj.utils.baseWorkspace.allowCreate(req, user)));
   if (existing && !(await requireManager(existing, user, 'contest:edit', res))) return null;
-  if (!existing && !await syzoj.utils.authorizationV2.authorize(user, 'contest:create', null, {})) return api.fail(res, 403, 'CAPABILITY_REQUIRED', 'Capability required: contest:create.');
+  if (!existing && !baseContest && !await syzoj.utils.authorizationV2.authorize(user, 'contest:create', null, {})) return api.fail(res, 403, 'CAPABILITY_REQUIRED', 'Capability required: contest:create.');
+  if (!existing && req.body && req.body.workspace === 'base' && !baseContest) return api.fail(res, 403, 'BASE_ACCESS_REQUIRED', '仅基地成员可以创建基地比赛。');
   const currentState = existing ? await stateFor(existing.id) : null;
   const current = existing ? serializeContest(existing, currentState, true) : null;
   if (current && !(req.get('If-Match') || req.body && req.body.if_match)) return api.fail(res, 428, 'PRECONDITION_REQUIRED', 'If-Match is required when editing a contest.', { if_match: 'required' });
@@ -790,20 +804,32 @@ async function saveContestV2(req, res, contestId) {
   } catch (error) {
     return api.fail(res, 422, error.code, error.message, { standings_freeze_after_minutes: 'invalid' });
   }
+  let medalPercentages;
+  try {
+    medalPercentages = normalizeMedalPercentages(body.medal_percentages === undefined
+      ? existingConfig && existingConfig.security.medal_percentages
+      : body.medal_percentages);
+  } catch (error) {
+    return api.fail(res, 422, error.code, error.message, { medal_percentages: 'invalid' });
+  }
   const priorProblemIds = existing ? (await existing.getProblems()).map(Number) : [];
   const requestedProblemIds = body.problem_ids === undefined ? priorProblemIds : (Array.isArray(body.problem_ids) ? body.problem_ids : []);
   const problemIds = Array.from(new Set(requestedProblemIds.map(Number).filter(id => Number.isSafeInteger(id) && id > 0)));
   if (body.problem_ids !== undefined && (!Array.isArray(body.problem_ids) || problemIds.length !== body.problem_ids.length)) return api.fail(res, 422, 'VALIDATION_FAILED', 'Problem IDs must be unique positive integers.', { problem_ids: 'unique positive integers' });
   for (const problemId of problemIds) {
     const problem = await Problem.findById(problemId);
-    if (!problem || !await problem.isAllowedUseBy(user)) return api.fail(res, 422, 'CONTEST_PROBLEM_INVALID', `Problem #${problemId} does not exist or is not available to this manager.`, { problem_ids: String(problemId) });
+    // A scoped contest administrator may retain the contest's existing
+    // private problems, without gaining access to other unpublished problems.
+    const alreadySelected = !!existing && priorProblemIds.includes(problemId);
+    if (!problem || !alreadySelected && !await problem.isAllowedUseBy(user)) return api.fail(res, 422, 'CONTEST_PROBLEM_INVALID', `Problem #${problemId} does not exist or is not available to this manager.`, { problem_ids: String(problemId) });
+    if (syzoj.utils.baseWorkspace && !await syzoj.utils.baseWorkspace.validContestProblem(problem, baseContest)) return api.fail(res, 422, 'CONTEST_PROBLEM_SCOPE_INVALID', baseContest ? '基地比赛只能使用基地内已公开的题目。' : '普通比赛不能使用基地题目。', { problem_ids: String(problemId) });
     if (syzoj.utils.contestSubmissionEnabled && !syzoj.utils.contestSubmissionEnabled(problem)) return api.fail(res, 422, 'CONTEST_PROBLEM_UNAVAILABLE', `Problem #${problemId} is not enabled for contest submissions.`, { problem_ids: String(problemId) });
   }
   const type = body.type == null && existing ? existing.type : (['noi', 'ioi', 'acm'].includes(body.type) ? body.type : 'acm');
   const visibility = body.visibility == null && existing ? (existing.is_public ? 'public' : 'private') : (body.visibility === 'private' ? 'private' : 'public');
   const allowRegistration = body.allow_registration === undefined ? !(existingConfig && existingConfig.registration.enabled === false) : !!body.allow_registration;
   const allowLateRegistration = body.allow_late_registration === undefined ? !!(existingConfig && existingConfig.registration.allow_late_registration) : !!body.allow_late_registration;
-  const isRated = body.is_rated === undefined ? !!(existingConfig && existingConfig.rated_profile) : !!body.is_rated;
+  const isRated = baseContest ? false : body.is_rated === undefined ? !!(existingConfig && existingConfig.rated_profile) : !!body.is_rated;
   const priorWeights = existingConfig ? Object.fromEntries((existingConfig.scoring.problems || []).map(item => [item.problem_id, item.score])) : {};
   const rankingParams = body.ranking_params === undefined ? Object.fromEntries(problemIds.map(id => [id, priorWeights[id] == null ? 1 : priorWeights[id]])) : body.ranking_params;
   if (!plainObject(rankingParams)) return api.fail(res, 422, 'VALIDATION_FAILED', 'Ranking parameters must be an object.', { ranking_params: 'object' });
@@ -830,7 +856,7 @@ async function saveContestV2(req, res, contestId) {
   if (body.admins !== undefined && (!Array.isArray(body.admins) || admins.length !== body.admins.length)) return api.fail(res, 422, 'VALIDATION_FAILED', 'Administrator IDs must be unique positive integers.', { admins: 'unique positive integers' });
   for (const adminId of admins) if (!await User.findById(adminId)) return api.fail(res, 422, 'CONTEST_ADMIN_INVALID', `Administrator #${adminId} does not exist.`, { admins: String(adminId) });
   await Promise.all([ensureContestV2Schema(), api.ensureFoundationSchema()]);
-  const id = await contestMutation.saveContest({ id: contestId || 0, actorId: user.id, title, subtitle: String(body.subtitle == null && existing ? existing.subtitle || '' : body.subtitle || ''), information: String(body.information == null && existing ? existing.information || '' : body.information || ''), problems: problemIds.join('|'), admins: admins.join('|'), type, rankingParams: normalizedRankingParams, startTime: Math.floor(start / 1000), endTime: Math.floor(end / 1000), hideStatistics: body.hide_statistics === undefined && existing ? !!existing.hide_statistics : !!body.hide_statistics, isPublic: visibility === 'public', allowRegistration, allowLateRegistration, isRated, freezeAfterMinutes, revision: mutationRevision });
+  const id = await contestMutation.saveContest({ id: contestId || 0, baseWorkspace: baseContest, actorId: user.id, title, subtitle: String(body.subtitle == null && existing ? existing.subtitle || '' : body.subtitle || ''), information: String(body.information == null && existing ? existing.information || '' : body.information || ''), problems: problemIds.join('|'), admins: admins.join('|'), type, rankingParams: normalizedRankingParams, startTime: Math.floor(start / 1000), endTime: Math.floor(end / 1000), hideStatistics: body.hide_statistics === undefined && existing ? !!existing.hide_statistics : !!body.hide_statistics, isPublic: visibility === 'public', allowRegistration, allowLateRegistration, isRated, freezeAfterMinutes, medalPercentages, revision: mutationRevision });
   invalidateRegistrationReadState(id, user.id);
   if (syzoj.utils.invalidateContestReadCache) syzoj.utils.invalidateContestReadCache(id);
   const saved = await Contest.findById(id);

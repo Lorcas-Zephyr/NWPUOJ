@@ -690,10 +690,32 @@ body.app-v2.is-dialog-open {
   justify-content: space-between;
   gap: 18px;
   margin: 0 auto;
-  padding: 0 34px;
+  padding: 14px 34px;
   border-top: 1px solid var(--app-line);
   color: var(--app-text-muted);
   font-size: var(--app-font-xs);
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.app-footer-meta {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px 18px;
+  line-height: 1.7;
+}
+
+.app-footer-source {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.app-footer-legal {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
 }
 
 .app-footer a {

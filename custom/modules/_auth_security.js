@@ -177,10 +177,20 @@ function regenerateSession(req) {
   });
 }
 
-async function establishAuthenticatedSession(req, userId) {
+async function establishAuthenticatedSession(req, userId, options = {}) {
+  // Explicit sign-ins always pass the checkbox value. A same-user session
+  // rotation (e.g. changing one's password) preserves the current choice,
+  // but it must never leak from one account to another.
+  const rememberMe = options.rememberMe === undefined
+    ? !!(req.session && Number(req.session.user_id) === Number(userId) && req.session.rememberMe === true)
+    : options.rememberMe === true;
   await regenerateSession(req);
   req.session.user_id = Number(userId);
+  req.session.rememberMe = rememberMe;
   req.session.apiV2AuthenticatedAt = Date.now();
+  // Regeneration creates a fresh cookie, so apply the policy again now,
+  // rather than waiting until the redirected page's request.
+  syzoj.utils.applySessionCookiePolicy(req);
   if (typeof syzoj.utils.ensureGlobalCsrfToken === 'function') {
     syzoj.utils.ensureGlobalCsrfToken(req);
   }

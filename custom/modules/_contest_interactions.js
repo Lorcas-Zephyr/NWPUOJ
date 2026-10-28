@@ -9,7 +9,8 @@ const User = syzoj.model('user');
 const { linkUserMentions } = require('../libs/user-mentions');
 const { buildContestRanklistCsv } = require('../libs/contest-ranklist-export');
 const classGroups = require('../libs/class-groups');
-const { loadFrozenScoreDetails } = require('../libs/contest-standings');
+const { loadFrozenScoreDetails, medalForRank } = require('../libs/contest-standings');
+const { buildContestCodeArchive, cleanupContestCodeArchive } = require('../libs/contest-code-export');
 const { ReadCache } = require('../libs/read-cache');
 const ranklistAuxCache = new ReadCache(128);
 
@@ -268,7 +269,9 @@ async function loadContestProblemPresentation(problem, contestId) {
         'SELECT testdata_path FROM problem_v2_snapshot WHERE id=? AND problem_id=? LIMIT 1',
         [String(contestSnapshot.problem_snapshot_id), Number(problem.id)]
       );
-      if (rows[0] && rows[0].testdata_path) testdataPath = rows[0].testdata_path;
+      if (rows[0] && rows[0].testdata_path) {
+        testdataPath = syzoj.utils.resolvePath(syzoj.config.upload_dir, 'testdata', rows[0].testdata_path);
+      }
     }
   }
   const cacheKey = `${Number(problem.id)}:${problem.contestVersionId || 'legacy'}:${contestSnapshot && contestSnapshot.problem_snapshot_id || 'live'}`;
@@ -352,7 +355,10 @@ app.get('/contest/:id/details', async (req, res) => {
     const contest = Number.isSafeInteger(contestId) && contestId > 0 ? await Contest.findById(contestId) : null;
     if (!contest) throw new ErrorMessage('无此比赛。');
     const supervisor = await contest.isSupervisior(res.locals.user);
-    if (!contest.is_public && !supervisor) throw new ErrorMessage('比赛未公开，请耐心等待。');
+    const temporaryParticipant = !!(res.locals.temporaryContestSession && res.locals.user &&
+      syzoj.utils.temporaryContestParticipant &&
+      await syzoj.utils.temporaryContestParticipant(res.locals.user.id, contest.id));
+    if (!contest.is_public && !supervisor && !temporaryParticipant) throw new ErrorMessage('比赛未公开，请耐心等待。');
     const content = {
       subtitle: String(contest.subtitle || ''),
       information: String(contest.information || '')
@@ -405,7 +411,10 @@ async function contestRanklistView(req, res) {
     const contest = Number.isSafeInteger(contestId) && contestId > 0 ? await Contest.findById(contestId) : null;
     if (!contest) throw Object.assign(new ErrorMessage('无此比赛。'), { statusCode: 404 });
     const supervisor = await contest.isSupervisior(res.locals.user);
-    if (!contest.is_public && (!res.locals.user || (!res.locals.user.is_admin && !supervisor && !String(contest.admins || '').split('|').includes(String(res.locals.user.id))))) {
+    const temporaryParticipant = !!(res.locals.temporaryContestSession && res.locals.user &&
+      syzoj.utils.temporaryContestParticipant &&
+      await syzoj.utils.temporaryContestParticipant(res.locals.user.id, contest.id));
+    if (!contest.is_public && (!res.locals.user || (!res.locals.user.is_admin && !supervisor && !temporaryParticipant && !String(contest.admins || '').split('|').includes(String(res.locals.user.id))))) {
       throw Object.assign(new ErrorMessage('比赛未公开，请耐心等待。'), { statusCode: 403 });
     }
     let registration = res.locals.contestRegistration;
@@ -432,6 +441,10 @@ async function contestRanklistView(req, res) {
     const paginate = syzoj.utils.paginate(rankedItems.length, req.query.page, 100);
     const offset = (paginate.currPage - 1) * paginate.perPage;
     const ranklist = rankedItems.slice(offset, offset + paginate.perPage);
+    for (const item of ranklist) {
+      item.player.medal = medalForRank(item.player.overall_standing_rank || item.player.standing_rank,
+        allItems.length, standingsView.medalPercentages);
+    }
     const problemIds = await contest.getProblems();
     const problems = await loadRanklistProblems(problemIds);
     const canManageRanklist = standingsView.canManage;
@@ -484,6 +497,109 @@ app.get('/contest/:id/ranklist', async (req, res) => {
   }
 });
 
+async function contestRatingView(req, res) {
+  const contestId = Number(req.params.id);
+  const contest = Number.isSafeInteger(contestId) && contestId > 0 ? await Contest.findById(contestId) : null;
+  if (!contest) throw Object.assign(new ErrorMessage('无此比赛。'), { statusCode: 404 });
+
+  const supervisor = await contest.isSupervisior(res.locals.user);
+  const temporaryParticipant = !!(res.locals.temporaryContestSession && res.locals.user &&
+    syzoj.utils.temporaryContestParticipant &&
+    await syzoj.utils.temporaryContestParticipant(res.locals.user.id, contest.id));
+  const isContestAdmin = !!(res.locals.user && String(contest.admins || '').split('|').includes(String(res.locals.user.id)));
+  if (!contest.is_public && (!res.locals.user || (!res.locals.user.is_admin && !supervisor && !isContestAdmin && !temporaryParticipant))) {
+    throw Object.assign(new ErrorMessage('比赛未公开，请耐心等待。'), { statusCode: 403 });
+  }
+
+  // The table is created lazily by the AI contest module. Rating is also
+  // available on installations that have never opened the AI management page,
+  // so make the optional account marker safe before joining it below.
+  if (syzoj.utils.aiContest && syzoj.utils.aiContest.ensureSchema) {
+    await syzoj.utils.aiContest.ensureSchema();
+  }
+
+  const statusRows = await TypeORM.getConnection().query(
+    `SELECT config.is_rated,finalization.status,finalization.participant_count,finalization.completed_at,
+            finalization.rating_calculation_id
+       FROM contest
+       LEFT JOIN contest_rating_config config ON config.contest_id=contest.id
+       LEFT JOIN contest_rating_finalization finalization ON finalization.contest_id=contest.id
+      WHERE contest.id=? LIMIT 1`,
+    [contest.id]
+  );
+  const status = statusRows[0] || null;
+  const isCompleted = !!(status && Number(status.is_rated) && status.status === 'completed' && status.rating_calculation_id);
+
+  let paginate = syzoj.utils.paginate(0, req.query.page, 100);
+  let ratingTotal = 0;
+  let rows = [];
+  if (isCompleted) {
+    const countRows = await TypeORM.getConnection().query(
+      `SELECT COUNT(*) AS total
+         FROM rating_history rh
+         INNER JOIN rating_calculation rc ON rc.id=rh.rating_calculation_id
+        WHERE rc.contest_id=?`,
+      [contest.id]
+    );
+    const total = Number(countRows[0] && countRows[0].total || 0);
+    ratingTotal = total;
+    paginate = syzoj.utils.paginate(total, req.query.page, 100);
+    const offset = (paginate.currPage - 1) * paginate.perPage;
+    rows = await TypeORM.getConnection().query(
+      `SELECT rh.user_id,rh.rank,rh.rating_after,u.username,u.nameplate,
+              ai_agent.user_id AS ai_agent_user_id,
+              (SELECT previous.rating_after
+                 FROM rating_history previous
+                 INNER JOIN rating_calculation previous_calc ON previous_calc.id=previous.rating_calculation_id
+                WHERE previous.user_id=rh.user_id AND previous_calc.id<rc.id
+                ORDER BY previous_calc.id DESC LIMIT 1) AS rating_before
+         FROM rating_history rh
+         INNER JOIN rating_calculation rc ON rc.id=rh.rating_calculation_id
+         INNER JOIN user u ON u.id=rh.user_id
+         LEFT JOIN ai_agent_account ai_agent ON ai_agent.user_id=rh.user_id AND ai_agent.enabled=1
+        WHERE rc.contest_id=?
+        ORDER BY rh.rank ASC,rh.user_id ASC
+        LIMIT ? OFFSET ?`,
+      [contest.id, paginate.perPage, offset]
+    );
+  }
+
+  const defaultRating = Number(syzoj.config.default.user.rating || 1500);
+  const entries = rows.map(row => {
+    const before = row.rating_before == null ? defaultRating : Number(row.rating_before);
+    const after = Number(row.rating_after);
+    return {
+      rank: Number(row.rank),
+      user: {
+        id: Number(row.user_id),
+        username: row.username,
+        nameplate: row.nameplate || '',
+        isAiAccount: row.ai_agent_user_id != null
+      },
+      before,
+      after,
+      delta: after - before
+    };
+  });
+  return {
+    contest,
+    ratingStatus: status,
+    ratingEntries: entries,
+    ratingTotal,
+    paginate,
+    paginationBasePath: ['contest', contest.id, 'rating']
+  };
+}
+
+app.get('/contest/:id/rating', async (req, res) => {
+  try {
+    res.render('contest_rating', await contestRatingView(req, res));
+  } catch (error) {
+    syzoj.log(error);
+    res.status(error.statusCode || 400).render('error', { err: error });
+  }
+});
+
 app.get('/api/v2/contests/:id/ranklist-view', async (req, res) => {
   const api = syzoj.utils.apiV2;
   try {
@@ -498,6 +614,7 @@ app.get('/api/v2/contests/:id/ranklist-view', async (req, res) => {
       rows: options.ranklist, problems: options.problems, page: options.paginate,
       account: options.ranklistAccountFilter, classes: options.ranklistClassOptions, selected: options.ranklistSelectedClassIds,
       total: options.ranklistTotal, manager: options.canManageRanklist, supervisor: options.ranklistSupervisor,
+      medals: options.standingsView.medalPercentages,
       identity: options.showRanklistIdentities, profiles: Array.from(options.ranklistProfiles.entries()),
       view: options.standingsView, rated: options.contestRated, rating: options.contestRatingStatus,
       finalized: options.contestRatingFinalized,
@@ -556,6 +673,35 @@ app.get('/contest/:id/ranklist/export', async (req, res) => {
   }
 });
 
+app.get('/contest/:id/code-export', async (req, res) => {
+  let archiveResult = null;
+  try {
+    const contestId = Number(req.params.id);
+    const contest = Number.isSafeInteger(contestId) && contestId > 0 ? await Contest.findById(contestId) : null;
+    if (!contest) throw Object.assign(new ErrorMessage('无此比赛。'), { statusCode: 404 });
+    if (!res.locals.user) throw Object.assign(new ErrorMessage('请登录后下载比赛代码。'), { statusCode: 401 });
+    if (!contest.isEnded()) throw Object.assign(new ErrorMessage('比赛结束后才可以下载代码。'), { statusCode: 403 });
+    if (!await contest.isSupervisior(res.locals.user)) throw Object.assign(new ErrorMessage('您没有下载该比赛代码的权限。'), { statusCode: 403 });
+    archiveResult = await buildContestCodeArchive({
+      connection: TypeORM.getConnection(),
+      contestId,
+      languages: syzoj.languages,
+      fileModel: syzoj.model('file')
+    });
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="contest-${contestId}-code.zip"`);
+    return res.download(archiveResult.archive, `contest-${contestId}-code.zip`, async error => {
+      await cleanupContestCodeArchive(archiveResult);
+      if (error && !res.headersSent) res.status(500).render('error', { err: error });
+    });
+  } catch (error) {
+    await cleanupContestCodeArchive(archiveResult);
+    syzoj.log('[contest-code-export] ' + (error.stack || error));
+    return res.status(error.statusCode || 500).render('error', { err: error });
+  }
+});
+
 app.get('/contest/:id/problem/:pid', async (req, res, next) => {
   try {
     const contestId = Number(req.params.id);
@@ -595,7 +741,7 @@ app.get('/contest/:id/problem/:pid', async (req, res, next) => {
       state,
       lastLanguage,
       testcases: presentation.testcases,
-      languages: problem.getVJudgeLanguages()
+      languages: null
     });
   } catch (error) {
     syzoj.log(error);

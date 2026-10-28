@@ -1,0 +1,37 @@
+<% this.title = 'Rating - ' + contest.title %>
+<% include app_header %>
+<% if (typeof contestHeader !== 'undefined' && contestHeader) { %><% include contest_context %><% } %>
+
+<div class="app-page app-contest-rating-page">
+  <% const isCompleted = ratingStatus && Number(ratingStatus.is_rated) && ratingStatus.status === 'completed'; %>
+  <% if (!isCompleted) { %>
+    <div class="app-empty app-empty-compact">
+      <div class="app-empty-inner"><i data-lucide="clock-3"></i><strong>Rating 尚未结算</strong><p>比赛结束并完成 Rating 计算后，这里会显示每位参赛者的 Rating 变化。</p></div>
+    </div>
+  <% } else { %>
+    <div class="app-contest-rank-summary" aria-label="Rating 概况">
+      <span><strong><%= ratingTotal %></strong> 名有效参赛者</span>
+      <span><strong>Rating</strong> 赛后变化</span>
+      <span>结算时间 <strong><%= ratingStatus.completed_at ? syzoj.utils.formatDate(Number(ratingStatus.completed_at)) : '-' %></strong></span>
+    </div>
+    <div class="app-table-region" role="region" aria-label="比赛 Rating 变化" tabindex="0">
+      <table class="app-table app-contest-rating-table">
+        <thead><tr><th>名次</th><th class="app-cell-primary">参赛者</th><th>赛前 Rating</th><th>变化</th><th>赛后 Rating</th></tr></thead>
+        <tbody>
+          <% ratingEntries.forEach(function (item) { %>
+            <tr<%= user && Number(user.id) === item.user.id ? ' class="app-row-current"' : '' %>>
+              <td class="app-cell-number"><strong><%= item.rank %></strong></td>
+              <td class="app-cell-primary"><span class="app-rank-user"><%- syzoj.utils.renderUsername(item.user) %><% if (item.user.isAiAccount) { %><span class="app-status app-status-info">AI</span><% } %></span></td>
+              <td class="app-cell-number"><%= item.before %></td>
+              <td class="app-cell-number"><strong class="<%= item.delta >= 0 ? 'app-rating-up' : 'app-rating-down' %>"><%= item.delta >= 0 ? '+' : '' %><%= item.delta %></strong></td>
+              <td class="app-cell-number"><strong><%= item.after %></strong></td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+    <div data-rank-pagination><% include app_pagination %></div>
+  <% } %>
+</div>
+
+<% include app_footer %>

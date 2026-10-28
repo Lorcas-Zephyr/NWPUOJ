@@ -56,7 +56,7 @@ function rankSortUrl(sort, defaultOrder) {
           <tr>
             <td class="app-cell-number"><span class="app-rank-position <%= rankPosition <= 3 ? 'is-top' : '' %>"><%= rankPosition %></span></td>
             <td class="app-cell-primary"><span class="app-user-cell"><img src="<%= syzoj.utils.avatar(rankUser, 32) %>" alt="" width="32" height="32"><span><%- syzoj.utils.renderUsername(rankUser) %></span></span></td>
-            <td><div class="app-user-bio"><%- rankUser.information || '' %></div></td>
+            <td><div class="app-user-bio"><%= rankUser.information || '' %></div></td>
             <td class="app-cell-number"><%= rankUser.ac_num %></td>
             <td class="app-cell-number"><strong class="<%= isHitMode ? 'username-tier-' + hitTier : '' %>"><%= isHitMode ? hitValue : rankUser.rating %></strong></td>
           </tr>

@@ -50,6 +50,6 @@ test('operator documentation covers v2 usage, maintenance, and rollback boundari
   assert.match(maintenance, /docker compose down -v/);
   assert.match(maintenance, /npm test/);
   assert.match(maintenance, /备份策略/);
-  assert.match(maintenance, /VJudge 运维/);
+  assert.match(maintenance, /评测系统运维|本地评测运维|Judge 运维/);
   assert.match(release, /Rollback/);
 });

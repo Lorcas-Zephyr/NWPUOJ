@@ -35,6 +35,6 @@ app.post('/api/v2/auth/register', async (req, res) => {
     const registrationCode = typeof error === 'number' ? error : error && error.registrationCode;
     const status = Number(error && error.statusCode) || ([2008, 2009, 2014].includes(Number(registrationCode)) ? 409 : 422);
     const message = service && service.registrationErrorText ? service.registrationErrorText(error) : error.message || '注册失败。';
-    return api().fail(res, status, status === 409 ? 'REGISTRATION_FAILED' : 'VALIDATION_FAILED', message);
+    return api().fail(res, status, status === 409 ? 'REGISTRATION_FAILED' : 'VALIDATION_FAILED', message, error && error.fields || {});
   }
 });

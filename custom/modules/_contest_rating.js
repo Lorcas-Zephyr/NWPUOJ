@@ -146,6 +146,47 @@ app.post('/api/v2/admin/rating/calculate-pending', async (req, res) => {
   }
 });
 
+app.post('/api/v2/admin/rating/contests/:id/rollback', async (req, res) => {
+  const api = syzoj.utils.apiV2;
+  const user = res.locals.user;
+  if (!user) return api.fail(res, 401, 'AUTHENTICATION_REQUIRED', '请先登录。');
+  if (!await syzoj.utils.authorizationV2.authorize(user, 'rating:recalculate', null, { scope: 'global' })) {
+    return api.fail(res, 403, 'CAPABILITY_REQUIRED', '您没有撤回 Rating 的权限。');
+  }
+  if (!syzoj.utils.authorizationV2.recentLoginSatisfied(req)) {
+    return api.fail(res, 403, 'RECENT_LOGIN_REQUIRED', '请重新验证登录后再撤回 Rating。');
+  }
+  const contestId = Number(req.params.id);
+  const expected = req.body && req.body.calculation_ids;
+  if (!Number.isSafeInteger(contestId) || contestId < 1 || !Array.isArray(expected) || !expected.length ||
+      expected.some(id => !Number.isSafeInteger(id) || id < 1)) {
+    return api.fail(res, 422, 'VALIDATION_FAILED', '请选择有效的 Rating 结算记录。');
+  }
+  try {
+    await ensureRatingSchema();
+    const result = await contestRating.recalculateRatingsFrom(contestId, {
+      rollbackOnly: true,
+      expectedCalculationIds: expected,
+      recordAudit: (manager, details) => syzoj.utils.authorizationV2.recordAudit(req, {
+        action: 'rating:calculate.rollback', resourceType: 'contest', resourceId: contestId,
+        reason: syzoj.utils.operationReason(req, '撤回比赛 Rating 结算'), details
+      }, manager)
+    });
+    contestRatingRequestCache.clear();
+    ranklistRatingCache.invalidate('');
+    for (const id of result.contestIds) {
+      if (syzoj.utils.invalidateContestReadCache) syzoj.utils.invalidateContestReadCache(id);
+    }
+    return api.send(res, {
+      contest_count: result.contestCount, contest_ids: result.contestIds,
+      affected_users: result.userIds.length, audit_event_id: String(result.auditEventId)
+    });
+  } catch (error) {
+    syzoj.log('[contest-rating] rollback failed: ' + (error.stack || error));
+    return api.fail(res, error.statusCode || 409, error.code || 'RATING_ROLLBACK_FAILED', error.message);
+  }
+});
+
 
 app.use(async (req, res, next) => {
   try {

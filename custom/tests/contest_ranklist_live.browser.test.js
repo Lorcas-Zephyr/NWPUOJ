@@ -15,7 +15,7 @@ function render(partial, updated) {
   const script = `const fs=require('fs'),ejs=require('/app/node_modules/ejs');const x=JSON.parse(fs.readFileSync(0,'utf8'));
     const template=x.template.replace('<% include util %>',fs.readFileSync('/app/views/util.ejs','utf8'));
     const contest={id:21,title:'局部榜单测试',type:'acm',start_time:100,end_time:2000,isEnded:()=>false,isRunning:()=>true};
-    const items=[7,8].map(id=>({user:{id,username:'player'+id},player:{score:x.updated?(id===8?2:1):0,score_details:{},standing_rank:x.updated?(id===8?1:2):1}}));
+    const items=[7,8].map(id=>({user:{id,username:'player'+id},player:{score:x.updated?(id===8?2:1):0,score_details:{},standing_rank:x.updated?(id===8?1:2):1,medal:id===(x.updated?8:7)?'gold':'silver'}}));
     if(x.updated)items.reverse();
     const utils={makeUrl:(parts,query)=>'/'+parts.join('/')+(query?'?'+new URLSearchParams(query):''),removeTitleTag:s=>s,formatTime:String,formatDate:String,getCurrentDate:()=>300,renderUsername:u=>'<a href="/user/'+u.id+'">'+u.username+'</a>'};
     process.stdout.write(ejs.render(template,{ranklistPartial:x.partial,contest,ranklist:items,user:{id:7},problems:[{id:11,title:'最新题名'}],req:{query:{account:'ordinary',classes:'3',page:'1'}},ranklistTotal:2,ranklistAccountFilter:'ordinary',ranklistClassOptions:[{id:3,name:'班级甲',tag:'甲'}],ranklistSelectedClassIds:[3],canManageRanklist:true,showRanklistIdentities:false,ranklistProfiles:new Map(),standingsView:{frozen:false,cutoff:null,showLive:false},paginate:{pageCnt:2,currPage:1},paginationBasePath:['contest',21,'ranklist'],syzoj:{utils}}));`;
@@ -51,6 +51,7 @@ test('live rank updates preserve row nodes, scroll, open filters and pagination;
   });
   try {
     await page.goto('http://rank.test/contest/21/ranklist?account=ordinary&classes=3&page=1');
+    assert.equal(await page.locator('[data-rank-user-id="7"] .app-rank-number.is-gold').count(), 1);
     await page.evaluate(() => {
       window.addEventListener('contest-clock-sync', event => { window.syncedClock = event.detail; });
       window.originalRow = document.querySelector('[data-rank-user-id="7"]');
@@ -62,6 +63,8 @@ test('live rank updates preserve row nodes, scroll, open filters and pagination;
     const scroll = await page.evaluate(() => window.scrollY);
     await page.clock.fastForward(18000);
     await page.waitForFunction(() => document.querySelector('tbody tr').dataset.rankUserId === '8');
+    assert.equal(await page.locator('[data-rank-user-id="8"] .app-rank-number.is-gold').count(), 1);
+    assert.equal(await page.locator('[data-rank-user-id="7"] .app-rank-number.is-silver').count(), 1);
     assert.equal(await page.evaluate(() => window.originalRow === document.querySelector('[data-rank-user-id="7"]')), true);
     assert.equal(await page.evaluate(() => window.originalTable === document.querySelector('.app-contest-rank-table')), true);
     assert.equal(await page.evaluate(() => window.scrollY), scroll);

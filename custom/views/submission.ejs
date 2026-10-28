@@ -7,13 +7,17 @@ const appIsCancelled = !!(appAdminAction && appAdminAction.action_type === 'canc
 const appIsMarked = appIsCheated || appIsCancelled;
 const appCanManage = typeof canManageSubmissionAction !== 'undefined' && canManageSubmissionAction;
 if (appIsCheated) detailResult = null;
-const appResultTypes = ['', 'Accepted', 'Wrong Answer', 'Partially Correct', 'Memory Limit Exceeded', 'Time Limit Exceeded', 'Output Limit Exceeded', 'File Error', 'Runtime Error', 'Judgement Failed', 'Invalid Interaction'];
+const appResultTypes = ['', 'Accepted', 'Wrong Answer', 'Partially Correct', 'Memory Limit Exceeded', 'Time Limit Exceeded', 'Output Limit Exceeded', 'File Error', 'Runtime Error', 'Judgement Failed', 'Invalid Interaction', '格式错误'];
+function appStatusLabel(status) {
+  return String(status || '') === 'Presentation Error' ? '格式错误' : status;
+}
 function appStatusClass(status) {
   const value = String(status || '').toLowerCase();
   if (value === 'accepted') return 'app-verdict app-verdict-accepted';
   if (value === 'waiting') return 'app-status-waiting';
   if (value.startsWith('running') || value === 'judging' || value === 'compiling') return 'app-status-judging';
   if (value === 'partially correct') return 'app-status-partial';
+  if (value === 'presentation error' || value === '格式错误') return 'app-verdict app-verdict-format';
   if (value === 'skipped' || value === '已取消') return '';
   if (value === '作弊' || value === 'cheated' || value === 'wrong answer') return 'app-verdict app-verdict-wrong';
   if (value === 'runtime error' || value === 'invalid interaction') return 'app-verdict app-verdict-runtime';
@@ -68,7 +72,7 @@ const appSubtasks = detailResult && detailResult.judge && Array.isArray(detailRe
     </div>
     <div class="app-page-actions">
       <% if (displayConfig.showRejudge && !submissionPending) { %><button class="app-button app-button-secondary" type="button" data-dialog-open="submission-rejudge-dialog"><i data-lucide="refresh-cw"></i>重新评测</button><% } %>
-      <a class="app-button app-button-quiet" href="<%= appInProblemSet ? syzoj.utils.makeUrl(['problem-set', problemSet.id, 'submissions']) : displayConfig.inContest && typeof contest !== 'undefined' && contest ? syzoj.utils.makeUrl(['contest', contest.id, 'submissions']) : syzoj.utils.makeUrl(['submissions']) %>"><i data-lucide="arrow-left"></i>返回列表</a>
+      <a class="app-button app-button-quiet" href="<%= appInProblemSet ? syzoj.utils.makeUrl(['problem-set', problemSet.id, 'submissions']) : displayConfig.inContest && typeof contest !== 'undefined' && contest ? syzoj.utils.makeUrl(['contest', contest.id, 'submissions']) : typeof baseContext !== 'undefined' && baseContext ? syzoj.utils.makeUrl(['base', 'submissions']) : syzoj.utils.makeUrl(['submissions']) %>"><i data-lucide="arrow-left"></i>返回列表</a>
     </div>
   </header>
 
@@ -77,7 +81,7 @@ const appSubtasks = detailResult && detailResult.judge && Array.isArray(detailRe
   <% } %>
 
   <section class="app-submission-summary" aria-label="提交摘要">
-    <div><span>状态</span><strong class="app-status <%= appStatusClass(appStatus) %>" data-detail-status><%= appStatus %></strong></div>
+    <div><span>状态</span><strong class="app-status <%= appStatusClass(appStatus) %>" data-detail-status><%= appStatusLabel(appStatus) %></strong></div>
     <% if (displayConfig.showScore) { %><div><span>分数</span><strong class="app-score <%= appScore === 100 ? 'app-score-perfect' : (appScore === 0 ? 'app-score-zero' : '') %>" data-detail-score><%= appScore %></strong></div><% } %>
     <% if (displayConfig.showUsage) { %><div><span>总时间</span><strong data-detail-time><%= roughResult ? roughResult.time || 0 : 0 %> ms</strong></div><div><span>内存</span><strong data-detail-memory><%= roughResult ? appFormatSize((roughResult.memory || 0) * 1024) : '0 B' %></strong></div><% } %>
     <% if (displayConfig.showCode) { %><div><span>语言 / 大小</span><strong><%= info.language || '答案文件' %> · <%= appFormatSize(info.codeSize) %></strong></div><% } %>
@@ -211,7 +215,7 @@ const appSubtasks = detailResult && detailResult.judge && Array.isArray(detailRe
           if (!update.pending) return window.location.reload();
           var label = update.result ? update.result.result : 'Waiting';
           var status = document.querySelector('[data-detail-status]');
-          if (status) { status.textContent = label; status.className = 'app-status ' + (<%- appStatusClass.toString() %>)(label); }
+          if (status) { status.textContent = (<%- appStatusLabel.toString() %>)(label); status.className = 'app-status ' + (<%- appStatusClass.toString() %>)(label); }
         }
       }
     } catch (error) {}

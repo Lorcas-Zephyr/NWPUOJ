@@ -310,7 +310,6 @@ function prepareProblem(entry) {
     file_io: false,
     file_io_input_name: null,
     file_io_output_name: null,
-    vjudge_config: null,
     is_anonymous: false
   };
   fs.writeFileSync(path.join(destination, 'problem.json'), JSON.stringify(metadata, null, 2) + '\n');

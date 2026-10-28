@@ -223,12 +223,12 @@ async function projectStatus(judge, force = false) {
 async function queueSystemRetry(judge, projection) {
   const id = Number(judge && judge.id);
   if (!Number.isSafeInteger(id) || retryingSystemErrors.has(id)) return false;
-  if (!projection || projection.status !== 'system_error' || !submissionDomain.shouldRetryAutomatically(projection.status, projection.attempts, 2)) return false;
+  if (!projection || projection.status !== 'system_error' || !submissionDomain.shouldRetryAutomatically(projection.status, projection.attempts, 2, judge.result)) return false;
   retryingSystemErrors.add(id);
   try {
     const connection = TypeORM.getConnection();
     const locked = await connection.query('SELECT * FROM submission_v2_projection WHERE submission_id=? LIMIT 1', [id]);
-    if (!locked.length || locked[0].status !== 'system_error' || !submissionDomain.shouldRetryAutomatically(locked[0].status, locked[0].attempts, 2)) return false;
+    if (!locked.length || locked[0].status !== 'system_error' || !submissionDomain.shouldRetryAutomatically(locked[0].status, locked[0].attempts, 2, judge.result)) return false;
     await connection.transaction(manager => snapshotSubmissionResult(manager, judge, null, '评测服务系统错误自动重试'));
     await judge.loadRelationships();
     judge.status = 'Unknown';
@@ -300,6 +300,7 @@ async function projectRuntimeState(taskId, nextStatus) {
 
 async function canViewSubmission(judge, user) {
   if (!judge || !user) return false;
+  if (syzoj.utils.baseWorkspace && !await syzoj.utils.baseWorkspace.canAccessSubmission(judge, user)) return false;
   if (Number(judge.user_id) === Number(user.id)) return true;
   if (await syzoj.utils.contestV2.isSubmissionFrozen(judge, user)) return false;
   if (await syzoj.utils.authorizationV2.authorize(user, 'judge:read', null, {})) return true;
@@ -313,7 +314,7 @@ async function canViewSubmissionDiagnostics(judge, user) {
 }
 
 function validLanguage(problem, language) {
-  const languages = problem.getVJudgeLanguages() || syzoj.config.enabled_languages || [];
+  const languages = syzoj.config.enabled_languages || [];
   if (!language) return false;
   return Array.isArray(languages)
     ? languages.includes(language)
@@ -321,14 +322,16 @@ function validLanguage(problem, language) {
 }
 
 async function contestAcceptsSubmissions(contest) {
+  const now = Math.floor(Date.now() / 1000);
+  // A workflow state must never admit submissions outside the actual schedule.
+  if (!(Number(contest.start_time) <= now && now < Number(contest.end_time))) return false;
   const rows = await TypeORM.getConnection().query(
     'SELECT * FROM contest_v2_state WHERE contest_id=? LIMIT 1',
     [contest.id]
   );
   const status = syzoj.utils.contestV2 && typeof syzoj.utils.contestV2.status === 'function'
     ? syzoj.utils.contestV2.status(contest, rows[0] || null)
-    : (Math.floor(Date.now() / 1000) < Number(contest.start_time) ? 'scheduled'
-      : Math.floor(Date.now() / 1000) > Number(contest.end_time) ? 'ended' : 'running');
+    : 'running';
   return status === 'running' || status === 'frozen';
 }
 
@@ -380,8 +383,7 @@ async function immutableExecutionProblem(problem, snapshotId) {
   if (!content || typeof content !== 'object') throw missingProblemSnapshot(snapshotId);
   // Old snapshots have the default Java multiplier, not a newer live setting.
   if (content.java_time_limit_multiplier == null) content.java_time_limit_multiplier = 2;
-  if (content.vjudge_config == null && rows[0].provider_config != null) content.vjudge_config = rows[0].provider_config;
-  const requiresLocalTestdata = !String(content.type || problem.type || '').startsWith('vjudge:');
+  const requiresLocalTestdata = true;
   if (requiresLocalTestdata && (!rows[0].testdata_hash || !rows[0].testdata_path)) {
     if (!syzoj.utils.problemV2 || !syzoj.utils.problemV2.ensureSnapshotTestdata) throw missingProblemSnapshot(snapshotId);
     await syzoj.utils.problemV2.ensureSnapshotTestdata(problem, snapshotId);
@@ -599,6 +601,10 @@ async function prepareSubmitAnswer(req, problem) {
 }
 
 async function createSubmission(req, res, problem, contest) {
+  if (syzoj.utils.baseWorkspace) {
+    const base = syzoj.utils.baseWorkspace;
+    if (contest && !await base.canAccessContest(contest.id, res.locals.user) || await base.contains('problem', problem.id) && !await base.canReadProblem(problem, res.locals.user)) throw Object.assign(new Error('仅基地成员可以提交基地题目。'), { statusCode: 403, code: 'BASE_ACCESS_REQUIRED' });
+  }
   const api = syzoj.utils.apiV2;
   const user = res.locals.user;
   const body = req.body || {};
@@ -690,8 +696,6 @@ async function createSubmission(req, res, problem, contest) {
   return api.send(res, { submission: { id: Number(judge.id), status: 'queued', problem_id: Number(problem.id), problem_set_id: problemSetContext ? Number(problemSetContext.problemSetId) : null, snapshot_id: snapshotId, code_version_id: created.codeVersion.id, language, source_visibility: sourceVisibility }, operation_id: res.locals.apiOperationId || null }, 202);
 }
 
-// VJudge exposes a provider-specific submission route, but the local task,
-// immutable snapshot, code-version, and dispatch transaction remain shared.
 syzoj.utils.submissionV2 = Object.freeze({ createSubmission, receiveSubmitAnswer });
 
 function receiveSubmitAnswer(req, res, next) {
@@ -783,7 +787,7 @@ app.get('/api/v2/submissions', async (req, res) => {
        LEFT JOIN problem problem ON problem.id=projection.problem_id
        LEFT JOIN problem_v2_state problem_state ON problem_state.problem_id=projection.problem_id
        LEFT JOIN problem_v2_version current_version ON current_version.id=problem_state.current_version_id
-      WHERE ${ownOnly ? 'projection.user_id=? AND ' : ''} projection.submission_id${cursorOperator}? ORDER BY projection.submission_id ${orderDirection} LIMIT ?`,
+      WHERE ${syzoj.utils.baseWorkspace ? syzoj.utils.baseWorkspace.visibleSubmissions('judge', res.locals.user) : '1=1'} AND ${ownOnly ? 'projection.user_id=? AND ' : ''} projection.submission_id${cursorOperator}? ORDER BY projection.submission_id ${orderDirection} LIMIT ?`,
     params
   );
   for (const row of rows) {
@@ -873,7 +877,7 @@ app.post('/api/v2/submissions/:id/cancel', async (req, res) => {
   if (!judge) return api.fail(res, 404, 'SUBMISSION_NOT_FOUND', 'Submission was not found.');
   const canManage = await syzoj.utils.authorizationV2.authorize(res.locals.user, 'submission:rejudge', null, {});
   if (Number(judge.user_id) !== Number(res.locals.user.id) && !canManage) return api.fail(res, 403, 'SUBMISSION_FORBIDDEN', 'You cannot cancel this submission.');
-  if (!judge.pending && ['Accepted', 'Wrong Answer', 'Compile Error', 'Runtime Error', 'Time Limit Exceeded', 'Memory Limit Exceeded'].includes(judge.status)) return api.fail(res, 409, 'SUBMISSION_TERMINAL', 'The submission has already finished.');
+  if (!judge.pending && ['Accepted', 'Wrong Answer', 'Compile Error', 'Runtime Error', 'Time Limit Exceeded', 'Memory Limit Exceeded', 'Invalid Interaction', 'Presentation Error'].includes(judge.status)) return api.fail(res, 409, 'SUBMISSION_TERMINAL', 'The submission has already finished.');
   await ensureSubmissionSchema();
   const cancellationReason = String(req.body.reason || '').trim() || 'Cancelled by submitter';
   const transition = await submissionTransaction(async manager => {

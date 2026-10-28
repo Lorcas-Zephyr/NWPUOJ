@@ -10,6 +10,7 @@ const {
   normalizeRows,
   normalizeStudentIdRows,
   parseCsv,
+  temporaryRoute,
   uniqueUsername,
   usernamePart
 } = require('../libs/contest-temp-accounts');
@@ -50,6 +51,7 @@ test('rejects malformed, duplicate and oversized imports', () => {
 test('escapes CSV formulas and embedded quotes', () => {
   assert.equal(csvCell('=HYPERLINK("https://example.invalid")'), '"\'=HYPERLINK(""https://example.invalid"")"');
   assert.equal(csvCell('normal'), '"normal"');
+  assert.equal(csvCell('-generated-password', { literal: true }), '"-generated-password"');
 });
 
 test('normalizes username parts and resolves database collisions', async () => {
@@ -94,6 +96,17 @@ test('denies temporary accounts exactly at expiry and allows regular users', () 
   assert.equal(isLoginAllowed(expiries, 8, 1000), true);
 });
 
+test('temporary route policy keeps contest navigation and submission details scoped', () => {
+  assert.deepEqual(temporaryRoute('GET', '/contests'), { kind: 'session' });
+  assert.deepEqual(temporaryRoute('GET', '/contest/42/problem/3'), { kind: 'contest', contestId: 42, afterHandIn: false });
+  assert.deepEqual(temporaryRoute('GET', '/contest/42/ranklist'), { kind: 'contest', contestId: 42, afterHandIn: true });
+  assert.deepEqual(temporaryRoute('POST', '/api/v2/contests/42/problems/3/submissions'), { kind: 'contest', contestId: 42, afterHandIn: false });
+  assert.deepEqual(temporaryRoute('GET', '/contest/submission/918'), { kind: 'submission', submissionId: 918 });
+  assert.equal(temporaryRoute('GET', '/problems'), null);
+  assert.equal(temporaryRoute('GET', '/user/12'), null);
+  assert.deepEqual(temporaryRoute('POST', '/api/v2/contests/99/problems/3/submissions'), { kind: 'contest', contestId: 99, afterHandIn: false });
+});
+
 test('scopes student ID uniqueness to ordinary accounts or one temporary-account contest', () => {
   assert.equal(ORDINARY_STUDENT_ID_SCOPE, 'ordinary');
   assert.equal(temporaryStudentIdScope(42), 'contest:42');
@@ -133,6 +146,8 @@ test('v2 temporary-account import is transactional, audited, evented, and one-ti
   assert.match(view, /fetch\('\/api\/v2\/admin\/contest-temp-accounts\/import'/);
   assert.doesNotMatch(view, /API_DOMAIN_DISABLED|legacySubmit|HTMLFormElement\.prototype\.submit/);
   assert.match(view, /URL\.createObjectURL\(new Blob/);
+  assert.match(view, /literal: index === 1 && row\[0\] === '用户名'/);
+  assert.match(route, /crypto\.randomInt\(alphabet\.length\)/);
 });
 
 test('generated contest accounts remain registered and submission-eligible when self registration is disabled', () => {

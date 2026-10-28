@@ -86,7 +86,7 @@ async function ensureRatingV2Schema() {
     if (!sourceIndexes.length) await connection.query('ALTER TABLE rating_v2_event ADD UNIQUE KEY uq_rating_v2_event_source(source_event_id)');
     const jobIndexes = await connection.query("SHOW INDEX FROM rating_v2_event WHERE Key_name='idx_rating_v2_event_job'");
     if (!jobIndexes.length) await connection.query('ALTER TABLE rating_v2_event ADD KEY idx_rating_v2_event_job(job_id,id)');
-    const profiles = [['icpc', 'ACM Rating'], ['ioi', 'IOI Rating'], ['practice', 'Practice Rating'], ['vjudge', 'VJudge Rating']];
+    const profiles = [['icpc', 'ACM Rating'], ['ioi', 'IOI Rating'], ['practice', 'Practice Rating']];
     const defaultConfig = { rating: 1500, deviation: 350, volatility: 0.06, tau: 0.5, scale: 173.7178, minimum_deviation: 30, maximum_deviation: 350 };
     for (const [id, name] of profiles) await connection.query(`INSERT INTO rating_v2_profile (id,name,algorithm,algorithm_version,config_json,created_at,updated_at) VALUES (?,?,?, ?,?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3)) ON DUPLICATE KEY UPDATE name=VALUES(name),algorithm=VALUES(algorithm),algorithm_version=VALUES(algorithm_version),config_json=VALUES(config_json),updated_at=UTC_TIMESTAMP(3)`, [id, name, 'glicko2', GLICKO2_VERSION, JSON.stringify(defaultConfig)]);
     await ratingNotification.ensureSchema(connection);

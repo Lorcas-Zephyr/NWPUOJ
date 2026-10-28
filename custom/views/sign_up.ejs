@@ -3,21 +3,23 @@
 const formValues = typeof registrationValues !== 'undefined' && registrationValues ? registrationValues : {};
 const initialError = typeof registrationErrorInfo !== 'undefined' ? registrationErrorInfo : null;
 const initialNotice = typeof registrationNotice !== 'undefined' ? registrationNotice : null;
+const legalPolicy = typeof registrationLegal !== 'undefined' && registrationLegal ? registrationLegal : { enabled: false, preview: false };
 %>
 <% include app_header %>
 
 <div class="app-auth app-auth-wide">
   <section class="app-auth-intro">
-    <img src="/self/logo.png?v=<%= encodeURIComponent(syzoj.config.nwpuoj_version || '2.1.0') %>" alt="" width="52" height="52">
+    <img src="/self/logo.png?v=<%= encodeURIComponent(syzoj.config.nwpuoj_version || '2.2.0') %>" alt="" width="52" height="52">
     <h1>建立你的训练档案</h1>
     <p>账户用于保存做题记录、比赛报名、Rating 和站内通知。</p>
   </section>
   <section class="app-auth-panel">
     <h2>创建账户</h2>
     <p>请使用真实学籍信息完成注册。</p>
+    <% if (legalPolicy.preview) { %><div class="app-notice app-notice-warning" role="note"><i data-lucide="eye"></i><span>注册确认审核预览：请使用虚构信息试填，不会发送资料或创建账户。</span></div><% } %>
     <% if (initialError || initialNotice) { %><div class="app-notice <%= initialNotice ? 'app-notice-success' : 'app-notice-danger' %>" role="alert"><i data-lucide="<%= initialNotice ? 'circle-check' : 'circle-alert' %>"></i><span><%= initialError || initialNotice %></span></div><% } %>
     <div class="app-notice app-notice-danger" id="sign-up-v2-error" role="alert" hidden><i data-lucide="circle-alert"></i><span></span></div>
-    <form class="app-form" id="sign-up-form" method="post" novalidate data-sign-up-v2>
+    <form class="app-form" id="sign-up-form" method="post" novalidate data-sign-up-v2<% if (legalPolicy.preview) { %> data-legal-preview="true"<% } %>>
       <input type="hidden" name="registration_csrf_token" value="<%= registrationCsrfToken %>">
       <input type="hidden" name="prevUrl" value="<%= registrationPrevUrl %>">
       <div class="app-form-grid">
@@ -29,7 +31,15 @@ const initialNotice = typeof registrationNotice !== 'undefined' ? registrationNo
         <label class="app-field"><span class="app-label">密码<span class="app-required">*</span></span><span class="app-input-wrap app-password-wrap"><i data-lucide="lock-keyhole"></i><input class="app-input" type="password" id="password1" name="password" minlength="10" maxlength="128" autocomplete="new-password" required><button class="app-password-toggle" type="button" data-password-toggle="password1" aria-label="显示密码"><i data-lucide="eye"></i></button></span><span class="app-help">至少 10 个字符</span></label>
         <label class="app-field"><span class="app-label">确认密码<span class="app-required">*</span></span><span class="app-input-wrap app-password-wrap"><i data-lucide="lock-keyhole"></i><input class="app-input" type="password" id="password2" name="confirm_password" minlength="10" maxlength="128" autocomplete="new-password" required><button class="app-password-toggle" type="button" data-password-toggle="password2" aria-label="显示密码"><i data-lucide="eye"></i></button></span></label>
       </div>
-      <div class="app-form-actions"><a class="app-button app-button-quiet" href="<%= syzoj.utils.makeUrl(['login']) %>">已有账户</a><button class="app-button app-button-primary" type="submit"><i data-lucide="user-plus"></i>注册</button></div>
+      <% if (legalPolicy.enabled) { %>
+      <fieldset class="app-registration-confirmation" aria-describedby="registration-consent-note">
+        <legend>注册确认</legend>
+        <input type="hidden" name="legal_version" value="<%= legalPolicy.version %>">
+        <div class="app-legal-confirm-row"><input type="checkbox" id="registration-terms" name="terms_accepted" required aria-describedby="registration-consent-note"><label for="registration-terms">我已阅读并同意<a href="<%= legalPolicy.termsUrl %>" target="_blank" rel="noopener noreferrer" title="在新窗口阅读用户协议">《用户协议》</a>，并已阅读<a href="<%= legalPolicy.privacyUrl %>" target="_blank" rel="noopener noreferrer" title="在新窗口阅读隐私政策">《隐私政策》</a>。</label></div>
+        <p class="app-help" id="registration-consent-note">此确认不替代依法需要另行取得的单独同意或监护人同意。</p>
+      </fieldset>
+      <% } %>
+      <div class="app-form-actions"><a class="app-button app-button-quiet" href="<%= syzoj.utils.makeUrl(['login']) %>">已有账户</a><button class="app-button app-button-primary" type="submit"><i data-lucide="user-plus"></i><%= legalPolicy.preview ? '验证预览表单' : '注册' %></button></div>
     </form>
   </section>
 </div>
@@ -40,12 +50,32 @@ const initialNotice = typeof registrationNotice !== 'undefined' ? registrationNo
   var notice = document.getElementById('sign-up-v2-error');
   if (!form || !notice) return;
 function showError(message) {
+    notice.classList.remove('app-notice-success');
+    notice.classList.add('app-notice-danger');
     notice.querySelector('span').textContent = message;
     notice.hidden = false;
   }
   form.addEventListener('submit', async function (event) {
     if (event.defaultPrevented) return;
     event.preventDefault();
+    notice.hidden = true;
+    if (form.elements.terms_accepted && !form.elements.terms_accepted.checked) {
+      showError('请先阅读并确认用户协议与隐私政策。');
+      form.elements.terms_accepted.focus();
+      return;
+    }
+    if (!form.reportValidity()) return;
+    if (form.elements.password.value !== form.elements.confirm_password.value) {
+      showError('两次输入的密码不一致。');
+      form.elements.confirm_password.focus();
+      return;
+    }
+    if (form.hasAttribute('data-legal-preview')) {
+      showError('预览校验通过，未发送资料，也未创建账户。');
+      notice.classList.remove('app-notice-danger');
+      notice.classList.add('app-notice-success');
+      return;
+    }
     var submit = form.querySelector('[type="submit"]');
     if (submit) submit.disabled = true;
     form.setAttribute('aria-busy', 'true');
@@ -59,6 +89,11 @@ function showError(message) {
         password: form.elements.password.value,
         confirm_password: form.elements.confirm_password.value
       };
+      if (form.elements.terms_accepted) {
+        body.terms_accepted = form.elements.terms_accepted.checked;
+        body.privacy_acknowledged = form.elements.terms_accepted.checked;
+        body.legal_version = form.elements.legal_version.value;
+      }
       var response = await fetch('/api/v2/auth/register', {
         method: 'POST',
         credentials: 'same-origin',

@@ -1,0 +1,125 @@
+<% this.title = '基地'; this.active = 'base'; %>
+<% const baseBulk = tab === 'problems' && rows.some(function (row) { return baseAdmin || Number(row.user_id) === Number(user.id); }); %>
+<% include app_header %>
+<div class="app-page app-base-page">
+  <header class="app-page-header">
+    <div class="app-page-heading"><span class="app-kicker">BASE WORKSPACE</span><h1 class="app-page-title">基地</h1><p class="app-page-description">基地内部题库与比赛。公开内容仅基地成员可见，比赛均为 Unrated。</p></div>
+    <div class="app-page-actions">
+      <% if (tab === 'problems') { %><a class="app-button app-button-primary" href="/problem/0/edit?base=1"><i data-lucide="plus"></i>创建题目</a><% } %>
+      <% if (tab === 'contests') { %><a class="app-button app-button-primary" href="/contest/0/edit?base=1"><i data-lucide="plus"></i>创建比赛</a><% } %>
+    </div>
+  </header>
+  <nav class="app-tabs app-base-tabs" aria-label="基地工作区"><a class="app-tab <%= tab === 'problems' ? 'is-active' : '' %>" href="/base/problems"<%- tab === 'problems' ? ' aria-current="page"' : '' %>>题库</a><a class="app-tab <%= tab === 'contests' ? 'is-active' : '' %>" href="/base/contests"<%- tab === 'contests' ? ' aria-current="page"' : '' %>>比赛</a><a class="app-tab" href="/base/submissions">提交记录</a><% if (baseAdmin) { %><a class="app-tab <%= tab === 'members' ? 'is-active' : '' %>" href="/base/members"<%- tab === 'members' ? ' aria-current="page"' : '' %>>成员管理</a><% } %></nav>
+  <% if (tab === 'members') { %>
+    <section class="app-settings-section"><div class="app-settings-copy"><h2>添加成员</h2><p>仅添加已有普通账户。全站管理员无需加入即可访问。</p></div><div class="app-settings-fields">
+      <form data-base-import="members" class="app-form"><label class="app-field"><span class="app-label">搜索普通账户</span><input class="app-input" type="search" data-base-search="users" placeholder="用户名、UID、学号或姓名" autocomplete="off"></label><div class="app-entity-selected" data-base-selected></div><div class="app-base-search-results" data-base-results hidden></div><button class="app-button app-button-primary" type="submit">添加选中账户</button></form>
+      <form data-base-import="members/import-classes" class="app-form"><label class="app-field"><span class="app-label">从班级导入</span><input class="app-input" type="search" data-base-search="classes" placeholder="搜索班级名称或编号，可选择多个班级" autocomplete="off"></label><div class="app-entity-selected" data-base-selected></div><div class="app-base-search-results" data-base-results hidden></div><span class="app-help">导入选中班级的当前成员，后续班级变动不会自动同步。</span><button class="app-button app-button-secondary" type="submit">导入选中班级</button></form>
+      <form data-base-import="members/import-csv" class="app-form"><div class="app-field"><span class="app-label" id="base-csv-label">学号 CSV 导入</span><label class="app-file-field"><input type="file" name="student_ids_csv" accept=".csv,text/csv" aria-labelledby="base-csv-label" aria-describedby="base-csv-help" required><span><i data-lucide="file-spreadsheet"></i><strong>选择学号 CSV</strong><small>UTF-8 编码</small></span></label><span class="app-help" id="base-csv-help">UTF-8 编码，表头为“学号”，每行一个 10 位学号。最多 1000 行、1 MB；不会创建新账户。</span></div><button class="app-button app-button-secondary" type="submit">上传并导入</button></form>
+      <section data-base-report hidden aria-live="polite"><h3>导入结果</h3><p data-base-report-summary></p><div class="app-table-region"><table class="app-table"><thead><tr><th>行号</th><th>学号</th><th>说明</th></tr></thead><tbody data-base-report-errors></tbody></table></div><a class="app-button app-button-secondary" href="/base/members">刷新成员列表</a></section>
+    </div></section>
+  <% } %>
+  <form class="app-form app-base-toolbar" method="get" action="/base/<%= tab %>"><label class="app-input-wrap"><i data-lucide="search"></i><input class="app-input" type="search" name="keyword" value="<%= keyword %>" placeholder="<%= tab === 'members' ? '用户名、UID、学号或姓名' : '编号或标题' %>" aria-label="搜索"></label><% if (tab !== 'members') { %><label><input type="checkbox" name="mine" value="1"<%= mine ? ' checked' : '' %>> 我创建的</label><% } %><button class="app-button app-button-secondary" type="submit">搜索</button><% if (tab === 'problems') { %><label class="app-switch-control"><input type="checkbox" data-problem-tags-toggle><span class="app-switch-track"></span><span>显示标签</span></label><% } %><span class="app-help">共 <%= total %> <%= tab === 'members' ? '人' : '项' %> · 每页 100 <%= tab === 'members' ? '人' : '项' %></span><% if (tab === 'members') { %><button class="app-button app-button-danger-outline" type="button" data-base-remove-selected disabled>移除选中成员</button><% } %></form>
+  <% if (baseBulk) { %>
+  <form method="post" id="base-problem-bulk-form" data-select-group data-base-problem-bulk data-base-problem-bulk-v2>
+    <div class="app-bulk-bar"><span>已选择 <strong data-selected-count>0</strong> 题</span>
+      <details class="app-action-menu" data-base-action-menu><summary class="app-button app-button-secondary"><i data-lucide="layers-2"></i>批量操作<i data-lucide="chevron-down"></i></summary>
+        <div class="app-action-menu-list">
+          <button type="button" data-base-action="publish" data-requires-selection disabled><i data-lucide="eye"></i>公开题目</button>
+          <button type="button" data-base-action="unpublish" data-requires-selection disabled><i data-lucide="eye-off"></i>隐藏题目</button>
+          <button type="button" data-base-action="archive" data-requires-selection disabled><i data-lucide="archive"></i>归档题目</button>
+          <button type="button" data-base-action="add-tag" data-requires-selection disabled><i data-lucide="tag"></i>添加标签</button>
+          <% if (baseAdmin) { %><button type="button" data-base-action="migrate" data-requires-selection disabled><i data-lucide="copy"></i>迁移至正式题库</button><% } %>
+        </div>
+      </details>
+    </div>
+  <% } %>
+  <p class="app-base-scroll-hint">左右滑动表格可查看完整信息和操作。</p>
+  <div class="app-table-region" role="region" aria-label="<%= tab === 'members' ? '基地成员' : tab === 'problems' ? '基地题库' : '基地比赛' %>" tabindex="0"><table class="app-table app-base-table app-base-<%= tab %>-table<%= tab === 'problems' ? ' app-problem-table' : '' %>">
+    <thead><tr><% if (tab === 'members') { %><th class="app-base-check"><input type="checkbox" data-base-select-all aria-label="选择本页全部成员"></th><th>用户名</th><th>姓名</th><th>学号</th><th>学院</th><th>班级</th><th>加入时间</th><th>操作</th><% } else if (tab === 'problems') { %><% if (baseBulk) { %><th class="app-problem-select-cell"><input type="checkbox" data-select-all aria-label="选择当前页全部可管理题目"></th><% } %><th>编号</th><th>题目</th><th class="app-problem-tag-column">标签</th><th>创建者</th><th>状态</th><th>操作</th><% } else { %><th>比赛</th><th>创建者</th><th>开始时间</th><th>结束时间</th><th>状态</th><th>操作</th><% } %></tr></thead>
+    <tbody><% rows.forEach(function (row) { %>
+      <% if (tab === 'members') { %><tr data-base-member-row="<%= row.id %>"><td class="app-base-check"><input type="checkbox" data-base-member-id="<%= row.id %>" aria-label="选择 <%= row.username %>"></td><td><a href="/user/<%= row.id %>"><%= row.username %></a></td><td><%= row.real_name || '—' %></td><td><%= row.student_id || '—' %></td><td><%= row.college || '—' %></td><td><%= row.classes.map(function (group) { return group.name; }).join('、') || '—' %></td><td><%= syzoj.utils.formatDate(Math.floor(new Date(row.created_at).getTime() / 1000)) %></td><td><button class="app-button app-button-danger-outline app-button-small" type="button" data-base-remove="<%= row.id %>">移除</button></td></tr>
+      <% } else if (tab === 'problems') { %><tr><% if (baseBulk) { %><td class="app-problem-select-cell"><% if (baseAdmin || Number(row.user_id) === Number(user.id)) { %><input type="checkbox" name="problem_ids" value="<%= row.id %>" data-select-item aria-label="选择 <%= row.id %> <%= row.title %>"><% } %></td><% } %><td>#<%= row.id %></td><td class="app-cell-primary"><a href="/problem/<%= row.id %>"><%= row.title %></a></td><td class="app-problem-tag-column"><div class="app-tag-list"><% for (const tag of row.tags || []) { %><span class="app-tag"><%= tag.name %></span><% } %></div></td><td><%= row.username || '已删除用户' %></td><td><span class="app-status <%= row.is_public ? 'app-status-accepted' : 'app-status-muted' %>"><%= row.is_public ? '基地内公开' : '未公开' %></span></td><td><% if (baseAdmin || Number(row.user_id) === Number(user.id)) { %><a class="app-button app-button-secondary app-button-small" href="/problem/<%= row.id %>/edit">编辑</a> <a class="app-button app-button-secondary app-button-small" href="/problem/<%= row.id %>/manage">评测设置</a><% } %><% if (baseAdmin) { %> <button class="app-button app-button-secondary app-button-small" type="button" data-base-migrate="<%= row.id %>"<%= row.migration ? ' disabled' : '' %>><%= row.migration ? '已迁移' : '迁移至正式题库' %></button> <a href="<%= row.migration ? '/problem/' + row.migration.problem_id : '#' %>" data-base-migrated-link="<%= row.id %>"<%= row.migration ? '' : ' hidden' %>><%= row.migration ? '#' + row.migration.problem_id : '' %></a><% } %></td></tr>
+      <% } else { const now = syzoj.utils.getCurrentDate(); %><tr><td class="app-cell-primary"><a href="/contest/<%= row.id %>/details"><%= row.title %></a><span class="app-help"><%= String(row.type).toUpperCase() %> · Unrated<%= row.is_public ? '' : ' · 隐藏' %></span></td><td><%= row.username || '已删除用户' %></td><td><%= syzoj.utils.formatDate(row.start_time) %></td><td><%= syzoj.utils.formatDate(row.end_time) %></td><td><span class="app-status <%= now < row.start_time ? 'app-status-waiting' : now < row.end_time ? 'app-status-running' : 'app-status-muted' %>"><%= now < row.start_time ? '未开始' : now < row.end_time ? '进行中' : '已结束' %></span></td><td><% if (baseAdmin || Number(row.holder_id) === Number(user.id)) { %><a class="app-button app-button-secondary app-button-small" href="/contest/<%= row.id %>/edit">管理</a><% } else { %><a class="app-button app-button-secondary app-button-small" href="/contest/<%= row.id %>/details">查看比赛</a><% } %></td></tr><% } %>
+    <% }); %><% if (!rows.length) { %><tr><td colspan="<%= tab === 'members' ? 8 : tab === 'problems' ? (baseBulk ? 7 : 6) : 6 %>"><div class="app-empty"><strong>暂无<%= tab === 'members' ? '成员' : tab === 'problems' ? '题目' : '比赛' %></strong><p><%= keyword || mine ? '请调整筛选条件。' : tab === 'members' ? '通过上方搜索、班级或学号 CSV 添加成员。' : '使用右上方按钮创建。' %></p></div></td></tr><% } %></tbody>
+  </table></div>
+  <% if (baseBulk) { %></form><% } %>
+  <% if (tab === 'problems' && baseBulk) { %><% include base_problem_actions %><% } %>
+  <% include app_pagination %>
+</div>
+<script>
+(function () {
+  var tagsToggle = document.querySelector('[data-problem-tags-toggle]');
+  if (tagsToggle) {
+    try { tagsToggle.checked = localStorage.getItem('show_problem_tags') === '1'; } catch (error) {}
+    document.querySelector('.app-base-page').classList.toggle('is-showing-tags', tagsToggle.checked);
+    tagsToggle.addEventListener('change', function () {
+      document.querySelector('.app-base-page').classList.toggle('is-showing-tags', tagsToggle.checked);
+      try { localStorage.setItem('show_problem_tags', tagsToggle.checked ? '1' : '0'); } catch (error) {}
+    });
+  }
+  async function request(path, body) {
+    var options = { credentials: 'same-origin', cache: 'no-store' };
+    if (body) { options.method = 'POST'; options.headers = body instanceof FormData ? {} : {'Content-Type':'application/json'}; options.body = body instanceof FormData ? body : JSON.stringify(body); }
+    var response = await fetch('/api/v2/base/' + path, options);
+    var result = await response.json();
+    if (!response.ok) throw new Error(result.error && result.error.message || '操作失败，请重试。');
+    return result.data;
+  }
+  function failure(error) { if (window.NWPUOJApp) window.NWPUOJApp.showToast(error.message, 'danger'); }
+  function report(data) {
+    var panel = document.querySelector('[data-base-report]'); panel.hidden = false;
+    panel.querySelector('[data-base-report-summary]').textContent = '新增 ' + data.added + ' 人，已在基地 ' + data.skipped + ' 人，未匹配/无效 ' + ((data.errors || []).length + (data.invalid || []).length) + ' 项。';
+    var tbody = panel.querySelector('[data-base-report-errors]'); tbody.textContent = '';
+    (data.errors || []).forEach(function (item) { var tr = document.createElement('tr'); [item.row, item.student_id, item.reason].forEach(function (value) { var td = document.createElement('td'); td.textContent = value; tr.appendChild(td); }); tbody.appendChild(tr); });
+    panel.querySelector('.app-table-region').hidden = !tbody.children.length;
+  }
+  document.querySelectorAll('[data-base-import]').forEach(function (form) {
+    var selected = new Map(); var input = form.querySelector('[data-base-search]'); var results = form.querySelector('[data-base-results]'); var serial = 0; var timer;
+    function renderSelected() {
+      var target = form.querySelector('[data-base-selected]'); target.textContent = '';
+      selected.forEach(function (label, id) { var chip = document.createElement('span'); var text = document.createElement('em'); text.textContent = label; var button = document.createElement('button'); button.type = 'button'; button.textContent = '×'; button.setAttribute('aria-label', '移除 ' + label); button.onclick = function () { selected.delete(id); renderSelected(); }; chip.appendChild(text); chip.appendChild(button); target.appendChild(chip); });
+    }
+    if (input) input.addEventListener('input', function () {
+      clearTimeout(timer); var current = ++serial; var q = input.value.trim(); results.hidden = true;
+      if (!q) return;
+      timer = setTimeout(async function () {
+        try {
+          var rows = await request(input.dataset.baseSearch + '/search?q=' + encodeURIComponent(q));
+          if (serial !== current) return;
+          results.textContent = ''; results.hidden = false;
+          if (!rows.length) { results.textContent = '没有匹配结果'; return; }
+          rows.forEach(function (row) {
+            var label = row.name || [row.username, 'UID ' + row.id, row.real_name, row.student_id].filter(Boolean).join(' · ');
+            var button = document.createElement('button'); button.type = 'button'; button.textContent = label + (row.joined ? '（已加入）' : ''); button.disabled = !!row.joined;
+            button.onclick = function () { selected.set(Number(row.id), label); renderSelected(); results.hidden = true; input.value = ''; input.focus(); };
+            results.appendChild(button);
+          });
+        } catch (error) { failure(error); }
+      }, 220);
+    });
+    form.addEventListener('submit', async function (event) {
+      event.preventDefault(); var button = form.querySelector('[type="submit"]'); if (button.disabled) return;
+      try {
+        var body;
+        if (!input) body = new FormData(form);
+        else { if (!selected.size) throw new Error('请先搜索并选择账户或班级。'); body = {}; body[input.dataset.baseSearch === 'users' ? 'user_ids' : 'class_ids'] = Array.from(selected.keys()); }
+        button.disabled = true; var data = await request(form.dataset.baseImport, body); report(data);
+        selected.clear(); if (input) renderSelected(); else form.reset();
+      } catch (error) { failure(error); } finally { button.disabled = false; }
+    });
+  });
+  var selectAll = document.querySelector('[data-base-select-all]'); var removeSelected = document.querySelector('[data-base-remove-selected]');
+  function checked() { return Array.from(document.querySelectorAll('[data-base-member-id]:checked')).map(function (input) { return Number(input.dataset.baseMemberId); }); }
+  function selectionChanged() { if (!removeSelected) return; var count = checked().length; removeSelected.disabled = !count; selectAll.checked = !!count && count === document.querySelectorAll('[data-base-member-id]').length; selectAll.indeterminate = !!count && !selectAll.checked; }
+  async function remove(ids, button) {
+    if (!ids.length || !window.confirm('确认移除这 ' + ids.length + ' 名基地成员？只撤销基地访问权限，不删除账号、题目或比赛。')) return;
+    button.disabled = true;
+    try { await request('members/remove', { user_ids: ids }); window.location.reload(); } catch (error) { failure(error); button.disabled = false; }
+  }
+  if (selectAll) selectAll.onchange = function () { document.querySelectorAll('[data-base-member-id]').forEach(function (input) { input.checked = selectAll.checked; }); selectionChanged(); };
+  document.querySelectorAll('[data-base-member-id]').forEach(function (input) { input.onchange = selectionChanged; });
+  document.querySelectorAll('[data-base-remove]').forEach(function (button) { button.onclick = function () { remove([Number(button.dataset.baseRemove)], button); }; });
+  if (removeSelected) removeSelected.onclick = function () { remove(checked(), removeSelected); };
+})();
+</script>
+<% include app_footer %>
