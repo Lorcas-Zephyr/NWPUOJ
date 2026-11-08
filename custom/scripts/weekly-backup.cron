@@ -1,0 +1,2 @@
+CRON_TZ=Asia/Shanghai
+0 3 * * 0 /home/nwpu-icpc/NWPUOJ/custom/scripts/weekly-backup.sh >> /home/nwpu-icpc/nwpuoj-backups/weekly.log 2>&1

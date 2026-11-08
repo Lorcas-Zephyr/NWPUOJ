@@ -283,24 +283,10 @@ docker compose up -d
 
 ## 备份与恢复
 
-### 数据库备份
-
-```bash
-docker compose exec -T mariadb \
-  mariadb-dump -uroot --single-transaction --routines --events syzoj \
-  > "nwpuoj-$(date +%F).sql"
-```
-
-### 上传和配置卷备份
-
-```bash
-docker run --rm -v nwpuoj_uploads:/data:ro -v "$PWD:/backup" \
-  alpine:3.20 tar czf /backup/nwpuoj-uploads.tar.gz -C /data .
-docker run --rm -v nwpuoj_config:/data:ro -v "$PWD:/backup" \
-  alpine:3.20 tar czf /backup/nwpuoj-config.tar.gz -C /data .
-```
-
-恢复前必须停止 Web 和 Judge，确认目标数据库和卷，并保留恢复前副本。
+服务器每周日 03:00（北京时间）自动备份数据库、上传卷和配置卷，保存在仓库目录外的
+`../nwpuoj-backups/nwpuoj-latest.tar.gz`。只保留最近一次成功的归档；新归档完成并通过完整性
+检查后才替换旧文件。代码更新不单独备份，回滚只能恢复到最近一次周备份时的数据。
+完整部署及恢复流程见 [RELEASE.md](RELEASE.md)。
 
 ## 更新
 
@@ -311,7 +297,7 @@ docker compose config >/dev/null
 docker compose up -d
 ```
 
-更新前先备份数据库和上传卷。不要使用 `docker compose down -v`。
+不要使用 `docker compose down -v`。
 
 v2.0.0 只提供 `/api/v2` 业务接口。升级时必须使用仓库中的 `Dockerfile.web` 构建 Web
 镜像；构建会从上游基础镜像中移除 v1 API 与写入路由。升级和回滚步骤见

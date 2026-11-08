@@ -22,21 +22,12 @@ steps below apply when changing a running installation.
 
 ## Backup
 
-Create all artifacts before changing containers:
-
-```bash
-mkdir -p release-backup
-docker compose exec -T mariadb sh -ec \
-  'exec mariadb-dump -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction --routines --events syzoj' \
-  > release-backup/nwpuoj-v2.sql
-docker run --rm -v nwpuoj_uploads:/data:ro -v "$PWD/release-backup:/backup" \
-  alpine:3.20 tar czf /backup/uploads.tar.gz -C /data .
-docker run --rm -v nwpuoj_config:/data:ro -v "$PWD/release-backup:/backup" \
-  alpine:3.20 tar czf /backup/config.tar.gz -C /data .
-```
-
-Record the current image digests with `docker compose images --format json` and keep the previous
-release checkout available. Do not use `docker compose down -v`.
+The production host runs `custom/scripts/weekly-backup.sh` every Sunday at 03:00 Asia/Shanghai.
+It writes one validated archive to `../nwpuoj-backups/nwpuoj-latest.tar.gz`, containing the SQL
+dump, uploads volume, config volume, image inventory, and source revision. A new archive replaces
+the previous one only after completion and gzip validation; failed runs leave the previous archive
+in place. Code updates do not create a separate backup. Changes made since the last weekly archive
+are not included in rollback data. Do not use `docker compose down -v`.
 
 ## Validate And Deploy
 
@@ -68,17 +59,18 @@ disposable contest accounts and data through normal v2 administration actions.
 ## Rollback
 
 Stop Web and Judge services before restoring. Restore the previous published checkout/image, then
-restore the SQL dump and both volume archives into explicitly named `nwpuoj_*` volumes. Start
-MariaDB first, then Web and the Judge stack. Re-run health, queue, login, problem read, submission,
-and contest read checks.
+extract the latest weekly archive and restore its SQL dump and uploads/config data into explicitly
+named `nwpuoj_*` volumes. Start MariaDB first, then Web and the Judge stack. Re-run health, queue,
+login, problem read, submission, and contest read checks. Writes made after that weekly archive are
+not present in the restored data.
 
-Do not partially restore only projection tables. Do not try to enable v1 routes in the v2 image.
-If the release schema has accepted production writes, use the complete pre-release database and
-volume set so rows, files, events, and projections return to one consistent point in time.
+Restore the database and both volumes from one archive as a complete set; do not restore only
+projection tables or mix files from different weekly archives. Do not try to enable v1 routes in
+the v2 image.
 
 ## Publish
 
 After validation, create the annotated `v2.3.0` tag and GitHub release from the reviewed release
 commit. Include the matching `CHANGELOG.md` section and validation results. For a production
-deployment, also record compatibility counts, image digest, backup identifiers, contest drill
-evidence, and the named rollback owner in the deployment record.
+deployment, also record compatibility counts, image digest, latest weekly archive timestamp,
+contest drill evidence, and the named rollback owner in the deployment record.
