@@ -19,7 +19,7 @@ const EDITABLE_FIELDS = Object.freeze([
   'time_limit', 'python_time_limit_multiplier', 'java_time_limit_multiplier', 'memory_limit', 'file_io', 'file_io_input_name', 'file_io_output_name', 'type'
 ]);
 const PROBLEM_TYPES = new Set([
-  'traditional', 'submit-answer', 'interaction'
+  'traditional', 'submit-answer', 'interaction', 'communication'
 ]);
 const JUDGE_CONFIGURATION_FIELDS = Object.freeze([
   'type', 'time_limit', 'python_time_limit_multiplier', 'java_time_limit_multiplier', 'memory_limit', 'file_io', 'file_io_input_name', 'file_io_output_name'

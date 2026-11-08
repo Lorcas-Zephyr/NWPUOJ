@@ -4,6 +4,7 @@ const TypeORM = require('typeorm');
 const crypto = require('crypto');
 const multer = require('multer');
 const engine = require('../libs/weekly-standings');
+const loginIPs = require('../libs/login-ip');
 const standingsEngine = require('../libs/contest-standings');
 const classes = require('../libs/class-groups');
 const { normalizeStudentIdRows } = require('../libs/contest-temp-accounts');
@@ -12,7 +13,7 @@ const api = () => syzoj.utils.apiV2;
 const db = () => TypeORM.getConnection();
 let schemaPromise, refreshPromise, refreshedAt = 0;
 // Invalidate persisted projections when the response shape gains new fields.
-const RESULT_SCHEMA_VERSION = 2;
+const RESULT_SCHEMA_VERSION = 3;
 const parse = (value, fallback) => { try { return typeof value === 'string' ? JSON.parse(value) : value || fallback; } catch (_) { return fallback; } };
 const error = (message, statusCode = 422, code = 'WEEKLY_VALIDATION_FAILED') => Object.assign(new Error(message), { statusCode, code });
 const canManage = user => classes.isUnrestricted(user);
@@ -25,6 +26,7 @@ async function ensureSchema() {
   if (!schemaPromise) schemaPromise = (async () => {
     await classes.ensureSchema();
     await ensureRegistrationProfileSchema();
+    await syzoj.utils.authorizationV2.ensureSchema();
     await db().query(`CREATE TABLE IF NOT EXISTS weekly_ranklist (
       id INT NOT NULL PRIMARY KEY, title VARCHAR(100) NOT NULL,
       revision INT NOT NULL DEFAULT 1, rules_json TEXT NOT NULL,
@@ -42,19 +44,37 @@ async function ensureSchema() {
       recorded_by INT NOT NULL, updated_at DATETIME(3) NOT NULL,
       PRIMARY KEY (user_id,contest_id), KEY idx_weekly_attendance_contest (contest_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    await db().query(`CREATE TABLE IF NOT EXISTS weekly_ranklist_ip_violation (
+      user_id INT NOT NULL, contest_id INT NOT NULL, evidence_json TEXT NOT NULL,
+      detected_at DATETIME(3) NOT NULL, PRIMARY KEY (user_id,contest_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
     await db().query("INSERT IGNORE INTO weekly_ranklist (id,title,revision,rules_json,updated_at) VALUES (1,'周赛总榜',1,?,UTC_TIMESTAMP(3))", [JSON.stringify(engine.DEFAULT_RULES)]);
   })().catch(e => { schemaPromise = null; throw e; });
   return schemaPromise;
 }
 
+// All callers hold the singleton board lock, including login-triggered checks.
+// Automatic changes advance the edit version so stale manual saves cannot
+// silently restore a previously registered onsite state.
+async function reconcileAttendance(manager, board, userId) {
+  const count = await loginIPs.reconcileOnsite(manager, syzoj.utils.authorizationV2.recordAudit, userId);
+  if (count) {
+    await manager.query('UPDATE weekly_ranklist SET revision=revision+1,source_hash=NULL,updated_at=UTC_TIMESTAMP(3) WHERE id=1');
+    board.revision = Number(board.revision) + 1; board.source_hash = null;
+  }
+  return count;
+}
+
 async function calculate(manager, board) {
+  await reconcileAttendance(manager, board);
   const members = await manager.query(`SELECT m.user_id,u.username,p.real_name,p.student_id
     FROM weekly_ranklist_member m INNER JOIN user u ON u.id=m.user_id
     LEFT JOIN user_registration_profile p ON p.user_id=u.id AND p.student_id_scope=? ORDER BY m.user_id`, [ORDINARY_STUDENT_ID_SCOPE]);
   const contests = await manager.query(`SELECT c.id,c.title,c.type,c.start_time,c.end_time,c.problems
     FROM weekly_ranklist_contest selected INNER JOIN contest c ON c.id=selected.contest_id
     ORDER BY c.start_time,c.id`);
-  const attendance = await manager.query(`SELECT a.* FROM weekly_ranklist_attendance a
+  const attendance = await manager.query(`SELECT a.*,v.user_id IS NOT NULL AS auto_online FROM weekly_ranklist_attendance a
+    LEFT JOIN weekly_ranklist_ip_violation v ON v.user_id=a.user_id AND v.contest_id=a.contest_id
     INNER JOIN weekly_ranklist_member m ON m.user_id=a.user_id
     INNER JOIN weekly_ranklist_contest c ON c.contest_id=a.contest_id ORDER BY a.user_id,a.contest_id`);
   const now = Math.floor(Date.now() / 1000);
@@ -151,6 +171,16 @@ app.get('/api/v2/weekly-ranklist', route(async (req, res) => {
   return api().send(res, payload(board, canManage(res.locals.user)));
 }));
 
+app.get('/api/v2/weekly-ranklist/login-ips', route(async (req, res) => {
+  res.set('Cache-Control', 'private, no-store');
+  if (!canManage(res.locals.user)) throw error('只有全站管理员或站长可以查看总榜登录记录。', res.locals.user ? 403 : 401, 'CAPABILITY_REQUIRED');
+  await refresh(true);
+  const result = await loginIPs.listLogins(db(), req.query, true);
+  result.contests = await db().query(`SELECT c.id,c.title FROM weekly_ranklist_contest selected
+    INNER JOIN contest c ON c.id=selected.contest_id AND c.type='acm' ORDER BY c.start_time DESC,c.id DESC`);
+  return api().send(res, result);
+}));
+
 app.get('/api/v2/weekly-ranklist/search/:kind', route(async (req, res) => {
   if (!canManage(res.locals.user)) throw error('只有全站管理员可以搜索总榜配置对象。', 403, 'CAPABILITY_REQUIRED');
   await ensureSchema();
@@ -178,6 +208,7 @@ app.post('/api/v2/weekly-ranklist/contests', route((req, res) => mutate(req, res
   const selected = ids(req.body.contest_ids);
   if (!selected.length) throw error('请选择比赛。');
   if (req.body.remove === true) {
+    await manager.query('DELETE FROM weekly_ranklist_ip_violation WHERE contest_id IN (?)', [selected]);
     await manager.query('DELETE FROM weekly_ranklist_attendance WHERE contest_id IN (?)', [selected]);
     await manager.query('DELETE FROM weekly_ranklist_contest WHERE contest_id IN (?)', [selected]);
   } else {
@@ -203,6 +234,7 @@ app.post('/api/v2/weekly-ranklist/members', route((req, res) => mutate(req, res,
   const selected = ids(req.body.user_ids);
   if (!selected.length) throw error('请选择用户。');
   if (req.body.remove !== true) return addMembers(manager, selected, res.locals.user.id);
+  await manager.query('DELETE FROM weekly_ranklist_ip_violation WHERE user_id IN (?)', [selected]);
   await manager.query('DELETE FROM weekly_ranklist_attendance WHERE user_id IN (?)', [selected]);
   await manager.query('DELETE FROM weekly_ranklist_member WHERE user_id IN (?)', [selected]);
   return { removed_user_ids: selected };
@@ -246,6 +278,16 @@ app.post('/api/v2/weekly-ranklist/attendance', route((req, res) => mutate(req, r
   return { changes: entries };
 })));
 app.post('/api/v2/weekly-ranklist/recalculate', route((req, res) => mutate(req, res, 'recalculate', async () => ({ forced: true }))));
+
+// The audit row is already committed before this runs. Login failures in this
+// independent check never prevent authentication; periodic refresh retries.
+syzoj.utils.weeklyRanklistCheckLoginIPs = async userId => {
+  await ensureSchema();
+  await db().transaction(async manager => {
+    const [board] = await manager.query(selectBoard + ' FOR UPDATE');
+    if (await reconcileAttendance(manager, board, userId)) await calculate(manager, board);
+  });
+};
 
 // Shared refresh, not per-visitor calculation. Mutations recalculate in the
 // same transaction; timer refresh also picks up rejudges and contest edits.

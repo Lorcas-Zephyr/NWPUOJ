@@ -213,7 +213,7 @@ test('submission diagnostics are restricted consistently across detail, testpoin
   const path = require('node:path');
   const source = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_submission_domain.js'), 'utf8');
   assert.match(source, /async function canViewSubmissionDiagnostics\(judge, user\)/);
-  assert.match(source, /testpoints: canReadDiagnostics \? judge\.result \|\| null : null/);
+  assert.match(source, /testpoints: canReadDiagnostics \? await visibleCommunicationResult\(judge, res\.locals\.user, judge\.result \|\| null\) : null/);
   assert.match(source, /const visibleEvent = submissionDomain\.serializeEventForViewer\(event, canReadDiagnostics\)/);
   assert.match(source, /return api\.sse\(req, res, stream, \{ serialize: event => \{/);
 });

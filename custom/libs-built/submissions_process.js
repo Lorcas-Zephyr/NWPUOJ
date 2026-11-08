@@ -86,6 +86,7 @@ const processOverallResult = (source, config) => {
                         userOutput: config.showTestdata ? cs.result.userOutput : undefined,
                         userError: config.showTestdata ? cs.result.userError : undefined,
                         spjMessage: config.showTestdata ? cs.result.spjMessage : undefined,
+                        communication: config.showTestdata && config.showDiagnostics ? cs.result.communication : undefined,
                     }
                 }))
             }))

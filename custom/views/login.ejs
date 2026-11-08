@@ -3,7 +3,7 @@
 
 <div class="app-auth">
   <section class="app-auth-intro">
-    <img src="/self/logo.png?v=<%= encodeURIComponent(syzoj.config.nwpuoj_version || '2.2.0') %>" alt="" width="52" height="52">
+    <img src="/self/logo.png?v=<%= encodeURIComponent(syzoj.config.nwpuoj_version || '2.2.0') %>&amp;rev=20261104-transparent-1" alt="" width="52" height="52">
     <h1>回到你的训练进度</h1>
     <p>登录后继续做题、查看提交、报名比赛，并同步个人训练记录。</p>
   </section>
@@ -16,7 +16,7 @@
       <label class="app-field app-field-full"><span class="app-label">密码</span><span class="app-input-wrap app-password-wrap"><i data-lucide="lock-keyhole"></i><input class="app-input" name="password" type="password" id="password" maxlength="128" autocomplete="current-password" required><button class="app-password-toggle" type="button" data-password-toggle="password" aria-label="显示密码"><i data-lucide="eye"></i></button></span></label>
       <div class="app-field app-field-full">
         <label class="app-check"><input type="checkbox" name="remember_me" id="remember-me" aria-describedby="remember-me-hint"><span>记住我</span></label>
-        <span class="app-help" id="remember-me-hint">30 天内免登录，持续访问自动续期。公共设备请勿勾选。</span>
+        <span class="app-help" id="remember-me-hint">勾选后保持登录 30 天，不勾选为 12 小时；访问自动续期。公共设备请勿勾选。</span>
       </div>
       <button type="submit" class="app-button app-button-primary app-auth-submit" id="login-button">登录</button>
     </form>

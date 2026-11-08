@@ -313,6 +313,22 @@ async function canViewSubmissionDiagnostics(judge, user) {
   return syzoj.utils.authorizationV2.authorize(user, 'judge:read', null, {});
 }
 
+async function visibleCommunicationResult(judge, user, result) {
+  const hasCommunication = result && result.judge && Array.isArray(result.judge.subtasks) &&
+    result.judge.subtasks.some(subtask => (subtask.cases || []).some(testcase => testcase.result && testcase.result.communication));
+  if (!hasCommunication || Number(judge.type) !== 1) return result;
+  const contest = await Contest.findById(judge.type_info);
+  const supervisor = user && (user.is_admin || contest && await contest.isSupervisior(user));
+  if (supervisor) return result;
+  const ended = contest && contest.isEnded();
+  // Apply the same disclosure as the rendered contest submission. In particular,
+  // ownership and global judge:read do not disclose private intermediate input.
+  return require('../libs/submissions_process').processOverallResult(result, {
+    showDetailResult: !!(contest && (ended || contest.allowedSeeingTestcase())),
+    showUsage: !!ended, showTestdata: false, showDiagnostics: false
+  });
+}
+
 function validLanguage(problem, language) {
   const languages = syzoj.config.enabled_languages || [];
   if (!language) return false;
@@ -832,7 +848,8 @@ app.get('/api/v2/submissions/:id', async (req, res) => {
   if (!rows.length) return api.fail(res, 409, 'SUBMISSION_PROJECTION_MISSING', 'Submission projection is not ready.');
   const row = rows[0];
   const canReadAll = await syzoj.utils.authorizationV2.authorize(res.locals.user, 'judge:read', null, {});
-  return api.send(res, Object.assign(publicSubmission(row, res.locals.user.id, { includeCode: true, canReadAll }), { result: Number(res.locals.user.id) === Number(judge.user_id) || canReadAll ? judge.result : null, compilation: Number(res.locals.user.id) === Number(judge.user_id) || canReadAll ? judge.compilation : null }));
+  const visibleResult = await visibleCommunicationResult(judge, res.locals.user, judge.result);
+  return api.send(res, Object.assign(publicSubmission(row, res.locals.user.id, { includeCode: true, canReadAll }), { result: Number(res.locals.user.id) === Number(judge.user_id) || canReadAll ? visibleResult : null, compilation: Number(res.locals.user.id) === Number(judge.user_id) || canReadAll ? judge.compilation : null }));
 });
 
 app.get('/api/v2/submissions/:id/testpoints', async (req, res) => {
@@ -840,7 +857,7 @@ app.get('/api/v2/submissions/:id/testpoints', async (req, res) => {
   const judge = await JudgeState.findById(Number(req.params.id));
   if (!judge || !await canViewSubmission(judge, res.locals.user)) return api.fail(res, judge ? 403 : 404, judge ? 'SUBMISSION_FORBIDDEN' : 'SUBMISSION_NOT_FOUND', judge ? 'You cannot view these testpoints.' : 'Submission was not found.');
   const canReadDiagnostics = await canViewSubmissionDiagnostics(judge, res.locals.user);
-  return api.send(res, { submission_id: Number(judge.id), status: judgeStatus.statusForJudge(judge), testpoints: canReadDiagnostics ? judge.result || null : null });
+  return api.send(res, { submission_id: Number(judge.id), status: judgeStatus.statusForJudge(judge), testpoints: canReadDiagnostics ? await visibleCommunicationResult(judge, res.locals.user, judge.result || null) : null });
 });
 
 app.get('/api/v2/submissions/:id/result-revisions', async (req, res) => {
@@ -855,6 +872,9 @@ app.get('/api/v2/submissions/:id/result-revisions', async (req, res) => {
   const rows = await TypeORM.getConnection().query(`SELECT id,legacy_status,pending,score,total_time,max_memory,result_json,compilation_text,created_by,reason,created_at
     FROM submission_v2_result_revision WHERE submission_id=? AND id>? ORDER BY id ASC LIMIT ?`, [judge.id, cursor, limit + 1]);
   const more = rows.length > limit; res.locals.apiMeta.next_cursor = more ? api.encodeCursor(rows[limit - 1].id) : null; res.locals.apiMeta.limit = limit;
+  for (const row of rows.slice(0, limit)) {
+    if (row.result_json) row.result_json = JSON.stringify(await visibleCommunicationResult(judge, user, JSON.parse(row.result_json)));
+  }
   return api.send(res, rows.slice(0, limit).map(row => ({ id: String(row.id), submission_id: Number(judge.id), legacy_status: row.legacy_status, pending: !!row.pending, score: row.score == null ? null : Number(row.score), total_time: row.total_time == null ? null : Number(row.total_time), memory: row.max_memory == null ? null : Number(row.max_memory), result: row.result_json ? JSON.parse(row.result_json) : null, compilation: row.compilation_text || null, created_by: row.created_by == null ? null : Number(row.created_by), reason: row.reason, created_at: api.databaseIso(row.created_at) })));
 });
 

@@ -30,9 +30,12 @@ async function markdown(markdownCode) {
     html = xss.process(html);
     return html ? `<div style="position: relative; overflow: hidden; transform: translate3d(0, 0, 0); ">${html}</div>` : html;
   }
-  // Match Vditor's normal Markdown table semantics on every server-rendered
-  // surface. Keep the existing math, highlighting, sanitization and cache.
-  return renderer.markdown(markdownCode, cache, filter, { markdownItMergeCells: false });
+  // Match Vditor's table and soft-break semantics on server-rendered surfaces,
+  // including consecutive quoted lines. Code blocks keep their original text.
+  return renderer.markdown(markdownCode, cache, filter, {
+    markdownItMergeCells: false,
+    markdownIt: { breaks: true }
+  });
 }
 
 process.on('message', async msg => {

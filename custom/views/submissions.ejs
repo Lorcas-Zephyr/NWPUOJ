@@ -10,7 +10,7 @@ function submissionStatus(item) {
   return 'Waiting';
 }
 function submissionStatusLabel(status) {
-  return String(status || '') === 'Presentation Error' ? '格式错误' : status;
+  return status;
 }
 function submissionStatusClass(status) {
   const value = String(status || '').toLowerCase();
@@ -18,7 +18,7 @@ function submissionStatusClass(status) {
   if (value === 'waiting') return 'app-status-waiting';
   if (value === 'judging' || value.startsWith('running') || value === 'compiling') return 'app-status-judging';
   if (value === 'partially correct') return 'app-status-partial';
-  if (value === 'presentation error' || value === '格式错误') return 'app-verdict app-verdict-format';
+  if (value === 'presentation error') return 'app-verdict app-verdict-format';
   if (value === '作弊' || value === 'cheated' || value === 'wrong answer') return 'app-verdict app-verdict-wrong';
   if (value === 'runtime error' || value === 'invalid interaction') return 'app-verdict app-verdict-runtime';
   if (value === 'time limit exceeded') return 'app-verdict app-verdict-time';
@@ -88,7 +88,7 @@ const submissionListRoute = displayConfig.inContest
         <% if (displayConfig.showOthers) { %><label class="app-field app-field-third"><span class="app-label">提交者</span><input class="app-input" name="submitter" value="<%= form.submitter || '' %>"></label><% } %>
         <label class="app-field app-field-third"><span class="app-label">语言</span><select class="app-select" name="language"><option value="">不限</option><option value="submit-answer"<%= form.language === 'submit-answer' ? ' selected' : '' %>>提交答案</option><option value="non-submit-answer"<%= form.language === 'non-submit-answer' ? ' selected' : '' %>>非提交答案</option><optgroup label="本地语言"><% for (const lang of syzoj.config.filter_enabled_languages) { %><option value="<%= lang %>"<%= form.language === lang ? ' selected' : '' %>><%= syzoj.languages[lang].show %></option><% } %></optgroup></select></label>
         <% if (displayConfig.showScoreFilter || displayConfig.showScore) { %><label class="app-field app-field-quarter"><span class="app-label">最低分</span><input class="app-input" name="min_score" type="number" min="0" max="100" placeholder="0" value="<%= form.min_score || '' %>"></label><label class="app-field app-field-quarter"><span class="app-label">最高分</span><input class="app-input" name="max_score" type="number" min="0" max="100" placeholder="100" value="<%= form.max_score || '' %>"></label><% } %>
-        <% if (displayConfig.showResult) { %><label class="app-field app-field-quarter"><span class="app-label">状态</span><select class="app-select" name="status"><option value="">不限</option><% for (const status of ['Waiting', 'Accepted', 'Wrong Answer', 'Partially Correct', 'Compile Error', 'Runtime Error', 'Time Limit Exceeded', 'Memory Limit Exceeded', 'Output Limit Exceeded', 'System Error', 'Cancelled', 'Cheated']) { %><option value="<%= status %>"<%= form.status === status ? ' selected' : '' %>><%= status %></option><% } %><option value="Presentation Error"<%= form.status === 'Presentation Error' ? ' selected' : '' %>>格式错误</option></select></label><% } %>
+        <% if (displayConfig.showResult) { %><label class="app-field app-field-quarter"><span class="app-label">状态</span><select class="app-select" name="status"><option value="">不限</option><% for (const status of ['Waiting', 'Accepted', 'Wrong Answer', 'Partially Correct', 'Compile Error', 'Runtime Error', 'Time Limit Exceeded', 'Memory Limit Exceeded', 'Output Limit Exceeded', 'System Error', 'Cancelled', 'Cheated']) { %><option value="<%= status %>"<%= form.status === status ? ' selected' : '' %>><%= status %></option><% } %><option value="Presentation Error"<%= form.status === 'Presentation Error' ? ' selected' : '' %>>Presentation Error</option></select></label><% } %>
       </div>
       <div class="app-form-actions">
         <% if (user && displayConfig.showOthers) { %><div class="app-segmented" aria-label="提交范围"><button type="button" aria-pressed="<%= !form.submitter ? 'true' : 'false' %>" data-submission-scope="all">全部</button><button type="button" aria-pressed="<%= form.submitter === user.username ? 'true' : 'false' %>" data-submission-scope="mine">我的</button></div><% } %>
@@ -171,7 +171,7 @@ const submissionListRoute = displayConfig.inContest
     if (value === 'waiting') return 'app-status-waiting';
     if (value === 'judging' || value.startsWith('running') || value === 'compiling') return 'app-status-judging';
     if (value === 'partially correct') return 'app-status-partial';
-    if (value === 'presentation error' || value === '格式错误') return 'app-verdict app-verdict-format';
+    if (value === 'presentation error') return 'app-verdict app-verdict-format';
     if (value === '作弊' || value === 'cheated' || value === 'wrong answer') return 'app-verdict app-verdict-wrong';
     if (value === 'runtime error' || value === 'invalid interaction') return 'app-verdict app-verdict-runtime';
     if (value === 'time limit exceeded') return 'app-verdict app-verdict-time';
@@ -179,7 +179,7 @@ const submissionListRoute = displayConfig.inContest
     if (value.includes('error') || value === 'judgement failed') return 'app-verdict app-verdict-compile';
     return '';
   }
-  function statusLabel(status) { return String(status || '') === 'Presentation Error' ? '格式错误' : status; }
+  function statusLabel(status) { return status; }
   function size(bytes) {
     var value = Number(bytes || 0); var units = ['B', 'K', 'M', 'G']; var unit = 0;
     while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }

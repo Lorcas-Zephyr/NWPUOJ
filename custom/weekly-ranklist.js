@@ -123,8 +123,14 @@
       var op = board.operation || {}, detail = '已保存，全部场次和成员已重新计算。';
       if (op.added_count != null) detail += ' 新增 ' + op.added_count + ' 人，已在名单中 ' + op.existing_count + ' 人。';
       if (op.missing_student_ids && op.missing_student_ids.length) detail += ' 未匹配学号：' + op.missing_student_ids.join('、');
+      if (path === '/attendance') detail += ' 已按比赛开始至末次提交间的登录 IP 核验，符合多 IP 条件的登记已自动转为线上。';
       message(detail); render();
-    } catch (e) { message(e.message, true); }
+    } catch (e) {
+      message(e.message, true);
+      if (e.status === 412) {
+        try { board = (await api.readResource(base)).data; render(); } catch (_) { /* Keep pending edits if the refresh also fails. */ }
+      }
+    }
     finally { busy = false; root.removeAttribute('aria-busy'); root.querySelectorAll('button,input,select').forEach(function (node) { node.disabled = false; }); if (board) { renderMembers(); renderAttendance(); renderRank(); } }
   }
   root.querySelectorAll('[data-weekly-picker]').forEach(function (picker) {
@@ -144,7 +150,7 @@
     input.addEventListener('keydown', function (e) { if (e.key === 'Escape') results.hidden = true; if (e.key === 'ArrowDown') { var first = results.querySelector('button'); if (first) first.focus(); } });
   });
   document.addEventListener('click', function (event) { root.querySelectorAll('[data-weekly-picker]').forEach(function (picker) { if (!picker.contains(event.target)) picker.querySelector('.weekly-search-results').hidden = true; }); });
-  root.querySelectorAll('[data-weekly-tab]').forEach(function (tab) { tab.addEventListener('click', function () { root.querySelectorAll('[data-weekly-tab]').forEach(function (node) { node.classList.toggle('is-active', node === tab); node.setAttribute('aria-selected', String(node === tab)); }); root.querySelectorAll('[data-weekly-panel]').forEach(function (panel) { panel.hidden = panel.dataset.weeklyPanel !== tab.dataset.weeklyTab; }); }); });
+  root.querySelectorAll('[data-weekly-tab]').forEach(function (tab) { tab.addEventListener('click', function () { root.querySelectorAll('[data-weekly-tab]').forEach(function (node) { node.classList.toggle('is-active', node === tab); node.setAttribute('aria-selected', String(node === tab)); }); root.querySelectorAll('[data-weekly-panel]').forEach(function (panel) { panel.hidden = panel.dataset.weeklyPanel !== tab.dataset.weeklyTab; }); if (tab.dataset.weeklyTab === 'ip') window.dispatchEvent(new CustomEvent('weekly-ip-show')); history.replaceState(null, '', '#' + tab.dataset.weeklyTab); }); });
   ['rank', 'member', 'attendance'].forEach(function (kind) { var input = get('[data-weekly-' + kind + '-filter]'); if (input) input.addEventListener('input', function () { var k = kind === 'member' ? 'members' : kind; page[k] = 1; ({ rank: renderRank, members: renderMembers, attendance: renderAttendance })[k](); }); });
   var identity = get('[data-weekly-identities]'); if (identity) identity.addEventListener('change', renderRank);
   var config = get('[data-weekly-config]'); if (config) config.addEventListener('submit', function (event) { event.preventDefault(); write('/config', { title: config.elements.title.value, rules: { population: config.elements.population.value, count_absent: config.elements.count_absent.value === 'true' } }); });
@@ -154,6 +160,8 @@
   var save = get('[data-weekly-save-attendance]'); if (save) save.addEventListener('click', function () { write('/attendance', { changes: Array.from(pending.values()) }); });
   var recalc = get('[data-weekly-recalculate]'); if (recalc) recalc.addEventListener('click', function () { write('/recalculate', {}); });
   window.addEventListener('beforeunload', function (event) { if (pending.size) { event.preventDefault(); event.returnValue = ''; } });
+  window.addEventListener('weekly-ip-updated', function () { if (!busy && !pending.size) load(); });
+  var initialTab = root.querySelector('[data-weekly-tab="' + location.hash.slice(1).replace(/[^a-z]/g, '') + '"]'); if (initialTab) initialTab.click();
   load();
   if (root.dataset.mode === 'ranklist') setInterval(function () { if (!document.hidden && !busy) load(); }, 30000);
 })();

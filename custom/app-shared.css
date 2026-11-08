@@ -290,6 +290,94 @@
   font-variant-numeric: tabular-nums;
 }
 
+.app-datetime-calendar {
+  border: 1px solid var(--app-line-strong);
+  border-radius: var(--app-radius);
+  background: var(--app-surface-raised);
+  color: var(--app-text);
+  box-shadow: var(--app-shadow-menu);
+  font-family: inherit;
+}
+
+.app-datetime-calendar .flatpickr-month,
+.app-datetime-calendar .flatpickr-weekday,
+.app-datetime-calendar .flatpickr-day,
+.app-datetime-calendar .flatpickr-time input,
+.app-datetime-calendar .flatpickr-time .flatpickr-time-separator {
+  color: var(--app-text);
+}
+
+.app-datetime-calendar .flatpickr-prev-month,
+.app-datetime-calendar .flatpickr-next-month {
+  color: var(--app-text);
+  fill: var(--app-text);
+}
+
+.app-datetime-calendar .flatpickr-monthDropdown-months,
+.app-datetime-calendar .flatpickr-monthDropdown-month {
+  background: var(--app-surface-raised);
+}
+
+.app-datetime-calendar .flatpickr-day.prevMonthDay,
+.app-datetime-calendar .flatpickr-day.nextMonthDay,
+.app-datetime-calendar .flatpickr-day.flatpickr-disabled {
+  color: var(--app-text-muted);
+}
+
+.app-datetime-calendar .flatpickr-day.today {
+  border-color: var(--app-accent);
+}
+
+.app-datetime-calendar .flatpickr-day:hover,
+.app-datetime-calendar .flatpickr-day:focus,
+.app-datetime-calendar .numInputWrapper:hover,
+.app-datetime-calendar .flatpickr-time input:hover,
+.app-datetime-calendar .flatpickr-time input:focus {
+  border-color: var(--app-line-strong);
+  background: var(--app-accent-soft);
+}
+
+.app-datetime-calendar .flatpickr-day.selected,
+.app-datetime-calendar .flatpickr-day.selected:hover,
+.app-datetime-calendar .flatpickr-day.selected:focus {
+  border-color: var(--app-accent);
+  background: var(--app-accent);
+  color: var(--app-surface);
+}
+
+.app-datetime-calendar .flatpickr-time {
+  display: none;
+}
+
+.app-datetime-time-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--app-line);
+}
+
+.app-datetime-time-controls label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.app-datetime-time-controls label > span {
+  flex-shrink: 0;
+}
+
+.app-datetime-time-controls .app-select {
+  font-variant-numeric: tabular-nums;
+}
+
+.app-datetime-calendar::before,
+.app-datetime-calendar::after {
+  display: none;
+}
+
 .app-textarea {
   min-height: 120px;
   padding: 10px 11px;
@@ -1060,7 +1148,8 @@
 .app-markdown p,
 .app-markdown ul,
 .app-markdown ol,
-.app-markdown blockquote {
+.app-markdown blockquote,
+.app-markdown .ui.message {
   margin: 0.9em 0;
 }
 
@@ -1167,11 +1256,20 @@
   font-size: 0.9em;
 }
 
-.app-markdown blockquote {
-  padding: 3px 16px;
-  border-left: 3px solid var(--app-line-strong);
+/* The upstream Markdown utility converts blockquotes to .ui.message. */
+.app-markdown blockquote,
+.app-markdown .ui.message {
+  padding: 12px 16px;
+  border-left: 3px solid var(--app-accent);
+  border-radius: 0 var(--app-radius-small) var(--app-radius-small) 0;
+  background: var(--app-accent-soft);
   color: var(--app-text-secondary);
 }
+
+.app-markdown blockquote > :first-child,
+.app-markdown .ui.message > :first-child { margin-top: 0; }
+.app-markdown blockquote > :last-child,
+.app-markdown .ui.message > :last-child { margin-bottom: 0; }
 
 .app-markdown table {
   display: block;

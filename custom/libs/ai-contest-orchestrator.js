@@ -120,8 +120,7 @@ async function problemForPrompt(contestId, problemId) {
 }
 
 async function availableLanguages(problem) {
-  const languages = syzoj.languages;
-  const configured = languages || syzoj.config.enabled_languages || [];
+  const configured = syzoj.config.enabled_languages || [];
   return Array.isArray(configured) ? configured : Object.keys(configured);
 }
 

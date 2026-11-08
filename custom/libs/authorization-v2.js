@@ -92,6 +92,7 @@ const ADMIN_WORKSPACES = Object.freeze([
   Object.freeze({ capability: 'judge:read', path: '/admin/judge-workers' }),
   Object.freeze({ capability: 'rating:read', path: '/admin/rating' }),
   Object.freeze({ capability: 'admin:user.manage', path: '/admin/users' }),
+  Object.freeze({ capability: 'admin:audit.read', path: '/admin/ip' }),
   Object.freeze({ capability: 'announcement:manage', path: '/admin/announcements' }),
   Object.freeze({ capability: 'solution:moderate', path: '/admin/solutions' }),
   Object.freeze({ capability: 'submission:rejudge', path: '/admin/rejudge' }),

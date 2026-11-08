@@ -389,7 +389,9 @@ module.exports.judge = async function (judge_state, problem, priority, execution
       extraData = await fs.readFile(syzoj.model('file').resolvePath('answer', judge_state.code));
       break;
     case 'interaction':
-      type = enums.ProblemType.Interaction;
+    case 'communication':
+      // Additive daemon protocol type; see judge/daemon-communication.js.
+      type = problem.type === 'communication' ? 4 : enums.ProblemType.Interaction;
       param = {
         language: judge_state.language,
         code: judge_state.code,

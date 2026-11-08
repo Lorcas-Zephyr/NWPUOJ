@@ -19,6 +19,7 @@ enum ProblemType {
   Traditional = "traditional",
   SubmitAnswer = "submit-answer",
   Interaction = "interaction",
+  Communication = "communication",
 }
 
 const statisticsTypes = {
@@ -170,12 +171,16 @@ export default class Problem extends Model {
 
       let execFileAsync = util.promisify(require('child_process').execFile);
       await execFileAsync(__dirname + '/../bin/unzip', ['-j', '-o', '-d', dir, path]);
-      await fs.move(path, this.getTestdataArchivePath(), { overwrite: true });
+      const normalization = await require('../libs/testdata-upload').normalizeTestdataTextDirectory(dir);
+      if (normalization.normalized_files) {
+        await fs.remove(this.getTestdataArchivePath());
+        await fs.remove(path);
+      } else await fs.move(path, this.getTestdataArchivePath(), { overwrite: true });
     });
   }
 
   async uploadTestdataSingleFile(filename, filepath, size, noLimit) {
-    await syzoj.utils.lock(['Promise::Testdata', this.id], async () => {
+    return syzoj.utils.lock(['Promise::Testdata', this.id], async () => {
       let dir = this.getTestdataPath();
       await fs.ensureDir(dir);
 
@@ -191,12 +196,10 @@ export default class Problem extends Model {
       if (!noLimit && oldSize + size > syzoj.config.limit.testdata) throw new ErrorMessage('数据包太大。');
       if (!noLimit && oldCount + (!replace as any as number) > syzoj.config.limit.testdata_filecount) throw new ErrorMessage('数据包中的文件太多。');
 
+      const normalization = await require('../libs/testdata-upload').normalizeTestdataTextFile(filepath);
       await fs.move(filepath, path.join(dir, filename), { overwrite: true });
-
-      let execFileAsync = util.promisify(require('child_process').execFile);
-      try { await execFileAsync('dos2unix', [path.join(dir, filename)]); } catch (e) {}
-
       await fs.remove(this.getTestdataArchivePath());
+      return normalization;
     });
   }
 
@@ -337,7 +340,7 @@ export default class Problem extends Model {
   async resetSubmissionCount() {
     await syzoj.utils.lock(['Problem::resetSubmissionCount', this.id], async () => {
       this.submit_num = await JudgeState.count({ problem_id: this.id, type: TypeORM.Not(1) });
-      this.ac_num = await JudgeState.count({ score: 100, problem_id: this.id, type: TypeORM.Not(1) });
+      this.ac_num = await JudgeState.count({ status: 'Accepted', problem_id: this.id, type: TypeORM.Not(1) });
       await this.save();
     });
   }

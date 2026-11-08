@@ -90,3 +90,11 @@ COPY custom/judge/languages/ /tmp/nwpu-judge-languages/
 RUN set -eux; \
     cp /tmp/nwpu-judge-languages/*.js /app/lib/languages/; \
     rm -rf /tmp/nwpu-judge-languages
+
+# Keep the runtime overrides identical to the files mounted by Compose.
+COPY custom/judge/daemon-testdata.js /app/lib/daemon/testData.js
+COPY custom/judge/daemon-judge.js /app/lib/daemon/judge/index.js
+COPY custom/judge/daemon-communication.js /app/lib/daemon/judge/communication.js
+COPY custom/judge/daemon-compile.js /app/lib/daemon/judge/compile.js
+COPY custom/judge/runner-judge.js /app/lib/runner/judge.js
+COPY custom/judge/runner-communication.js /app/lib/runner/communication.js

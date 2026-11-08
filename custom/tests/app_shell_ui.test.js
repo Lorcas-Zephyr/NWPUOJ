@@ -32,11 +32,15 @@ test('command panel supports filtering and keyboard navigation', () => {
   assert.match(css, /\.app-command-group a:focus-visible/);
 });
 
-test('shared datetime controls open from the whole minute-precision field', () => {
+test('shared datetime controls fix 24-hour time and retain a native fallback', () => {
   const script = read('custom/app-v2.js');
   const css = readAppCss();
 
   assert.match(script, /function setupDateTimePickers\(\)/);
+  assert.match(script, /enableTime: true/);
+  assert.match(script, /time_24hr: true/);
+  assert.match(script, /disableMobile: true/);
+  assert.match(script, /minuteIncrement: 1/);
   assert.match(script, /typeof input\.showPicker !== 'function'/);
   assert.match(script, /input\.addEventListener\('focus', openPicker\)/);
   assert.match(script, /input\.addEventListener\('click', openPicker\)/);

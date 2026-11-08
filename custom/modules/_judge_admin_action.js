@@ -12,19 +12,11 @@ const judger = require('../libs/judger');
 syzoj.cheatedJudgeIds = new Set();
 syzoj.cancelledJudgeIds = new Set();
 
-// 棕名仅展示 3 个自然月；作弊判定、比赛统计和审计记录不随颜色到期撤销。
-// 按站点北京时间计算，月末在目标月份没有同一天时取该月最后一天。
+// 棕名仅展示两周；作弊判定、比赛统计和审计记录不随颜色到期撤销。
 function cheaterNameExpiresAt(operatorTime) {
   const timestamp = Number(operatorTime);
   if (!Number.isFinite(timestamp) || timestamp <= 0) return 0;
-  const siteOffsetMs = 8 * 60 * 60 * 1000;
-  const expires = new Date(timestamp * 1000 + siteOffsetMs);
-  const day = expires.getUTCDate();
-  expires.setUTCDate(1);
-  expires.setUTCMonth(expires.getUTCMonth() + 3);
-  const lastDay = new Date(Date.UTC(expires.getUTCFullYear(), expires.getUTCMonth() + 1, 0)).getUTCDate();
-  expires.setUTCDate(Math.min(day, lastDay));
-  return (expires.getTime() - siteOffsetMs) / 1000;
+  return timestamp + 14 * 24 * 60 * 60;
 }
 
 async function refreshAdminActionCache() {

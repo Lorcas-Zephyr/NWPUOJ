@@ -49,6 +49,21 @@ function harness(playerCount = 3) {
     if (/SELECT revision FROM contest_registration_setting/.test(sql)) return [{ revision: 1 }];
     if (/SELECT ranking_params FROM contest_ranklist/.test(sql)) return [{ ranking_params: '{}' }];
     if (/SELECT id,submit_time FROM judge_state/.test(sql)) return submissions.filter(row => args[0].includes(row.id));
+    if (/SELECT js.user_id,js.problem_id,COUNT\(\*\) AS submissions/.test(sql)) {
+      const [cutoff, contestId, problemIds, start, end] = args;
+      const grouped = new Map();
+      for (const row of submissions) {
+        if ((row.type != null && row.type !== 1) || (row.type_info != null && row.type_info !== contestId) ||
+            !problemIds.includes(row.problem_id) || row.submit_time < start || row.submit_time >= end ||
+            row.action_type || ['Cancelled', 'Cheated'].includes(row.status)) continue;
+        const key = row.user_id + ':' + row.problem_id;
+        if (!grouped.has(key)) grouped.set(key, { user_id: row.user_id, problem_id: row.problem_id, submissions: 0, accepted: 0 });
+        const counts = grouped.get(key);
+        counts.submissions++;
+        if (!row.pending && row.status === 'Accepted' && row.submit_time < cutoff) counts.accepted++;
+      }
+      return Array.from(grouped.values());
+    }
     if (/SELECT js.id,js.user_id/.test(sql)) return submissions.filter(row => row.submit_time >= args[1] && row.submit_time < args[2]);
     if (/SELECT MAX\(id\)/.test(sql)) return [{ id: Math.max(...submissions.filter(row => row.submit_time < args[1]).map(row => row.id)) }];
     if (/INSERT INTO contest_v2_standings_version/.test(sql)) {
@@ -123,7 +138,7 @@ function harness(playerCount = 3) {
     res.render = (_template, values, callback) => {
       renderCount++;
       rendered = values;
-      if (callback) callback(null, JSON.stringify({ rows: values.ranklist, profiles: Array.from(values.ranklistProfiles.entries()), view: values.standingsView }));
+      if (callback) callback(null, JSON.stringify({ rows: values.ranklist, profiles: Array.from(values.ranklistProfiles.entries()), view: values.standingsView, problemStatistics: values.ranklistProblemStatistics }));
       return values;
     };
     const result = await routes.get(method + ' ' + route)(req, res);
@@ -133,6 +148,7 @@ function harness(playerCount = 3) {
     save: (userId, body) => request('post', '/api/v2/contests/:id/update', userId, {}, body),
     create: (userId, body) => request('post', '/api/v2/contests', userId, {}, body),
     setNow: value => { now = value; }, setFreeze: value => { freezeMinutes = value; utils.invalidateContestReadCache(21); }, versions,
+    addSubmission: row => { submissions.push(row); utils.invalidateContestReadCache(21); },
     submissionFrozen: (judge, userId) => utils.contestV2.isSubmissionFrozen(judge, userId ? { id: userId } : null) };
 }
 
@@ -296,4 +312,46 @@ test('450 partial standings readers share the expensive score and frozen-result 
   assert.equal(count('FROM contest_player cp'), 1);
   assert.equal(count('SELECT js.id,js.user_id'), 1);
   assert.equal(count('SELECT ranking_params FROM contest_ranklist'), 1);
+  assert.equal(count('COUNT(*) AS submissions'), 1);
+});
+
+test('problem header statistics count submissions across filters and pages without revealing sealed ACs', async () => {
+  const app = harness(105);
+  const route = '/contest/:id/ranklist';
+  const counts = view => JSON.parse(JSON.stringify(view.ranklistProblemStatistics));
+  assert.deepEqual(counts(await app.get(route, null)), { 11: { accepted: 1, submissions: 3 } });
+  assert.deepEqual(counts(await app.get(route, null, { page: 2 })), { 11: { accepted: 1, submissions: 3 } });
+  assert.deepEqual(counts(await app.get(route, 2, { view: 'live' })), { 11: { accepted: 2, submissions: 3 } });
+  assert.deepEqual(counts(await app.get(route, 7, { view: 'live' })), { 11: { accepted: 1, submissions: 3 } });
+  assert.deepEqual(counts(await app.get(route, 7, { account: 'contest' })), { 11: { accepted: 1, submissions: 1 } });
+  assert.deepEqual(counts(await app.get(route, 7, { account: 'ordinary', classes: '3' })), { 11: { accepted: 0, submissions: 2 } });
+  assert.deepEqual(counts(await app.get(route, 7, { account: 'ai' })), { 11: { accepted: 0, submissions: 0 } });
+  app.setNow(400);
+  assert.deepEqual(counts(await app.get(route, null)), { 11: { accepted: 2, submissions: 3 } });
+});
+
+test('problem header totals include repeated, pending and CE attempts, exclude invalid records, and refresh without row changes', async () => {
+  const app = harness();
+  const route = '/api/v2/contests/:id/ranklist-view';
+  const before = await app.get(route, 2, { view: 'live' });
+  const submit = (id, extra = {}) => app.addSubmission({ id, user_id: 8, problem_id: 11, submit_time: 250, status: 'Accepted', score: 100, ...extra });
+  submit(4); // Repeated AC must count even though the standing row is unchanged.
+  submit(5, { status: 'Compile Error', score: null });
+  submit(6, { pending: 1 });
+  submit(7, { action_type: 'cancelled' });
+  submit(8, { status: 'Cheated' });
+  submit(9, { status: 'Cancelled' });
+  submit(10, { submit_time: 99 });
+  submit(11, { submit_time: 400 });
+  submit(12, { problem_id: 99 });
+  submit(13, { user_id: 999 });
+  submit(14, { type: 0 });
+  submit(15, { type_info: 22 });
+  const after = await app.get(route, 2, { view: 'live', revision: before.revision });
+  assert.equal(after.unchanged, false);
+  assert.notEqual(after.revision, before.revision);
+  assert.deepEqual(JSON.parse(after.html).rows, JSON.parse(before.html).rows);
+  assert.deepEqual(JSON.parse(after.html).problemStatistics, { 11: { accepted: 3, submissions: 6 } });
+  const frozen = await app.get(route, null);
+  assert.deepEqual(JSON.parse(frozen.html).problemStatistics, { 11: { accepted: 1, submissions: 6 } });
 });

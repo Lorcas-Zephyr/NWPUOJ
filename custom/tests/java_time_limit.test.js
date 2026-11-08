@@ -124,6 +124,8 @@ test('interaction configuration accepts Java factors; submit-answer preserves li
   const app = workflowHarness();
   app.setType('interaction');
   assert.equal((await app.update({ java_time_limit_multiplier: '2.5' })).java_time_limit_multiplier, 2.5);
+  app.setType('communication');
+  assert.equal((await app.update({ java_time_limit_multiplier: '2.5', file_io: true })).file_io, false);
   app.setType('submit-answer');
   assert.equal((await app.update({ java_time_limit_multiplier: 'bad' })).java_time_limit_multiplier, 2.5);
 });
@@ -140,13 +142,14 @@ test('standard and interactive judge tasks use the same multiplied limit in payl
     judgeQueue: { push: task => queue.push(task) }, winston: { warn() {} }
   });
   vm.runInContext(source.slice(source.indexOf('module.exports.judge = async function'), source.indexOf('module.exports.getCachedJudgeState =')), context);
-  for (const type of ['traditional', 'interaction']) {
+  for (const type of ['traditional', 'interaction', 'communication']) {
     for (const [language, javaMultiplier, expected] of [['java', undefined, 2000], ['java', 3.5, 3500], ['python311', 3.5, 4000], ['pypy3', 3.5, 4000], ['cpp23', 3.5, 1000]]) {
       await context.module.exports.judge({ id: 99, task_id: 'test-task', language, code: 'test' }, {
         id: 7, type, time_limit: 1000, memory_limit: 256, python_time_limit_multiplier: 4,
         java_time_limit_multiplier: javaMultiplier
       }, 2, { snapshotId: 'ps_9' });
       const { content } = queue.pop();
+      assert.equal(content.type, type === 'communication' ? 4 : type === 'interaction' ? 2 : 1);
       assert.equal(content.param.timeLimit, expected);
       assert.equal(content.securityPolicy.timeLimit, expected);
       assert.equal(content.securityPolicy.problemSnapshotId, 'ps_9');

@@ -14,7 +14,8 @@ const css = readAppCss();
 const header = fs.readFileSync(path.join(root, 'custom/views/app_header.ejs'), 'utf8');
 const footer = fs.readFileSync(path.join(root, 'custom/views/app_footer.ejs'), 'utf8');
 const appJs = fs.readFileSync(path.join(root, 'custom/app-v2.js'), 'utf8');
-const editorJs = fs.readFileSync(path.join(root, 'custom/modern-editor.js'), 'utf8');
+const editorJs = fs.readFileSync(path.join(root, 'custom/editor/src/editor.js'), 'utf8');
+const editorLoader = fs.readFileSync(path.join(root, 'custom/editor/src/bootstrap.js'), 'utf8');
 const submission = fs.readFileSync(path.join(root, 'custom/views/submission.ejs'), 'utf8');
 const submissions = fs.readFileSync(path.join(root, 'custom/views/submissions.ejs'), 'utf8');
 const problemContext = fs.readFileSync(path.join(root, 'custom/views/problem_context.ejs'), 'utf8');
@@ -55,24 +56,24 @@ test('submit workspace avoids excessive empty editor space on desktop and mobile
   assert.match(css, /@media \(max-width: 760px\)\s*\{[\s\S]*?\.app-submit-editor-stack\s*\{[^}]*min-height:\s*280px/s);
 });
 
-test('language choices preserve the full language name and truncate only compiler details', () => {
-  assert.match(form, /class="app-submit-language-name"><%= languageMap\[lang\]\.show %><\/span>/);
-  assert.match(form, /class="app-submit-language-version" title="<%= languageMap\[lang\]\.version %>"/);
-  assert.match(css, /\.app-submit-language\[data-language\]\s*\{[^}]*grid-template-columns:\s*17px max-content minmax\(28px, 1fr\)/s);
-  assert.match(css, /\.app-submit-language \.app-submit-language-name\s*\{[^}]*overflow:\s*visible[^}]*text-overflow:\s*clip/s);
-  assert.match(css, /\.app-submit-language-version\s*\{[^}]*min-width:\s*0[^}]*overflow:\s*hidden[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/s);
+test('language choices use a compact toolbar with the complete compiler version', () => {
+  assert.match(form, /aria-label="编程语言" data-language-select/);
+  assert.match(form, /<%= languageMap\[lang\]\.show %><\/option>/);
+  assert.match(form, /class="app-editor-compiler" data-language-version/);
+  assert.match(form, /submitEditor\.setLanguage\(selected\.dataset\.mode\)/);
+  assert.match(css, /\.app-editor-toolbar\s*\{[^}]*display: flex/s);
+  assert.match(css, /\.app-code-workbench > \.app-submit-editor\s*\{[^}]*height: clamp\(380px, 52vh, 640px\)/s);
 });
 
-test('submit editor is white, minimap-free, and falls back to an accessible textarea', () => {
-  assert.match(editorJs, /setTheme\('vs'\)/);
-  assert.match(editorJs, /minimap: \{ enabled: false \}/);
-  assert.match(editorJs, /function createFallbackEditor\(element, language, content\)/);
-  assert.match(editorJs, /textarea\.className = 'app-code-fallback'/);
-  assert.match(editorJs, /textarea\.setAttribute\('aria-label', '代码编辑器'\)/);
-  assert.match(editorJs, /fallbackTimer = window\.setTimeout\(activateFallback, 5000\)/);
-  assert.match(css, /\.app-submit-editor,[\s\S]*background: #ffffff/);
-  assert.match(css, /\.app-code-fallback\s*\{[^}]*background: #ffffff/s);
-  assert.match(css, /\.app-submit-editor \.minimap,[\s\S]*display: none !important/);
+test('CodeMirror follows the site theme and falls back without losing source', () => {
+  assert.match(editorJs, /import \{ EditorView/);
+  assert.match(editorJs, /attributeFilter: \['data-theme'\]/);
+  assert.match(editorLoader, /NWPUOJCreateFallbackEditor = function \(element, language, content\)/);
+  assert.match(editorLoader, /textarea\.className = 'app-code-fallback'/);
+  assert.match(editorLoader, /textarea\.setAttribute\('aria-label'/);
+  assert.match(editorLoader, /window\.setTimeout\(fallback, 5000\)/);
+  assert.match(css, /\.app-code-fallback\s*\{[^}]*background: var\(--app-surface\)/s);
+  assert.doesNotMatch(page, /include monaco-editor|modern-editor\.js/);
 });
 
 test('submission lists and details show stable live judge progress', () => {
@@ -126,12 +127,15 @@ test('contest and problem-set submission filters use a compact desktop row only'
   }
 });
 
-test('presentation errors are rendered as format errors in every submission surface', () => {
-  assert.match(submission, /appResultTypes = \[[\s\S]*'格式错误'\]/);
+test('presentation errors use the English verdict in every submission surface', () => {
+  assert.match(submission, /appResultTypes = \[[\s\S]*'Presentation Error'\]/);
   assert.match(submission, /presentation error.*app-verdict-format/);
-  assert.match(submissions, /Presentation Error.*格式错误/);
-  assert.match(problemSetSubmissions, /Presentation Error.*格式错误/);
+  assert.match(submissions, />Presentation Error<\/option>/);
   assert.match(problemSetSubmissions, /presentation error.*app-verdict app-verdict-format/);
+  for (const name of ['submission', 'submissions', 'problem_set_submissions', 'problems', 'statistics', 'status_label']) {
+    const view = fs.readFileSync(path.join(root, 'custom/views', name + '.ejs'), 'utf8');
+    assert.doesNotMatch(view, /格式错误/, name + ' keeps the canonical English verdict');
+  }
 });
 
 test('compiler diagnostics render their safe formatting without exposing HTML source', () => {
@@ -232,12 +236,12 @@ test('submit controls render Lucide SVG markup without waiting for JavaScript re
   assert.match(css, /\.app-submit-page \.app-static-icon\s*\{[^}]*display: inline-block/s);
 });
 
-test('Lucide loads before the submission editor installs the Monaco AMD loader', () => {
-  assert.match(header, /Load before Monaco installs its AMD loader/);
+test('submission icons render before the deferred local CodeMirror bundle', () => {
   assert.doesNotMatch(footer, /<script src="\/self\/lucide-/);
-  assert.ok(page.indexOf('include app_header') < page.indexOf('include monaco-editor'));
-  assert.ok(page.indexOf('include problem_context') < page.indexOf('include monaco-editor'));
-  assert.ok(page.indexOf('__NWPUOJ_RENDER_ICONS') < page.indexOf('include monaco-editor'));
+  assert.ok(page.indexOf('include app_header') < page.indexOf('data-code-editor-bundle'));
+  assert.ok(page.indexOf('include problem_context') < page.indexOf('data-code-editor-bundle'));
+  assert.ok(page.indexOf('__NWPUOJ_RENDER_ICONS') < page.indexOf('data-code-editor-bundle'));
+  assert.match(page, /<script defer data-code-editor-bundle/);
 });
 
 test('submit navigation icons are server-rendered and do not depend on Monaco-time replacement', () => {

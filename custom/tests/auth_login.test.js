@@ -63,13 +63,16 @@ function harness() {
       isUserAccountActive: async id => !users.find(user => user.id === id).disabled,
       isTemporaryAccountLoginAllowed: async id => !users.find(user => user.id === id).expired,
       isTemporaryContestAccount: async id => !!users.find(user => user.id === id).temporary,
-      establishAuthenticatedSession: async (_req, id, options) => { sessions.push(id); sessionOptions.push({ ...options }); },
+      establishAuthenticatedSession: async (req, id, options) => {
+        sessions.push(id); sessionOptions.push({ ...options });
+        req.session = { rememberMe: options.rememberMe, cookie: { originalMaxAge: (options.rememberMe ? 720 : 12) * 3600000 } };
+      },
       clearLegacyLoginCookie() {},
       authorizationV2: { recordAudit: async (_req, event) => { audits.push(event); } }
     } }
   });
   vm.runInContext(source.slice(0, source.indexOf("app.post('/api/v2/auth/logout',")), context);
-  return { users, profiles, sessions, sessionOptions, audits, queries,
+  return { users, profiles, sessions, sessionOptions, audits, queries, utils: context.syzoj.utils,
     schemaChecks: () => schemaChecks, verifyCalls: () => verifyCalls,
     advance: milliseconds => { now += milliseconds; },
     login: (identifier, password = 'good_password', ip = 'test-client', rememberMe) => handler(
@@ -205,6 +208,12 @@ test('remember me is explicitly opt-in for ordinary and temporary sign-ins', asy
   assert.equal((await h.login('0012345678', 'good_password', 'test-client', false)).status, 200);
   assert.equal((await h.login(h.users[1].username, 'temporary_password', 'test-client', true)).status, 200);
   assert.deepEqual(h.sessionOptions, [{ rememberMe: false }, { rememberMe: true }, { rememberMe: false }, { rememberMe: true }]);
+  assert.deepEqual(h.audits.map(event => ({ ...event.details })), [
+    { remember_me: false, session_max_age_ms: 43200000 },
+    { remember_me: true, session_max_age_ms: 2592000000 },
+    { remember_me: false, session_max_age_ms: 43200000 },
+    { remember_me: true, session_max_age_ms: 2592000000 }
+  ]);
   for (const value of ['false', 'true', 1, 0, null, [], {}]) {
     assert.equal((await h.login('alice', 'good_password', 'test-client', value)).status, 422);
   }
@@ -213,4 +222,19 @@ test('remember me is explicitly opt-in for ordinary and temporary sign-ins', asy
   h.users[0].disabled = true;
   assert.equal((await h.login('alice', 'good_password', 'test-client', true)).status, 403);
   assert.equal(h.sessions.length, 4, 'invalid options and ineligible accounts cannot create sessions');
+  assert.equal(h.audits.length, 4, 'failed sign-ins must not record successful login preferences');
+});
+
+
+test('weekly IP checks run after successful audit and failures do not block login', async () => {
+  const h = harness(), checked = [];
+  h.utils.weeklyRanklistCheckLoginIPs = async id => {
+    assert.equal(h.audits.at(-1).resourceId, id);
+    checked.push(id);
+    throw new Error('temporary weekly storage failure');
+  };
+  assert.equal((await h.login('alice')).status, 200);
+  assert.deepEqual(checked, [1]);
+  assert.equal((await h.login('alice', 'wrong')).status, 401);
+  assert.deepEqual(checked, [1]);
 });

@@ -550,7 +550,124 @@
   }
 
   function setupDateTimePickers() {
-    document.querySelectorAll('[data-app-datetime-picker]').forEach(function (input) {
+    function syncTimeSelects(instance) {
+      var hour = instance.calendarContainer.querySelector('[data-datetime-hour]');
+      var minute = instance.calendarContainer.querySelector('[data-datetime-minute]');
+      if (hour) hour.value = instance.hourElement.value;
+      if (minute) minute.value = instance.minuteElement.value;
+    }
+    function setupTimeSelects(instance) {
+      var controls = document.createElement('div');
+      controls.className = 'app-datetime-time-controls';
+      function timeSelect(labelText, count, attribute) {
+        var label = document.createElement('label');
+        var text = document.createElement('span');
+        text.textContent = labelText;
+        var select = document.createElement('select');
+        select.className = 'app-select';
+        select.setAttribute(attribute, '');
+        select.setAttribute('aria-label', labelText + '（0–' + (count - 1) + '）');
+        for (var value = 0; value < count; value++) {
+          var option = document.createElement('option');
+          option.value = option.textContent = ('0' + value).slice(-2);
+          select.appendChild(option);
+        }
+        label.appendChild(text);
+        label.appendChild(select);
+        controls.appendChild(label);
+        return select;
+      }
+      var hour = timeSelect('小时', 24, 'data-datetime-hour');
+      var minute = timeSelect('分钟', 60, 'data-datetime-minute');
+      function updateTime() {
+        var date = new Date(instance.selectedDates[0] || new Date());
+        date.setHours(Number(hour.value), Number(minute.value), 0, 0);
+        instance.setDate(date, true);
+      }
+      [hour, minute].forEach(function (select) {
+        select.addEventListener('change', updateTime);
+        select.addEventListener('keydown', function (event) {
+          // Let native selects handle their own option navigation instead of
+          // Flatpickr's number-input keyboard shortcuts.
+          event.stopPropagation();
+          if (event.key === 'Escape' || event.key === 'Tab' && (event.shiftKey ? select === hour : select === minute)) {
+            event.preventDefault();
+            instance.altInput.focus();
+            instance.close();
+          } else if (event.key === 'Tab') {
+            event.preventDefault();
+            (event.shiftKey ? hour : minute).focus();
+          }
+        });
+      });
+      // Keep Flatpickr's time inputs for its date calculations; show the
+      // explicit hour/minute choices in the same calendar popup.
+      instance.timeContainer.setAttribute('aria-hidden', 'true');
+      instance.calendarContainer.appendChild(controls);
+      function focusTimeAfterDatePick(event) {
+        if (event.type === 'keydown' && event.key !== 'Enter') return;
+        var day = event.target.closest('.flatpickr-day');
+        if (!day || day.classList.contains('flatpickr-disabled') || day.classList.contains('notAllowed')) return;
+        // The calendar rebuilds its days before finishing a date selection.
+        window.setTimeout(function () { if (instance.isOpen) hour.focus(); }, 0);
+      }
+      instance.daysContainer.addEventListener('click', focusTimeAfterDatePick, true);
+      instance.daysContainer.addEventListener('keydown', focusTimeAfterDatePick, true);
+      syncTimeSelects(instance);
+    }
+    function parseDateTime(value) {
+      var parts = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})$/.exec(value);
+      if (!parts) return undefined;
+      var date = new Date(0);
+      date.setFullYear(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]));
+      date.setHours(Number(parts[4]), Number(parts[5]), 0, 0);
+      if (date.getFullYear() !== Number(parts[1]) || date.getMonth() !== Number(parts[2]) - 1 || date.getDate() !== Number(parts[3]) || date.getHours() !== Number(parts[4]) || date.getMinutes() !== Number(parts[5])) return undefined;
+      return date;
+    }
+    document.querySelectorAll('input[type="datetime-local"], [data-app-datetime-picker]').forEach(function (input) {
+      if (typeof window.flatpickr === 'function') {
+        var picker = window.flatpickr(input, {
+          locale: window.flatpickr.l10ns.zh,
+          enableTime: true,
+          time_24hr: true,
+          disableMobile: true,
+          minuteIncrement: 1,
+          dateFormat: 'Y-m-d\\TH:i',
+          altInput: true,
+          altFormat: 'Y-m-d H:i',
+          altInputClass: 'app-input app-datetime-input',
+          allowInput: true,
+          parseDate: parseDateTime,
+          onReady: function (dates, value, instance) {
+            instance.calendarContainer.classList.add('app-datetime-calendar');
+            instance.calendarContainer.setAttribute('role', 'dialog');
+            instance.calendarContainer.setAttribute('aria-label', '选择日期和时间（24 小时制）');
+            if (input.hasAttribute('aria-label')) instance.altInput.setAttribute('aria-label', input.getAttribute('aria-label'));
+            instance.altInput.placeholder = 'YYYY-MM-DD HH:mm（24 小时制）';
+            setupTimeSelects(instance);
+          },
+          onOpen: function (dates, value, instance) { syncTimeSelects(instance); },
+          onChange: function (dates, value, instance) { syncTimeSelects(instance); },
+          onValueUpdate: function (dates, value, instance) {
+            instance.altInput.setCustomValidity('');
+            syncTimeSelects(instance);
+          }
+        });
+        // Keep the submitted ISO local value current even when the user types
+        // a time and immediately submits without leaving the field.
+        picker.altInput.addEventListener('input', function () {
+          var text = picker.altInput.value;
+          var date = parseDateTime(text);
+          picker.altInput.setCustomValidity(text && !date ? '请输入有效的日期和 24 小时制时间，例如 2026-11-15 13:05。' : '');
+          if (date) picker.setDate(date, true);
+          else if (!text) picker.clear();
+          else {
+            input.value = '';
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        });
+        return;
+      }
       function openPicker() {
         if (typeof input.showPicker !== 'function' || input.disabled || input.readOnly) return;
         try { input.showPicker(); } catch (error) {}

@@ -18,7 +18,7 @@ function render(partial, updated) {
     const items=[7,8].map(id=>({user:{id,username:'player'+id},player:{score:x.updated?(id===8?2:1):0,score_details:{},standing_rank:x.updated?(id===8?1:2):1,medal:id===(x.updated?8:7)?'gold':'silver'}}));
     if(x.updated)items.reverse();
     const utils={makeUrl:(parts,query)=>'/'+parts.join('/')+(query?'?'+new URLSearchParams(query):''),removeTitleTag:s=>s,formatTime:String,formatDate:String,getCurrentDate:()=>300,renderUsername:u=>'<a href="/user/'+u.id+'">'+u.username+'</a>'};
-    process.stdout.write(ejs.render(template,{ranklistPartial:x.partial,contest,ranklist:items,user:{id:7},problems:[{id:11,title:'最新题名'}],req:{query:{account:'ordinary',classes:'3',page:'1'}},ranklistTotal:2,ranklistAccountFilter:'ordinary',ranklistClassOptions:[{id:3,name:'班级甲',tag:'甲'}],ranklistSelectedClassIds:[3],canManageRanklist:true,showRanklistIdentities:false,ranklistProfiles:new Map(),standingsView:{frozen:false,cutoff:null,showLive:false},paginate:{pageCnt:2,currPage:1},paginationBasePath:['contest',21,'ranklist'],syzoj:{utils}}));`;
+    process.stdout.write(ejs.render(template,{ranklistPartial:x.partial,contest,ranklist:items,user:{id:7},problems:[{id:11,title:'最新题名'},{id:12,title:'尚无提交'}],ranklistProblemStatistics:{11:{accepted:x.updated?2:1,submissions:x.updated?4:3}},req:{query:{account:'ordinary',classes:'3',page:'1'}},ranklistTotal:2,ranklistAccountFilter:'ordinary',ranklistClassOptions:[{id:3,name:'班级甲',tag:'甲'}],ranklistSelectedClassIds:[3],canManageRanklist:true,showRanklistIdentities:false,ranklistProfiles:new Map(),standingsView:{frozen:false,cutoff:null,showLive:false},paginate:{pageCnt:2,currPage:1},paginationBasePath:['contest',21,'ranklist'],syzoj:{utils}}));`;
   const result = spawnSync('docker', ['compose', 'exec', '-T', 'web', 'node', '-e', script], {
     cwd: path.join(root, '..'), input: JSON.stringify({ template, partial, updated }), encoding: 'utf8', timeout: 20000
   });
@@ -39,7 +39,7 @@ test('live rank updates preserve row nodes, scroll, open filters and pagination;
   page.on('pageerror', error => errors.push(error.message));
   await context.route('**/*', async route => {
     const url = new URL(route.request().url());
-    if (url.pathname.startsWith('/self/')) return route.fulfill({ contentType: 'application/javascript', body: read(url.pathname.split('/').pop()) });
+    if (url.pathname.startsWith('/self/')) return route.fulfill({ contentType: url.pathname.endsWith('.css') ? 'text/css' : 'application/javascript', body: read(url.pathname.split('/').pop()) });
     if (url.pathname.includes('ranklist-view')) {
       requests.push(url); calls++;
       return route.fulfill({ status: revoked ? 403 : fail ? 500 : 200, contentType: 'application/json', body: JSON.stringify(fail || revoked ? { error: { message: 'fixture' } } : {
@@ -47,22 +47,27 @@ test('live rank updates preserve row nodes, scroll, open filters and pagination;
           clock: { start: 100, end: 2000, now: 300 }, title: '最新比赛标题' }, error: null
       }) });
     }
-    return route.fulfill({ contentType: 'text/html', body: '<!doctype html><html><head><meta charset="utf-8"></head><body><div class="app-contest-context" style="height:400px"><h1>原比赛标题</h1></div>' + initial + '<div style="height:2000px"></div></body></html>' });
+    return route.fulfill({ contentType: 'text/html', body: '<!doctype html><html data-theme="light"><head><meta charset="utf-8">' + ['app-shell.css', 'app-shared.css', 'app-features.css'].map(file => '<link rel="stylesheet" href="/self/' + file + '">').join('') + '</head><body class="app-v2"><div class="app-contest-context" style="height:400px"><h1>原比赛标题</h1></div>' + initial + '<div style="height:2000px"></div></body></html>' });
   });
   try {
     await page.goto('http://rank.test/contest/21/ranklist?account=ordinary&classes=3&page=1');
+    assert.deepEqual(await page.locator('.app-rank-problem-statistics').allTextContents(), ['1/3', '0/0']);
+    const alias = await page.locator('.app-rank-problem a').first().boundingBox();
+    const counts = await page.locator('.app-rank-problem-statistics').first().boundingBox();
+    assert.ok(counts.y >= alias.y + alias.height, 'counts appear on a separate line below the problem alias');
     assert.equal(await page.locator('[data-rank-user-id="7"] .app-rank-number.is-gold').count(), 1);
     await page.evaluate(() => {
       window.addEventListener('contest-clock-sync', event => { window.syncedClock = event.detail; });
       window.originalRow = document.querySelector('[data-rank-user-id="7"]');
       window.originalTable = document.querySelector('.app-contest-rank-table');
-      window.scrollTo(0, 300);
+      window.scrollTo({ top: 300, behavior: 'instant' });
       document.querySelector('details').open = true;
       document.querySelector('[name="classes"]').checked = false;
     });
     const scroll = await page.evaluate(() => window.scrollY);
     await page.clock.fastForward(18000);
     await page.waitForFunction(() => document.querySelector('tbody tr').dataset.rankUserId === '8');
+    assert.deepEqual(await page.locator('.app-rank-problem-statistics').allTextContents(), ['2/4', '0/0']);
     assert.equal(await page.locator('[data-rank-user-id="8"] .app-rank-number.is-gold').count(), 1);
     assert.equal(await page.locator('[data-rank-user-id="7"] .app-rank-number.is-silver').count(), 1);
     assert.equal(await page.evaluate(() => window.originalRow === document.querySelector('[data-rank-user-id="7"]')), true);

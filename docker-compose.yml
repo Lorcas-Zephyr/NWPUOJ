@@ -20,7 +20,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.web
-    image: nwpuoj-web:v2.2.0
+    image: nwpuoj-web:v2.3.0
     restart: unless-stopped
     depends_on:
       judge-control: { condition: service_healthy }
@@ -37,6 +37,12 @@ services:
       - ./custom/modules/_contest_plagiarism.js:/app/modules/_contest_plagiarism.js:ro
       - ./custom/modules/_weekly_ranklist.js:/app/modules/_weekly_ranklist.js:ro
       - ./custom/libs/weekly-standings.js:/app/libs/weekly-standings.js:ro
+      - ./custom/libs/login-ip.js:/app/libs/login-ip.js:ro
+      - ./custom/modules/_login_ip.js:/app/modules/_login_ip.js:ro
+      - ./custom/views/admin_ip.ejs:/app/views/admin_ip.ejs:ro
+      - ./custom/views/login_ip_table.ejs:/app/views/login_ip_table.ejs:ro
+      - ./custom/login-ip.js:/app/static/self/login-ip.js:ro
+      - ./custom/login-ip.css:/app/static/self/login-ip.css:ro
       - ./custom/views/weekly_ranklist.ejs:/app/views/weekly_ranklist.ejs:ro
       - ./custom/weekly-ranklist.js:/app/static/self/weekly-ranklist.js:ro
       - ./custom/weekly-ranklist.css:/app/static/self/weekly-ranklist.css:ro
@@ -441,12 +447,16 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.judge
-    image: nwpuoj-judge:v2.2.0
+    image: nwpuoj-judge:v2.3.0
     restart: unless-stopped
     scale: 16
     volumes:
       - config:/app/config
       - uploads:/app/testdata
+      - ./custom/judge/daemon-testdata.js:/app/lib/daemon/testData.js:ro
+      - ./custom/judge/daemon-judge.js:/app/lib/daemon/judge/index.js:ro
+      - ./custom/judge/daemon-communication.js:/app/lib/daemon/judge/communication.js:ro
+      - ./custom/judge/daemon-compile.js:/app/lib/daemon/judge/compile.js:ro
     depends_on:
       redis: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
@@ -473,7 +483,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.judge
-    image: nwpuoj-judge:v2.2.0
+    image: nwpuoj-judge:v2.3.0
     restart: unless-stopped
     scale: 16
     privileged: true
@@ -483,6 +493,8 @@ services:
       - config:/app/config
       - uploads:/app/testdata
       - ./custom/judge/runner-judge.js:/app/lib/runner/judge.js:ro
+      - ./custom/judge/runner-communication.js:/app/lib/runner/communication.js:ro
+      - ./custom/judge/languages/_cpp-modern.js:/app/lib/languages/_cpp-modern.js:ro
     depends_on:
       redis: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }

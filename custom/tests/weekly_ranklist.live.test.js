@@ -14,7 +14,7 @@ test('deployed weekly page, assets, anonymous permissions and responsive shell',
     const page = await context.newPage(), errors = [];
     page.on('pageerror', error => errors.push(error.message));
     const origin = process.env.NWPUOJ_WEEKLY_LIVE_ORIGIN || 'http://127.0.0.1';
-    for (const path of ['/', '/contests', '/ranklist', '/self/weekly-ranklist.js', '/self/weekly-ranklist.css']) {
+    for (const path of ['/', '/contests', '/ranklist', '/self/weekly-ranklist.js', '/self/weekly-ranklist.css', '/self/login-ip.js', '/self/login-ip.css']) {
       const response = await context.request.get(origin + path);
       assert.equal(response.status(), 200, path);
     }
@@ -33,6 +33,8 @@ test('deployed weekly page, assets, anonymous permissions and responsive shell',
     assert.ok(data.rows.every(row => row.cells.every(cell => Number.isSafeInteger(cell.total_problems) && cell.total_problems >= 0)));
     assert.ok((await page.locator('[data-weekly-rank] td small').allTextContents()).every(text => /通过 (?:\d+|—)\/\d+$/.test(text)));
     assert.equal((await context.request.get(origin + '/weekly-ranklist/settings')).status(), 401);
+    for (const path of ['/admin/ip', '/api/v2/admin/login-ips?q=Miku_master', '/api/v2/weekly-ranklist/login-ips']) assert.equal((await context.request.get(origin + path)).status(), 401, path);
+    assert.ok(!JSON.stringify(data).includes('ip_address') && !JSON.stringify(data).includes('evidence_json'));
     assert.equal((await context.request.get(origin + '/api/v2/weekly-ranklist/search/users?q=test')).status(), 403);
     await page.screenshot({ path: '/tmp/nwpuoj-weekly-live-desktop.png', animations: 'disabled' });
     await page.setViewportSize({ width: 390, height: 844 });

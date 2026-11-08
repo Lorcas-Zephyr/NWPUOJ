@@ -24,6 +24,7 @@ function calculateWeeklyStandings({ members, contests, standings, attendance = [
   const selected = Array.from(new Map(members.map(member => [Number(member.user_id), member])).values());
   const rounds = contests.slice().sort((a, b) => Number(a.start_time) - Number(b.start_time) || Number(a.id) - Number(b.id));
   const onsite = new Set(attendance.filter(row => !!Number(row.onsite)).map(row => `${Number(row.user_id)}:${Number(row.contest_id)}`));
+  const online = new Set(attendance.filter(row => !Number(row.onsite) && Number(row.auto_online)).map(row => `${Number(row.user_id)}:${Number(row.contest_id)}`));
   const rows = selected.map(member => ({ ...member, user_id: Number(member.user_id), cells: [], s1: 0, s2: 0, g1: 0, g2: 0, total: 0, onsite_count: 0, g2_count: 0 }));
   for (const contest of rounds) {
     const finished = Number(contest.end_time) <= now;
@@ -48,7 +49,7 @@ function calculateWeeklyStandings({ members, contests, standings, attendance = [
       const result = positions.get(member.user_id);
       const offline = onsite.has(`${member.user_id}:${contest.id}`);
       member.cells.push({ contest_id: Number(contest.id), finished, onsite: offline,
-        participated: offline || result.participated || result.solved > 0,
+        participated: offline || online.has(`${member.user_id}:${contest.id}`) || result.participated || result.solved > 0,
         solved: finished ? result.solved : null, total_problems: totalProblems, penalty: finished ? result.penalty : null,
         rank: finished ? result.rank : null, population: finished ? population : null,
         score: finished ? nowcoderScore(result.solved, leader, population, result.rank) : null, group: null });

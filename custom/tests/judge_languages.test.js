@@ -10,21 +10,25 @@ const webConfig = require('../web.json');
 const languageConfig = require('../language-config.json');
 const judgeDockerfile = fs.readFileSync(path.join(projectRoot, 'Dockerfile.judge'), 'utf8');
 
-test('web exposes versioned language names and matching filters', () => {
+test('web exposes only the eight supported submission languages and matching versions', () => {
   assert.deepEqual(webConfig.filter_enabled_languages, webConfig.enabled_languages);
   assert.equal(languageConfig.cpp.show, 'C++ 03');
   assert.equal(languageConfig.python3.show, 'Python 3.8');
 
   const expected = {
-    cpp20: 'C++ 20',
-    cpp23: 'C++ 23',
-    python310: 'Python 3.10',
-    python311: 'Python 3.11',
-    pypy3: 'PyPy 3.11'
+    cpp11: ['C++ 11', 'GCC 10.2.0'],
+    cpp17: ['C++ 17', 'GCC 10.2.0'],
+    cpp20: ['C++ 20', 'GCC 13.1.0'],
+    cpp23: ['C++ 23', 'GCC 14.3.0'],
+    c: ['C', 'Clang 12.0.1'],
+    java: ['Java 11', 'OpenJDK 11.0.11'],
+    python311: ['Python 3.11', 'CPython 3.11.15'],
+    pypy3: ['PyPy 3.11', 'PyPy 7.3.23']
   };
-  for (const [id, label] of Object.entries(expected)) {
-    assert.ok(webConfig.enabled_languages.includes(id));
+  assert.deepEqual(webConfig.enabled_languages, Object.keys(expected));
+  for (const [id, [label, version]] of Object.entries(expected)) {
     assert.equal(languageConfig[id].show, label);
+    assert.equal(languageConfig[id].version, version);
   }
 });
 

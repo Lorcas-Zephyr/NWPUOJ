@@ -16,7 +16,7 @@ Vue.component('status-label', {
   props: ['status', 'indetail', 'progress'],
   computed: {
     normalizedStatus() { return String(this.status || 'Unknown').startsWith('Running') ? 'Running' : String(this.status || 'Unknown'); },
-    displayStatus() { return this.normalizedStatus === 'Presentation Error' ? '格式错误' : this.normalizedStatus; },
+    displayStatus() { return this.normalizedStatus; },
     icon() { return iconList[this.normalizedStatus] || 'question circle'; },
     colorClass() { return (this.indetail ? 'status_detail ' : '') + this.normalizedStatus.toLowerCase().split(' ').join('_'); },
     semanticClass() { return 'nwpuoj-judge-status'; },

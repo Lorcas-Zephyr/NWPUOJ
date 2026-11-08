@@ -9,28 +9,11 @@ if (typeof problemSet === 'undefined') problemSet = null;
 <script>
 if (typeof window.__NWPUOJ_RENDER_ICONS === 'function') window.__NWPUOJ_RENDER_ICONS(document);
 </script>
-<script>
-(function () {
-  window.$ = window.$ || {};
-  if (typeof window.$.getScript === 'function') return;
-
-  window.$.getScript = function (source, callback) {
-    var script = document.createElement('script');
-    script.src = source;
-    script.async = true;
-    script.addEventListener('load', function () {
-      if (typeof callback === 'function') callback();
-    });
-    document.head.appendChild(script);
-    return script;
-  };
-})();
-</script>
-<% include monaco-editor %>
-<script src="/self/modern-editor.js?v=<%= encodeURIComponent(syzoj.config.nwpuoj_version || '2.2.0') %>&amp;rev=20260912-1"></script>
+<script src="/self/lib/noj-code-editor/loader.js?rev=20261029-5"></script>
+<script defer data-code-editor-bundle src="/self/lib/noj-code-editor/editor.min.js?rev=20261029-5"></script>
 
 <div class="app-page app-submit-page">
-  <div class="app-section-header app-context-section-header"><div><h2 class="app-section-title">提交答案</h2><p class="app-section-description">确认语言与源码后发送到评测队列。</p></div></div>
+  <div class="app-section-header app-context-section-header"><div><h2 class="app-section-title"><%= problem.type === 'submit-answer' ? '提交答案' : '提交代码' %></h2><p class="app-section-description">确认语言与源码后发送到评测队列。</p></div></div>
   <% include problem_submit_form %>
 </div>
 

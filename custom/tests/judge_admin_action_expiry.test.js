@@ -36,16 +36,14 @@ function harness(initialRows = [], initialNow = '2026-10-18T12:00:00+08:00') {
   };
 }
 
-test('brown names expire after three calendar months in Beijing time, with month-end clamping', () => {
+test('brown names expire exactly fourteen days after the cheating mark', () => {
   const f = harness();
   for (const [start, end] of [
-    ['2026-10-18T22:30:00+08:00', '2027-01-18T22:30:00+08:00'],
-    ['2026-01-31T01:15:20+08:00', '2026-04-30T01:15:20+08:00'],
-    ['2026-11-30T23:59:59+08:00', '2027-02-28T23:59:59+08:00'],
-    ['2027-11-30T00:00:00+08:00', '2028-02-29T00:00:00+08:00'],
-    ['2026-08-31T00:00:00+08:00', '2026-11-30T00:00:00+08:00'],
-    ['2026-08-30T00:00:00+08:00', '2026-11-30T00:00:00+08:00'],
-    ['2028-02-29T08:09:10+08:00', '2028-05-29T08:09:10+08:00']
+    ['2026-10-18T22:30:00+08:00', '2026-11-01T22:30:00+08:00'],
+    ['2026-01-31T01:15:20+08:00', '2026-02-14T01:15:20+08:00'],
+    ['2026-11-30T23:59:59+08:00', '2026-12-14T23:59:59+08:00'],
+    ['2028-02-29T08:09:10+08:00', '2028-03-14T08:09:10+08:00'],
+    ['2026-08-31T00:00:00+08:00', '2026-09-14T00:00:00+08:00']
   ]) assert.equal(f.expires(start), seconds(end), start);
   for (const invalid of [undefined, null, '', 'invalid', 0, -1, Infinity]) {
     assert.equal(f.context.cheaterNameExpiresAt(invalid), 0);
@@ -54,7 +52,7 @@ test('brown names expire after three calendar months in Beijing time, with month
 
 test('expiry and automatic minute refresh change only the username cache, never historical submission marks', async () => {
   const rows = Object.freeze([
-    mark(101, 7, '2026-07-18T12:00:00+08:00'),
+    mark(101, 7, '2026-10-04T12:00:00+08:00'),
     mark(102, 8, '2025-01-01T12:00:00+08:00', 'cancelled')
   ]);
   const before = JSON.stringify(rows);
@@ -74,20 +72,20 @@ test('expiry and automatic minute refresh change only the username cache, never 
 });
 
 test('existing marks use their original date and the latest unrevoked cheating mark extends the period', async () => {
-  const old = mark(101, 7, '2026-06-01T09:00:00+08:00');
-  const recent = mark(102, 7, '2026-09-01T09:00:00+08:00');
+  const old = mark(101, 7, '2026-09-01T09:00:00+08:00');
+  const recent = mark(102, 7, '2026-10-10T09:00:00+08:00');
   const f = harness([recent, old, mark(103, 8, '2026-10-18T09:00:00+08:00', 'cancelled')]);
   await f.refresh();
   assert.deepEqual([...f.syzoj.cheaterUserIds], [7]);
-  f.setNow('2026-12-01T08:59:59+08:00');
+  f.setNow('2026-10-24T08:59:59+08:00');
   await f.refresh();
   assert.equal(f.syzoj.cheaterUserIds.has(7), true);
-  f.setNow('2026-12-01T09:00:00+08:00');
+  f.setNow('2026-10-24T09:00:00+08:00');
   await f.refresh();
   assert.equal(f.syzoj.cheaterUserIds.has(7), false);
   assert.deepEqual([...f.syzoj.cheatedJudgeIds].sort(), [101, 102]);
-  const repeated = mark(104, 7, '2026-12-02T10:00:00+08:00');
-  f.setNow('2026-12-02T10:00:00+08:00');
+  const repeated = mark(104, 7, '2026-10-25T10:00:00+08:00');
+  f.setNow('2026-10-25T10:00:00+08:00');
   f.setRows([old, recent, repeated]);
   await f.refresh();
   assert.equal(f.syzoj.cheaterUserIds.has(7), true);
@@ -108,7 +106,7 @@ test('a cache read failure keeps the previous complete cache and reports the err
 });
 
 test('expiry restores profile, submission and global/weekly client colors while preserving the cheating result', async () => {
-  const f = harness([mark(101, 7, '2026-07-18T12:00:00+08:00')], '2026-10-18T11:59:59+08:00');
+  const f = harness([mark(101, 7, '2026-10-04T12:00:00+08:00')], '2026-10-18T11:59:59+08:00');
   f.syzoj.userHitScores = new Map([[7, { total: 250 }]]);
   f.syzoj.userTags = new Map([[7, { text: '原牌子', tier: 'blue' }]]);
   vm.runInContext(read('modules/_username_renderer.js'), f.context);
@@ -132,5 +130,5 @@ test('expiry restores profile, submission and global/weekly client colors while 
   assert.equal(tierMap()[7], 'green');
   assert.equal(f.syzoj.cheatedJudgeIds.has(101), true);
   assert.match(submissions, /adminActionType === 'cheated'\) return '作弊'/);
-  assert.match(read('views/user_edit.ejs'), /最近一次作弊标记满 3 个月或全部标记撤销后恢复/);
+  assert.match(read('views/user_edit.ejs'), /最近一次作弊标记满 14 天或全部标记撤销后恢复/);
 });

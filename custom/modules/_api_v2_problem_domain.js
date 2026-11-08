@@ -849,6 +849,12 @@ async function importBulkProblems(req, res) {
     for (const item of extracted.items.filter(item => !retryFolders || retryFolders.has(item.name))) {
       try {
         const body = item.content || {};
+        const rawTagIds = body.tag_ids == null ? [] : body.tag_ids;
+        if (!Array.isArray(rawTagIds)) throw bulkImportError(`${item.name}/problem.json 的 tag_ids 必须是数组。`);
+        const tagIds = rawTagIds;
+        if (tagIds.length > 20 || tagIds.some(id => !Number.isSafeInteger(id) || id < 1) || new Set(tagIds).size !== tagIds.length) {
+          throw bulkImportError(`${item.name}/problem.json 的 tag_ids 必须是最多 20 个不重复的正整数。`);
+        }
         const content = contentFromInput(body, {
           type: 'traditional',
           description: '',
@@ -865,7 +871,13 @@ async function importBulkProblems(req, res) {
         if (Object.keys(fields).length) throw bulkImportError(`${item.name} 题目字段无效：${Object.keys(fields).join('、')}`);
         const archive = await prepareBulkTestdataArchive(item, extracted.root);
         const problem = await TypeORM.getConnection().transaction(async manager => {
+          if (tagIds.length) {
+            const placeholders = tagIds.map(() => '?').join(',');
+            const tags = await manager.query(`SELECT id FROM problem_tag WHERE id IN (${placeholders}) FOR UPDATE`, tagIds);
+            if (tags.length !== tagIds.length) throw bulkImportError(`${item.name}/problem.json 包含不存在的标签 ID。`);
+          }
           const value = await createProblemAggregate(manager, syzoj.model('problem'), content, res.locals.user.id, { id: body.id == null || body.id === '' ? null : Number(body.id), isAnonymous: body.is_anonymous === true });
+          for (const tagId of tagIds) await manager.query('INSERT INTO problem_tag_map (problem_id,tag_id) VALUES (?,?)', [value.problem.id, tagId]);
           await syncSourceProjection(manager, value.problem);
           if (archive) await value.problem.updateTestdata(archive);
           return value.problem;

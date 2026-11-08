@@ -74,10 +74,11 @@ test('contest problems move in place with boundary buttons and retain form and r
   assert.match(css, /\.app-contest-problem-list > \[data-picker-value\]\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\) repeat\(3, 32px\)/s);
 });
 
-test('contest schedule uses minute-precision native pickers and saves zero seconds', () => {
-  assert.equal((view.match(/type="datetime-local"/g) || []).length, 2);
-  assert.equal((view.match(/step="60"/g) || []).length, 2);
-  assert.equal((view.match(/data-app-datetime-picker/g) || []).length, 2);
+test('contest schedule enhances the same minute-precision fields as announcements and saves zero seconds', () => {
+  const announcement = fs.readFileSync(path.join(root, 'custom/views/admin_announcement_edit.ejs'), 'utf8');
+  const control = /class="app-input app-datetime-input" type="datetime-local" step="60" data-app-datetime-picker/g;
+  assert.equal((view.match(control) || []).length, 2);
+  assert.equal((announcement.match(control) || []).length, 2);
   assert.match(view, /name="start_time" value="<%= syzoj\.utils\.formatDate\(contest\.start_time \|\| syzoj\.utils\.getCurrentDate\(\), 'YYYY-MM-DDTHH:mm'\) %>"/);
   assert.match(view, /name="end_time" value="<%= syzoj\.utils\.formatDate\(contest\.end_time \|\| syzoj\.utils\.getCurrentDate\(\), 'YYYY-MM-DDTHH:mm'\) %>"/);
   assert.match(view, /date\.setSeconds\(0, 0\)/);

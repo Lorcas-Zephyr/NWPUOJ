@@ -1,0 +1,16 @@
+<link rel="stylesheet" href="/self/login-ip.css?rev=20261101-1">
+<div class="app-login-ip" data-login-ip data-weekly="<%= loginIPWeekly ? 'true' : 'false' %>" data-endpoint="<%= loginIPWeekly ? '/api/v2/weekly-ranklist/login-ips' : '/api/v2/admin/login-ips' %>">
+  <div class="app-admin-toolbar"><div><h3><%= loginIPWeekly ? '自动转线上记录' : '登录记录' %></h3><p><%= loginIPWeekly ? '仅展示因多个 IP 登录而自动从线下转为线上的成员，以及对应场次核验时段内的登录记录。' : '查询用户的成功登录 IP 与时间，时间均为北京时间。' %></p></div></div>
+  <% if (loginIPWeekly) { %><p class="app-help">核验时段为比赛开始至该用户最后一次提交。同一 IP 重复登录不影响线下登记；没有提交的场次不触发核验。</p><% } %>
+  <form class="app-form login-ip-filters" data-login-ip-form role="search">
+    <label class="app-field"><span class="app-label">搜索用户</span><input class="app-input" type="search" name="q" placeholder="用户名或 UID" maxlength="100" autocomplete="off"></label>
+    <% if (loginIPWeekly) { %><label class="app-field"><span class="app-label">比赛</span><select class="app-select" name="contest_id" aria-label="筛选比赛"><option value="">全部计分比赛</option></select></label><% } %>
+    <label class="app-field"><span class="app-label">开始时间（北京）</span><input class="app-input app-datetime-input" type="datetime-local" name="from" step="60" data-app-datetime-picker></label>
+    <label class="app-field"><span class="app-label">结束时间（不含）</span><input class="app-input app-datetime-input" type="datetime-local" name="to" step="60" data-app-datetime-picker></label>
+    <div class="login-ip-actions"><button class="app-button app-button-primary" type="submit">搜索</button><button class="app-button app-button-secondary" type="reset">重置</button></div>
+  </form>
+  <p class="app-help" data-login-ip-status role="status" aria-live="polite">正在读取登录记录…</p>
+  <div class="app-table-region" tabindex="0" aria-label="登录 IP 记录"><table class="app-table login-ip-table"><thead><tr><th>用户名</th><th>登录 IP</th><th>登录时间（北京）</th><% if (loginIPWeekly) { %><th>比赛</th><th>比赛开始 / 末次提交（北京）</th><th>参赛方式</th><% } %></tr></thead><tbody data-login-ip-rows></tbody></table></div>
+  <nav class="app-pagination login-ip-pagination" aria-label="登录记录分页"><span data-login-ip-page></span><div class="app-inline-actions"><button class="app-button app-button-secondary app-button-small" type="button" data-login-ip-prev disabled>上一页</button><button class="app-button app-button-secondary app-button-small" type="button" data-login-ip-next disabled>下一页</button></div></nav>
+</div>
+<script src="/self/login-ip.js?rev=20261101-2" defer></script>

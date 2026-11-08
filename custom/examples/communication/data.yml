@@ -1,0 +1,9 @@
+inputFile: "#.in"
+outputFile: "#.out"
+communication:
+  language: cpp17
+  fileName: transform.cpp
+subtasks:
+  - score: 100
+    type: sum
+    cases: [1, 2]

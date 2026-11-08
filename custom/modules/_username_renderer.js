@@ -1,7 +1,7 @@
 // 用户名渲染 helper:
 // 优先级:
 //   1. 管理身份(is_admin/有管理权限) → admin 紫色 + 自定义 tag(若设置)
-//   2. 普通用户 + 有未满 3 个月的 cheated 标记 → cheater 棕色，不显示用户名牌子
+//   2. 普通用户 + 有未满 14 天的 cheated 标记 → cheater 棕色，不显示用户名牌子
 //   3. 普通用户 + 按 Hit 值分档(gray/blue/green/orange/red)
 //   4. 普通用户 + 无 Hit 数据 → default 深灰
 //
@@ -31,7 +31,7 @@ function calcTier(user) {
   if (user.is_admin) return 'admin';
   if (syzoj.adminUserIds && syzoj.adminUserIds.has(user.id)) return 'admin';
 
-  // 2. 非管理员 + 仍在 3 个月展示期内 → 棕色（缓存每分钟刷新）
+  // 2. 非管理员 + 仍在 14 天展示期内 → 棕色（缓存每分钟刷新）
   if (syzoj.cheaterUserIds && syzoj.cheaterUserIds.has(user.id)) return 'cheater';
 
   // 3. 按 Hit 值分档

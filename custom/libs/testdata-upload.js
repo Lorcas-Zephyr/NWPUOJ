@@ -2,8 +2,9 @@
 
 const fs = require('fs-extra');
 const path = require('path');
-const { pipeline } = require('stream');
+const { pipeline, Transform } = require('stream');
 const { promisify } = require('util');
+const crypto = require('crypto');
 const yauzl = require('yauzl');
 const yaml = require('js-yaml');
 
@@ -84,7 +85,7 @@ function rewriteDataYamlPaths(root, prefix) {
     return normalized.startsWith(marker) ? normalized.slice(marker.length) : value;
   };
   for (const field of ['inputFile', 'outputFile', 'userOutput']) config[field] = stripPrefix(config[field]);
-  for (const field of ['interactor', 'specialJudge']) {
+  for (const field of ['interactor', 'specialJudge', 'communication']) {
     if (config[field] && typeof config[field] === 'object') config[field].fileName = stripPrefix(config[field].fileName);
   }
   fs.writeFileSync(filename, yaml.dump(config, { noRefs: true }));
@@ -139,6 +140,67 @@ async function normalizeTestdataDirectory(root) {
   return flattened;
 }
 
+// Inspect the whole file before changing any bytes: a binary marker may occur
+// long after a text-looking prefix. Work in bounded chunks and keep legacy
+// encodings byte-for-byte; only CRLF pairs and an initial UTF-8 BOM are removed.
+async function normalizeTestdataTextFile(filename) {
+  const stat = await fs.lstat(filename);
+  if (!stat.isFile() || stat.isSymbolicLink()) throw uploadError('Testdata normalization requires a regular file.');
+  let first = true, bom = false, previousCR = false, crlf = 0;
+  for await (const chunk of fs.createReadStream(filename)) {
+    if (first) {
+      bom = chunk.length >= 3 && chunk[0] === 0xef && chunk[1] === 0xbb && chunk[2] === 0xbf;
+      // UTF-16/32 need an explicit encoding conversion, not byte deletion.
+      if (chunk.length >= 2 && (chunk[0] === 0xff && chunk[1] === 0xfe || chunk[0] === 0xfe && chunk[1] === 0xff)) {
+        return { changed: false, skipped_binary: true, crlf: 0, bom: false, size: stat.size };
+      }
+      first = false;
+    }
+    const bytes = chunk.toString('latin1');
+    if (/[\x00-\x08\x0b\x0e-\x1f\x7f]/.test(bytes)) return { changed: false, skipped_binary: true, crlf: 0, bom: false, size: stat.size };
+    if (previousCR && chunk[0] === 10) crlf++;
+    let index = -1;
+    while ((index = bytes.indexOf('\r\n', index + 1)) !== -1) crlf++;
+    previousCR = chunk[chunk.length - 1] === 13;
+  }
+  if (!crlf && !bom) return { changed: false, skipped_binary: false, crlf: 0, bom: false, size: stat.size };
+  const temporary = path.join(path.dirname(filename), '.newline-' + crypto.randomUUID());
+  let carry = '';
+  const normalizer = new Transform({
+    transform(chunk, _encoding, callback) {
+      let bytes = carry + chunk.toString('latin1');
+      carry = bytes.endsWith('\r') ? '\r' : '';
+      if (carry) bytes = bytes.slice(0, -1);
+      callback(null, Buffer.from(bytes.replace(/\r\n/g, '\n'), 'latin1'));
+    },
+    flush(callback) { callback(null, Buffer.from(carry, 'latin1')); }
+  });
+  try {
+    await pipe(fs.createReadStream(filename, { start: bom ? 3 : 0 }), normalizer,
+      fs.createWriteStream(temporary, { flags: 'wx', mode: stat.mode & 0o777 }));
+    await fs.rename(temporary, filename);
+  } finally { await fs.remove(temporary); }
+  return { changed: true, skipped_binary: false, crlf, bom, size: stat.size - crlf - (bom ? 3 : 0) };
+}
+
+async function normalizeTestdataTextDirectory(root) {
+  const summary = { normalized_files: 0, crlf: 0, bom_files: 0, skipped_binary_files: 0 };
+  async function visit(directory) {
+    for (const name of await fs.readdir(directory)) {
+      const filename = path.join(directory, name), stat = await fs.lstat(filename);
+      if (stat.isSymbolicLink()) throw uploadError('Testdata normalization does not allow symbolic links.');
+      if (stat.isDirectory()) { await visit(filename); continue; }
+      const result = await normalizeTestdataTextFile(filename);
+      summary.normalized_files += Number(result.changed);
+      summary.crlf += result.crlf;
+      summary.bom_files += Number(result.bom);
+      summary.skipped_binary_files += Number(result.skipped_binary);
+    }
+  }
+  await visit(root);
+  return summary;
+}
+
 async function replaceDirectory(current, staging, backup, options = {}) {
   const currentExists = await fs.pathExists(current);
   await fs.remove(backup);
@@ -153,4 +215,21 @@ async function replaceDirectory(current, staging, backup, options = {}) {
   }
 }
 
-module.exports = { DEFAULT_LIMITS, extractTestdataArchive, normalizeTestdataDirectory, replaceDirectory, uploadError };
+async function validateCommunicationTestdata(root, type, languages) {
+  if (type !== 'communication') return;
+  let config;
+  try { config = yaml.load(await fs.readFile(path.join(root, 'data.yml'), 'utf8')); }
+  catch (error) { throw uploadError('通信题需要有效的 data.yml 和 communication 转换程序配置。'); }
+  const transformer = config && config.communication;
+  if (!transformer || typeof transformer !== 'object' || typeof transformer.fileName !== 'string' ||
+      !transformer.fileName || /[\\/\x00]/.test(transformer.fileName) || ['.', '..'].includes(transformer.fileName)) {
+    throw uploadError('communication.fileName 必须是数据包根目录中的转换程序文件名。');
+  }
+  if (typeof transformer.language !== 'string' || !Object.prototype.hasOwnProperty.call(languages || {}, transformer.language)) {
+    throw uploadError('communication.language 必须是受支持的评测语言，例如 cpp17。');
+  }
+  const stat = await fs.lstat(path.join(root, transformer.fileName)).catch(() => null);
+  if (!stat || !stat.isFile()) throw uploadError('找不到通信转换程序文件：' + transformer.fileName);
+}
+
+module.exports = { DEFAULT_LIMITS, extractTestdataArchive, normalizeTestdataDirectory, normalizeTestdataTextFile, normalizeTestdataTextDirectory, validateCommunicationTestdata, replaceDirectory, uploadError };

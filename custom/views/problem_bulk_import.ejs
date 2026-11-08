@@ -28,7 +28,7 @@
       <thead><tr><th>文件</th><th>作用</th><th>说明</th></tr></thead>
       <tbody>
         <tr><td><code>statement.md</code></td><td>题面</td><td>必填，也可使用 <code>problem.md</code>。</td></tr>
-        <tr><td><code>problem.json</code></td><td>题目属性</td><td>可选，填写 title、type、时间与内存限制等字段。当前批量导入尚不应用 tag_ids，标签请在导入后批量添加。</td></tr>
+        <tr><td><code>problem.json</code></td><td>题目属性</td><td>可选，填写 title、type、时间与内存限制等字段；<code>tag_ids</code> 可填如 <code>[12, 18]</code> 的数组，最多 20 个已存在标签数字 ID，导入时直接关联。</td></tr>
         <tr><td><code>testdata/</code> 或 <code>testdata.zip</code></td><td>测试数据</td><td>可选，格式与题目测试数据上传一致；两者同时存在时优先使用 testdata.zip。</td></tr>
       </tbody>
     </table></div>

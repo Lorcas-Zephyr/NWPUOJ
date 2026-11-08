@@ -160,7 +160,16 @@ app.post('/api/v2/auth/login', async (req, res) => {
     await syzoj.utils.establishAuthenticatedSession(req, user.id, { rememberMe: rememberMe === true });
     syzoj.utils.clearLegacyLoginCookie(req, res);
     res.locals.user = user;
-    await syzoj.utils.authorizationV2.recordAudit(req, { action: 'auth:login', resourceType: 'user', resourceId: user.id });
+    await syzoj.utils.authorizationV2.recordAudit(req, {
+      action: 'auth:login', resourceType: 'user', resourceId: user.id,
+      details: {
+        remember_me: req.session.rememberMe === true,
+        session_max_age_ms: req.session.cookie.originalMaxAge
+      }
+    });
+    if (syzoj.utils.weeklyRanklistCheckLoginIPs) {
+      syzoj.utils.weeklyRanklistCheckLoginIPs(user.id).catch(error => syzoj.log('[weekly-ranklist] login IP check failed: ' + error.message));
+    }
     const temporary = syzoj.utils.isTemporaryContestAccount && await syzoj.utils.isTemporaryContestAccount(user.id);
     return api().send(res, { authenticated: true, user: publicMe(user), redirect_url: temporary ? '/contests' : null });
   } catch (error) {

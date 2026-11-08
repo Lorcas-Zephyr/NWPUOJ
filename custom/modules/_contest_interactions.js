@@ -259,6 +259,33 @@ async function loadContestRanklist(contest, cutoff = null) {
   });
 }
 
+async function loadRanklistProblemStatistics(contest, problemIds, items, cutoff) {
+  const statistics = Object.fromEntries(problemIds.map(id => [id, { accepted: 0, submissions: 0 }]));
+  if (!problemIds.length || !items.length) return statistics;
+  const acceptedBefore = cutoff == null ? Number(contest.end_time) : Math.min(Number(cutoff), Number(contest.end_time));
+  const key = `${contest.id}:rank-problem-statistics:${contest.start_time}:${contest.end_time}:${acceptedBefore}:${problemIds.join(',')}`;
+  const rows = await ranklistAuxCache.get(key, 2000, () => TypeORM.getConnection().query(
+    `SELECT js.user_id,js.problem_id,COUNT(*) AS submissions,
+            SUM(CASE WHEN js.pending=0 AND js.status='Accepted' AND js.submit_time<? THEN 1 ELSE 0 END) AS accepted
+       FROM judge_state js
+       LEFT JOIN judge_state_admin_action action ON action.judge_id=js.id
+      WHERE js.type=1 AND js.type_info=? AND js.problem_id IN (?)
+        AND js.submit_time>=? AND js.submit_time<? AND action.judge_id IS NULL
+        AND (js.status IS NULL OR js.status NOT IN ('Cancelled','Cheated'))
+      GROUP BY js.user_id,js.problem_id`,
+    [acceptedBefore, Number(contest.id), problemIds, Number(contest.start_time), Number(contest.end_time)]
+  ));
+  // Aggregate the complete filtered field, before pagination. Sealed attempts
+  // remain countable, but their verdicts never enter the public AC total.
+  const userIds = new Set(items.map(item => Number(item.user.id)));
+  for (const row of rows) {
+    if (!userIds.has(Number(row.user_id)) || !statistics[row.problem_id]) continue;
+    statistics[row.problem_id].accepted += Number(row.accepted || 0);
+    statistics[row.problem_id].submissions += Number(row.submissions || 0);
+  }
+  return statistics;
+}
+
 async function loadContestProblemPresentation(problem, contestId) {
   let contestSnapshot = null;
   let testdataPath = problem.getTestdataPath();
@@ -446,7 +473,10 @@ async function contestRanklistView(req, res) {
         allItems.length, standingsView.medalPercentages);
     }
     const problemIds = await contest.getProblems();
-    const problems = await loadRanklistProblems(problemIds);
+    const [problems, ranklistProblemStatistics] = await Promise.all([
+      loadRanklistProblems(problemIds),
+      loadRanklistProblemStatistics(contest, problemIds, rankedItems, standingsView.cutoff)
+    ]);
     const canManageRanklist = standingsView.canManage;
     const showRanklistIdentities = canManageRanklist && String(req.query.identity || '') === 'real';
     const ranklistProfiles = showRanklistIdentities ? await loadRanklistProfiles(ranklist) : new Map();
@@ -454,6 +484,7 @@ async function contestRanklistView(req, res) {
       contest,
       ranklist,
       problems,
+      ranklistProblemStatistics,
       paginate,
       rankOffset: offset,
       ranklistAccountFilter: accountFilter,
@@ -612,6 +643,7 @@ app.get('/api/v2/contests/:id/ranklist-view', async (req, res) => {
       viewer: Number(res.locals.user && res.locals.user.id || 0),
       contest: [options.contest.id, options.contest.title, options.contest.type, options.contest.start_time, options.contest.end_time, options.contest.isEnded()],
       rows: options.ranklist, problems: options.problems, page: options.paginate,
+      problemStatistics: options.ranklistProblemStatistics,
       account: options.ranklistAccountFilter, classes: options.ranklistClassOptions, selected: options.ranklistSelectedClassIds,
       total: options.ranklistTotal, manager: options.canManageRanklist, supervisor: options.ranklistSupervisor,
       medals: options.standingsView.medalPercentages,

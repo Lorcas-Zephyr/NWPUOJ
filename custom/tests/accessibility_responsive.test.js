@@ -26,7 +26,8 @@ test('submission editors expose selection and loading state to assistive technol
   const form = read('custom/views/problem_submit_form.ejs');
 
   assert.match(form, /data-case-index="<%= caseIndex %>" aria-pressed="/);
-  assert.match(form, /data-language="<%= lang %>"[\s\S]*?aria-pressed="/);
+  assert.match(form, /<select[^>]*aria-label="编程语言" data-language-select>/);
+  assert.match(form, /lang === selectedLanguage \? ' selected'/);
   assert.match(form, /role="region" aria-label="代码编辑器" aria-busy="true"/);
   assert.match(form, /role="status" aria-live="polite">编辑器加载中/);
   assert.match(form, /setAttribute\('aria-busy', 'false'\)/);

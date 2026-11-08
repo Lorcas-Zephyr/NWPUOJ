@@ -1,0 +1,17 @@
+.app-login-ip { min-width: 0; }
+.login-ip-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; margin: 20px 0; }
+.login-ip-filters > .app-field { grid-column: auto; min-width: 0; }
+.login-ip-actions { grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.login-ip-actions .app-switch-control { margin-left: 8px; }
+.login-ip-table { font-variant-numeric: tabular-nums; }
+.login-ip-table th, .login-ip-table td { white-space: nowrap; }
+.login-ip-table td:nth-child(2) { font-family: var(--app-font-mono, monospace); }
+.login-ip-table small { display: block; margin-top: 4px; color: var(--app-text-muted); font-size: 12px; }
+.login-ip-table .login-ip-empty { padding: 36px 16px; text-align: center; color: var(--app-text-muted); white-space: normal; }
+.login-ip-table .login-ip-contest { display: block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.login-ip-pagination { gap: 16px; flex-wrap: wrap; }
+.app-login-ip [data-login-ip-status].is-error { color: var(--app-danger); }
+@media (max-width: 600px) {
+  .login-ip-filters { grid-template-columns: minmax(0, 1fr); }
+  .login-ip-actions .app-switch-control { margin-left: 0; }
+}

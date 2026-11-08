@@ -88,14 +88,17 @@ if (syzoj.userTagsEnabled !== false && syzoj.userTags) {
   <meta name="application-name" content="NWPUOJ">
   <meta name="theme-color" content="#e3f2fc">
   <title><%= title %> - <%= syzoj.config.title %></title>
-  <link rel="icon" type="image/png" href="/self/favicon.png?v=<%= encodeURIComponent(appVersion) %>">
-  <link rel="apple-touch-icon" href="/self/favicon.png?v=<%= encodeURIComponent(appVersion) %>">
+  <link rel="icon" type="image/png" href="/self/favicon.png?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20261104-transparent-1">
+  <link rel="apple-touch-icon" href="/self/favicon.png?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20261104-transparent-1">
   <link rel="stylesheet" href="<%- selfLib('syntect-tomorrow.css') %>?20220512">
+  <link rel="stylesheet" href="/self/lib/flatpickr-4.6.13/flatpickr.min.css">
   <link rel="stylesheet" href="/self/app-shell.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20261016-legal-1">
-  <link rel="stylesheet" href="/self/app-shared.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20261020-code-copy-2">
-  <link rel="stylesheet" href="/self/app-features.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20261016-legal-2">
+  <link rel="stylesheet" href="/self/app-shared.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20261104-markdown-quote-2">
+  <link rel="stylesheet" href="/self/app-features.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20261030-rank-statistics-1">
   <link rel="stylesheet" href="/self/username_tiers.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20260731-3">
   <!-- Load before Monaco installs its AMD loader on submission pages. -->
+  <script src="/self/lib/flatpickr-4.6.13/flatpickr.min.js"></script>
+  <script src="/self/lib/flatpickr-4.6.13/zh.js"></script>
   <script src="/self/lucide-1.27.0.min.js?v=1.27.0-20260730-3"></script>
   <script src="/self/app-api.js?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20260912-2"></script>
   <script>
@@ -143,7 +146,7 @@ if (syzoj.userTagsEnabled !== false && syzoj.userTags) {
   <div class="app-shell" data-app-shell>
     <aside class="app-sidebar" id="app-sidebar" aria-label="主导航">
       <a class="app-brand" href="<%= appContestOnly ? '/contests' : '/' %>" aria-label="<%= syzoj.config.title %> <%= appContestOnly ? '比赛' : '首页' %>">
-        <img src="/self/logo.png?v=<%= encodeURIComponent(appVersion) %>" alt="" width="34" height="34">
+        <img src="/self/logo.png?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20261104-transparent-1" alt="" width="34" height="34">
         <span><%= syzoj.config.title %></span>
       </a>
       <nav class="app-nav">

@@ -24,7 +24,24 @@ diff --git a/src/judgeResult.ts b/src/judgeResult.ts
 diff --git a/src/runner/judge.ts b/src/runner/judge.ts
 --- a/src/runner/judge.ts
 +++ b/src/runner/judge.ts
-@@ -364,3 +364,4 @@ export async function judgeInteraction(task: InteractionRunTask)
+@@ -200,2 +200,5 @@
+             message = `Exited with return code ${runResult.result.code}`;
++            if (runResult.result.code !== 0) {
++                status = TestcaseResultType.RuntimeError;
++            }
+         }
+@@ -210,3 +213,3 @@
+         } catch (e) {
+-            if (e.code === 'ENOENT' && runResult.result.status === SandboxStatus.OK && !runResult.outputLimitExceeded) {
++            if (e.code === 'ENOENT' && status === null) {
+                 status = TestcaseResultType.FileError;
+@@ -336,2 +339,5 @@
+             message = `Exited with return code ${runResult.result.code}`;
++            if (runResult.result.code !== 0) {
++                status = TestcaseResultType.RuntimeError;
++            }
+         }
+@@ -364,3 +370,4 @@
              } else if (rawScore === -1) {
 -                status = TestcaseResultType.InvalidInteraction;
 +                status = TestcaseResultType.PresentationError;

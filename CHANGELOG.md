@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.3.0 - 2026-11-08
+
+### Added
+
+- Added two-round communication problems: the same submitted program runs twice in isolated
+  sandboxes, with a problem-supplied transformer producing the second input from the first output.
+- Added communication configuration, downloadable example data, and permission-controlled
+  per-round diagnostics. Existing languages, time multipliers, snapshots and Special Judges work
+  with the new problem type.
+- Bulk problem ZIP imports now apply existing tags listed in each `problem.json` `tag_ids` array.
+
+### Fixed
+
+- Included extra compilation files in judge cache keys so different testdata snapshots cannot
+  reuse binaries built with outdated headers.
+
+### Upgrade
+
+- Deploy updated runners before daemons and Web. Web schema synchronization adds the
+  `communication` problem enum value without changing existing problem types.
+- See [communication problem documentation](docs/communication-problems.md) for the transformer
+  contract, combined time budget and deployment/rollback requirements.
+
 ## 2.2.0 - 2026-10-28
 
 ### Added

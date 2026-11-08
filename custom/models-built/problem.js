@@ -74,6 +74,7 @@ var ProblemType;
     ProblemType["Traditional"] = "traditional";
     ProblemType["SubmitAnswer"] = "submit-answer";
     ProblemType["Interaction"] = "interaction";
+    ProblemType["Communication"] = "communication";
 })(ProblemType || (ProblemType = {}));
 var statisticsTypes = {
     fastest: ['total_time', 'ASC'],
@@ -182,7 +183,7 @@ var Problem = /** @class */ (function (_super) {
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0: return [4 /*yield*/, syzoj.utils.lock(['Problem::Testdata', this.id], function () { return __awaiter(_this, void 0, void 0, function () {
-                            var unzipSize, unzipCount, p7zip, dir, execFileAsync;
+                            var unzipSize, unzipCount, p7zip, dir, execFileAsync, normalization;
                             return __generator(this, function (_a) {
                                 switch (_a.label) {
                                     case 0:
@@ -212,10 +213,22 @@ var Problem = /** @class */ (function (_super) {
                                         return [4 /*yield*/, execFileAsync(__dirname + '/../bin/unzip', ['-j', '-o', '-d', dir, path])];
                                     case 4:
                                         _a.sent();
-                                        return [4 /*yield*/, fs.move(path, this.getTestdataArchivePath(), { overwrite: true })];
+                                        return [4 /*yield*/, require('../libs/testdata-upload').normalizeTestdataTextDirectory(dir)];
                                     case 5:
+                                        normalization = _a.sent();
+                                        if (!normalization.normalized_files) return [3 /*break*/, 8];
+                                        return [4 /*yield*/, fs.remove(this.getTestdataArchivePath())];
+                                    case 6:
                                         _a.sent();
-                                        return [2 /*return*/];
+                                        return [4 /*yield*/, fs.remove(path)];
+                                    case 7:
+                                        _a.sent();
+                                        return [3 /*break*/, 10];
+                                    case 8: return [4 /*yield*/, fs.move(path, this.getTestdataArchivePath(), { overwrite: true })];
+                                    case 9:
+                                        _a.sent();
+                                        _a.label = 10;
+                                    case 10: return [2 /*return*/];
                                 }
                             });
                         }); })];
@@ -230,59 +243,46 @@ var Problem = /** @class */ (function (_super) {
         return __awaiter(this, void 0, void 0, function () {
             var _this = this;
             return __generator(this, function (_a) {
-                switch (_a.label) {
-                    case 0: return [4 /*yield*/, syzoj.utils.lock(['Promise::Testdata', this.id], function () { return __awaiter(_this, void 0, void 0, function () {
-                            var dir, oldSize, list, replace, oldCount, _i, _a, file, execFileAsync, e_1;
-                            return __generator(this, function (_b) {
-                                switch (_b.label) {
-                                    case 0:
-                                        dir = this.getTestdataPath();
-                                        return [4 /*yield*/, fs.ensureDir(dir)];
-                                    case 1:
-                                        _b.sent();
-                                        oldSize = 0;
-                                        return [4 /*yield*/, this.listTestdata()];
-                                    case 2:
-                                        list = _b.sent(), replace = false, oldCount = 0;
-                                        if (list) {
-                                            oldCount = list.files.length;
-                                            for (_i = 0, _a = list.files; _i < _a.length; _i++) {
-                                                file = _a[_i];
-                                                if (file.filename !== filename)
-                                                    oldSize += file.size;
-                                                else
-                                                    replace = true;
-                                            }
+                return [2 /*return*/, syzoj.utils.lock(['Promise::Testdata', this.id], function () { return __awaiter(_this, void 0, void 0, function () {
+                        var dir, oldSize, list, replace, oldCount, _i, _a, file, normalization;
+                        return __generator(this, function (_b) {
+                            switch (_b.label) {
+                                case 0:
+                                    dir = this.getTestdataPath();
+                                    return [4 /*yield*/, fs.ensureDir(dir)];
+                                case 1:
+                                    _b.sent();
+                                    oldSize = 0;
+                                    return [4 /*yield*/, this.listTestdata()];
+                                case 2:
+                                    list = _b.sent(), replace = false, oldCount = 0;
+                                    if (list) {
+                                        oldCount = list.files.length;
+                                        for (_i = 0, _a = list.files; _i < _a.length; _i++) {
+                                            file = _a[_i];
+                                            if (file.filename !== filename)
+                                                oldSize += file.size;
+                                            else
+                                                replace = true;
                                         }
-                                        if (!noLimit && oldSize + size > syzoj.config.limit.testdata)
-                                            throw new ErrorMessage('数据包太大。');
-                                        if (!noLimit && oldCount + !replace > syzoj.config.limit.testdata_filecount)
-                                            throw new ErrorMessage('数据包中的文件太多。');
-                                        return [4 /*yield*/, fs.move(filepath, path.join(dir, filename), { overwrite: true })];
-                                    case 3:
-                                        _b.sent();
-                                        execFileAsync = util.promisify(require('child_process').execFile);
-                                        _b.label = 4;
-                                    case 4:
-                                        _b.trys.push([4, 6, , 7]);
-                                        return [4 /*yield*/, execFileAsync('dos2unix', [path.join(dir, filename)])];
-                                    case 5:
-                                        _b.sent();
-                                        return [3 /*break*/, 7];
-                                    case 6:
-                                        e_1 = _b.sent();
-                                        return [3 /*break*/, 7];
-                                    case 7: return [4 /*yield*/, fs.remove(this.getTestdataArchivePath())];
-                                    case 8:
-                                        _b.sent();
-                                        return [2 /*return*/];
-                                }
-                            });
-                        }); })];
-                    case 1:
-                        _a.sent();
-                        return [2 /*return*/];
-                }
+                                    }
+                                    if (!noLimit && oldSize + size > syzoj.config.limit.testdata)
+                                        throw new ErrorMessage('数据包太大。');
+                                    if (!noLimit && oldCount + !replace > syzoj.config.limit.testdata_filecount)
+                                        throw new ErrorMessage('数据包中的文件太多。');
+                                    return [4 /*yield*/, require('../libs/testdata-upload').normalizeTestdataTextFile(filepath)];
+                                case 3:
+                                    normalization = _b.sent();
+                                    return [4 /*yield*/, fs.move(filepath, path.join(dir, filename), { overwrite: true })];
+                                case 4:
+                                    _b.sent();
+                                    return [4 /*yield*/, fs.remove(this.getTestdataArchivePath())];
+                                case 5:
+                                    _b.sent();
+                                    return [2 /*return*/, normalization];
+                            }
+                        });
+                    }); })];
             });
         });
     };
@@ -537,7 +537,7 @@ var Problem = /** @class */ (function (_super) {
                                     case 1:
                                         _a.submit_num = _c.sent();
                                         _b = this;
-                                        return [4 /*yield*/, judge_state_1["default"].count({ score: 100, problem_id: this.id, type: TypeORM.Not(1) })];
+                                        return [4 /*yield*/, judge_state_1["default"].count({ status: 'Accepted', problem_id: this.id, type: TypeORM.Not(1) })];
                                     case 2:
                                         _b.ac_num = _c.sent();
                                         return [4 /*yield*/, this.save()];

@@ -289,12 +289,17 @@ async function runBulkArchiveJob(jobId) {
   }
 }
 
+async function parseProblemTestdata(directory, problem) {
+  await testdataUpload.validateCommunicationTestdata(directory, problem.type, syzoj.languages);
+  return syzoj.utils.parseTestdata(directory, problem.type === 'submit-answer');
+}
+
 async function runValidationJob(jobId, problem) {
   const connection = TypeORM.getConnection();
   try {
     const rows = await connection.query('SELECT cancel_requested FROM problem_v2_job WHERE id=? LIMIT 1', [jobId]); if (!rows.length || rows[0].cancel_requested) return connection.query("UPDATE problem_v2_job SET state='cancelled',updated_at=UTC_TIMESTAMP(3) WHERE id=?", [jobId]);
     await connection.query("UPDATE problem_v2_job SET state='running',progress=20,updated_at=UTC_TIMESTAMP(3) WHERE id=?", [jobId]);
-    const parsed = await syzoj.utils.parseTestdata(problem.getTestdataPath(), problem.type === 'submit-answer');
+    const parsed = await parseProblemTestdata(problem.getTestdataPath(), problem);
     const controls = await connection.query('SELECT cancel_requested FROM problem_v2_job WHERE id=? LIMIT 1', [jobId]);
     if (!controls.length || controls[0].cancel_requested) {
       await connection.query("UPDATE problem_v2_job SET state='cancelled',updated_at=UTC_TIMESTAMP(3) WHERE id=?", [jobId]);
@@ -328,7 +333,8 @@ async function runUploadJob(jobId, problem) {
     await fs.remove(staging); await fs.ensureDir(staging);
     await testdataUpload.extractTestdataArchive(archive, staging);
     await testdataUpload.normalizeTestdataDirectory(staging);
-    const parsed = await syzoj.utils.parseTestdata(staging, problem.type === 'submit-answer');
+    const normalization = await testdataUpload.normalizeTestdataTextDirectory(staging);
+    const parsed = await parseProblemTestdata(staging, problem);
     const parsedSummary = testdataSummary(parsed);
     if (!parsedSummary.valid) {
       const detail = parsedSummary.error;
@@ -346,8 +352,12 @@ async function runUploadJob(jobId, problem) {
     switched = true;
     const archiveTarget = problem.getTestdataArchivePath();
     if (await fs.pathExists(archiveTarget)) await fs.move(archiveTarget, archiveBackup, { overwrite: false });
-    await fs.move(archive, archiveTarget, { overwrite: true }); archive = null;
+    // A changed archive must be rebuilt from the normalized files on download.
+    if (normalization.normalized_files) await fs.remove(archive);
+    else await fs.move(archive, archiveTarget, { overwrite: true });
+    archive = null;
     const result = testdataSummary(parsed);
+    result.normalization = normalization;
     result.snapshot_id = snapshot.snapshot_id;
     result.testdata_hash = snapshot.testdata && snapshot.testdata.hash || null;
     await connection.query("UPDATE problem_v2_job SET state='completed',progress=100,result_json=?,updated_at=UTC_TIMESTAMP(3) WHERE id=?", [JSON.stringify(result), jobId]);
@@ -520,7 +530,7 @@ async function updateJudgeConfigurationV2(req, res) {
       const current = judgeConfigResource(rows[0]);
       if (!api().ifMatch(req, current)) throw Object.assign(new Error('The judge configuration changed. Refresh it and try again.'), { code: 'ETAG_MISMATCH', statusCode: 412 });
       const type = String(req.body && req.body.type || '');
-      if (!['traditional', 'interaction', 'submit-answer'].includes(type)) throw Object.assign(new Error('Problem type is invalid.'), { code: 'VALIDATION_FAILED', statusCode: 422, fields: { type: 'unsupported type' } });
+      if (!['traditional', 'interaction', 'communication', 'submit-answer'].includes(type)) throw Object.assign(new Error('Problem type is invalid.'), { code: 'VALIDATION_FAILED', statusCode: 422, fields: { type: 'unsupported type' } });
       if ((current.type === 'submit-answer') !== (type === 'submit-answer')) {
         const counts = await manager.query('SELECT COUNT(*) AS total FROM judge_state WHERE problem_id=?', [problem.id]);
         if (Number(counts[0] && counts[0].total || 0) > 0) throw Object.assign(new Error('A problem with submissions cannot switch to or from submit-answer mode.'), { code: 'PROBLEM_TYPE_LOCKED', statusCode: 409 });
@@ -665,14 +675,19 @@ app.post('/api/v2/problems/:id/testdata/files', requireTestdataWriter, (req, res
   try {
     const unrestricted = await user.hasPrivilege('manage_problem');
     const uploaded = [];
+    const normalization = { normalized_files: 0, crlf: 0, bom_files: 0, skipped_binary_files: 0 };
     for (const file of files) {
       const filename = testdataFilename(file.originalname);
-      await problem.uploadTestdataSingleFile(filename, file.path, file.size, unrestricted);
+      const normalized = await problem.uploadTestdataSingleFile(filename, file.path, file.size, unrestricted);
+      normalization.normalized_files += Number(normalized.changed);
+      normalization.crlf += normalized.crlf;
+      normalization.bom_files += Number(normalized.bom);
+      normalization.skipped_binary_files += Number(normalized.skipped_binary);
       uploaded.push(filename);
     }
     let summary;
     try {
-      summary = testdataSummary(await syzoj.utils.parseTestdata(problem.getTestdataPath(), problem.type === 'submit-answer'));
+      summary = testdataSummary(await parseProblemTestdata(problem.getTestdataPath(), problem));
     } catch (error) {
       summary = { valid: false, testcases: 0, special_judge: false, error: error.message || 'Testdata parsing failed.' };
     }
@@ -684,19 +699,19 @@ app.post('/api/v2/problems/:id/testdata/files', requireTestdataWriter, (req, res
       resourceType: 'problem',
       resourceId: Number(problem.id),
       scope: `problem:${problem.id}`,
-      details: { filenames: uploaded }
+      details: { filenames: uploaded, normalization }
     });
     const event = await api().appendEvent({
       stream: `problem:${problem.id}`,
       type: 'problem.testdata.files.uploaded',
       aggregateId: problem.id,
       actor: user,
-      payload: { filenames: uploaded, audit_event_id: auditEventId }
+      payload: { filenames: uploaded, normalization, audit_event_id: auditEventId }
     });
     if (snapshot && syzoj.utils.contestV2 && syzoj.utils.contestV2.syncProblemSnapshotsForProblem) {
       await syzoj.utils.contestV2.syncProblemSnapshotsForProblem(problem.id, user, req);
     }
-    return api().send(res, { problem_id: Number(problem.id), filenames: uploaded, testdata: summary, snapshot_id: snapshot && snapshot.snapshot_id || null, audit_event_id: auditEventId, event_id: String(event.id) }, 201);
+    return api().send(res, { problem_id: Number(problem.id), filenames: uploaded, testdata: summary, normalization, snapshot_id: snapshot && snapshot.snapshot_id || null, audit_event_id: auditEventId, event_id: String(event.id) }, 201);
   } catch (error) {
     return api().fail(res, error.statusCode || 500, error.code || 'CONTENT_WRITE_FAILED', error.message || 'Testdata upload failed.', error.fields || {});
   } finally {
@@ -752,7 +767,7 @@ app.delete('/api/v2/problems/:id/testdata/files/:filename', requireTestdataWrite
     await problem.deleteTestdataSingleFile(filename);
     let summary;
     try {
-      summary = testdataSummary(await syzoj.utils.parseTestdata(problem.getTestdataPath(), problem.type === 'submit-answer'));
+      summary = testdataSummary(await parseProblemTestdata(problem.getTestdataPath(), problem));
     } catch (error) {
       summary = { valid: false, testcases: 0, special_judge: false, error: error.message || 'Testdata parsing failed.' };
     }

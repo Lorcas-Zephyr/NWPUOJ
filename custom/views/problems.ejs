@@ -190,7 +190,7 @@ function judgeStateClass(state) {
             <tr>
               <% if (canBulkActions) { %><td class="app-problem-select-cell"><% if (problem.allowedPublish || problem.allowedArchive || problem.allowedTag) { %><input type="checkbox" name="problem_ids" value="<%= problem.id %>" data-select-item aria-label="选择 <%= problem.getDisplayId() %> <%= problem.title %>"><% } %></td><% } %>
               <% if (user) { %>
-                <td><% if (problem.judge_state) { %><a href="<%= syzoj.utils.makeUrl(['submission', problem.judge_state.id]) %>" class="app-status <%= judgeStateClass(problem.judge_state.status) %>"><%= problem.judge_state.status === 'Presentation Error' ? '格式错误' : problem.judge_state.status %></a><% } else { %><span class="app-status">未提交</span><% } %></td>
+                <td><% if (problem.judge_state) { %><a href="<%= syzoj.utils.makeUrl(['submission', problem.judge_state.id]) %>" class="app-status <%= judgeStateClass(problem.judge_state.status) %>"><%= problem.judge_state.status %></a><% } else { %><span class="app-status">未提交</span><% } %></td>
               <% } %>
               <td class="app-cell-number"><strong><%= problem.getDisplayId() %></strong></td>
               <td class="app-cell-primary">

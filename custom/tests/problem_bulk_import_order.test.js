@@ -11,8 +11,8 @@ const domain = require('../libs/problem-domain');
 const source = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_problem_domain.js'), 'utf8');
 const code = source.slice(source.indexOf('const BULK_PROBLEM_TEMPLATE ='), source.indexOf("app.get('/problems/import/template'"));
 
-function fixture(names, metadata = {}, failingTitle) {
-  const files = new Map(), created = [], cleaned = [];
+function fixture(names, metadata = {}, failingTitle, validTagIds = [7, 8]) {
+  const files = new Map(), created = [], tagMappings = [], cleaned = [];
   for (const name of names) {
     files.set(`/fixture/extracted/${name}/statement.md`, `# ${name}\n题面内容`);
     if (metadata[name]) files.set(`/fixture/extracted/${name}/problem.json`, JSON.stringify(metadata[name]));
@@ -28,7 +28,18 @@ function fixture(names, metadata = {}, failingTitle) {
     path, os: { tmpdir: () => '/tmp' }, execFile: async () => {}, ZIP_UTF8_ENV: {},
     syzoj: { model: () => ({}), utils: { apiV2: api, vjudgeV2: { ensureSchema: async () => {} } } },
     ensureProblemSchema: async () => {},
-    TypeORM: { getConnection: () => ({ transaction: async callback => callback({}) }) },
+    TypeORM: { getConnection: () => ({ transaction: async callback => callback({
+      query: async (sql, args = []) => {
+        if (sql.startsWith('SELECT id FROM problem_tag WHERE id IN')) {
+          return args.filter(id => validTagIds.includes(Number(id))).map(id => ({ id: Number(id) }));
+        }
+        if (sql.startsWith('INSERT INTO problem_tag_map')) {
+          tagMappings.push([Number(args[0]), Number(args[1])]);
+          return {};
+        }
+        throw Error('Unexpected database query: ' + sql);
+      }
+    }) }) },
     contentFromInput: domain.contentFromInput, validateContent: domain.validateContent,
     createProblemAggregate: async (_manager, _Problem, content, actorId, options) => {
       if (content.title === failingTitle) throw Error('模拟单题导入失败');
@@ -40,7 +51,7 @@ function fixture(names, metadata = {}, failingTitle) {
   });
   vm.runInContext(code, context);
   return {
-    created, cleaned,
+    created, tagMappings, cleaned,
     extract: () => context.extractBulkImportArchive({ buffer: Buffer.from('isolated ZIP fixture') }),
     import: retry => context.importBulkProblems({ file: { buffer: Buffer.from('isolated ZIP fixture') },
       body: retry ? { retry_folders: JSON.stringify(retry) } : {} }, { locals: { user: { id: 7 } } })
@@ -93,12 +104,28 @@ test('partial failures and retries preserve relative order and only retry select
   assert.equal(retried.data.created, 2);
 });
 
-test('import instructions document ordering, folder data and the current tag limitation', () => {
+test('bulk import applies valid tag IDs and reports invalid, duplicate, or nonnumeric IDs per folder', async () => {
+  const f = fixture(['05_boolean', '04_string', '03_missing', '02_duplicate', '01_tagged'], {
+    '01_tagged': { tag_ids: [8, 7] },
+    '02_duplicate': { tag_ids: [7, 7] },
+    '03_missing': { tag_ids: [99] },
+    '04_string': { tag_ids: ['7'] },
+    '05_boolean': { tag_ids: [true] }
+  });
+  const result = await f.import();
+  assert.equal(result.status, 200);
+  assert.deepEqual(Array.from(result.data.created_folders), ['01_tagged']);
+  assert.deepEqual(Array.from(result.data.failures, failure => failure.folder), ['02_duplicate', '03_missing', '04_string', '05_boolean']);
+  assert.deepEqual(f.tagMappings, [[100, 8], [100, 7]]);
+  assert.deepEqual(f.created.map(item => item.problem.title), ['01_tagged']);
+});
+
+test('import instructions document ordering, folder data and tag IDs', () => {
   const view = fs.readFileSync(path.join(__dirname, '../views/problem_bulk_import.ejs'), 'utf8');
   assert.match(view, /data-bulk-import-order-help/);
   assert.match(view, /01_A加B/);
   assert.match(view, /无需填写 order 字段/);
   assert.match(view, /不保证题号连续/);
-  assert.match(view, /当前批量导入尚不应用 tag_ids/);
+  assert.match(view, /tag_ids.*导入时直接关联/);
   assert.match(view, /普通传统题可以不写 data.yml/);
 });

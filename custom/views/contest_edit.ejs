@@ -167,7 +167,7 @@
       var visibility = [];
       if (editorForm.elements.hide_contest && editorForm.elements.hide_contest.checked) visibility.push('隐藏比赛');
       else visibility.push('公开比赛');
-      if (editorForm.elements.is_rated && editorForm.elements.is_rated.checked) visibility.push('Rated');
+      if (checked('is_rated')) visibility.push('Rated');
       else visibility.push('Unrated');
       if (editorForm.elements.allow_registration && editorForm.elements.allow_registration.checked) visibility.push('允许用户报名');
       else visibility.push('仅限比赛账号');

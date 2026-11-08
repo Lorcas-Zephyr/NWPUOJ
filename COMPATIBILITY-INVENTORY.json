@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-27T09:28:04.955Z",
+  "generated_at": "2026-11-08T13:43:53.125Z",
   "frontend_page_routes": [
     {
       "method": "GET",
@@ -89,13 +89,13 @@
       "method": "GET",
       "route": "/problems/import/template",
       "source": "custom/modules/_api_v2_problem_domain.js",
-      "line": 884
+      "line": 896
     },
     {
       "method": "GET",
       "route": "/problems/import",
       "source": "custom/modules/_api_v2_problem_domain.js",
-      "line": 899
+      "line": 911
     },
     {
       "method": "GET",
@@ -215,55 +215,55 @@
       "method": "GET",
       "route": "/contest/:id",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 329
+      "line": 356
     },
     {
       "method": "GET",
       "route": "/contest/:id/edit",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 338
+      "line": 365
     },
     {
       "method": "GET",
       "route": "/contest/:id/details",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 352
+      "line": 379
     },
     {
       "method": "GET",
       "route": "/contest/:id",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 382
+      "line": 409
     },
     {
       "method": "GET",
       "route": "/contest/:id/ranklist",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 491
+      "line": 522
     },
     {
       "method": "GET",
       "route": "/contest/:id/rating",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 594
+      "line": 625
     },
     {
       "method": "GET",
       "route": "/contest/:id/ranklist/export",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 641
+      "line": 673
     },
     {
       "method": "GET",
       "route": "/contest/:id/code-export",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 676
+      "line": 708
     },
     {
       "method": "GET",
       "route": "/contest/:id/problem/:pid",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 705
+      "line": 737
     },
     {
       "method": "GET",
@@ -396,6 +396,12 @@
       "route": "/legal/:slug",
       "source": "custom/modules/_legal_documents.js",
       "line": 9
+    },
+    {
+      "method": "GET",
+      "route": "/admin/ip",
+      "source": "custom/modules/_login_ip.js",
+      "line": 7
     },
     {
       "method": "GET",
@@ -771,8 +777,8 @@
   "approved_runtime_callbacks": [],
   "compatibility_adapters": [],
   "summary": {
-    "frontend_page_route_registrations": 127,
-    "frontend_page_route_shapes": 107,
+    "frontend_page_route_registrations": 128,
+    "frontend_page_route_shapes": 108,
     "v1_api_reads": 0,
     "v1_write_routes": 0,
     "v1_write_route_shapes": 0,

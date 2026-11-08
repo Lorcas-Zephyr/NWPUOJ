@@ -1,4 +1,4 @@
-# NWPUOJ v2.2.0 Release Runbook
+# NWPUOJ v2.3.0 Release Runbook
 
 ## Source Release
 
@@ -6,7 +6,7 @@ For a GitHub source release, synchronize `VERSION`, package metadata, Web config
 Compose image tags, and README; add the matching version section to `CHANGELOG.md`.
 Run `npm ci && npm test` from `custom`, validate `docker compose config --quiet`, and review
 the staged files. Exclude secrets, uploads, local exports, backups, and private import workspaces.
-Create the release commit and annotated `v2.2.0` tag, then push the branch and tag atomically.
+Create the release commit and annotated `v2.3.0` tag, then push the branch and tag atomically.
 The `Release` GitHub Actions workflow reruns the tests and publishes the matching changelog
 section. Verify the workflow and published GitHub Release before reporting completion.
 
@@ -26,8 +26,9 @@ Create all artifacts before changing containers:
 
 ```bash
 mkdir -p release-backup
-docker compose exec -T mariadb mariadb-dump -uroot \
-  --single-transaction --routines --events syzoj > release-backup/nwpuoj-v2.sql
+docker compose exec -T mariadb sh -ec \
+  'exec mariadb-dump -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction --routines --events syzoj' \
+  > release-backup/nwpuoj-v2.sql
 docker run --rm -v nwpuoj_uploads:/data:ro -v "$PWD/release-backup:/backup" \
   alpine:3.20 tar czf /backup/uploads.tar.gz -C /data .
 docker run --rm -v nwpuoj_config:/data:ro -v "$PWD/release-backup:/backup" \
@@ -46,7 +47,10 @@ npm test
 node scripts/compatibility-inventory.js --write
 cd ..
 docker compose config --quiet
-docker compose build web
+docker compose build judge-runner-1 web
+docker compose up -d --force-recreate judge-runner-1
+docker compose ps
+docker compose up -d --force-recreate judge-daemon
 docker compose up -d --force-recreate web
 docker compose ps
 curl -fsS http://127.0.0.1/help >/dev/null
@@ -74,7 +78,7 @@ volume set so rows, files, events, and projections return to one consistent poin
 
 ## Publish
 
-After validation, create the annotated `v2.2.0` tag and GitHub release from the reviewed release
+After validation, create the annotated `v2.3.0` tag and GitHub release from the reviewed release
 commit. Include the matching `CHANGELOG.md` section and validation results. For a production
 deployment, also record compatibility counts, image digest, backup identifiers, contest drill
 evidence, and the named rollback owner in the deployment record.

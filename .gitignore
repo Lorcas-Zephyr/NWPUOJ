@@ -16,6 +16,7 @@ Thumbs.db
 *.sql
 *.tar.gz
 *.zip
+!custom/static-libs/communication-example.zip
 custom/node_modules/
 custom/uploads/
 custom/tools/jplag/

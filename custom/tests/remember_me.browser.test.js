@@ -47,6 +47,7 @@ test('real login checkbox stays opt-in, submits booleans, preserves errors/redir
     const checkbox = page.getByRole('checkbox', { name: '记住我', exact: true });
     assert.equal(await checkbox.isChecked(), false);
     assert.equal(await page.locator('#remember-me-hint').isVisible(), true);
+    assert.match(await page.locator('#remember-me-hint').textContent(), /勾选后保持登录 30 天，不勾选为 12 小时/);
     await page.locator('#username').fill('0012345678');
     await page.locator('#password').fill('isolated_fixture_password');
     await page.getByRole('button', { name: '登录', exact: true }).click();

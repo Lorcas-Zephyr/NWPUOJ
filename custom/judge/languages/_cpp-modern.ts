@@ -17,7 +17,7 @@ export function createCppLanguage(name: string, standard: string, compiler = "/u
                 "-fdiagnostics-color=always",
                 "-DONLINE_JUDGE"
             ],
-            time: 5000,
+            time: 30000,
             memory: 2 * 1024 * 1024 * 1024,
             process: 10,
             stdout: `${outputDirectory}/message.txt`,

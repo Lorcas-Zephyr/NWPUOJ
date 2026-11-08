@@ -188,7 +188,7 @@ ensureSiteOwner()
   });
 
 function contestSubmissionEnabled(problem) {
-  return !problem || ['traditional', 'interaction', 'submit-answer'].includes(problem.type);
+  return !problem || ['traditional', 'interaction', 'communication', 'submit-answer'].includes(problem.type);
 }
 
 syzoj.utils.contestSubmissionEnabled = contestSubmissionEnabled;

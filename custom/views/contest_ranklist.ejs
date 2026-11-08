@@ -21,6 +21,7 @@ if (appCheaterSet && appCheaterSet.size && Array.isArray(ranklist)) {
 }
 const appRankContestType = { acm: 'ACM', ioi: 'IOI', noi: 'NOI' }[contest.type] || String(contest.type || '').toUpperCase();
 const appRankAccountFilter = typeof ranklistAccountFilter === 'string' ? ranklistAccountFilter : 'all';
+const appRankProblemStatistics = typeof ranklistProblemStatistics !== 'undefined' ? ranklistProblemStatistics : {};
 const appStandingsView = typeof standingsView !== 'undefined' ? standingsView : { frozen: false, showLive: false, cutoff: null };
 const appRankNow = syzoj.utils.getCurrentDate();
 const appRankBoundary = appStandingsView.freezeAt > appRankNow && !appStandingsView.frozen ? Math.min(appStandingsView.freezeAt, contest.end_time) : contest.end_time;
@@ -104,7 +105,7 @@ for (const problem of problems) {
   <% if (ranklist.length) { %>
     <div class="app-table-region" role="region" aria-label="比赛排行榜" tabindex="0">
       <table class="app-table app-contest-rank-table">
-        <thead><tr><th>名次</th><th class="app-cell-primary">参赛者</th><% if (contest.type === 'acm') { %><th>通过</th><th>罚时</th><% } %><% if (contest.type === 'ioi') { %><th>总分</th><% } %><% for (let i = 0; i < problems.length; i += 1) { %><th class="app-rank-problem"><a href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'problem', i + 1]) %>" title="<%= syzoj.utils.removeTitleTag(problems[i].title) %>"><%= this.alpha(i + 1) %></a></th><% } %><% if (contest.type === 'noi') { %><th>总分</th><% } %><% if (typeof contestRatingFinalized !== 'undefined' && contestRatingFinalized) { %><th>Rating</th><% } %></tr></thead>
+        <thead><tr><th>名次</th><th class="app-cell-primary">参赛者</th><% if (contest.type === 'acm') { %><th>通过</th><th>罚时</th><% } %><% if (contest.type === 'ioi') { %><th>总分</th><% } %><% for (let i = 0; i < problems.length; i += 1) { const appProblemStats = appRankProblemStatistics[problems[i].id] || { accepted: 0, submissions: 0 }; %><th class="app-rank-problem"><a href="<%= syzoj.utils.makeUrl(['contest', contest.id, 'problem', i + 1]) %>" title="<%= syzoj.utils.removeTitleTag(problems[i].title) %>"><%= this.alpha(i + 1) %></a><span class="app-rank-problem-statistics" title="通过提交数 / 总提交数" aria-label="通过 <%= appProblemStats.accepted %> 次，共提交 <%= appProblemStats.submissions %> 次"><%= appProblemStats.accepted %>/<%= appProblemStats.submissions %></span></th><% } %><% if (contest.type === 'noi') { %><th>总分</th><% } %><% if (typeof contestRatingFinalized !== 'undefined' && contestRatingFinalized) { %><th>Rating</th><% } %></tr></thead>
         <tbody>
           <% let appRow = typeof rankOffset !== 'undefined' ? rankOffset : 0; for (const item of ranklist) { appRow += 1; const appRank = item.player.standing_rank || appRow; const appOverallRank = item.player.overall_standing_rank || null; const appPenalty = contest.type === 'acm' ? appAcmPenalty(item) : 0; const appDisplayUser = appRankDisplayUser(item); %>
             <tr data-rank-user-id="<%= item.user.id %>" class="<%= item.player.isCheater ? 'app-rank-cheater ' : '' %><%= user && user.id === item.user.id ? 'app-row-current' : '' %>">

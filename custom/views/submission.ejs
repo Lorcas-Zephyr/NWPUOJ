@@ -7,9 +7,9 @@ const appIsCancelled = !!(appAdminAction && appAdminAction.action_type === 'canc
 const appIsMarked = appIsCheated || appIsCancelled;
 const appCanManage = typeof canManageSubmissionAction !== 'undefined' && canManageSubmissionAction;
 if (appIsCheated) detailResult = null;
-const appResultTypes = ['', 'Accepted', 'Wrong Answer', 'Partially Correct', 'Memory Limit Exceeded', 'Time Limit Exceeded', 'Output Limit Exceeded', 'File Error', 'Runtime Error', 'Judgement Failed', 'Invalid Interaction', '格式错误'];
+const appResultTypes = ['', 'Accepted', 'Wrong Answer', 'Partially Correct', 'Memory Limit Exceeded', 'Time Limit Exceeded', 'Output Limit Exceeded', 'File Error', 'Runtime Error', 'Judgement Failed', 'Invalid Interaction', 'Presentation Error'];
 function appStatusLabel(status) {
-  return String(status || '') === 'Presentation Error' ? '格式错误' : status;
+  return status;
 }
 function appStatusClass(status) {
   const value = String(status || '').toLowerCase();
@@ -17,7 +17,7 @@ function appStatusClass(status) {
   if (value === 'waiting') return 'app-status-waiting';
   if (value.startsWith('running') || value === 'judging' || value === 'compiling') return 'app-status-judging';
   if (value === 'partially correct') return 'app-status-partial';
-  if (value === 'presentation error' || value === '格式错误') return 'app-verdict app-verdict-format';
+  if (value === 'presentation error') return 'app-verdict app-verdict-format';
   if (value === 'skipped' || value === '已取消') return '';
   if (value === '作弊' || value === 'cheated' || value === 'wrong answer') return 'app-verdict app-verdict-wrong';
   if (value === 'runtime error' || value === 'invalid interaction') return 'app-verdict app-verdict-runtime';
@@ -143,11 +143,15 @@ const appSubtasks = detailResult && detailResult.judge && Array.isArray(detailRe
           <details class="app-subtask"<%= appSubtasks.length === 1 ? ' open' : '' %>>
             <summary><span class="app-subtask-title"><i data-lucide="chevron-right"></i><strong>子任务 <%= appSubtaskIndex %></strong><span class="app-status <%= appStatusClass(appSubtaskState) %>"><%= appSubtaskState %></span></span><span class="app-subtask-metrics"><% if (subtask.score != null) { %><span>得分 <strong><%= Math.trunc(subtask.score) %></strong></span><% } %><span><%= (subtask.cases || []).length %> 个测试点</span></span></summary>
             <div class="app-testcase-list">
-              <% let appCaseIndex = 0; for (const testcase of subtask.cases || []) { appCaseIndex += 1; const appTestcaseState = appCaseStatus(testcase); const appCaseResult = testcase.result || {}; const appHasCaseDetail = !!(testcase.errorMessage || appCaseResult.input || appCaseResult.output || appCaseResult.userOutput || appCaseResult.userError || appCaseResult.spjMessage || appCaseResult.systemMessage); %>
+              <% let appCaseIndex = 0; for (const testcase of subtask.cases || []) { appCaseIndex += 1; const appTestcaseState = appCaseStatus(testcase); const appCaseResult = testcase.result || {}; const appHasCaseDetail = !!(testcase.errorMessage || appCaseResult.input || appCaseResult.output || appCaseResult.userOutput || appCaseResult.userError || appCaseResult.spjMessage || appCaseResult.systemMessage || appCaseResult.communication); %>
                 <% if (appHasCaseDetail) { %><details class="app-testcase"><summary><% } else { %><div class="app-testcase app-testcase-static"><% } %>
                   <span class="app-testcase-title"><% if (appHasCaseDetail) { %><i data-lucide="chevron-right"></i><% } %><strong>#<%= appCaseIndex %></strong><span class="app-status <%= appStatusClass(appTestcaseState) %>"><%= appTestcaseState %></span></span>
                   <span class="app-testcase-metrics"><% if (appCaseResult.scoringRate != null) { %><span><%= Math.trunc(appCaseResult.scoringRate * 100) %> 分</span><% } %><% if (appCaseResult.time != null) { %><span><%= appCaseResult.time %> ms</span><% } %><% if (appCaseResult.memory != null) { %><span><%= appCaseResult.memory %> KiB</span><% } %></span>
                 <% if (appHasCaseDetail) { %></summary><div class="app-testcase-detail">
+                  <% if (appCaseResult.communication) { const appCommunication = appCaseResult.communication; %>
+                    <% for (const round of appCommunication.rounds || []) { %><section><h3>第 <%= round.round %> 轮运行 · <%= appResultTypes[round.type] === 'Accepted' ? '正常结束' : (appResultTypes[round.type] || 'System Error') %> · <%= round.time %> ms · <%= round.memory %> KiB</h3><pre><code><%= round.userOutput %></code></pre><% if (round.userError) { %><h3>第 <%= round.round %> 轮标准错误流</h3><pre><code><%= round.userError %></code></pre><% } %><% if (round.type !== 1 && round.systemMessage) { %><pre><code><%= round.systemMessage %></code></pre><% } %></section><% } %>
+                    <% if (appCommunication.secondInput != null) { %><section><h3>转换后的第二轮输入</h3><pre><code><%= appCommunication.secondInput %></code></pre></section><% } %>
+                  <% } %>
                   <% if (appCaseResult.input) { %><section><h3>输入文件 <code><%= appCaseResult.input.name %></code><% if (!appCaseResult.input.remote) { %><a class="app-icon-button" href="<%= syzoj.utils.makeUrl(['problem', info.sourceProblemId || info.problemId, 'testdata', 'download']) %>/<%= encodeURIComponent(appCaseResult.input.name) %>" aria-label="下载输入文件"><i data-lucide="download"></i></a><% } %></h3><pre><code><%= appCaseResult.input.content %></code></pre></section><% } %>
                   <% if (appCaseResult.output) { %><section><h3>答案文件 <code><%= appCaseResult.output.name %></code><a class="app-icon-button" href="<%= syzoj.utils.makeUrl(['problem', info.sourceProblemId || info.problemId, 'testdata', 'download']) %>/<%= encodeURIComponent(appCaseResult.output.name) %>" aria-label="下载答案文件"><i data-lucide="download"></i></a></h3><pre><code><%= appCaseResult.output.content %></code></pre></section><% } %>
                   <% for (const appOutput of [{ title: '用户输出', value: appCaseResult.userOutput }, { title: '标准错误流', value: appCaseResult.userError }, { title: 'Special Judge 信息', value: appCaseResult.spjMessage }, { title: '系统信息', value: appCaseResult.systemMessage }, { title: '错误信息', value: testcase.errorMessage }]) { if (!appOutput.value) continue; %><section><h3><%= appOutput.title %></h3><pre><code><%= appOutput.value %></code></pre></section><% } %>

@@ -161,7 +161,10 @@ test('login accepts the exact renamed Unicode account and still enforces tempora
   });
   vm.runInContext(source.slice(source.indexOf('async function findLoginUser('), source.indexOf('function loginBlocked(')), context);
   vm.runInContext(source.slice(source.indexOf("app.post('/api/v2/auth/login',"), source.indexOf("app.post('/api/v2/auth/logout',")), context);
-  const request = { body: { username: user.username, password: 'fixture-password' } };
+  const request = {
+    body: { username: user.username, password: 'fixture-password' },
+    session: { rememberMe: false, cookie: { originalMaxAge: null } }
+  };
   assert.equal((await handler(request, { locals: {} })).status, 200);
   allowed = false;
   assert.equal((await handler(request, { locals: {} })).status, 401);

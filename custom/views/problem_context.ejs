@@ -23,6 +23,7 @@ const contextCanSubmit = contextProblemSet
 const contextTypeNames = {
   'submit-answer': '答案提交',
   interaction: '交互题',
+  communication: '通信题',
   traditional: '传统题'
 };
 const contextJudgeType = contextHasTestdata
@@ -122,7 +123,7 @@ function contextAriaCurrent(section) { return contextSection === section ? ' ari
     <% if (contextProblem.type !== 'submit-answer') { %><div><dt>时间限制</dt><dd><%= contextProblem.time_limit %> ms</dd></div><div><dt>内存限制</dt><dd><%= contextProblem.memory_limit %> MiB</dd></div><% } %>
     <div><dt>题目类型</dt><dd><%= contextTypeNames[contextProblem.type] || contextProblem.type %></dd></div>
     <div><dt>评测方式</dt><dd><%= contextJudgeType %></dd></div>
-    <% if (contextProblem.file_io && contextProblem.type !== 'interaction') { %><div><dt>输入文件</dt><dd><%= contextProblem.file_io_input_name %></dd></div><div><dt>输出文件</dt><dd><%= contextProblem.file_io_output_name %></dd></div><% } else if (contextProblem.type !== 'interaction' && contextProblem.type !== 'submit-answer') { %><div><dt>输入输出</dt><dd>标准输入输出</dd></div><% } %>
+    <% if (contextProblem.file_io && contextProblem.type === 'traditional') { %><div><dt>输入文件</dt><dd><%= contextProblem.file_io_input_name %></dd></div><div><dt>输出文件</dt><dd><%= contextProblem.file_io_output_name %></dd></div><% } else if (contextProblem.type !== 'interaction' && contextProblem.type !== 'submit-answer') { %><div><dt>输入输出</dt><dd>标准输入输出</dd></div><% } %>
     <% if (!contextContest && !contextProblemSet) { %><div><dt>上传者</dt><dd><% if (contextProblem.is_anonymous && !contextProblem.allowedManage) { %>匿名<% } else if (contextProblem.user) { %><%- syzoj.utils.renderUsername(contextProblem.user) %><% } else { %>未知<% } %></dd></div><% if (contextProblem.allowedManage) { %><div><dt>公开者</dt><dd><% if (contextProblem.publicizer) { %><%- syzoj.utils.renderUsername(contextProblem.publicizer) %><% } else { %>未知<% } %></dd></div><% } %><% } %>
   </dl>
 

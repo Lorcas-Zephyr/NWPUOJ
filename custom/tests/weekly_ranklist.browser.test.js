@@ -22,25 +22,36 @@ function fixtureData() {
     edit_etag: '"weekly-1"', revision: 1, calculated_at: '2026-10-16T08:00:00.000Z' };
 }
 function html(settings, manager) {
-  const template = read('views/weekly_ranklist.ejs').replace('<% include app_header %>', '').replace('<% include app_footer %>', '');
-  const code = "const ejs=require('ejs'),fs=require('fs'),x=JSON.parse(fs.readFileSync(0,'utf8'));process.stdout.write(ejs.render(x.template,{weeklySettings:x.settings,weeklyManager:x.manager}));";
+  const source = settings === 'admin' ? '<% var loginIPWeekly = false; this.adminPage = \'ip\'; %>' + read('views/admin_header.ejs') + read('views/login_ip_table.ejs') + read('views/admin_footer.ejs') : read('views/weekly_ranklist.ejs');
+  const template = source.replace('<% include app_header %>', '').replace('<% include app_footer %>', '').replace('<% include login_ip_table %>', read('views/login_ip_table.ejs'));
+  const code = "const ejs=require('ejs'),fs=require('fs'),x=JSON.parse(fs.readFileSync(0,'utf8'));process.stdout.write(ejs.render(x.template,{weeklySettings:x.settings,weeklyManager:x.manager,user:{id:1,is_admin:true},syzoj:{utils:{makeUrl:parts=>'/'+parts.join('/')}}}));";
   const r = spawnSync('docker', ['compose', 'exec', '-T', 'web', 'node', '-e', code], { cwd: path.join(root, '..'), input: JSON.stringify({ template, settings, manager }), encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
     + ['app-shell.css', 'app-shared.css', 'app-features.css', 'username_tiers.css'].map(file => '<link rel="stylesheet" href="/self/' + file + '">').join('')
+    + '<link rel="stylesheet" href="/self/lib/flatpickr-4.6.13/flatpickr.min.css"><script src="/self/lib/flatpickr-4.6.13/flatpickr.min.js"></script><script src="/self/lib/flatpickr-4.6.13/zh.js"></script>'
     + '<script>window.__NWPUOJ_APP={csrfToken:"fixture",user:{id:1}};window.__SYZOJ_USER_TIERS={1:"admin",2:"red",3:"orange",4:"green",5:"blue",6:"gray",7:"cheater",101:"green"};</script><script src="/self/app-api.js"></script></head><body class="app-v2">' + r.stdout + '<script src="/self/app-v2.js"></script></body></html>';
 }
 async function fixture(settings, manager = true) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
-  const page = await context.newPage(), failures = [], writes = [];
+  const page = await context.newPage(), failures = [], writes = [], ipQueries = [];
   let board = fixtureData(), rejectNext = false;
   if (!manager) { board.can_manage = false; board.rows.forEach(row => { delete row.real_name; delete row.student_id; }); }
   const document = html(settings, manager);
   page.on('pageerror', error => failures.push(error.message));
   await context.route('**/*', async route => {
     const url = new URL(route.request().url()), req = route.request();
-    if (url.pathname.startsWith('/self/')) { const file = url.pathname.split('/').pop(); return route.fulfill({ contentType: file.endsWith('.css') ? 'text/css' : 'application/javascript', body: read(file) }); }
+    if (url.pathname.startsWith('/self/')) { const file = url.pathname.startsWith('/self/lib/') ? 'static-libs/' + url.pathname.slice('/self/lib/'.length) : url.pathname.split('/').pop(); return route.fulfill({ contentType: file.endsWith('.css') ? 'text/css' : 'application/javascript', body: read(file) }); }
     if (url.pathname === '/fixture') return route.fulfill({ contentType: 'text/html', body: document });
+    if (url.pathname === '/api/v2/weekly-ranklist/login-ips' || url.pathname === '/api/v2/admin/login-ips') {
+      ipQueries.push(Object.fromEntries(url.searchParams));
+      const q = url.searchParams.get('q') || '', page = Number(url.searchParams.get('page') || 1);
+      if (q === 'error') return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: { code: 'UNAVAILABLE', message: '暂时无法读取登录记录。' } }) });
+      const row = { id: '1', user_id: 12232, username: 'Miku_master', ip_address: '10.31.122.249', logged_in_at: '2026-11-01T10:52:43.000Z', contest_id: 7,
+        contest_title: '预备队周赛', contest_start: 1793527200, first_submission: 1793528000, last_submission: 1793534400, onsite: 0, auto_online: 1 };
+      const rows = q === 'missing' ? [] : Array.from({ length: q || page === 2 ? 1 : 50 }, (_, i) => ({ ...row, id: String(i + 1) }));
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: { rows, total: q === 'missing' ? 0 : q ? 1 : 51, page: q ? 1 : page, page_count: q ? 1 : 2, contests: [{ id: 7, title: '预备队周赛' }] }, meta: {}, error: null }) });
+    }
     if (url.pathname.startsWith('/api/v2/weekly-ranklist')) {
       let data = board;
       if (url.pathname.includes('/search/')) {
@@ -62,8 +73,8 @@ async function fixture(settings, manager = true) {
     }
     return route.fulfill({ status: 404, body: 'fixture only' });
   });
-  await page.goto('http://weekly.test/fixture'); await page.locator('[data-weekly-title]').filter({ hasText: '预备队周赛总榜' }).waitFor();
-  return { page, context, failures, writes, reject: () => { rejectNext = true; } };
+  await page.goto('http://weekly.test/fixture'); if (settings === 'admin') await page.locator('[data-login-ip-status]').filter({ hasText: '51 条' }).waitFor(); else await page.locator('[data-weekly-title]').filter({ hasText: '预备队周赛总榜' }).waitFor();
+  return { page, context, failures, writes, ipQueries, reject: () => { rejectNext = true; } };
 }
 
 test('ranklist columns, cell colors, identities, 100-person pagination and mobile overflow', async () => {
@@ -179,4 +190,47 @@ test('onsite matrix keeps unsaved edits on error, saves only changes and fits mo
     await page.setViewportSize({ width: 390, height: 844 }); assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
     assert.deepEqual(f.failures, []);
   } finally { await f.context.close(); }
+});
+
+
+test('admin IP directory and weekly IP tab search, filter, paginate and recover from errors without writes', async () => {
+  for (const mode of ['admin', true]) {
+    const f = await fixture(mode);
+    try {
+      const { page } = f;
+      if (mode === true) await page.getByRole('tab', { name: 'IP 管理' }).click();
+      await page.locator('[data-login-ip-rows] tr').nth(49).waitFor();
+      assert.equal(await page.locator('[data-login-ip-rows] tr').count(), 50);
+      assert.match(await page.locator('[data-login-ip-rows] tr').first().innerText(), /Miku_master.*UID 12232/s);
+      assert.match(await page.locator('[data-login-ip-rows] tr').first().innerText(), /2026-11-01 18:52:43/);
+      if (mode === true) {
+        assert.match(await page.locator('[data-login-ip-rows] tr').first().innerText(), /已自动转线上/);
+        await page.getByLabel('筛选比赛', { exact: true }).selectOption('7');
+        assert.equal(await page.locator('[name=auto_online]').count(), 0);
+        assert.equal(await page.getByRole('heading', { name: '自动转线上记录', exact: true }).count(), 1);
+        await page.locator('[data-login-ip][aria-busy]').waitFor({ state: 'detached' });
+        assert.equal(f.ipQueries.at(-1).contest_id, '7');
+      } else {
+        assert.equal(await page.locator('.app-admin-nav a.is-active').innerText(), 'IP 管理');
+      }
+      await page.locator('[data-login-ip-next]').click();
+      await page.locator('[data-login-ip-page]').filter({ hasText: '第 2 / 2 页' }).waitFor();
+      assert.equal(await page.locator('[data-login-ip-rows] tr').count(), 1);
+      await page.getByRole('searchbox', { name: '搜索用户', exact: true }).fill('12232');
+      await page.locator('[data-login-ip-status]').filter({ hasText: '共 1 条' }).waitFor();
+      assert.equal(f.ipQueries.at(-1).q, '12232'); assert.equal(f.ipQueries.at(-1).page, '1');
+      await page.screenshot({ path: '/tmp/nwpuoj-ip-' + (mode === 'admin' ? 'admin' : 'weekly') + '-desktop.png', fullPage: true });
+      await page.setViewportSize({ width: 390, height: 844 });
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+      await page.screenshot({ path: '/tmp/nwpuoj-ip-' + (mode === 'admin' ? 'admin' : 'weekly') + '-mobile.png', fullPage: true });
+      await page.getByRole('searchbox', { name: '搜索用户', exact: true }).fill('missing');
+      await page.getByText(mode === true ? '暂无符合条件的自动转线上记录。' : '没有匹配的登录记录，请调整用户名或时间范围。', { exact: true }).waitFor();
+      await page.getByRole('searchbox', { name: '搜索用户', exact: true }).fill('error');
+      await page.locator('[data-login-ip-status].is-error').waitFor();
+      assert.equal(await page.locator('[data-login-ip-rows] a').count(), 0);
+      await page.getByRole('button', { name: '重置', exact: true }).click();
+      await page.locator('[data-login-ip-status]').filter({ hasText: '51 条' }).waitFor();
+      assert.deepEqual(f.writes, []); assert.deepEqual(f.failures, []);
+    } finally { await f.context.close(); }
+  }
 });

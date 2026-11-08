@@ -7,9 +7,135 @@ const os = require('node:os');
 const path = require('node:path');
 const { promisify } = require('node:util');
 const test = require('node:test');
+const vm = require('node:vm');
 const upload = require('../libs/testdata-upload');
 
 const exec = promisify(execFile);
+
+test('normalizes Windows CRLF and UTF-8 BOM without trimming data, isolated CR or missing final newline', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'nwpuoj-newlines-'));
+  try {
+    const filename = path.join(root, 'sample.in');
+    const original = '\ufeff  中文\t \r\n\r\nword\rdata\nlast  ';
+    await fs.writeFile(filename, original);
+    const result = await upload.normalizeTestdataTextFile(filename);
+    assert.equal(result.crlf, 2); assert.equal(result.bom, true);
+    assert.equal(await fs.readFile(filename, 'utf8'), '  中文\t \n\nword\rdata\nlast  ');
+    assert.equal((await fs.stat(filename)).size, result.size);
+    assert.equal((await upload.normalizeTestdataTextFile(filename)).changed, false);
+    for (const content of ['', '\n', '\r', 'line\n', 'no newline', 'interior\ufeffBOM']) {
+      await fs.writeFile(filename, content);
+      assert.equal((await upload.normalizeTestdataTextFile(filename)).changed, false);
+      assert.equal(await fs.readFile(filename, 'utf8'), content);
+    }
+  } finally { await fs.remove(root); }
+});
+
+test('chunk boundaries and legacy text bytes survive streaming normalization; binary markers anywhere prevent conversion', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'nwpuoj-newline-stream-'));
+  try {
+    const filename = path.join(root, 'large.in');
+    const contents = Buffer.concat([Buffer.alloc(65535, 97), Buffer.from('\r\n'), Buffer.from([0xd6, 0xd0]), Buffer.from('\r\nend\r')]);
+    await fs.writeFile(filename, contents);
+    assert.equal((await upload.normalizeTestdataTextFile(filename)).crlf, 2);
+    assert.deepEqual(await fs.readFile(filename), Buffer.from(contents.toString('latin1').replace(/\r\n/g, '\n'), 'latin1'));
+    // BOM shifts the second pass by three bytes; exercise its chunk boundary too.
+    await fs.writeFile(filename, Buffer.concat([Buffer.from('\ufeff'), contents]));
+    assert.equal((await upload.normalizeTestdataTextFile(filename)).crlf, 2);
+    assert.deepEqual(await fs.readFile(filename), Buffer.from(contents.toString('latin1').replace(/\r\n/g, '\n'), 'latin1'));
+    for (const bytes of [Buffer.concat([Buffer.from('\ufeff'), contents, Buffer.from([0])]),
+      Buffer.from([0xff, 0xfe, 0x31, 0, 13, 0, 10, 0]), Buffer.from([0xfe, 0xff, 0, 13, 0, 10]),
+      Buffer.from([0x7f, 69, 76, 70, 13, 10]), Buffer.from([65, 13, 10, 1])]) {
+      await fs.writeFile(filename, bytes);
+      const result = await upload.normalizeTestdataTextFile(filename);
+      assert.equal(result.skipped_binary, true); assert.equal(result.changed, false);
+      assert.deepEqual(await fs.readFile(filename), bytes);
+    }
+    const target = path.join(root, 'outside'); await fs.writeFile(target, 'x\r\n');
+    const link = path.join(root, 'link.in'); await fs.symlink(target, link);
+    await assert.rejects(upload.normalizeTestdataTextFile(link), /regular file/);
+    assert.equal(await fs.readFile(target, 'utf8'), 'x\r\n');
+  } finally { await fs.remove(root); }
+});
+
+function modelForUploads(root) {
+  const context = { exports: {}, __dirname: path.join(__dirname, '../models-built'),
+    syzoj: { config: { limit: {} }, utils: { lock: async (_key, work) => work() } },
+    require(name) {
+      if (name === 'typeorm') return { Entity: () => () => {}, Column: () => () => {}, Index: () => () => {}, PrimaryGeneratedColumn: () => () => {} };
+      if (name === './common') return { default: function Model() {} };
+      if (name === 'fs-extra') return fs;
+      if (name === 'path') return path;
+      if (name === '../libs/testdata-upload') return upload;
+      return {};
+    } };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../models-built/problem.js'), 'utf8'), context);
+  const problem = new context.exports.default();
+  problem.id = 7; problem.getTestdataPath = () => path.join(root, 'current');
+  problem.getTestdataArchivePath = () => path.join(root, 'current.zip');
+  return problem;
+}
+
+test('single-file model upload normalizes before publishing and invalidates the downloadable archive', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'nwpuoj-newline-model-'));
+  try {
+    const problem = modelForUploads(root), source = path.join(root, 'incoming');
+    await fs.writeFile(source, '\ufeff123\r\n'); await fs.writeFile(problem.getTestdataArchivePath(), 'old archive');
+    const result = await problem.uploadTestdataSingleFile('1.in', source, 8, true);
+    assert.equal(result.changed, true); assert.equal(result.crlf, 1); assert.equal(result.bom, true);
+    assert.equal(await fs.readFile(path.join(problem.getTestdataPath(), '1.in'), 'utf8'), '123\n');
+    assert.equal(await fs.pathExists(problem.getTestdataArchivePath()), false);
+    const binary = Buffer.from([0, 65, 13, 10]); await fs.writeFile(source, binary);
+    assert.equal((await problem.uploadTestdataSingleFile('2.in', source, binary.length, true)).skipped_binary, true);
+    assert.deepEqual(await fs.readFile(path.join(problem.getTestdataPath(), '2.in')), binary);
+  } finally { await fs.remove(root); }
+});
+
+test('ZIP job normalizes before validation and immutable snapshots, keeps binary content and discards stale archive', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'nwpuoj-newline-job-'));
+  try {
+    const source = path.join(root, 'source'), jobs = path.join(root, 'jobs');
+    await fs.ensureDir(path.join(source, 'data')); await fs.ensureDir(jobs);
+    await fs.writeFile(path.join(source, 'data', '1.in'), '\ufeff1\r\n');
+    await fs.writeFile(path.join(source, 'data', '1.out'), '2\r\n');
+    const binary = Buffer.from([0, 13, 10, 255]); await fs.writeFile(path.join(source, 'data', 'blob.bin'), binary);
+    const archive = '12345678-1234-1234-1234-123456789abc.zip';
+    await exec('zip', ['-q', '-r', path.join(jobs, archive), 'data'], { cwd: source });
+    const problem = modelForUploads(root); problem.type = 'traditional';
+    await fs.ensureDir(problem.getTestdataPath()); await fs.writeFile(path.join(problem.getTestdataPath(), 'old.in'), 'old');
+    await fs.writeFile(problem.getTestdataArchivePath(), 'old zip');
+    const events = [], completed = [];
+    const connection = { query: async (sql, params) => {
+      if (sql.startsWith('SELECT')) return [{ cancel_requested: false, actor_id: 1, input_json: JSON.stringify({ archive }) }];
+      if (sql.includes("state='failed'")) assert.fail(params[0]);
+      if (sql.includes("state='completed'")) completed.push(JSON.parse(params[0]));
+      return {};
+    } };
+    const snapshots = require('../libs/testdata-snapshot');
+    const context = { fs, path, testdataUpload: upload, testdataSnapshots: snapshots,
+      TypeORM: { getConnection: () => connection }, api: () => ({ appendEvent: async event => events.push(event) }),
+      testdataUploadRoot: () => jobs, syzoj: { config: { upload_dir: root }, utils: {
+        parseTestdata: async directory => {
+          assert.equal(await fs.readFile(path.join(directory, '1.in'), 'utf8'), '1\n');
+          assert.equal(await fs.readFile(path.join(directory, '1.out'), 'utf8'), '2\n');
+          assert.deepEqual(await fs.readFile(path.join(directory, 'blob.bin')), binary);
+          return [{ cases: [{}] }];
+        }, problemV2: { refreshTestdataSnapshotFromDirectory: async (_problem, _user, directory) => ({ snapshot_id: 'ps_normalized_123', testdata: await snapshots.captureFromDirectory(root, directory, 'ps_normalized_123') }) }
+      } } };
+    const code = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_problem_workflows.js'), 'utf8');
+    vm.runInNewContext(code.slice(code.indexOf('function testdataSummary('), code.indexOf('async function contentTransaction(')) + '\n' +
+      code.slice(code.indexOf('async function parseProblemTestdata('), code.indexOf('async function runValidationJob(')) + '\n' +
+      code.slice(code.indexOf('async function runUploadJob('), code.indexOf('\nasync function queueBulkArchive(', code.indexOf('async function runUploadJob('))), context);
+    await context.runUploadJob('job', problem);
+    assert.equal(completed.length, 1); assert.equal(completed[0].normalization.normalized_files, 2);
+    assert.equal(completed[0].normalization.skipped_binary_files, 1);
+    assert.equal(await fs.readFile(path.join(problem.getTestdataPath(), '1.in'), 'utf8'), '1\n');
+    assert.equal(await fs.readFile(path.join(snapshots.snapshotDirectory(root, 'ps_normalized_123'), '1.out'), 'utf8'), '2\n');
+    assert.equal(await fs.pathExists(problem.getTestdataArchivePath()), false);
+    assert.equal(await fs.pathExists(path.join(jobs, archive)), false);
+    assert.equal(events[0].payload.normalization.crlf, 2);
+  } finally { await fs.remove(root); }
+});
 
 test('testdata ZIP extraction rejects traversal and atomically replaces only validated staging directories', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'nwpuoj-testdata-upload-'));

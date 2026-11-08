@@ -76,7 +76,7 @@ function avatarUrl(userOrEmail) {
   } else {
     record = avatarEmailCache.get(String(userOrEmail || '').toLowerCase());
   }
-  return record ? appendVersion(record.path, record.updatedAt) : appendVersion(DEFAULT_AVATAR, 'default-1');
+  return record ? appendVersion(record.path, record.updatedAt) : appendVersion(DEFAULT_AVATAR, '20261104-transparent-1');
 }
 
 function hasCustomAvatar(userOrId) {

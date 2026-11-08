@@ -27,6 +27,7 @@ const submitIcons = {
 };
 %>
 <form id="submit_code" class="app-submit-form" enctype="multipart/form-data" data-submission-create-v2 data-submit-endpoint="<%= apiSubmitEndpoint %>" data-submit-answer="<%= problem.type === 'submit-answer' ? 'true' : 'false' %>">
+  <% if (problem.type === 'communication') { %><div class="app-notice"><span>通信题：同一份程序会运行两次。第一轮输出经转换后作为第二轮输入；两轮累计计时，无法共享内存或工作目录中的文件。具体通信规则请查看题面。</span></div><% } %>
   <div class="app-notice app-notice-danger" id="submit-error" role="alert" aria-live="polite" hidden><%- submitIcons.alert %><span data-submit-error-text></span></div>
   <% if (problem.type === 'submit-answer') { %>
     <%
@@ -91,16 +92,25 @@ const submitIcons = {
     %>
     <input name="language" type="hidden" value="<%= selectedLanguage %>" data-language-input>
     <input name="code" type="hidden" data-code-input>
-    <div class="app-submit-workspace">
-      <aside class="app-submit-languages" aria-label="编程语言">
-        <div class="app-submit-languages-head"><span>编程语言</span><strong><%= languageList.length %></strong></div>
-        <div class="app-submit-language-list" data-language-list>
-          <% for (const lang of languageList) { %>
-            <button type="button" class="app-submit-language<%= lang === selectedLanguage ? ' is-active' : '' %>" data-language="<%= lang %>" data-mode="<%= languageMap[lang].editor %>" aria-pressed="<%= lang === selectedLanguage ? 'true' : 'false' %>"><%- submitIcons.code %><span class="app-submit-language-name"><%= languageMap[lang].show %></span><% if (languageMap[lang].version) { %><small class="app-submit-language-version" title="<%= languageMap[lang].version %>"><%= languageMap[lang].version %></small><% } %></button>
-          <% } %>
+    <div class="app-code-workbench" data-code-workbench>
+      <div class="app-editor-toolbar">
+        <div class="app-editor-language">
+          <span class="app-editor-file-icon" aria-hidden="true"><%- submitIcons.code %></span>
+          <select class="app-select app-editor-language-select" aria-label="编程语言" data-language-select>
+            <% for (const lang of languageList) { %>
+              <option value="<%= lang %>" data-mode="<%= languageMap[lang].editor %>" data-version="<%= languageMap[lang].version || '' %>"<%= lang === selectedLanguage ? ' selected' : '' %>><%= languageMap[lang].show %></option>
+            <% } %>
+          </select>
+          <span class="app-editor-compiler" data-language-version><%= languageMap[selectedLanguage].version || '' %></span>
         </div>
-      </aside>
+        <div class="app-editor-tools">
+          <label><span>字号</span><select class="app-select" aria-label="编辑器字号" data-editor-font><% for (const size of [12,14,16,18,20]) { %><option value="<%= size %>"<%= size === 14 ? ' selected' : '' %>><%= size %></option><% } %></select></label>
+          <label><span>缩进</span><select class="app-select" aria-label="缩进空格数" data-editor-indent><option value="2">2</option><option value="4" selected>4</option><option value="8">8</option></select></label>
+          <button type="button" class="app-icon-button app-editor-expand" data-editor-fullscreen aria-label="全屏编辑" aria-pressed="false" title="全屏编辑"><svg class="app-static-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5"></path></svg></button>
+        </div>
+      </div>
       <div id="editor" class="app-submit-editor is-active" role="region" aria-label="代码编辑器" aria-busy="true"><span class="app-editor-loading" role="status" aria-live="polite">编辑器加载中…</span></div>
+      <div class="app-editor-status"><span data-editor-cursor>行 1，列 1</span><span>UTF-8<span class="app-editor-shortcut">Ctrl / ⌘ + F 查找</span></span></div>
     </div>
     <div class="app-submit-bottom">
       <label class="app-file-field"><input type="file" id="answer" name="answer"><span><%- submitIcons.upload %><strong>上传代码文件</strong><small>可选，将优先使用上传的文件</small></span></label>
@@ -108,22 +118,19 @@ const submitIcons = {
     </div>
     <script>
     var submitEditor = null;
-    var activeLanguage = document.querySelector('[data-language].is-active');
+    var languageSelect = document.querySelector('[data-language-select]');
     window.onEditorLoaded(function () {
       var initialCode = <%- serializejs(state ? state.code : '') %>;
       var editorElement = document.getElementById('editor');
-      submitEditor = window.createCodeEditor(editorElement, activeLanguage ? activeLanguage.getAttribute('data-mode') : '', initialCode);
+      submitEditor = window.createCodeEditor(editorElement, languageSelect.selectedOptions[0].dataset.mode, initialCode);
       window.editor = submitEditor;
       editorElement.setAttribute('aria-busy', 'false');
     });
-    document.querySelector('[data-language-list]').addEventListener('click', function (event) {
-      var button = event.target.closest('[data-language]');
-      if (!button) return;
-      document.querySelectorAll('[data-language]').forEach(function (item) { item.classList.toggle('is-active', item === button); item.setAttribute('aria-pressed', item === button ? 'true' : 'false'); });
-      document.querySelector('[data-language-input]').value = button.getAttribute('data-language');
-      activeLanguage = button;
-      var model = submitEditor && submitEditor.getModel ? submitEditor.getModel() : null;
-      if (model && window.monaco) monaco.editor.setModelLanguage(model, button.getAttribute('data-mode'));
+    languageSelect.addEventListener('change', function () {
+      var selected = languageSelect.selectedOptions[0];
+      document.querySelector('[data-language-input]').value = languageSelect.value;
+      document.querySelector('[data-language-version]').textContent = selected.dataset.version;
+      if (submitEditor) submitEditor.setLanguage(selected.dataset.mode);
     });
     function submit_code() {
       var upload = document.getElementById('answer');
@@ -132,7 +139,7 @@ const submitIcons = {
       var sourceLimit = 0;
       if (sourceLimit && new Blob([source]).size > sourceLimit) return showSubmitError('代码长度超过远程题库限制。');
       document.querySelector('[data-code-input]').value = source;
-      document.querySelector('[data-language-input]').value = activeLanguage.getAttribute('data-language');
+      document.querySelector('[data-language-input]').value = languageSelect.value;
       lockSubmitButton();
       return true;
     }

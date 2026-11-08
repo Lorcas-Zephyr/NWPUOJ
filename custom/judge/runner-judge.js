@@ -102,6 +102,9 @@ async function judgeAnswerSubmission(task) {
 }
 exports.judgeAnswerSubmission = judgeAnswerSubmission;
 async function judgeStandard(task) {
+    if (task.communication) {
+        return require('./communication').judgeCommunication(task, runSpj);
+    }
     winston.debug("Standard judge task...", task);
     try {
         const testDataPath = pathLib.join(config_1.globalConfig.testDataDirectory, task.testDataName);
@@ -163,6 +166,9 @@ async function judgeStandard(task) {
         }
         else {
             message = `Exited with return code ${runResult.result.code}`;
+            if (runResult.result.code !== 0) {
+                status = interfaces_2.TestcaseResultType.RuntimeError;
+            }
         }
         const [userOutput, userError] = await Promise.all([
             utils_2.readFileLength(pathLib.join(workingDir, outputFileName), config_1.globalConfig.dataDisplayLimit),
@@ -172,7 +178,7 @@ async function judgeStandard(task) {
             await fse.move(pathLib.join(workingDir, outputFileName), pathLib.join(spjWorkingDir, 'user_out'));
         }
         catch (e) {
-            if (e.code === 'ENOENT' && runResult.result.status === interfaces_1.SandboxStatus.OK && !runResult.outputLimitExceeded) {
+            if (e.code === 'ENOENT' && status === null) {
                 status = interfaces_2.TestcaseResultType.FileError;
             }
         }
@@ -262,9 +268,6 @@ async function judgeInteraction(task) {
                 .then((result) => { stopUser(); return result; }, (err) => { stopUser(); return Promise.reject(err); }), userProgramTaskPromise]);
         const time = Math.round(runResult.result.time / 1e6), memory = runResult.result.memory / 1024;
         let status = null, message = null;
-        if (fixedGroup && runResult.result.status === interfaces_1.SandboxStatus.OK && runResult.result.code !== 0) {
-            status = interfaces_2.TestcaseResultType.RuntimeError;
-        }
         if (runResult.outputLimitExceeded) {
             status = interfaces_2.TestcaseResultType.OutputLimitExceeded;
         }
@@ -286,6 +289,9 @@ async function judgeInteraction(task) {
         }
         else {
             message = `Exited with return code ${runResult.result.code}`;
+            if (runResult.result.code !== 0) {
+                status = interfaces_2.TestcaseResultType.RuntimeError;
+            }
         }
         if (interactorResult.result.status !== interfaces_1.SandboxStatus.OK) {
             if (interactorResult.result.status === interfaces_1.SandboxStatus.TimeLimitExceeded) {
