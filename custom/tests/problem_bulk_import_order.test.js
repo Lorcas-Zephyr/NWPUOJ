@@ -11,7 +11,7 @@ const domain = require('../libs/problem-domain');
 const source = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_problem_domain.js'), 'utf8');
 const code = source.slice(source.indexOf('const BULK_PROBLEM_TEMPLATE ='), source.indexOf("app.get('/problems/import/template'"));
 
-function fixture(names, metadata = {}, failingTitle, validTagIds = [7, 8]) {
+function fixture(names, metadata = {}, failingTitle, validTagIds = [7, 8], validTags = [{ id: 7, name: '动态规划' }, { id: 8, name: '图论' }]) {
   const files = new Map(), created = [], tagMappings = [], cleaned = [];
   for (const name of names) {
     files.set(`/fixture/extracted/${name}/statement.md`, `# ${name}\n题面内容`);
@@ -30,6 +30,9 @@ function fixture(names, metadata = {}, failingTitle, validTagIds = [7, 8]) {
     ensureProblemSchema: async () => {},
     TypeORM: { getConnection: () => ({ transaction: async callback => callback({
       query: async (sql, args = []) => {
+        if (sql.startsWith('SELECT id,name FROM problem_tag WHERE name IN')) {
+          return args.flatMap(name => validTags.filter(tag => tag.name === name).map(tag => ({ id: tag.id, name: tag.name })));
+        }
         if (sql.startsWith('SELECT id FROM problem_tag WHERE id IN')) {
           return args.filter(id => validTagIds.includes(Number(id))).map(id => ({ id: Number(id) }));
         }
@@ -49,9 +52,9 @@ function fixture(names, metadata = {}, failingTitle, validTagIds = [7, 8]) {
     },
     syncSourceProjection: async () => {}
   });
-  vm.runInContext(code, context);
+  vm.runInContext(`${code}\nthis.bulkTemplate = BULK_PROBLEM_TEMPLATE;`, context);
   return {
-    created, tagMappings, cleaned,
+    created, tagMappings, cleaned, bulkTemplate: context.bulkTemplate,
     extract: () => context.extractBulkImportArchive({ buffer: Buffer.from('isolated ZIP fixture') }),
     import: retry => context.importBulkProblems({ file: { buffer: Buffer.from('isolated ZIP fixture') },
       body: retry ? { retry_folders: JSON.stringify(retry) } : {} }, { locals: { user: { id: 7 } } })
@@ -104,28 +107,50 @@ test('partial failures and retries preserve relative order and only retry select
   assert.equal(retried.data.created, 2);
 });
 
-test('bulk import applies valid tag IDs and reports invalid, duplicate, or nonnumeric IDs per folder', async () => {
+test('bulk import applies only valid exact tag names and skips invalid names without failing the problem', async () => {
   const f = fixture(['05_boolean', '04_string', '03_missing', '02_duplicate', '01_tagged'], {
-    '01_tagged': { tag_ids: [8, 7] },
-    '02_duplicate': { tag_ids: [7, 7] },
-    '03_missing': { tag_ids: [99] },
-    '04_string': { tag_ids: ['7'] },
-    '05_boolean': { tag_ids: [true] }
+    '01_tagged': { tag_names: ['图论', '动态规划'] },
+    '02_duplicate': { tag_names: ['图论', '图论'] },
+    '03_missing': { tag_names: ['不存在的标签', '图论 '] },
+    '04_string': { tag_names: [7] },
+    '05_boolean': { tag_names: ['   '] }
   });
   const result = await f.import();
   assert.equal(result.status, 200);
-  assert.deepEqual(Array.from(result.data.created_folders), ['01_tagged']);
-  assert.deepEqual(Array.from(result.data.failures, failure => failure.folder), ['02_duplicate', '03_missing', '04_string', '05_boolean']);
-  assert.deepEqual(f.tagMappings, [[100, 8], [100, 7]]);
-  assert.deepEqual(f.created.map(item => item.problem.title), ['01_tagged']);
+  assert.deepEqual(Array.from(result.data.created_folders), ['01_tagged', '02_duplicate', '03_missing', '04_string', '05_boolean']);
+  assert.deepEqual(Array.from(result.data.failures), []);
+  assert.deepEqual(f.tagMappings, [[100, 8], [100, 7], [101, 8]]);
+  assert.deepEqual(f.created.map(item => item.problem.title), ['01_tagged', '02_duplicate', '03_missing', '04_string', '05_boolean']);
 });
 
-test('import instructions document ordering, folder data and tag IDs', () => {
+test('bulk import keeps compatibility with older tag ID archives', async () => {
+  const f = fixture(['01_tagged', '02_bad_tag'], { '01_tagged': { tag_ids: [8, 7] }, '02_bad_tag': { tag_ids: [99, '7'] } });
+  const result = await f.import();
+  assert.equal(result.status, 200);
+  assert.deepEqual(f.tagMappings, [[100, 8], [100, 7]]);
+  assert.deepEqual(Array.from(result.data.created_folders), ['01_tagged', '02_bad_tag']);
+});
+
+test('downloadable ZIP template uses the tag name field', () => {
+  const f = fixture([]);
+  const sample = f.bulkTemplate.problems[0];
+  assert.deepEqual(Array.from(sample.tag_names), []);
+  assert.equal(Object.prototype.hasOwnProperty.call(sample, 'tag_ids'), false);
+  assert.match(source, /writeJson\(path\.join\(sample, 'problem\.json'\), BULK_PROBLEM_TEMPLATE\.problems\[0\]/);
+});
+
+test('import instructions document ordering, folder data and tag names', () => {
   const view = fs.readFileSync(path.join(__dirname, '../views/problem_bulk_import.ejs'), 'utf8');
+  const help = fs.readFileSync(path.join(__dirname, '../content/default-help.md'), 'utf8');
   assert.match(view, /data-bulk-import-order-help/);
   assert.match(view, /01_A加B/);
   assert.match(view, /无需填写 order 字段/);
   assert.match(view, /不保证题号连续/);
-  assert.match(view, /tag_ids.*导入时直接关联/);
+  assert.match(view, /tag_names.*最多关联/);
+  assert.match(view, /标签名称/);
+  assert.match(view, /标签会跳过/);
   assert.match(view, /普通传统题可以不写 data.yml/);
+  assert.match(help, /## 批量上传题目/);
+  assert.match(help, /tag_names.*动态规划/);
+  assert.match(help, /标签会跳过，不影响题目导入/);
 });

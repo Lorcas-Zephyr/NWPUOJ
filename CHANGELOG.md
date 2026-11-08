@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Bulk problem ZIP imports now match existing tags by the names in `problem.json` `tag_names`.
+  Older archives using `tag_ids` remain supported.
+
 ## 2.3.0 - 2026-11-08
 
 ### Added

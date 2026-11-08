@@ -33,6 +33,22 @@
 
 拥有题目管理权限的用户可在[添加题目](/problem/0/edit)页面创建单道主题库题目。题面使用 Markdown，并支持 TeX 公式。
 
+<span id="bulk-problem-import"></span>
+## 批量上传题目
+
+拥有题目管理权限的用户可在[批量导入页面](/problems/import)下载 ZIP 模板并一次创建多道题目。ZIP 根目录下每个题目文件夹至少包含 `statement.md`（也可用 `problem.md`），可选包含 `problem.json` 和 `testdata/` 或 `testdata.zip`。
+
+在 `problem.json` 中使用 `tag_names` 按名称填写已有标签，例如：
+
+```json
+{
+  "title": "动态规划入门",
+  "tag_names": ["动态规划", "图论"]
+}
+```
+
+标签名称与题库中的名称完全匹配时才会关联，每题最多关联 20 个标签。拼写不匹配、重复或格式无效的标签会跳过，不影响题目导入。下载的 ZIP 模板已经包含 `tag_names` 字段。
+
 <span id="zip-bulk-import-format"></span>
 ## 评测数据 ZIP 格式
 

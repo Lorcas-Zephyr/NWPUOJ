@@ -7,6 +7,8 @@ const contentDomain = require('../libs/content-domain');
 
 const DEFAULT_HELP = fs.readFileSync('/app/default-help.md', 'utf8');
 const MAX_HELP_SIZE = 200 * 1024;
+const BULK_IMPORT_HELP_MARKER = '<span id="bulk-problem-import"></span>';
+const BULK_IMPORT_HELP = (DEFAULT_HELP.match(/<span id="bulk-problem-import"><\/span>[\s\S]*?(?=<span id="zip-bulk-import-format"><\/span>)/) || [''])[0].trim();
 let helpSchemaPromise = null;
 
 function ensureHelpSchema() {
@@ -40,6 +42,25 @@ function ensureHelpSchema() {
          VALUES (1,?,1,NULL,?)`,
         [DEFAULT_HELP, Math.floor(Date.now() / 1000)]
       );
+      if (BULK_IMPORT_HELP) await connection.transaction(async manager => {
+        const rows = await manager.query('SELECT * FROM site_help_page WHERE id=1 FOR UPDATE');
+        const current = rows[0];
+        if (!current || String(current.content).includes(BULK_IMPORT_HELP_MARKER)) return;
+        const migratedContent = `${current.content}\n\n${BULK_IMPORT_HELP}`;
+        if (Buffer.byteLength(migratedContent, 'utf8') > MAX_HELP_SIZE) {
+          syzoj.log('[help-page] skipped the bulk import help migration because the current page is at the size limit.');
+          return;
+        }
+        const now = Math.floor(Date.now() / 1000);
+        await manager.query(
+          'INSERT INTO site_help_page_history (revision,content,updated_by,updated_at,archived_at) VALUES (?,?,?,?,?)',
+          [current.revision, current.content, current.updated_by, current.updated_at, now]
+        );
+        await manager.query(
+          'UPDATE site_help_page SET content=?,revision=revision+1,updated_by=NULL,updated_at=? WHERE id=1',
+          [migratedContent, now]
+        );
+      });
     })().catch(error => {
       helpSchemaPromise = null;
       throw error;

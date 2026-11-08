@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+const vm = require('node:vm');
 
 const root = path.resolve(__dirname, '../..');
 const read = relative => fs.readFileSync(path.join(root, relative), 'utf8');
@@ -57,6 +58,54 @@ test('default help documents testdata ZIP layouts for every local problem type',
   assert.match(help, /score\.txt/);
   assert.doesNotMatch(help, /ZIP 根目录下的\*\*每个一级子文件夹生成一道传统题/);
   assert.match(view, /评测数据 ZIP 格式' \? 'testdata-zip-format'/);
+});
+
+test('existing help pages gain the bulk-import section once and retain the previous revision', async () => {
+  const module = read('custom/modules/_help_page.js');
+  const start = module.indexOf('const DEFAULT_HELP =');
+  const end = module.indexOf('async function requireHelpAdmin');
+  const help = read('custom/content/default-help.md');
+  let page = { id: 1, content: '# Existing administrator help\n', revision: 4, updated_by: 22, updated_at: 100 };
+  const history = [];
+
+  async function loadMigration() {
+    const connection = {
+      query: async () => [],
+      transaction: async callback => callback({
+        query: async (sql, args = []) => {
+          if (sql.startsWith('SELECT * FROM site_help_page')) return [page];
+          if (sql.startsWith('INSERT INTO site_help_page_history')) { history.push(args); return {}; }
+          if (sql.startsWith('UPDATE site_help_page SET content=')) {
+            page = { ...page, content: args[0], revision: page.revision + 1, updated_by: null, updated_at: args[1] };
+            return {};
+          }
+          throw new Error('Unexpected help migration query: ' + sql);
+        }
+      })
+    };
+    const context = vm.createContext({
+      Buffer, Date,
+      fs: { readFileSync: () => help },
+      TypeORM: { getConnection: () => connection },
+      syzoj: { log: () => {} }
+    });
+    vm.runInContext(`${module.slice(start, end)}\nthis.runHelpMigration = ensureHelpSchema;`, context);
+    await context.runHelpMigration();
+  }
+
+  await loadMigration();
+  assert.match(page.content, /^# Existing administrator help/);
+  assert.match(page.content, /tag_names/);
+  assert.equal(page.revision, 5);
+  assert.equal(page.updated_by, null);
+  assert.equal(history.length, 1);
+  assert.equal(history[0][0], 4);
+  assert.match(history[0][1], /^# Existing administrator help/);
+
+  await loadMigration();
+  assert.equal((page.content.match(/id="bulk-problem-import"/g) || []).length, 1);
+  assert.equal(page.revision, 5);
+  assert.equal(history.length, 1);
 });
 
 test('announcement and banner workspaces use v2-first writes with safe image upload', () => {
