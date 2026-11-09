@@ -270,9 +270,10 @@ test('wizard validates before moving on and previews questions in desktop, mobil
 });
 
 test('activity directory filters and searches with shareable URLs and fits narrow screens', async () => {
-  const f = await fixture('list', 'intro');
+  const f = await fixture('list', 'intro', true, data => { data.activity.registered_count = 27; });
   try {
     assert.equal(await f.page.locator('.activity-list-row').count(), 2);
+    assert.ok(await f.page.locator('.activity-list-row').first().getByText('已报名 27 人', {exact:true}).isVisible());
     await f.page.locator('[data-list-scope="open"]').click();
     await f.page.waitForFunction(() => document.querySelectorAll('.activity-list-row').length === 1);
     assert.equal(new URL(f.page.url()).searchParams.get('scope'), 'open');
@@ -285,6 +286,9 @@ test('activity directory filters and searches with shareable URLs and fits narro
     await f.page.screenshot({path:'/tmp/nwpuoj-activity-directory.png',fullPage:true});
     await f.page.setViewportSize({width: 360, height: 780});
     assert.ok(await f.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    f.data.activity.registered_count = 0;
+    await f.page.reload();
+    await f.page.locator('.activity-list-row').first().getByText('已报名 0 人', {exact:true}).waitFor();
     assert.deepEqual(f.failures, []);
   } finally { await f.context.close(); }
 });
@@ -553,8 +557,9 @@ test('organizers have left-aligned management navigation and no registration ent
 });
 
 test('participants get one compact entry and two registration stages', async () => {
-  const f = await fixture('detail', 'intro', false, data => { data.activity.mode = 'individual'; });
+  const f = await fixture('detail', 'intro', false, data => { data.activity.mode = 'individual'; data.activity.registered_count = 27; });
   try {
+    assert.equal(await f.page.locator('[data-activity-facts] .activity-fact-list > div').filter({has:f.page.locator('dt', {hasText:'已报名人数'})}).locator('dd').textContent(), '27 人');
     assert.equal(await f.page.locator('.activity-journey, [data-activity-guidance]').count(), 0);
     const entry = f.page.getByRole('link', {name:'开始报名'});
     assert.equal(await entry.count(), 1);

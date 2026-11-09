@@ -23,6 +23,8 @@
 
 ### Added
 
+- Activity lists and overview details show the number of registered people, including
+  pending and approved submissions and counting team members individually.
 - Activity system notifications now cover submissions, automatic registration success,
   approval, return, invitations and accepted invitations. Team results notify
   all confirmed members; acceptance notifies the captain. Delivery is transactional.

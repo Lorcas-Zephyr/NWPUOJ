@@ -32,6 +32,16 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
     const fail = async (promise, expression) => assert.rejects(promise, expression);
     const config = { title: 'Fixture', description: 'test', location: 'test', mode: 'individual', status: 'published', opens_at: 1000, closes_at: 2000, require_review: true, fields: [{ id: 'f_phone', label: '联系方式', type: 'text', required: true, options: [] }] };
     const mine = async (id, user) => (await service.detail(id, user)).mine;
+    const checkCount = async (id, expected) => {
+      const detail = await service.detail(id, null);
+      const listed = (await service.list(null)).items.find(a => a.id === id);
+      const roster = await service.roster(id, admin, {export:true});
+      const people = roster.items.filter(r => ['pending','approved'].includes(r.status)).reduce((n, r) => n + r.members.length, 0);
+      assert.equal(detail.activity.registered_count, expected, 'public overview counts registered people');
+      assert.equal(listed.registered_count, expected, 'public list uses the same count');
+      assert.equal(detail.activity.registered_count, people, 'count agrees with current submitted roster members');
+      assert.equal(detail.mine, null, 'public totals do not expose participant records');
+    };
     const change = async (id, user, action, extra = {}) => service.change(id, user, { action, revision: (await mine(id, user)).revision, ...extra });
     try {
       await db.query('CREATE TABLE user(id INT PRIMARY KEY,username VARCHAR(80)) ENGINE=InnoDB');
@@ -50,15 +60,19 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
       await fail(service.start(personal, null, {}), /登录/);
       await fail(service.start(personal, u(8), {}), /普通/);
       assert.equal((await service.roster(personal, admin)).total, 0, 'failed joins roll back registrations');
+      await checkCount(personal, 0);
       await service.start(personal, u(1), {});
+      await checkCount(personal, 0);
       await fail(service.start(personal, u(1), {}), /已在/);
       await fail(change(personal, u(1), 'submit'), /尚未保存/);
       await fail(change(personal, u(1), 'save', { answers: {} }), /联系方式/);
       await change(personal, u(1), 'save', { answers: { f_phone: '123', real_name: 'forged' } });
       await change(personal, u(1), 'submit');
       const p = await mine(personal, u(1)); assert.equal(p.status, 'pending');
+      await checkCount(personal, 1);
       await fail(service.review(personal, p.id, u(2), { revision: p.revision, status: 'approved' }), /权限/);
       await service.review(personal, p.id, admin, { revision: p.revision, status: 'approved' });
+      await checkCount(personal, 1);
       await change(personal, u(1), 'save', { answers: { f_phone: '123' } });
       assert.equal((await mine(personal, u(1))).status, 'approved', 'identical save retains approval');
       await change(personal, u(1), 'save', { answers: { f_phone: '456' } });
@@ -82,12 +96,14 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
       clock = 2000; await fail(change(personal, u(1), 'withdraw'), /时间/); clock = 1000;
       await change(personal, u(1), 'withdraw');
       assert.equal(await mine(personal, u(1)), null);
+      await checkCount(personal, 0);
       const withdrawn = (await service.roster(personal, admin)).items[0]; assert.equal(withdrawn.status, 'withdrawn'); assert.equal(withdrawn.members[0].answers.f_phone, '456');
       await service.start(personal, u(1), {});
       const latestPersonal = await service.roster(personal, admin);
       assert.equal(latestPersonal.total, 1, 're-registration replaces the old withdrawn row in the roster');
       assert.equal(latestPersonal.summary.withdrawn, 0);
       assert.equal(latestPersonal.summary.draft, 1);
+      await checkCount(personal, 0);
       assert.equal((await service.roster(personal, admin, {status: 'withdrawn'})).total, 0, 'filter after deduplication');
       assert.equal((await service.roster(personal, admin, {search: '456', export: true})).total, 0, 'old answers do not match searches or exports');
       clock = 1001; await change(personal, u(1), 'withdraw');
@@ -105,6 +121,7 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
       const invitedActivities = await service.list(u(3), 1, {scope: 'mine'});
       assert.equal(invitedActivities.items.find(a => a.id === team).invitation_count, 2, 'my activities includes pending invitations');
       assert.equal(invitedActivities.items.find(a => a.id === team).review_count, undefined, 'review counts are manager-only');
+      await checkCount(team, 0);
       await fail(service.invitation(team, invitations[0].id, u(4), { action: 'accept' }), /不存在/);
       const joined = await Promise.allSettled(invitations.map(invite => service.invitation(team, invite.id, u(3), { action: 'accept' })));
       assert.equal(joined.filter(r => r.status === 'fulfilled').length, 1, 'concurrent accepts cannot join two teams');
@@ -119,6 +136,7 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
       await change(team, u(3), 'save', { answers: { f_phone: 'member' } });
       const stale = await mine(team, captain);
       await change(team, captain, 'submit');
+      await checkCount(team, 2);
       await fail(service.review(team, stale.id, admin, { revision: stale.revision, status: 'approved' }), /更新/);
       const current = await mine(team, captain);
       const race = await Promise.allSettled([
@@ -129,6 +147,7 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
       await change(team, u(3), 'leave');
       assert.equal((await mine(team, captain)).status, 'draft');
       assert.equal(await mine(team, u(3)), null);
+      await checkCount(team, 0);
       await fail(change(team, captain, 'submit'), /需有/);
       await change(team, captain, 'invite', { username: 'person4' });
       const invite4 = (await service.detail(team, u(4))).invitations[0];
@@ -147,6 +166,7 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
       await service.start(auto, u(7), { submit: true, answers: { f_phone: 'direct' } });
       assert.equal((await mine(auto, u(7))).status, 'approved');
       assert.equal((await service.roster(auto, admin)).summary.approved, 2);
+      await checkCount(auto, 2);
       assert.ok((await service.list(u(7), 1, { scope: 'mine' })).items.some(a => a.id === auto && a.my_status === 'approved'));
       assert.equal((await service.list(null, 1, { scope: 'mine' })).total, 0);
       assert.equal((await service.list(u(7), 1, { search: 'nonexistent' })).total, 0);
@@ -163,6 +183,7 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
       await change(team, captain, 'submit', { answers: { f_phone: 'atomic captain' }, team_name: 'Atomic team' });
       assert.equal((await mine(team, captain)).status, 'pending');
       assert.equal((await mine(team, captain)).team_name, 'Atomic team');
+      await checkCount(team, 2);
       // A member may move to a team created earlier than their withdrawn team.
       const moves = (await service.create(admin, { ...config, mode: 'team', min_members: 2, max_members: 3 })).id;
       await service.start(moves, u(1), {team_name: 'Older team'});
@@ -223,6 +244,7 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
       await db.query("UPDATE activity_registration SET status=IF(leader_id=1,'rejected','returned'),review_note='请核对资料' WHERE activity_id=?", [legacy]);
       assert.equal((await mine(legacy, u(1))).status, 'returned', 'historical rejections are editable returns');
       assert.equal((await service.list(u(1))).items.find(a => a.id === legacy).my_status, 'returned');
+      await checkCount(legacy, 0);
       const merged = await service.roster(legacy, admin, {status:'returned',export:true});
       assert.equal(merged.total, 2); assert.equal(merged.summary.returned, 2);
       assert.ok(merged.items.every(r => r.status === 'returned' && r.review_note === '请核对资料'));
@@ -233,6 +255,7 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
       await change(legacy, u(1), 'submit', {answers:{f_phone:'corrected answer'}});
       assert.equal((await mine(legacy, u(1))).status, 'pending', 'historical rejections can be corrected and resubmitted');
       assert.equal((await mine(legacy, u(1))).review_note, '');
+      await checkCount(legacy, 1);
       const automaticAlerts = (await service.create(admin, {...config,require_review:false})).id;
       await service.start(automaticAlerts, u(1), {submit:true,answers:{f_phone:'ok'}});
       assert.match((await notices(automaticAlerts))[0].title, /报名成功/);

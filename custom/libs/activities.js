@@ -171,6 +171,14 @@ function createService({ connection, authorize, audit = async () => {}, notify =
     await db.query('INSERT INTO activity_member(activity_id,user_id,registration_id,student_id,identity_json,answers_json,ready) VALUES(?,?,?,?,?,?,0)', [a.id, userId, r.id, person.student_id, JSON.stringify(person), '{}']);
     await db.query('DELETE FROM activity_invitation WHERE activity_id=? AND user_id=?', [a.id, userId]);
   }
+  async function registeredCounts(db, ids) {
+    if (!ids.length) return new Map();
+    const rows = await db.query(`SELECT m.activity_id,COUNT(*) AS n FROM activity_member m
+      JOIN activity_registration r ON r.id=m.registration_id AND r.activity_id=m.activity_id
+      WHERE m.activity_id IN (${ids.map(() => '?').join(',')}) AND r.status IN ('pending','approved')
+      GROUP BY m.activity_id`, ids);
+    return new Map(rows.map(row => [Number(row.activity_id), Number(row.n)]));
+  }
   async function list(user, page = 1, query = {}) {
     await ensureSchema();
     const managed = await canManage(user);
@@ -196,7 +204,9 @@ function createService({ connection, authorize, audit = async () => {}, notify =
       ${managed ? ", (SELECT COUNT(*) FROM activity_registration r WHERE r.activity_id=a.id AND r.status='pending') AS review_count" : ''}
       FROM activity a ${where} ORDER BY a.id DESC LIMIT 30 OFFSET ?`, [user ? user.id : 0, user ? user.id : 0, ...params, (page - 1) * 30]);
     const count = await connection().query(`SELECT COUNT(*) AS n FROM activity a ${where}`, params);
+    const participants = await registeredCounts(connection(), items.map(item => item.id));
     for (const item of items) {
+      item.registered_count = participants.get(Number(item.id)) || 0;
       item.my_status = registrationStatus(item.my_status);
       item.invitation_count = Number(item.invitation_count);
       if (managed) item.review_count = Number(item.review_count);
@@ -208,6 +218,7 @@ function createService({ connection, authorize, audit = async () => {}, notify =
     // A consistent read prevents displaying half of a simultaneous roster change.
     return connection().transaction(async db => {
       const a = await visible(id, user, db);
+      a.registered_count = (await registeredCounts(db, [id])).get(Number(id)) || 0;
       const result = { activity: a, can_manage: await canManage(user), mine: null, invitations: [], identity: null, identity_error: '', user_id: user ? Number(user.id) : null, server_now: now() };
       if (result.can_manage) {
         const count = await db.query('SELECT COUNT(*) AS n FROM activity_registration WHERE activity_id=?', [id]);
