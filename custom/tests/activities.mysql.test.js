@@ -121,6 +121,44 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
       const auto = (await service.create(admin, { ...config, require_review: false })).id;
       await service.start(auto, u(6), {}); await change(auto, u(6), 'save', { answers: { f_phone: 'ok' } }); await change(auto, u(6), 'submit');
       assert.equal((await mine(auto, u(6))).status, 'approved');
+      // New personal flow creates, validates and submits in one transaction.
+      await fail(service.start(auto, u(7), { submit: true, answers: {} }), /联系方式/);
+      assert.equal(await mine(auto, u(7)), null, 'invalid direct submission leaves no draft or membership');
+      await service.start(auto, u(7), { submit: true, answers: { f_phone: 'direct' } });
+      assert.equal((await mine(auto, u(7))).status, 'approved');
+      assert.equal((await service.roster(auto, admin)).summary.approved, 2);
+      assert.ok((await service.list(u(7), 1, { scope: 'mine' })).items.some(a => a.id === auto && a.my_status === 'approved'));
+      assert.equal((await service.list(null, 1, { scope: 'mine' })).total, 0);
+      assert.equal((await service.list(u(7), 1, { search: 'nonexistent' })).total, 0);
+      assert.ok((await service.list(u(7), 1, { scope: 'open' })).total > 0);
+      assert.equal((await service.list(u(7), 1, { scope: 'ended' })).total, 0);
+      // An incomplete team cannot partially save the captain's form while submitting.
+      const beforeAtomic = await mine(team, captain);
+      await fail(change(team, captain, 'submit', { answers: { f_phone: 'must roll back' }, team_name: 'Changed' }), /需有/);
+      assert.equal((await mine(team, captain)).team_name, beforeAtomic.team_name);
+      assert.equal((await mine(team, captain)).members.find(m => m.user_id === captain.id).answers.f_phone, beforeAtomic.members.find(m => m.user_id === captain.id).answers.f_phone);
+      await change(team, captain, 'invite', { username: 'person4' });
+      await service.invitation(team, (await service.detail(team, u(4))).invitations[0].id, u(4), { action: 'accept' });
+      await change(team, u(4), 'save', { answers: { f_phone: 'ready' } });
+      await change(team, captain, 'submit', { answers: { f_phone: 'atomic captain' }, team_name: 'Atomic team' });
+      assert.equal((await mine(team, captain)).status, 'pending');
+      assert.equal((await mine(team, captain)).team_name, 'Atomic team');
+      assert.equal((await service.detail(auto, admin)).fields_locked, true);
+      const removal = { title: 'Fixture', revision: (await service.detail(auto, admin)).activity.revision };
+      await fail(service.remove(auto, u(1), removal), /权限/);
+      await fail(service.remove(auto, admin, { ...removal, title: 'wrong' }), /名称/);
+      await fail(service.remove(auto, admin, { ...removal, revision: removal.revision + 1 }), /更新/);
+      rejectAudit = true; await fail(service.remove(auto, admin, removal), /audit-failure/); rejectAudit = false;
+      assert.equal((await service.detail(auto, admin)).activity.status, 'published', 'deletion audit failure rolls back');
+      await service.remove(auto, admin, removal);
+      for (const viewer of [null, u(7), admin]) {
+        await fail(service.detail(auto, viewer), /不存在/);
+        assert.ok(!(await service.list(viewer)).items.some(a => a.id === auto));
+      }
+      await fail(service.start(auto, u(2), { submit: true, answers: { f_phone: 'blocked' } }), /不存在/);
+      await fail(service.roster(auto, admin), /不存在/);
+      const retained = await db.query('SELECT COUNT(*) AS n FROM activity_registration WHERE activity_id=?', [auto]);
+      assert.equal(Number(retained[0].n), 2, 'deletion retains submitted registrations');
       process.stdout.write('PASS: activity authorization, identity snapshots, private forms, lifecycle, rollback, deadline, concurrent invitations and review races\n');
     } finally {
       for (const name of names) await connection.query('DROP TABLE IF EXISTS ' + prefix + name);

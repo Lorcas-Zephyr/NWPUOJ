@@ -65,8 +65,16 @@ function ensureHelpSchema() {
       });
       if (ACTIVITY_HELP) await connection.transaction(async manager => {
         const current = (await manager.query('SELECT * FROM site_help_page WHERE id=1 FOR UPDATE'))[0];
-        if (!current || String(current.content).includes(ACTIVITY_HELP_MARKER)) return;
-        const content = `${current.content}\n\n${ACTIVITY_HELP}`;
+        if (!current) return;
+        const original = String(current.content);
+        // Update only the exact sentences shipped with the initial activity
+        // help; retain all organizer-authored text and unrelated sections.
+        const content = original.includes(ACTIVITY_HELP_MARKER) ? original
+          .replace('打开“我的报名”，开始填写，保存并确认信息，再点击“提交报名”。', '打开“我的报名”，填写并核对信息，点击“确认并提交报名”即可一次完成。提交后可查看结果；需要修改时点击“修改报名信息”。')
+          .replace('人数满足要求后，由队长提交整队报名。', '页面会显示人数和成员确认进度；人数满足要求且其他成员已确认后，队长点击“确认并提交整队报名”，同时保存队长当前填写的信息。')
+          .replace(/可复制为新的草稿活动再调整。(?=\r?\n|$)/, '可复制为新的草稿活动再调整。创建活动按“基本信息 → 报名规则 → 报名表单 → 预览与发布”完成，支持表单实时预览。配置页可以删除活动，输入完整名称确认后，活动及报名入口关闭，已有报名记录保留。')
+          : `${original}\n\n${ACTIVITY_HELP}`;
+        if (content === original) return;
         if (Buffer.byteLength(content, 'utf8') > MAX_HELP_SIZE) return;
         const now = Math.floor(Date.now() / 1000);
         await manager.query('INSERT INTO site_help_page_history (revision,content,updated_by,updated_at,archived_at) VALUES (?,?,?,?,?)', [current.revision, current.content, current.updated_by, current.updated_at, now]);

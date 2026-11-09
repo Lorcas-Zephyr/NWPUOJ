@@ -595,7 +595,6 @@
           choices.forEach(function (choice) { choice.setAttribute('aria-selected', String(choice.dataset.value === select.value)); });
         }
         function choose(value) {
-          close();
           select.focus({ preventScroll: true });
           select.value = value;
           select.dispatchEvent(new Event('change', { bubbles: true }));
@@ -610,7 +609,7 @@
           choice.textContent = choice.dataset.value = option.value;
           choice.tabIndex = -1;
           choice.setAttribute('role', 'option');
-          choice.addEventListener('click', function (event) { choose(event.currentTarget.dataset.value); });
+          choice.addEventListener('click', function (event) { event.stopPropagation(); choose(event.currentTarget.dataset.value); });
           choices.push(choice);
           menu.appendChild(choice);
         }
@@ -685,7 +684,7 @@
         instance.setDate(date, true);
       }
       [hour, minute].forEach(function (select) {
-        select.addEventListener('change', function () { closeTimeChoices(); updateTime(); });
+        select.addEventListener('change', updateTime);
       });
       instance.config.onClose.push(closeTimeChoices);
       instance.calendarContainer.addEventListener('pointerdown', function (event) {

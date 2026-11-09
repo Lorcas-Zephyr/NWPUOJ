@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-09T08:15:18.199Z",
+  "generated_at": "2026-11-09T08:40:14.441Z",
   "frontend_page_routes": [
     {
       "method": "GET",
@@ -383,13 +383,13 @@
       "method": "GET",
       "route": "/help",
       "source": "custom/modules/_help_page.js",
-      "line": 108
+      "line": 116
     },
     {
       "method": "GET",
       "route": "/admin/help",
       "source": "custom/modules/_help_page.js",
-      "line": 121
+      "line": 129
     },
     {
       "method": "GET",

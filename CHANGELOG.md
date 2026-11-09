@@ -2,8 +2,22 @@
 
 ## Unreleased
 
+### Changed
+
+- Redesigned activity discovery, personal registration, team readiness, organizer setup,
+  form previews and registration review for desktop and mobile.
+- Personal registration now supports one-step atomic submission; captains can save their
+  visible answers and submit a ready team together without a separate save operation.
+
+### Added
+
+- Added activity search/status filters, roster counts, locked-rule indicators, and activity
+  deletion with permission, revision and exact-title checks. Deleted activities are hidden
+  and closed to all operations while registration records remain retained.
+
 ### Fixed
 
+- Hour/minute selections remain open for consecutive choices.
 - Kept hour/minute options in a bounded, scrollable popup that opens from the entire control
   and exposes minutes 58 and 59 at the bottom of the list.
 - Restored the activity-registration icon in the sidebar and quick navigation.

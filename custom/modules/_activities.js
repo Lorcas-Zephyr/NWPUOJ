@@ -48,7 +48,7 @@ async function page(req, res, mode) {
 app.get('/activities', (req, res) => page(req, res, 'list'));
 app.get('/activities/new', (req, res) => page(req, res, 'new'));
 app.get('/activities/:id', (req, res) => page(req, res, 'detail'));
-app.get('/api/v2/activities', endpoint((req, res, user) => service.list(user, req.query.page || 1)));
+app.get('/api/v2/activities', endpoint((req, res, user) => service.list(user, req.query.page || 1, req.query)));
 app.post('/api/v2/activities', endpoint((req, res, user) => service.create(user, req.body, req)));
 app.get('/api/v2/activities/:id', endpoint(async (req, res, user) => {
   const data = await service.detail(activityId(req), user);
@@ -56,6 +56,7 @@ app.get('/api/v2/activities/:id', endpoint(async (req, res, user) => {
   return data;
 }));
 app.patch('/api/v2/activities/:id', endpoint((req, res, user) => service.update(activityId(req), user, req.body, req)));
+app.delete('/api/v2/activities/:id', endpoint((req, res, user) => service.remove(activityId(req), user, req.body, req)));
 app.post('/api/v2/activities/:id/copy', endpoint((req, res, user) => service.copy(activityId(req), user, req)));
 app.post('/api/v2/activities/:id/registrations', endpoint((req, res, user) => service.start(activityId(req), user, req.body, req)));
 app.post('/api/v2/activities/:id/registration/action', endpoint((req, res, user) => service.change(activityId(req), user, req.body, req)));

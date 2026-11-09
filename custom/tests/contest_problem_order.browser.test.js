@@ -561,10 +561,12 @@ test('datetime pointer menus open across the full control and keep minutes 58/59
         if (mobile) assert.equal(await list.getAttribute('data-placement'), 'above');
         await list.getByRole('option', { name: '58', exact: true }).click();
         assert.equal(await page.locator('[name="start"]').inputValue(), '2026-11-15T12:58');
+        assert.ok(await list.isVisible(), 'choosing a minute keeps the options and calendar open');
         const box = await minute.boundingBox();
-        await clickMinute({ x: box.width / 2, y: 20 });
         await list.getByRole('option', { name: '59', exact: true }).click();
         assert.equal(await page.locator('[name="start"]').inputValue(), '2026-11-15T12:59');
+        await clickMinute({ x: box.width / 2, y: 20 });
+        assert.equal(await list.isVisible(), false, 'clicking the control again closes only its options');
         await clickMinute({ x: box.width - 6, y: 20 });
         assert.ok(await list.isVisible(), 'arrow area also opens the same list');
         await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
@@ -572,6 +574,8 @@ test('datetime pointer menus open across the full control and keep minutes 58/59
         await minute.press('Home');
         await page.keyboard.press('Enter');
         assert.equal(await page.locator('[name="start"]').inputValue(), '2026-11-15T12:00');
+        await minute.press('Escape');
+        assert.ok(await calendar.isVisible(), 'first Escape closes the time options');
         await minute.press('Escape');
         assert.equal(await calendar.count(), 0);
         // Reopen from the middle of an already-focused date input.

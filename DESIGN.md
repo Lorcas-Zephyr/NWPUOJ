@@ -633,6 +633,7 @@ GET /api/v2/activities
 POST /api/v2/activities
 GET /api/v2/activities/:id
 PATCH /api/v2/activities/:id
+DELETE /api/v2/activities/:id
 POST /api/v2/activities/:id/copy
 POST /api/v2/activities/:id/registrations
 POST /api/v2/activities/:id/registration/action

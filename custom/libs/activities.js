@@ -114,7 +114,7 @@ function createService({ connection, authorize, audit = async () => {}, now = Da
   function login(user) { if (!user) fail('请先登录。', 401); }
   async function get(id, db = connection(), lock = false) {
     const rows = await db.query('SELECT * FROM activity WHERE id=?' + (lock ? ' FOR UPDATE' : ''), [id]);
-    if (!rows[0]) fail('活动不存在。', 404);
+    if (!rows[0] || rows[0].status === 'deleted') fail('活动不存在。', 404);
     return decodeActivity(rows[0]);
   }
   async function visible(id, user, db = connection()) {
@@ -151,14 +151,27 @@ function createService({ connection, authorize, audit = async () => {}, now = Da
     await db.query('INSERT INTO activity_member(activity_id,user_id,registration_id,student_id,identity_json,answers_json,ready) VALUES(?,?,?,?,?,?,0)', [a.id, userId, r.id, person.student_id, JSON.stringify(person), '{}']);
     await db.query('DELETE FROM activity_invitation WHERE activity_id=? AND user_id=?', [a.id, userId]);
   }
-  async function list(user, page = 1) {
+  async function list(user, page = 1, query = {}) {
     await ensureSchema();
     const managed = await canManage(user);
     page = integer(page, 1, 100000, '页码');
-    const where = managed ? '' : "WHERE status<>'draft'";
-    const items = await connection().query(`SELECT id,title,location,mode,status,opens_at,closes_at,starts_at,min_members,max_members FROM activity ${where} ORDER BY id DESC LIMIT 30 OFFSET ?`, [(page - 1) * 30]);
-    const count = await connection().query(`SELECT COUNT(*) AS n FROM activity ${where}`);
-    return { items, total: Number(count[0].n), page, can_manage: managed };
+    const clauses = ["a.status<>'deleted'"], params = [];
+    if (!managed) clauses.push("a.status<>'draft'");
+    const search = String(query.search || '').trim().slice(0, 100);
+    if (search) { clauses.push('(LOCATE(?,a.title)>0 OR LOCATE(?,a.location)>0)'); params.push(search, search); }
+    const scope = query.scope || 'all', time = now();
+    if (scope === 'open') { clauses.push("a.status='published' AND a.opens_at<=? AND a.closes_at>?"); params.push(time, time); }
+    else if (scope === 'upcoming') { clauses.push("a.status='published' AND a.opens_at>?"); params.push(time); }
+    else if (scope === 'ended') { clauses.push("(a.status='closed' OR (a.status='published' AND a.closes_at<=?))"); params.push(time); }
+    else if (scope === 'draft' && managed) clauses.push("a.status='draft'");
+    else if (scope === 'mine') { clauses.push('EXISTS(SELECT 1 FROM activity_member m WHERE m.activity_id=a.id AND m.user_id=?)'); params.push(user ? user.id : 0); }
+    else if (scope !== 'all') fail('活动筛选无效。');
+    const where = clauses.length ? 'WHERE ' + clauses.join(' AND ') : '';
+    const items = await connection().query(`SELECT a.id,a.title,a.location,a.mode,a.status,a.opens_at,a.closes_at,a.starts_at,a.min_members,a.max_members,
+      (SELECT r.status FROM activity_member m JOIN activity_registration r ON r.id=m.registration_id WHERE m.activity_id=a.id AND m.user_id=?) AS my_status
+      FROM activity a ${where} ORDER BY a.id DESC LIMIT 30 OFFSET ?`, [user ? user.id : 0, ...params, (page - 1) * 30]);
+    const count = await connection().query(`SELECT COUNT(*) AS n FROM activity a ${where}`, params);
+    return { items, total: Number(count[0].n), page, can_manage: managed, server_now: time };
   }
   async function detail(id, user) {
     await ensureSchema();
@@ -166,6 +179,10 @@ function createService({ connection, authorize, audit = async () => {}, now = Da
     return connection().transaction(async db => {
       const a = await visible(id, user, db);
       const result = { activity: a, can_manage: await canManage(user), mine: null, invitations: [], identity: null, identity_error: '', user_id: user ? Number(user.id) : null, server_now: now() };
+      if (result.can_manage) {
+        const count = await db.query('SELECT COUNT(*) AS n FROM activity_registration WHERE activity_id=?', [id]);
+        result.fields_locked = Number(count[0].n) > 0;
+      }
       if (user) {
         try { result.identity = await identity(db, user.id); } catch (error) { result.identity_error = error.message; }
         const rows = await db.query('SELECT registration_id FROM activity_member WHERE activity_id=? AND user_id=?', [id, user.id]);
@@ -212,6 +229,16 @@ function createService({ connection, authorize, audit = async () => {}, now = Da
     const a = await get(id);
     return create(user, { ...a, title: (a.title + '（副本）').slice(0, 120), status: 'draft' }, context);
   }
+  async function remove(id, user, input, context) {
+    await manager(user); await ensureSchema();
+    return connection().transaction(async db => {
+      const a = await get(id, db, true); version(a, input.revision);
+      if (input.title !== a.title) fail('请输入完整活动名称以确认删除。');
+      await db.query("UPDATE activity SET status='deleted',revision=revision+1,updated_at=? WHERE id=?", [now(), id]);
+      await audit(db, { action: 'activity:delete', activityId: id, actorId: user.id }, context);
+      return { id: Number(id) };
+    });
+  }
   async function start(id, user, input, context) {
     login(user); await ensureSchema();
     return connection().transaction(async db => {
@@ -220,6 +247,14 @@ function createService({ connection, authorize, audit = async () => {}, now = Da
       const result = await db.query("INSERT INTO activity_registration(activity_id,leader_id,team_name,status,snapshot_json,created_at,updated_at) VALUES(?,?,?,'draft','[]',?,?)", [id, user.id, teamName, now(), now()]);
       const r = { id: Number(result.insertId), activity_id: id, team_name: teamName, status: 'draft', review_note: '', submitted_at: null };
       await join(db, a, r, user.id);
+      // A personal form can be filled before any record exists. Validate and
+      // submit it in the same transaction, so failures never leave an empty draft.
+      if (input.submit === true) {
+        if (a.mode !== 'individual') fail('组队报名需要成员确认后由队长提交。');
+        const clean = answers(a.fields, input.answers);
+        await db.query('UPDATE activity_member SET answers_json=?,ready=1 WHERE activity_id=? AND user_id=?', [JSON.stringify(clean), id, user.id]);
+        r.status = a.require_review ? 'pending' : 'approved'; r.submitted_at = now();
+      }
       await saveRegistration(db, r, 'registration.create', user, context);
       return { id: r.id };
     });
@@ -247,6 +282,14 @@ function createService({ connection, authorize, audit = async () => {}, now = Da
       } else if (action === 'submit') {
         requireLeader();
         if (!editing) fail('当前报名状态不能提交。', 409);
+        // Save the leader's visible form and submit atomically. Incomplete
+        // teammates or a stale revision roll back the entire operation.
+        if (input.answers !== undefined) {
+          const own = r.members.find(member => member.user_id === Number(user.id));
+          own.answers = answers(a.fields, input.answers); own.ready = true;
+          if (a.mode === 'team') r.team_name = text(input.team_name, 80, '队伍名称');
+          await db.query('UPDATE activity_member SET answers_json=?,ready=1 WHERE activity_id=? AND user_id=?', [JSON.stringify(own.answers), id, user.id]);
+        }
         if (r.members.length < a.min_members || r.members.length > a.max_members) fail(`需有 ${a.min_members}–${a.max_members} 位已确认成员才能提交。`);
         for (const member of r.members) { if (!member.ready) fail(`${member.username}尚未保存并确认报名信息。`); answers(a.fields, member.answers); }
         r.status = a.require_review ? 'pending' : 'approved'; r.review_note = ''; r.submitted_at = now();
@@ -310,10 +353,13 @@ function createService({ connection, authorize, audit = async () => {}, now = Da
     return connection().transaction(async db => {
       const a = await get(id, db);
       const counts = await db.query(`SELECT COUNT(*) AS n FROM activity_registration WHERE ${where}`, params);
+      const totals = await db.query('SELECT status,COUNT(*) AS n FROM activity_registration WHERE activity_id=? GROUP BY status', [id]);
+      const summary = Object.fromEntries(STATES.map(status => [status, 0]));
+      for (const row of totals) summary[row.status] = Number(row.n);
       if (query.export && Number(counts[0].n) > 10000) fail('导出最多支持 10000 份报名，请按状态或关键词筛选。');
       const rows = await db.query(`SELECT * FROM activity_registration WHERE ${where} ORDER BY id DESC LIMIT ? OFFSET ?`, [...params, query.export ? 10000 : 30, query.export ? 0 : (page - 1) * 30]);
       const items = rows.map(row => { const item = { ...row, members: JSON.parse(row.snapshot_json) }; delete item.snapshot_json; return item; });
-      return { activity: a, items, total: Number(counts[0].n), page };
+      return { activity: a, items, total: Number(counts[0].n), page, summary };
     });
   }
   async function review(id, registrationId, user, input, context) {
@@ -329,6 +375,6 @@ function createService({ connection, authorize, audit = async () => {}, now = Da
       return { id: r.id, status: r.status };
     });
   }
-  return { ensureSchema, canManage, list, detail, create, update, copy, start, change, invitation, roster, review };
+  return { ensureSchema, canManage, list, detail, create, update, copy, remove, start, change, invitation, roster, review };
 }
 module.exports = { createService, settings, schema, answers, open, version, exportCsv };
