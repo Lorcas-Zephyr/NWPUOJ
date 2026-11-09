@@ -4,6 +4,10 @@
 
 ### Changed
 
+- Activity descriptions now use the shared Markdown editor. Registration management uses
+  compact status filters, aligned rows, member switching and an adjacent review form.
+- Rosters, status counts, searches and CSV exports show each person's current registration
+  only; superseded withdrawn memberships remain stored but no longer duplicate the roster.
 - Redesigned activity discovery, personal registration, team readiness, organizer setup,
   form previews and registration review for desktop and mobile.
 - Personal registration now supports one-step atomic submission; captains can save their

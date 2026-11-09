@@ -59,6 +59,6 @@
   </script>
   <% include contest_notice_client %>
   <script src="/self/app-v2.js?v=<%= encodeURIComponent(syzoj.config.nwpuoj_version || '2.2.0') %>&amp;rev=20261109-activity-workflow-1"></script>
-  <script src="/self/lib/noj-markdown.js?rev=20261012-1" data-upload-allowed="<%= user && ((typeof appHasCapability === 'function' && appHasCapability('problem:edit')) || (typeof baseMember !== 'undefined' && baseMember)) ? '1' : '0' %>"></script>
+  <script src="/self/lib/noj-markdown.js?rev=20261109-activities-1" data-upload-allowed="<%= user && ((typeof appHasCapability === 'function' && appHasCapability('problem:edit')) || (typeof baseMember !== 'undefined' && baseMember)) ? '1' : '0' %>"></script>
 </body>
 </html>

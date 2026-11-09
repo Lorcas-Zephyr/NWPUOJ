@@ -143,22 +143,61 @@
 .activity-config-actions .activity-button-group { flex-shrink: 0; }
 .activity-toolbar, .activity-actions, .activity-pagination { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin: 20px 0; }
 .activity-toolbar .app-field:first-child { flex: 1; min-width: 200px; }
-.activity-roster-summary { display: grid; grid-template-columns: repeat(4,1fr); border-block: 1px solid var(--app-line); }
-.activity-roster-summary button { display: flex; flex-direction: column; align-items: start; gap: 10px; border: 0; border-bottom: 2px solid transparent; padding: 20px; background: transparent; color: var(--app-text); cursor: pointer; text-align: left; }
-.activity-roster-summary button[aria-pressed="true"] { border-bottom-color: var(--app-accent); background: var(--app-accent-soft); }
-.activity-roster-summary span { color: var(--app-text-secondary); font-size: 13px; }
-.activity-roster-summary strong { font-size: 26px; font-weight: 550; font-variant-numeric: tabular-nums; }
+/* Roster: a compact list with a focused profile and review workspace. */
+.activity-roster-heading { align-items: center; }
+.activity-roster-heading > a { flex-shrink: 0; }
+.activity-roster-filters { display: flex; gap: 6px; overflow-x: auto; border-bottom: 1px solid var(--app-line); }
+.activity-roster-filters button { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding: 12px 14px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--app-text-secondary); font: inherit; font-size: 13px; cursor: pointer; transition: color 140ms, border-color 140ms, background-color 140ms; }
+.activity-roster-filters button:hover { background: var(--app-bg); color: var(--app-text); }
+.activity-roster-filters button[aria-pressed="true"] { border-bottom-color: var(--app-accent); color: var(--app-accent); }
+.activity-roster-filters strong { padding: 1px 6px; border-radius: 4px; background: var(--app-bg); font-size: 11px; font-weight: 550; font-variant-numeric: tabular-nums; }
+.activity-roster-filters button[aria-pressed="true"] strong { background: var(--app-accent-soft); }
+.activity-roster-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 20px 0; }
+.activity-roster-search { flex: 1 1 260px; max-width: 440px; }
+.activity-roster-result-count { margin-left: auto; font-size: 12px; color: var(--app-text-muted); }
+.activity-roster-columns, .activity-registration summary { display: grid; grid-template-columns: minmax(0,1.2fr) minmax(0,1fr) 144px 84px 56px; gap: 20px; align-items: center; padding: 18px 16px; }
+.activity-roster-columns { padding-block: 11px; background: var(--app-bg); color: var(--app-text-muted); font-size: 12px; border-block: 1px solid var(--app-line); }
 .activity-registration { border-bottom: 1px solid var(--app-line); }
-.activity-registration summary { cursor: pointer; display: flex; align-items: center; flex-wrap: wrap; gap: 16px; padding: 20px 4px; font-size: 14px; }
-.activity-registration summary strong { flex: 1; min-width: 140px; overflow-wrap: anywhere; }
-.activity-roster-id, .activity-roster-expand { color: var(--app-text-muted); font-size: 12px; }
+.activity-registration summary { cursor: pointer; list-style: none; font-size: 14px; transition: background-color 140ms; }
+.activity-registration summary::-webkit-details-marker { display: none; }
+.activity-registration summary:hover, .activity-registration[open] summary { background: var(--app-bg); }
+.activity-registration summary:focus-visible, .activity-roster-filters button:focus-visible, .activity-roster-member-switch button:focus-visible { outline: 2px solid var(--app-accent); outline-offset: -2px; }
+.activity-registration summary > * { min-width: 0; }
+.activity-registration summary .activity-state { justify-self: start; }
+.activity-roster-name strong, .activity-roster-members strong { display: block; font-weight: 600; line-height: 1.6; overflow-wrap: anywhere; }
+.activity-roster-members strong { font-size: 13px; font-weight: 400; }
+.activity-roster-name small, .activity-roster-members small { display: block; margin-top: 3px; color: var(--app-text-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity-roster-time { color: var(--app-text-secondary); font-size: 12px; line-height: 1.6; font-variant-numeric: tabular-nums; }
+.activity-roster-expand { display: flex; align-items: center; justify-content: end; gap: 4px; color: var(--app-text-muted); font-size: 12px; }
+.activity-roster-expand svg { flex-shrink: 0; transition: transform 160ms; }
+.activity-roster-close-label, .activity-registration[open] .activity-roster-open-label { display: none; }
+.activity-registration[open] .activity-roster-close-label { display: inline; }
 .activity-registration[open] .activity-roster-expand { color: var(--app-accent); }
-.activity-roster-detail { padding: 0 16px 24px; animation: activity-panel-in 160ms ease-out; }
-.activity-registration .app-table { min-width: 680px; }
-.activity-registration .app-table td { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 300px; }
-.activity-registration .app-table small { display: block; color: var(--app-text-muted); margin-top: 4px; }
-.activity-review { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; padding-top: 20px; }
-.activity-review .app-field:nth-child(2) { flex: 1; min-width: 220px; }
+.activity-registration[open] .activity-roster-expand svg { transform: rotate(90deg); }
+.activity-roster-detail { display: grid; grid-template-columns: minmax(0,1fr) 280px; gap: 32px; padding: 28px 16px 32px; animation: activity-panel-in 160ms ease-out; }
+.activity-roster-profile { min-width: 0; }
+.activity-roster-profile .activity-section-heading { align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.activity-roster-member-switch { display: flex; flex-wrap: wrap; gap: 6px; }
+.activity-roster-member-switch button { border: 0; border-radius: var(--app-radius-small); padding: 8px 10px; background: var(--app-bg); color: var(--app-text-secondary); font: inherit; font-size: 12px; cursor: pointer; overflow-wrap: anywhere; transition: background-color 140ms, color 140ms; }
+.activity-roster-member-switch button:hover { color: var(--app-accent); }
+.activity-roster-member-switch button[aria-pressed="true"] { color: var(--app-accent); background: var(--app-accent-soft); }
+.activity-roster-member-switch small { margin-left: 8px; opacity: .75; font-size: 11px; }
+.activity-roster-person { animation: activity-panel-in 140ms ease-out; }
+.activity-roster-person .activity-identity { margin-top: 20px; }
+.activity-roster-person .activity-answer-summary { font-size: 14px; line-height: 1.7; margin-bottom: 0; }
+.activity-roster-review { min-width: 0; padding-left: 24px; border-left: 1px solid var(--app-line); }
+.activity-roster-review .activity-section-heading { align-items: center; margin-bottom: 20px; }
+.activity-roster-review h3 { font-size: 14px; }
+.activity-review { display: grid; gap: 20px; }
+.activity-review-decisions legend { margin-bottom: 10px; }
+.activity-review-decisions label { display: inline-flex; align-items: center; gap: 6px; margin-right: 10px; padding-block: 6px; font-size: 12px; cursor: pointer; }
+.activity-review-decisions input { margin: 0; accent-color: var(--app-accent); }
+.activity-review-decisions label:has(:checked) { color: var(--app-accent); }
+.activity-review .app-help { line-height: 1.7; }
+.activity-last-review { padding: 0 0 18px; margin-bottom: 18px; border-bottom: 1px solid var(--app-line); font-size: 13px; }
+.activity-last-review > span { font-size: 12px; color: var(--app-text-muted); }
+.activity-last-review p { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.activity-config-step > .activity-description-field { max-width: 100%; }
 .activity-delete-dialog { width: min(480px,calc(100vw - 32px)); border: 1px solid var(--app-line-strong); border-radius: var(--app-radius); padding: 28px; color: var(--app-text); background: var(--app-surface-raised); box-shadow: var(--app-shadow-menu); }
 .activity-delete-dialog::backdrop { background: rgba(0,0,0,.45); }
 .activity-delete-dialog p { font-size: 14px; line-height: 1.7; color: var(--app-text-secondary); }
@@ -170,6 +209,8 @@
   .activity-directory-tools { align-items: stretch; flex-direction: column; }
   .activity-search { width: 100%; }
   .activity-registration-layout { grid-template-columns: minmax(0,1fr) 300px; gap: 24px; }
+  .activity-roster-columns, .activity-registration summary { column-gap: 12px; grid-template-columns: minmax(0,1.2fr) minmax(0,1fr) 110px 76px 46px; }
+  .activity-roster-detail { gap: 24px; grid-template-columns: minmax(0,1fr) 250px; }
   .activity-overview { gap: 24px; grid-template-columns: minmax(0,1fr) 280px; }
 }
 @media(max-width:700px) {
@@ -200,12 +241,21 @@
   .activity-config-actions > .activity-button-group { justify-content: end; width: 100%; }
   .activity-publish-preview .activity-fact-list { grid-template-columns: 1fr; }
   .activity-form-preview { position: static; }
-  .activity-roster-summary button { padding: 16px 8px; }
-  .activity-roster-summary span { font-size: 12px; }
-  .activity-roster-summary strong { font-size: 23px; }
-  .activity-review .app-field { width: 100%; }
-  .activity-registration summary { gap: 10px; }
-  .activity-registration summary > .app-help { flex-basis: 100%; }
+  .activity-roster-filters { gap: 0; }
+  .activity-roster-filters button { padding-inline: 10px; }
+  .activity-roster-search { flex-basis: calc(100% - 76px); max-width: none; }
+  .activity-roster-columns { display: none; }
+  .activity-registration:first-child { border-top: 1px solid var(--app-line); }
+  .activity-registration summary { grid-template-columns: minmax(0,1fr) auto; gap: 10px 12px; padding: 18px 4px; }
+  .activity-roster-name { grid-column: 1; grid-row: 1; }
+  .activity-registration summary .activity-state { grid-column: 2; grid-row: 1; justify-self: end; }
+  .activity-roster-members { grid-column: 1; grid-row: 2; display: flex; align-items: baseline; gap: 8px; }
+  .activity-roster-members strong { flex-shrink: 0; }
+  .activity-roster-time { grid-column: 1; grid-row: 3; }
+  .activity-roster-expand { grid-column: 2; grid-row: 3; }
+  .activity-roster-detail { grid-template-columns: 1fr; gap: 24px; padding: 24px 4px; }
+  .activity-roster-review { border-left: 0; border-top: 1px solid var(--app-line); padding: 24px 0 0; }
+
 }
 @media(prefers-reduced-motion:reduce) {
   .activity-page *, .activity-page *::before, .activity-page *::after { animation: none !important; transition: none !important; }

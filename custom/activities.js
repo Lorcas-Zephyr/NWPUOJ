@@ -200,17 +200,79 @@
     for (var field of state.activity.fields) if (field.type === 'checkbox' && field.required && !new FormData(form).getAll(field.id).length) { message('请选择“' + field.label + '”的至少一个选项。', true); var input = form.querySelector('[name="' + field.id + '"]'); if (input) input.focus(); return false; }
     return form.reportValidity();
   }
-  async function loadRoster(page) {
-    rosterPage = page || 1;
-    var params = new URLSearchParams(new FormData($('[data-roster-search]'))); params.set('page', rosterPage);
+  function rosterMember(person, activity) {
+    return '<section class="activity-roster-person" data-roster-person="' + person.user_id + '" hidden>' + identity(person) + '<dl class="activity-answer-summary">' + activity.fields.map(function (field) {
+      var value = (person.answers || {})[field.id];
+      var answer = Array.isArray(value) ? value.join('、') : value;
+      return '<div><dt>' + esc(field.label) + '</dt><dd' + (!answer ? ' class="activity-caption"' : '') + '>' + esc(answer || '未填写') + '</dd></div>';
+    }).join('') + '</dl>' + (!activity.fields.length ? '<p class="app-help">本活动仅收集账号实名资料。</p>' : '') + '</section>';
+  }
+  function rosterRegistration(r, activity) {
+    var captain = r.members.find(function (person) { return person.user_id === Number(r.leader_id); });
+    var leader = captain || r.members[0] || {};
+    var team = activity.mode === 'team', title = team ? r.team_name : leader.real_name || leader.username;
+    var reviewable = !['draft', 'withdrawn'].includes(r.status);
+    var html = '<details class="activity-registration" data-roster-id="' + r.id + '"><summary>' +
+      '<span class="activity-roster-name"><strong>' + esc(title || '个人报名') + '</strong><small>#' + r.id + ' · ' + (team ? captain ? '队长 ' : '成员 ' : '') + esc(leader.username || '—') + '</small></span>' +
+      '<span class="activity-roster-members"><strong>' + r.members.length + ' 人</strong><small>' + (team ? esc(r.members.map(function (person) { return person.username; }).join(' / ')) : esc(leader.student_id || '')) + '</small></span>' +
+      '<time class="activity-roster-time">' + (r.submitted_at ? date(r.submitted_at) : '尚未提交') + '</time>' + status(r.status) +
+      '<span class="activity-roster-expand"><span class="activity-roster-open-label">' + (r.status === 'pending' ? '审核' : '详情') + '</span><span class="activity-roster-close-label">收起</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></span></summary>' +
+      '<div class="activity-roster-detail"><div class="activity-roster-profile"><div class="activity-section-heading"><h3>报名资料</h3><span class="activity-caption">' + (team ? '分别查看每位成员的信息' : '报名时填写的资料') + '</span></div>';
+    if (r.members.length > 1) html += '<div class="activity-roster-member-switch" role="group" aria-label="选择查看的成员">' + r.members.map(function (person, index) {
+      return '<button type="button" data-roster-member="' + person.user_id + '" aria-pressed="' + (index === 0) + '">' + esc(person.username) + (person.user_id === Number(r.leader_id) ? '<small>队长</small>' : '') + '</button>';
+    }).join('') + '</div>';
+    html += r.members.map(function (person) { return rosterMember(person, activity); }).join('') + '</div><aside class="activity-roster-review"><div class="activity-section-heading"><h3>' + (reviewable ? '审核报名' : '报名状态') + '</h3>' + status(r.status) + '</div>';
+    if (r.review_note) html += '<div class="activity-last-review"><span>上次审核说明</span><p>' + esc(r.review_note) + '</p></div>';
+    if (reviewable) html += '<form class="activity-review" data-review-id="' + r.id + '" data-review-revision="' + r.revision + '"><fieldset class="app-field activity-review-decisions"><legend class="app-label">审核结果</legend>' + [['approved', '通过'], ['returned', '退回修改'], ['rejected', '拒绝']].map(function (pair) {
+      return '<label><input type="radio" name="status" value="' + pair[0] + '" required' + (r.status === pair[0] ? ' checked' : '') + '><span>' + pair[1] + '</span></label>';
+    }).join('') + '</fieldset><label class="app-field"><span class="app-label">审核说明</span><textarea class="app-textarea" name="note" rows="3" maxlength="1000" placeholder="填写需补充或修改的内容"' + (['returned', 'rejected'].includes(r.status) ? ' required' : '') + '>' + esc(r.review_note || '') + '</textarea><span class="app-help">退回或拒绝时必填，报名人可查看。</span></label><button class="app-button app-button-primary" type="submit">保存审核结果</button></form>';
+    else html += '<p class="app-help">' + (r.status === 'draft' ? '报名人尚未提交，提交后即可审核。' : '报名已撤回，以下资料为撤回时的记录。') + '</p>';
+    return html + '</aside></div></details>';
+  }
+  function selectRosterMember(record, userId) {
+    var people = Array.from(record.querySelectorAll('[data-roster-person]'));
+    var selected = people.find(function (person) { return person.dataset.rosterPerson === String(userId); }) || people[0];
+    people.forEach(function (person) { person.hidden = person !== selected; });
+    record.querySelectorAll('[data-roster-member]').forEach(function (button) { button.setAttribute('aria-pressed', String(!!selected && button.dataset.rosterMember === selected.dataset.rosterPerson)); });
+  }
+  async function loadRoster(page, focusId) {
+    var previous = new Map();
+    root.querySelectorAll('[data-roster-id]').forEach(function (record) {
+      var person = record.querySelector('[data-roster-person]:not([hidden])'), review = record.querySelector('[data-review-id]');
+      previous.set(record.dataset.rosterId, { open: record.open, person: person && person.dataset.rosterPerson,
+        revision: review && review.dataset.reviewRevision, values: review && Object.fromEntries(new FormData(review)) });
+    });
+    var params = new URLSearchParams(new FormData($('[data-roster-search]'))); params.set('page', page || 1);
     var data = await request(api + '/registrations?' + params);
+    rosterPage = data.page;
     $('[data-roster-export]').href = api + '/registrations/export?' + params;
-    var summary = data.summary || {};
-    $('[data-roster-summary]').innerHTML = [['pending', '待审核'], ['approved', '报名成功'], ['draft', '填写中'], ['returned', '退回修改']].map(function (pair) { return '<button type="button" data-roster-status="' + pair[0] + '" aria-pressed="' + (params.get('status') === pair[0]) + '"><span>' + pair[1] + '</span><strong>' + (summary[pair[0]] || 0) + '</strong></button>'; }).join('');
-    $('[data-activity-roster]').innerHTML = data.items.map(function (r) {
-      return '<details class="activity-registration"><summary><span class="activity-roster-id">#' + r.id + '</span><strong>' + esc(r.team_name || (r.members[0] || {}).username || '个人报名') + '</strong>' + status(r.status) + '<span class="app-help">' + r.members.length + ' 人 · ' + (r.submitted_at ? date(r.submitted_at) : '尚未提交') + '</span><span class="activity-roster-expand">查看详情</span></summary><div class="activity-roster-detail"><div class="app-table-region" tabindex="0" aria-label="报名详情"><table class="app-table"><thead><tr><th>成员</th><th>姓名 / 学号</th><th>学院</th>' + data.activity.fields.map(function (f) { return '<th>' + esc(f.label) + '</th>'; }).join('') + '</tr></thead><tbody>' + r.members.map(function (m) { return '<tr><td>' + esc(m.username) + (m.user_id === Number(r.leader_id) ? '<small>队长 / 报名人</small>' : '') + '</td><td>' + esc(m.real_name) + '<br>' + esc(m.student_id) + '</td><td>' + esc(m.college) + '</td>' + data.activity.fields.map(function (f) { var value = m.answers[f.id]; return '<td>' + esc(Array.isArray(value) ? value.join('、') : value) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>' + (r.review_note ? '<p class="activity-inline-notice">审核说明：' + esc(r.review_note) + '</p>' : '') + (!['draft', 'withdrawn'].includes(r.status) ? '<form class="activity-review" data-review-id="' + r.id + '" data-review-revision="' + r.revision + '"><label class="app-field"><span class="app-label">审核结果</span><select class="app-select" name="status"><option value="approved">通过报名</option><option value="returned">退回修改</option><option value="rejected">拒绝报名</option></select></label><label class="app-field"><span class="app-label">审核说明（退回 / 拒绝必填）</span><input class="app-input" name="note" maxlength="1000" value="' + esc(r.review_note) + '"></label><button class="app-button app-button-primary" type="submit">保存审核</button></form>' : '') + '</div></details>';
-    }).join('') || empty('暂无报名记录', params.get('search') || params.get('status') ? '没有找到符合当前筛选条件的报名。' : '活动公开后，参与者的报名会出现在这里。');
+    var summary = data.summary || {}, total = Object.keys(summary).reduce(function (sum, key) { return sum + Number(summary[key] || 0); }, 0);
+    $('[data-roster-summary]').innerHTML = [['', '全部', total], ['pending', '待审核'], ['approved', '报名成功'], ['returned', '退回修改'], ['draft', '填写中'], ['rejected', '已拒绝'], ['withdrawn', '已撤回']].map(function (pair) {
+      return '<button type="button" data-roster-status="' + pair[0] + '" aria-pressed="' + (params.get('status') === pair[0]) + '"><span>' + pair[1] + '</span><strong>' + (pair.length === 3 ? pair[2] : summary[pair[0]] || 0) + '</strong></button>';
+    }).join('');
+    var filtered = !!(params.get('search') || params.get('status'));
+    $('[data-roster-reset]').hidden = !filtered;
+    $('[data-roster-result-count]').textContent = (filtered ? '筛选结果 · ' : '') + data.total + ' 份报名';
+    $('[data-roster-name-label]').textContent = data.activity.mode === 'team' ? '队伍 / 队长' : '报名人';
+    $('[data-activity-roster]').innerHTML = data.items.map(function (r) { return rosterRegistration(r, data.activity); }).join('') || empty('暂无报名记录', filtered ? '没有找到符合当前筛选条件的报名。' : '活动公开后，参与者的报名会出现在这里。');
+    root.querySelectorAll('[data-roster-id]').forEach(function (record) {
+      var old = previous.get(record.dataset.rosterId), review = record.querySelector('[data-review-id]');
+      record.open = !!(old && old.open);
+      selectRosterMember(record, old && old.person);
+      // A save refreshes the counts but must not discard another open review.
+      // Retain its draft only while the displayed registration revision agrees.
+      if (review && old && old.values && old.revision === review.dataset.reviewRevision) {
+        review.elements.status.value = old.values.status || '';
+        review.elements.note.value = old.values.note || '';
+        review.elements.note.required = ['returned', 'rejected'].includes(review.elements.status.value);
+      }
+    });
     pagination($('[data-roster-pages]'), data.total, data.page, 'data-roster-page');
+    if (focusId) {
+      var record = $('[data-roster-id="' + focusId + '"]');
+      if (record) record.querySelector('summary').focus({ preventScroll: true });
+      else $('[data-roster-search] [name="search"]').focus({ preventScroll: true });
+    }
   }
   function leaveForm() { return !mineDirty || window.confirm('报名信息尚未保存，确认离开并放弃这些修改？'); }
   root.addEventListener('input', function (event) {
@@ -236,6 +298,8 @@
     if (button.hasAttribute('data-field-remove') || button.hasAttribute('data-field-move')) { collectFields(); var index = Number(button.closest('[data-field-index]').dataset.fieldIndex); if (button.hasAttribute('data-field-remove')) fields.splice(index, 1); else { var target = index + Number(button.dataset.fieldMove); if (target >= 0 && target < fields.length) { var field = fields.splice(index, 1)[0]; fields.splice(target, 0, field); } } configDirty = true; renderFields(); return; }
     if (button.hasAttribute('data-list-scope')) { listScope = button.dataset.listScope; return work(function () { return loadList(1); }); }
     if (button.hasAttribute('data-list-page')) return work(function () { return loadList(Number(button.dataset.listPage)); });
+    if (button.hasAttribute('data-roster-member')) { selectRosterMember(button.closest('[data-roster-id]'), button.dataset.rosterMember); return; }
+    if (button.hasAttribute('data-roster-reset')) { var searchForm = $('[data-roster-search]'); searchForm.reset(); searchForm.elements.status.value = ''; return work(function () { return loadRoster(1); }); }
     if (button.hasAttribute('data-roster-page')) return work(function () { return loadRoster(Number(button.dataset.rosterPage)); });
     if (button.hasAttribute('data-roster-status')) { $('[data-roster-search]').elements.status.value = button.dataset.rosterStatus; return work(function () { return loadRoster(1); }); }
     if (button.hasAttribute('data-copy-activity')) return work(async function () { var result = await request(api + '/copy', 'POST', {}); configDirty = false; location.href = '/activities/' + result.id + '?tab=settings'; });
@@ -273,7 +337,7 @@
     }
     if (form.matches('[data-list-search]')) return work(function () { return loadList(1); });
     if (form.matches('[data-roster-search]')) return work(function () { return loadRoster(1); });
-    if (form.matches('[data-review-id]')) return work(async function () { var data = Object.fromEntries(new FormData(form)); data.revision = Number(form.dataset.reviewRevision); await request(api + '/registrations/' + form.dataset.reviewId + '/review', 'POST', data); await loadRoster(rosterPage); }, '审核结果已保存。');
+    if (form.matches('[data-review-id]')) return work(async function () { var data = Object.fromEntries(new FormData(form)); data.revision = Number(form.dataset.reviewRevision); await request(api + '/registrations/' + form.dataset.reviewId + '/review', 'POST', data); await loadRoster(rosterPage, Number(form.dataset.reviewId)); }, '审核结果已保存。');
   });
   window.addEventListener('beforeunload', function (event) { if (configDirty || mineDirty) { event.preventDefault(); event.returnValue = ''; } });
   work(async function () {

@@ -20,12 +20,13 @@ function html(mode, manager = true) {
   const code = "const ejs=require('ejs'),fs=require('fs'),x=JSON.parse(fs.readFileSync(0,'utf8'));process.stdout.write(ejs.render(x.template,{activityPage:x.mode,activityId:x.mode==='new'?0:1,activityManager:x.manager}));";
   const r = spawnSync('docker', ['compose', 'exec', '-T', 'web', 'node', '-e', code], { cwd: path.join(root, '..'), input: JSON.stringify({ template, mode, manager }), encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
-  return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' + ['app-shell.css', 'app-shared.css', 'app-features.css'].map(file => '<link rel="stylesheet" href="/self/' + file + '">').join('') + '<link rel="stylesheet" href="/self/lib/flatpickr-4.6.13/flatpickr.min.css"><script src="/self/lib/flatpickr-4.6.13/flatpickr.min.js"></script><script src="/self/lib/flatpickr-4.6.13/zh.js"></script><script>window.__NWPUOJ_APP={csrfToken:"fixture",user:{id:1}};</script></head><body class="app-v2">' + r.stdout + '<script src="/self/app-v2.js"></script></body></html>';
+  return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' + ['app-shell.css', 'app-shared.css', 'app-features.css'].map(file => '<link rel="stylesheet" href="/self/' + file + '">').join('') + '<link rel="stylesheet" href="/self/lib/flatpickr-4.6.13/flatpickr.min.css"><script src="/self/lib/flatpickr-4.6.13/flatpickr.min.js"></script><script src="/self/lib/flatpickr-4.6.13/zh.js"></script><script>window.__NWPUOJ_APP={csrfToken:"fixture",user:{id:1}};</script></head><body class="app-v2">' + r.stdout + '<script src="/self/app-v2.js"></script><script src="/self/lib/noj-markdown.js"></script></body></html>';
 }
 async function fixture(mode = 'detail', tab = 'mine', manager = true, configure = () => {}) {
   const context = await browser.newContext({ viewport: { width: 1360, height: 1100 } });
   const page = await context.newPage(), failures = [], writes = [];
   const data = payload(); data.can_manage = manager; configure(data);
+  const roster = [{ id: 4, leader_id: 1, team_name: '<img src=x onerror=alert(1)>', status: 'pending', revision: 7, submitted_at: Date.now(), review_note: '', members: [{ ...data.identity, answers: { f_phone: '123' } }, {user_id: 2, username: 'member', real_name: '队员', student_id: '2026000002', college: '软件学院', answers: {f_phone: '<b>456</b>'}}] }, {id: 5, leader_id: 3, team_name: '追光队', status: 'pending', revision: 2, submitted_at: Date.now(), review_note: '', members: [{user_id: 3, username: 'third', real_name: '张同学', student_id: '2026000003', college: '计算机学院', answers: {f_phone: '789'}}]}];
   const document = html(mode, manager); let rejectNext = false;
   page.on('pageerror', error => failures.push(error.message));
   await context.route('**/*', async route => {
@@ -36,6 +37,8 @@ async function fixture(mode = 'detail', tab = 'mine', manager = true, configure 
     if (req.method() !== 'GET') {
       const body = req.postDataJSON(); writes.push({ path: url.pathname, method: req.method(), body, headers: req.headers() });
       if (rejectNext) { rejectNext = false; return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: { message: '信息已被更新，请刷新页面后重试。' } }) }); }
+      if (url.pathname.endsWith('/review')) { const row = roster.find(r => r.id === Number(url.pathname.split('/').at(-2))); row.status = body.status; row.review_note = body.note; row.revision++; }
+      if (url.pathname === '/api/v2/activities/1' && req.headers()['x-http-method-override'] === 'PATCH') Object.assign(data.activity, body);
       if (url.pathname.endsWith('/registrations')) data.mine = { id: 4, leader_id: 1, team_name: body.team_name || '', status: 'draft', revision: 2, members: [{ ...data.identity, ready: false, answers: {} }], invitations: [] };
       if (body.action === 'save' || body.action === 'submit') { data.mine.members[0].answers = body.answers; data.mine.members[0].ready = true; data.mine.revision++; }
       if (body.action === 'invite') { data.mine.invitations.push({ id: 8, username: body.username }); data.mine.revision++; }
@@ -45,12 +48,16 @@ async function fixture(mode = 'detail', tab = 'mine', manager = true, configure 
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: { id: 1 } }) });
     }
     if (url.pathname === '/api/v2/activities') { const items = [{...data.activity}, {...data.activity,id:2,title:'个人交流会',mode:'individual',status:'closed'}].filter(a => (!url.searchParams.get('search') || a.title.includes(url.searchParams.get('search'))) && (url.searchParams.get('scope') !== 'open' || a.status === 'published')); return route.fulfill({json:{data:{items,total:items.length,page:1,server_now:Date.now()}}}); }
-    if (url.pathname.endsWith('/registrations')) return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: { activity: data.activity, summary: {pending: 1, approved: 4, draft: 2, returned: 0}, items: [{ id: 4, leader_id: 1, team_name: '<img src=x onerror=alert(1)>', status: 'pending', revision: 7, submitted_at: Date.now(), review_note: '', members: [{ ...data.identity, answers: { f_phone: '123' } }] }], total: 1, page: 1 } }) });
+    if (url.pathname.endsWith('/registrations')) {
+      const summary = {}; for (const row of roster) summary[row.status] = (summary[row.status] || 0) + 1;
+      const items = roster.filter(row => (!url.searchParams.get('status') || row.status === url.searchParams.get('status')) && (!url.searchParams.get('search') || JSON.stringify(row).includes(url.searchParams.get('search'))));
+      return route.fulfill({json: {data: {activity: data.activity, summary, items, total: items.length, page: 1}}});
+    }
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data }) });
   });
   await page.goto('http://activity.test/fixture?tab=' + tab);
   if (mode === 'new') await page.locator('[data-config-step="0"]').waitFor(); else if (mode === 'list') await page.locator('.activity-list-row').first().waitFor(); else await page.locator('[data-activity-title]').filter({ hasText: '2026 校赛报名' }).waitFor();
-  return { page, context, failures, writes, data, reject: () => { rejectNext = true; } };
+  return { page, context, failures, writes, data, roster, reject: () => { rejectNext = true; } };
 }
 test('create form supports both registration modes, ordered fields and 24-hour hour/minute selects', async () => {
   const f = await fixture('new');
@@ -108,15 +115,15 @@ test('team captain creates, saves, invites and sees stale-version errors without
 test('manager roster escapes text, reviews with the displayed revision and exports filtered results', async () => {
   const f = await fixture('detail', 'roster');
   try {
-    await f.page.locator('.activity-registration summary').click();
+    await f.page.locator('[data-roster-id="4"] summary').click();
     assert.equal(await f.page.locator('.activity-registration img').count(), 0);
-    await f.page.locator('[data-review-id] [name="status"]').selectOption('returned');
-    await f.page.locator('[data-review-id] [name="note"]').fill('请核对联系方式');
-    await f.page.locator('[data-review-id] button').click();
+    await f.page.locator('[data-review-id="4"] [value="returned"]').check();
+    await f.page.locator('[data-review-id="4"] [name="note"]').fill('请核对联系方式');
+    await f.page.locator('[data-review-id="4"] button').click();
     await f.page.locator('[data-activity-message]').filter({ hasText: '审核结果已保存' }).waitFor();
     assert.equal(f.writes[0].body.revision, 7); assert.equal(f.writes[0].body.status, 'returned');
     await f.page.locator('[data-roster-search] [name="search"]').fill('captain');
-    await f.page.locator('[data-roster-search] button').click();
+    await f.page.locator('[data-roster-search] button[type="submit"]').click();
     await f.page.waitForFunction(() => document.querySelector('[data-roster-export]').href.includes('search=captain'));
     await f.page.setViewportSize({ width: 390, height: 844 });
     assert.ok(await f.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
@@ -199,10 +206,10 @@ test('configuration locks existing rules, preserves hidden values and requires e
     await dialog.getByRole('button', {name: '确认删除'}).click();
     await dialog.getByText('活动名称不一致，请输入完整名称。').waitFor();
     assert.equal(f.writes.length, 1);
-    await dialog.locator('input').fill('2026 校赛报名');
+    await dialog.locator('input').fill('更新校赛标题');
     f.reject(); await dialog.getByRole('button', {name: '确认删除'}).click();
     await dialog.getByText('信息已被更新，请刷新页面后重试。').waitFor();
-    assert.equal(await dialog.locator('input').inputValue(), '2026 校赛报名');
+    assert.equal(await dialog.locator('input').inputValue(), '更新校赛标题');
     await dialog.getByRole('button', {name: '确认删除'}).click();
     await f.page.waitForURL('**/activities');
     assert.equal(f.writes.at(-1).body.revision, 1);
@@ -219,7 +226,7 @@ test('wizard validates before moving on and previews questions in desktop, mobil
     assert.ok(await f.page.locator('[data-config-step="0"]').isVisible());
     await f.page.locator('[data-activity-config] [name="title"]').fill('2026 西北工业大学程序设计竞赛');
     await f.page.locator('[name="location"]').fill('长安校区 · 计算机学院');
-    await f.page.locator('[name="description"]').fill('面向全校同学开放，欢迎组队参加校赛。');
+    await f.page.locator('[name="description"]').evaluate(source => { source.value = '面向全校同学开放，欢迎组队参加校赛。'; });
     await f.page.locator('[data-config-next]').click();
     await f.page.getByRole('radio', {name: '组队报名'}).check();
     await f.page.locator('[name="opens_at"] + input').fill('2026-11-10 09:00');
@@ -284,6 +291,96 @@ test('invited members accept and confirm only their information, while closed ac
     await f.page.getByText('报名已结束，当前仅可查看报名信息。').waitFor();
     assert.equal(await f.page.locator('[data-save-answers]').count(), 0);
     assert.equal(await f.page.locator('[data-withdraw-registration]').count(), 0);
+    assert.deepEqual(f.failures, []);
+  } finally { await f.context.close(); }
+});
+
+test('activity introduction uses the shared Markdown editor and preserves edits across steps and asynchronous reloads', async () => {
+  const f = await fixture('detail', 'settings', true, data => { data.activity.description = '## 报名须知\n\n请填写 **本人资料**。'; });
+  try {
+    const source = f.page.locator('[name="description"]');
+    await f.page.waitForFunction(() => document.querySelector('[name="description"]').dataset.vditorReady === '1');
+    assert.equal(await f.page.locator('.app-vditor-host').count(), 1);
+    assert.match(await f.page.locator('textarea.vditor-sv').inputValue(), /报名须知/);
+    const editor = f.page.locator('textarea.vditor-sv');
+    await editor.fill('## 更新说明\n\n保留 **Markdown** 与 > 符号。');
+    await f.page.locator('[data-config-next]').click();
+    await f.page.locator('[data-config-prev]').click();
+    const markdown = await source.inputValue();
+    assert.match(markdown, /## 更新说明/);
+    assert.match(markdown, /\*\*Markdown\*\*/);
+    await f.page.locator('[data-config-next]').click();
+    await f.page.locator('[data-config-next]').click();
+    await f.page.locator('[data-field-preset="note"]').click();
+    assert.equal(await f.page.locator('[data-fields-preview] textarea[data-vditor-ready]').count(), 0, 'registration answers remain ordinary text');
+    await f.page.locator('[data-config-next]').click();
+    await f.page.locator('[data-config-save]').click();
+    await f.page.getByText('活动设置已保存。').waitFor();
+    assert.equal(f.writes[0].body.description, markdown);
+    await f.page.locator('[data-config-goto="0"]').click();
+    assert.equal(await source.inputValue(), markdown);
+    assert.equal(await f.page.locator('.app-vditor-host').count(), 1, 'async reload does not duplicate the editor');
+    await f.page.screenshot({path: '/tmp/nwpuoj-activity-markdown.png', fullPage: true, animations: 'disabled'});
+    await f.page.setViewportSize({width: 390, height: 844});
+    assert.ok(await f.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    assert.deepEqual(f.failures, []);
+  } finally { await f.context.close(); }
+});
+
+test('roster member selection, validation and filters preserve review drafts and focus', async () => {
+  const f = await fixture('detail', 'roster');
+  try {
+    const first = f.page.locator('[data-roster-id="4"]'), second = f.page.locator('[data-roster-id="5"]');
+    await first.locator('summary').click();
+    assert.equal(await first.locator('[name="status"]:checked').count(), 0, 'pending reviews require an explicit decision');
+    await first.locator('[data-roster-member="2"]').focus(); await f.page.keyboard.press('Enter');
+    assert.ok(await first.locator('[data-roster-person="2"]').isVisible());
+    assert.ok(await first.locator('[data-roster-person="1"]').isHidden());
+    assert.match(await first.locator('[data-roster-person="2"]').innerText(), /<b>456<\/b>/);
+    assert.equal(await first.locator('[data-roster-person="2"] b').count(), 0);
+    await first.locator('[value="returned"]').check();
+    await first.locator('button[type="submit"]').click();
+    assert.equal(f.writes.length, 0, 'return without explanation is blocked');
+    await first.locator('[name="note"]').fill('需要补全联系方式');
+    await second.locator('summary').click();
+    await second.locator('[value="rejected"]').check();
+    await second.locator('[name="note"]').fill('尚未保存的说明');
+    f.reject(); await first.locator('button[type="submit"]').click();
+    await f.page.getByText('信息已被更新，请刷新页面后重试。').waitFor();
+    assert.equal(await first.locator('[name="note"]').inputValue(), '需要补全联系方式');
+    await first.locator('button[type="submit"]').click();
+    await f.page.getByText('审核结果已保存。').waitFor();
+    assert.equal(await first.getAttribute('open'), '');
+    assert.equal(await first.locator('summary').evaluate(el => el === document.activeElement), true);
+    assert.ok(await first.locator('[data-roster-person="2"]').isVisible());
+    assert.equal(await second.locator('[name="note"]').inputValue(), '尚未保存的说明');
+    assert.ok(await second.locator('[value="rejected"]').isChecked());
+    await f.page.locator('[data-roster-status="returned"]').click();
+    await f.page.waitForFunction(() => document.querySelectorAll('[data-roster-id]').length === 1);
+    assert.match(await f.page.locator('[data-roster-export]').getAttribute('href'), /status=returned/);
+    await f.page.locator('[data-roster-reset]').click();
+    await f.page.waitForFunction(() => document.querySelectorAll('[data-roster-id]').length === 2);
+    assert.equal(await f.page.locator('[data-roster-status=""]').getAttribute('aria-pressed'), 'true');
+    // Changing the displayed revision must not silently apply an old draft to it.
+    f.roster[1].revision++; f.roster[1].review_note = '另一位管理者的说明'; f.roster[1].status = 'approved';
+    await f.page.locator('[data-roster-search] button[type="submit"]').click();
+    await f.page.waitForFunction(() => document.querySelector('[data-review-id="5"]').dataset.reviewRevision === '3');
+    assert.equal(await second.locator('[name="note"]').inputValue(), '另一位管理者的说明');
+    // A saved item leaves a status-filtered list once its state changes.
+    await f.page.locator('[data-roster-status="returned"]').click();
+    await f.page.waitForFunction(() => document.querySelectorAll('[data-roster-id]').length === 1);
+    await first.locator('[value="approved"]').check();
+    await first.locator('button[type="submit"]').click();
+    await f.page.waitForFunction(() => !document.querySelector('[data-roster-id]'));
+    assert.ok(await f.page.locator('[data-roster-search] [name="search"]').evaluate(el => el === document.activeElement));
+    await f.page.locator('[data-roster-reset]').click();
+    await first.locator('summary').click();
+    await f.page.screenshot({path: '/tmp/nwpuoj-activity-roster.png', fullPage: true, animations: 'disabled'});
+    await f.page.evaluate(() => document.documentElement.dataset.theme = 'dark');
+    await f.page.screenshot({path: '/tmp/nwpuoj-activity-roster-dark.png', fullPage: true, animations: 'disabled'});
+    await f.page.setViewportSize({width: 390, height: 844});
+    assert.ok(await f.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await f.page.screenshot({path: '/tmp/nwpuoj-activity-roster-mobile.png', fullPage: true, animations: 'disabled'});
     assert.deepEqual(f.failures, []);
   } finally { await f.context.close(); }
 });

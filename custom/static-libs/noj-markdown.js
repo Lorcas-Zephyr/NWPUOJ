@@ -12,6 +12,7 @@
     '[data-contest-editor-v2] textarea[name="information"]',
     '[data-contest-editor-v2] textarea[name="subtitle"]',
     '[data-problem-set-editor] textarea[name="description"]',
+    '[data-activity-config] textarea[name="description"]',
     '[data-markdown-editor] textarea[name="content"]',
     '[data-announcement-v2-edit] textarea[name="content"]',
     '[data-site-notification-editor] textarea[name="content"]',

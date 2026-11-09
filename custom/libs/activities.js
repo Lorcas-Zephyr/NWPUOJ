@@ -346,19 +346,45 @@ function createService({ connection, authorize, audit = async () => {}, now = Da
     const page = integer(query.page || 1, 1, 100000, '页码');
     const search = String(query.search || '').trim().slice(0, 100);
     if (query.status && !STATES.includes(query.status)) fail('报名状态无效。');
+    // Project one current membership per person before searching, counting or
+    // paginating. Active teams take precedence even if their ID is older than
+    // a withdrawn team the person previously joined. Keep historical snapshots
+    // intact; only the organizer's view and export omit superseded memberships.
+    const currentRoster = `WITH ranked_members AS (
+      SELECT r.id AS registration_id,m.member_index,
+        ROW_NUMBER() OVER(PARTITION BY m.user_id ORDER BY (r.status<>'withdrawn') DESC,r.updated_at DESC,r.id DESC) AS position
+      FROM activity_registration r
+      JOIN JSON_TABLE(r.snapshot_json,'$[*]' COLUMNS(member_index FOR ORDINALITY,user_id INT PATH '$.user_id')) m ON TRUE
+      WHERE r.activity_id=?
+    ), current_members AS (
+      SELECT registration_id,JSON_ARRAYAGG(member_index ORDER BY member_index) AS current_member_indexes
+      FROM ranked_members WHERE position=1 GROUP BY registration_id
+    ), current_roster AS (
+      SELECT r.*,m.current_member_indexes FROM activity_registration r JOIN current_members m ON m.registration_id=r.id
+    )`;
     const params = [id];
-    let where = 'activity_id=?';
+    let where = '1=1';
     if (query.status) { where += ' AND status=?'; params.push(query.status); }
-    if (search) { where += ' AND (LOCATE(?,team_name)>0 OR LOCATE(?,snapshot_json)>0)'; params.push(search, search); }
+    if (search) {
+      where += ` AND (LOCATE(?,team_name)>0 OR EXISTS(
+        SELECT 1 FROM JSON_TABLE(current_member_indexes,'$[*]' COLUMNS(member_index INT PATH '$')) visible_member
+        WHERE LOCATE(?,JSON_EXTRACT(snapshot_json,CONCAT('$[',visible_member.member_index-1,']')))>0))`;
+      params.push(search, search);
+    }
     return connection().transaction(async db => {
       const a = await get(id, db);
-      const counts = await db.query(`SELECT COUNT(*) AS n FROM activity_registration WHERE ${where}`, params);
-      const totals = await db.query('SELECT status,COUNT(*) AS n FROM activity_registration WHERE activity_id=? GROUP BY status', [id]);
+      const counts = await db.query(`${currentRoster} SELECT COUNT(*) AS n FROM current_roster WHERE ${where}`, params);
+      const totals = await db.query(`${currentRoster} SELECT status,COUNT(*) AS n FROM current_roster GROUP BY status`, [id]);
       const summary = Object.fromEntries(STATES.map(status => [status, 0]));
       for (const row of totals) summary[row.status] = Number(row.n);
       if (query.export && Number(counts[0].n) > 10000) fail('导出最多支持 10000 份报名，请按状态或关键词筛选。');
-      const rows = await db.query(`SELECT * FROM activity_registration WHERE ${where} ORDER BY id DESC LIMIT ? OFFSET ?`, [...params, query.export ? 10000 : 30, query.export ? 0 : (page - 1) * 30]);
-      const items = rows.map(row => { const item = { ...row, members: JSON.parse(row.snapshot_json) }; delete item.snapshot_json; return item; });
+      const rows = await db.query(`${currentRoster} SELECT * FROM current_roster WHERE ${where} ORDER BY id DESC LIMIT ? OFFSET ?`, [...params, query.export ? 10000 : 30, query.export ? 0 : (page - 1) * 30]);
+      const items = rows.map(row => {
+        const snapshot = JSON.parse(row.snapshot_json);
+        const item = { ...row, members: JSON.parse(row.current_member_indexes).map(index => snapshot[index - 1]) };
+        delete item.snapshot_json; delete item.current_member_indexes;
+        return item;
+      });
       return { activity: a, items, total: Number(counts[0].n), page, summary };
     });
   }

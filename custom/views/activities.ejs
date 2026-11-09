@@ -1,6 +1,6 @@
 <% this.title = activityPage === 'new' ? '创建活动' : '活动报名'; this.active = 'activities'; %>
 <% include app_header %>
-<link rel="stylesheet" href="/self/activities.css?rev=20261109-workflow-2">
+<link rel="stylesheet" href="/self/activities.css?rev=20261109-roster-1">
 <div class="app-page activity-page" data-activity-page="<%= activityPage %>" data-activity-id="<%= activityId %>">
   <header class="app-page-header">
     <div class="app-page-heading"><span class="app-kicker">ACTIVITIES</span><h1 class="app-page-title" data-activity-title><%= activityPage === 'new' ? '创建活动' : '活动报名' %></h1><p class="app-page-description" data-activity-summary><%= activityPage === 'new' ? '从报名规则到发布，逐步准备你的活动。' : '找到活动，完成报名，随时查看进度。' %></p></div>
@@ -25,9 +25,10 @@
   <section data-activity-panel="mine" hidden><div data-activity-mine></div></section>
   <% if (activityManager) { %>
   <section data-activity-panel="roster" hidden>
-    <div class="activity-section-heading"><div><h2>报名管理</h2><p class="app-help">查看报名进度，核对资料并完成审核。</p></div><a class="app-button app-button-secondary" data-roster-export href="/api/v2/activities/<%= activityId %>/registrations/export">导出筛选结果</a></div>
-    <div class="activity-roster-summary" data-roster-summary></div>
-    <form class="activity-toolbar" data-roster-search><label class="app-field"><span class="app-label">搜索报名</span><input class="app-input" type="search" name="search" placeholder="用户名、姓名、学号或队名" maxlength="100"></label><label class="app-field"><span class="app-label">报名状态</span><select class="app-select" name="status"><option value="">全部状态</option><option value="draft">填写中</option><option value="pending">待审核</option><option value="approved">报名成功</option><option value="returned">退回修改</option><option value="rejected">已拒绝</option><option value="withdrawn">已撤回</option></select></label><button class="app-button app-button-secondary" type="submit">查询</button></form>
+    <div class="activity-section-heading activity-roster-heading"><div><h2>报名管理</h2><p class="app-help">仅显示每位报名人的最新状态，展开查看资料并审核。</p></div><a class="app-button app-button-secondary" data-roster-export href="/api/v2/activities/<%= activityId %>/registrations/export">导出 CSV</a></div>
+    <div class="activity-roster-filters" data-roster-summary aria-label="按报名状态筛选"></div>
+    <form class="activity-roster-toolbar" data-roster-search><input type="hidden" name="status" value=""><label class="activity-roster-search"><span class="app-sr-only">搜索报名</span><input class="app-input" type="search" name="search" placeholder="搜索用户名、姓名、学号、队名或答案" maxlength="100"></label><button class="app-button app-button-secondary" type="submit">查询</button><button class="app-button app-button-quiet" type="button" data-roster-reset hidden>清除筛选</button><span class="activity-roster-result-count" data-roster-result-count role="status"></span></form>
+    <div class="activity-roster-columns" aria-hidden="true"><span data-roster-name-label>队伍 / 报名人</span><span>成员</span><span>提交时间</span><span>状态</span><span></span></div>
     <div data-activity-roster></div><div class="activity-pagination" data-roster-pages></div>
   </section>
   <% } %>
@@ -40,7 +41,7 @@
       <div class="activity-section-heading"><div><h2>先介绍一下活动</h2><p class="app-help">名称与介绍会显示在活动页，帮助参与者了解安排。</p></div><span class="activity-caption">01 / 04</span></div>
       <label class="app-field"><span class="app-label">活动名称 <em>*</em></span><input class="app-input" name="title" placeholder="例如：2026 西北工业大学程序设计竞赛" maxlength="120" required></label>
       <div class="app-form-grid"><label class="app-field"><span class="app-label">活动地点</span><input class="app-input" name="location" placeholder="校区、楼宇或线上地址" maxlength="200"></label><label class="app-field"><span class="app-label">活动时间（可选）</span><input class="app-input app-datetime-input" type="datetime-local" name="starts_at" step="60" data-app-datetime-picker></label></div>
-      <label class="app-field"><span class="app-label">活动介绍</span><textarea class="app-textarea" name="description" rows="9" maxlength="60000" placeholder="介绍活动安排、报名要求、注意事项与联系方式。支持 Markdown。"></textarea></label>
+      <label class="app-field activity-description-field"><span class="app-label">活动介绍</span><textarea class="app-textarea" name="description" rows="9" maxlength="60000" placeholder="介绍活动安排、报名要求、注意事项与联系方式。支持 Markdown。"></textarea></label>
     </section>
     <section class="activity-config-step" data-config-step="1" hidden>
       <div class="activity-section-heading"><div><h2>设置报名规则</h2><p class="app-help">选择参与方式，确定报名窗口与审核流程。</p></div><span class="activity-caption">02 / 04</span></div>
@@ -67,5 +68,5 @@
   <% } %>
   <% } %>
 </div>
-<script src="/self/activities.js?rev=20261109-workflow-2" defer></script>
+<script src="/self/activities.js?rev=20261109-roster-1" defer></script>
 <% include app_footer %>
