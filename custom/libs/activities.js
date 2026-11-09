@@ -2,7 +2,9 @@
 
 // All writes lock the activity first. This serializes roster changes, publication
 // and review, including invitations accepted concurrently on different teams.
-const STATES = ['draft', 'pending', 'approved', 'returned', 'rejected', 'withdrawn'];
+const STATES = ['draft', 'pending', 'approved', 'returned', 'withdrawn'];
+// Existing rejected records and older clients use the same editable return flow.
+function registrationStatus(value) { return value === 'rejected' ? 'returned' : value; }
 const FIELD_TYPES = ['text', 'textarea', 'radio', 'checkbox', 'select'];
 function fail(message, status = 422) { throw Object.assign(new Error(message), { statusCode: status }); }
 function text(value, max, label, required = true) {
@@ -147,7 +149,7 @@ function createService({ connection, authorize, audit = async () => {}, notify =
     if (!rows[0]) fail('报名记录不存在。', 404);
     const row = rows[0];
     const members = await db.query('SELECT * FROM activity_member WHERE registration_id=? ORDER BY user_id', [id]);
-    return { ...row, members: row.status === 'withdrawn' ? JSON.parse(row.snapshot_json) : members.map(decodeMember) };
+    return { ...row, status: registrationStatus(row.status), members: row.status === 'withdrawn' ? JSON.parse(row.snapshot_json) : members.map(decodeMember) };
   }
   async function saveRegistration(db, r, action, user, context) {
     const members = (await db.query('SELECT * FROM activity_member WHERE registration_id=? ORDER BY user_id', [r.id])).map(decodeMember);
@@ -156,11 +158,11 @@ function createService({ connection, authorize, audit = async () => {}, notify =
     await audit(db, { action: `activity:${action}`, activityId: r.activity_id, registrationId: r.id, actorId: user.id, status: r.status }, context);
   }
   async function notifyStatus(db, a, r, reviewed = false) {
-    const title = { pending: '报名已提交，等待审核', approved: reviewed ? '报名审核通过' : '报名成功', returned: '报名退回修改', rejected: '报名已拒绝' }[r.status];
+    const title = { pending: '报名已提交，等待审核', approved: reviewed ? '报名审核通过' : '报名成功', returned: '报名退回修改' }[r.status];
     if (!title) return;
     const members = await db.query('SELECT user_id FROM activity_member WHERE registration_id=? ORDER BY user_id', [r.id]);
     await notify(db, { activityId: Number(a.id), recipients: members.map(m => Number(m.user_id)), title: `${a.title} · ${title}`,
-      content: `${a.mode === 'team' ? `队伍「${r.team_name}」` : '你的报名'}${r.status === 'pending' ? '已提交，请等待审核。' : r.status === 'approved' ? '已报名成功。' : r.status === 'returned' ? '需要修改后重新提交。' : '未通过审核。'}${r.review_note ? `\n审核说明：${r.review_note}` : ''}`, now: now() });
+      content: `${a.mode === 'team' ? `队伍「${r.team_name}」` : '你的报名'}${r.status === 'pending' ? '已提交，请等待审核。' : r.status === 'approved' ? '已报名成功。' : '需要修改后重新提交。'}${r.review_note ? `\n审核说明：${r.review_note}` : ''}`, now: now() });
   }
   async function join(db, a, r, userId) {
     const person = await identity(db, userId);
@@ -195,6 +197,7 @@ function createService({ connection, authorize, audit = async () => {}, notify =
       FROM activity a ${where} ORDER BY a.id DESC LIMIT 30 OFFSET ?`, [user ? user.id : 0, user ? user.id : 0, ...params, (page - 1) * 30]);
     const count = await connection().query(`SELECT COUNT(*) AS n FROM activity a ${where}`, params);
     for (const item of items) {
+      item.my_status = registrationStatus(item.my_status);
       item.invitation_count = Number(item.invitation_count);
       if (managed) item.review_count = Number(item.review_count);
     }
@@ -221,7 +224,7 @@ function createService({ connection, authorize, audit = async () => {}, notify =
           delete result.mine.snapshot_json;
           if (Number(result.mine.leader_id) === Number(user.id)) result.mine.invitations = await db.query('SELECT i.id,u.username FROM activity_invitation i JOIN user u ON u.id=i.user_id WHERE i.registration_id=?', [result.mine.id]);
         }
-        result.invitations = await db.query(`SELECT i.id,r.team_name,u.username AS leader_username FROM activity_invitation i JOIN activity_registration r ON r.id=i.registration_id JOIN user u ON u.id=r.leader_id WHERE i.activity_id=? AND i.user_id=? AND r.status IN ('draft','returned')`, [id, user.id]);
+        result.invitations = await db.query(`SELECT i.id,r.team_name,u.username AS leader_username FROM activity_invitation i JOIN activity_registration r ON r.id=i.registration_id JOIN user u ON u.id=r.leader_id WHERE i.activity_id=? AND i.user_id=? AND r.status IN ('draft','returned','rejected')`, [id, user.id]);
       }
       delete a.fields_json;
       return result;
@@ -300,7 +303,6 @@ function createService({ connection, authorize, audit = async () => {}, notify =
       const action = input.action;
       const requireLeader = () => { if (!leader) fail('只有队长可以执行此操作。', 403); };
       if (action === 'save') {
-        if (r.status === 'rejected') fail('此报名已被拒绝，不能修改。', 409);
         const clean = answers(a.fields, input.answers, true);
         const own = r.members.find(member => member.user_id === Number(user.id));
         const teamName = leader && a.mode === 'team' ? text(input.team_name, 80, '队伍名称') : r.team_name;
@@ -383,7 +385,8 @@ function createService({ connection, authorize, audit = async () => {}, notify =
     await manager(user); await ensureSchema();
     const page = integer(query.page || 1, 1, 100000, '页码');
     const search = String(query.search || '').trim().slice(0, 100);
-    if (query.status && !STATES.includes(query.status)) fail('报名状态无效。');
+    const filterStatus = registrationStatus(query.status);
+    if (filterStatus && !STATES.includes(filterStatus)) fail('报名状态无效。');
     if (query.sort && !['latest', 'review'].includes(query.sort)) fail('报名排序无效。');
     // Project one current membership per person before searching, counting or
     // paginating. Active teams take precedence even if their ID is older than
@@ -399,11 +402,12 @@ function createService({ connection, authorize, audit = async () => {}, notify =
       SELECT registration_id,JSON_ARRAYAGG(member_index ORDER BY member_index) AS current_member_indexes
       FROM ranked_members WHERE position=1 GROUP BY registration_id
     ), current_roster AS (
-      SELECT r.*,m.current_member_indexes FROM activity_registration r JOIN current_members m ON m.registration_id=r.id
+      SELECT r.*,CASE WHEN r.status='rejected' THEN 'returned' ELSE r.status END AS current_status,m.current_member_indexes
+      FROM activity_registration r JOIN current_members m ON m.registration_id=r.id
     )`;
     const params = [id];
     let where = '1=1';
-    if (query.status) { where += ' AND status=?'; params.push(query.status); }
+    if (filterStatus) { where += ' AND current_status=?'; params.push(filterStatus); }
     if (search) {
       where += ` AND (LOCATE(?,team_name)>0 OR EXISTS(
         SELECT 1 FROM JSON_TABLE(current_member_indexes,'$[*]' COLUMNS(member_index INT PATH '$')) visible_member
@@ -413,7 +417,7 @@ function createService({ connection, authorize, audit = async () => {}, notify =
     return connection().transaction(async db => {
       const a = await get(id, db);
       const counts = await db.query(`${currentRoster} SELECT COUNT(*) AS n FROM current_roster WHERE ${where}`, params);
-      const totals = await db.query(`${currentRoster} SELECT status,COUNT(*) AS n FROM current_roster GROUP BY status`, [id]);
+      const totals = await db.query(`${currentRoster} SELECT current_status AS status,COUNT(*) AS n FROM current_roster GROUP BY current_status`, [id]);
       const summary = Object.fromEntries(STATES.map(status => [status, 0]));
       for (const row of totals) summary[row.status] = Number(row.n);
       const currentPage = Math.min(page, Math.max(1, Math.ceil(Number(counts[0].n) / 30)));
@@ -422,8 +426,8 @@ function createService({ connection, authorize, audit = async () => {}, notify =
       const rows = await db.query(`${currentRoster} SELECT * FROM current_roster WHERE ${where} ORDER BY ${order} LIMIT ? OFFSET ?`, [...params, query.export ? 10000 : 30, query.export ? 0 : (currentPage - 1) * 30]);
       const items = rows.map(row => {
         const snapshot = JSON.parse(row.snapshot_json);
-        const item = { ...row, members: JSON.parse(row.current_member_indexes).map(index => snapshot[index - 1]) };
-        delete item.snapshot_json; delete item.current_member_indexes;
+        const item = { ...row, status: row.current_status, members: JSON.parse(row.current_member_indexes).map(index => snapshot[index - 1]) };
+        delete item.snapshot_json; delete item.current_member_indexes; delete item.current_status;
         return item;
       });
       return { activity: a, items, total: Number(counts[0].n), page: currentPage, summary };
@@ -436,10 +440,11 @@ function createService({ connection, authorize, audit = async () => {}, notify =
       const r = await registration(db, registrationId);
       if (Number(r.activity_id) !== Number(id)) fail('报名记录不存在。', 404);
       version(r, input.revision);
-      if (!['pending', 'approved', 'returned', 'rejected'].includes(r.status) || !['approved', 'returned', 'rejected'].includes(input.status)) fail('当前报名状态不能审核。', 409);
-      const note = text(input.note || '', 1000, '审核说明', input.status !== 'approved');
-      const changed = r.status !== input.status || r.review_note !== note;
-      r.review_note = note; r.status = input.status;
+      const status = registrationStatus(input.status);
+      if (!['pending', 'approved', 'returned'].includes(r.status) || !['approved', 'returned'].includes(status)) fail('当前报名状态不能审核。', 409);
+      const note = text(input.note || '', 1000, '审核说明', status !== 'approved');
+      const changed = r.status !== status || r.review_note !== note;
+      r.review_note = note; r.status = status;
       await saveRegistration(db, r, 'registration.review', user, context);
       if (changed) await notifyStatus(db, a, r, true);
       return { id: r.id, status: r.status };

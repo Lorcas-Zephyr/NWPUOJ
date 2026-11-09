@@ -1,6 +1,6 @@
 <% this.title = activityPage === 'new' ? '创建活动' : '活动报名'; this.active = 'activities'; %>
 <% include app_header %>
-<link rel="stylesheet" href="/self/activities.css?rev=20261109-workflow-4">
+<link rel="stylesheet" href="/self/activities.css?rev=20261109-workflow-5">
 <div class="app-page activity-page" data-activity-page="<%= activityPage %>" data-activity-id="<%= activityId %>">
   <header class="app-page-header">
     <div class="app-page-heading"><h1 class="app-page-title" data-activity-title><%= activityPage === 'new' ? '创建活动' : '活动报名' %></h1><p class="app-page-description" data-activity-summary></p></div>
@@ -9,7 +9,7 @@
   <p class="app-form-status activity-feedback" data-activity-message role="status" hidden></p>
   <% if (activityPage === 'list') { %>
   <form class="activity-directory-tools" data-list-search>
-    <div class="activity-filter-tabs" aria-label="筛选活动"><% [['all','全部活动'],['open','报名中'],['upcoming','即将开放'],['mine','我的报名 / 邀请'],['ended','已结束']].concat(activityManager ? [['draft','草稿']] : []).forEach(function (item) { %><button type="button" data-list-scope="<%= item[0] %>" aria-pressed="<%= item[0] === 'all' %>"><%= item[1] %></button><% }); %></div>
+    <div class="activity-filter-tabs" aria-label="筛选活动"><% [['all','全部活动'],['open','报名中'],['upcoming','即将开放']].concat(activityManager ? [] : [['mine','我的报名 / 邀请']]).concat([['ended','已结束']]).concat(activityManager ? [['draft','草稿']] : []).forEach(function (item) { %><button type="button" data-list-scope="<%= item[0] %>" aria-pressed="<%= item[0] === 'all' %>"><%= item[1] %></button><% }); %></div>
     <label class="activity-search"><span class="app-sr-only">搜索活动名称或地点</span><input class="app-input" type="search" name="search" placeholder="搜索活动名称或地点" maxlength="100"><button type="submit" class="app-button app-button-quiet">搜索</button></label>
   </form>
   <div class="activity-list-context"><span data-list-result-count></span></div>
@@ -17,13 +17,13 @@
   <% } else { %>
   <% if (activityPage === 'detail') { %>
   <nav class="app-tabs activity-navigation" aria-label="活动页面">
-    <a class="app-tab" href="?tab=intro" data-activity-tab="intro">活动概览</a><a class="app-tab" href="?tab=mine" data-activity-tab="mine">我的报名<span data-mine-count hidden></span></a>
-    <% if (activityManager) { %><a class="app-tab activity-manager-tab" href="?tab=roster" data-activity-tab="roster">报名管理</a><a class="app-tab" href="?tab=settings" data-activity-tab="settings">活动配置</a><% } %>
+    <a class="app-tab" href="?tab=intro" data-activity-tab="intro">活动概览</a>
+    <% if (activityManager) { %><a class="app-tab" href="?tab=roster" data-activity-tab="roster">报名管理</a><a class="app-tab" href="?tab=settings" data-activity-tab="settings">活动配置</a><% } else { %><a class="app-tab" href="?tab=mine" data-activity-tab="mine">我的报名<span data-mine-count hidden></span></a><% } %>
   </nav>
   <section data-activity-panel="intro" hidden>
-    <div class="activity-journey" data-activity-guidance></div><div class="activity-overview"><div><div class="activity-section-heading"><h2>活动介绍</h2><span class="activity-state" data-activity-phase></span></div><article class="app-markdown activity-description" data-activity-description></article></div><aside class="activity-overview-aside"><div data-activity-facts></div><div data-activity-entry></div></aside></div>
+    <div class="activity-overview"><div><div class="activity-section-heading"><h2>活动介绍</h2><span class="activity-state" data-activity-phase></span></div><article class="app-markdown activity-description" data-activity-description></article></div><aside class="activity-overview-aside"><div data-activity-facts></div><div data-activity-entry hidden></div></aside></div>
   </section>
-  <section data-activity-panel="mine" hidden><div class="activity-draft-notice" data-draft-notice="mine" role="status" hidden></div><div data-activity-mine></div></section>
+  <% if (!activityManager) { %><section data-activity-panel="mine" hidden><div class="activity-draft-notice" data-draft-notice="mine" role="status" hidden></div><div data-activity-mine></div></section><% } %>
   <% if (activityManager) { %>
   <section data-activity-panel="roster" hidden>
     <div class="activity-section-heading activity-roster-heading"><div><h2>报名管理</h2></div><div class="activity-button-group"><span data-review-queue hidden></span><a class="app-button app-button-secondary" data-roster-export href="/api/v2/activities/<%= activityId %>/registrations/export">导出 CSV</a></div></div>
@@ -71,5 +71,5 @@
   <% } %>
   <% } %>
 </div>
-<script src="/self/activities.js?rev=20261109-workflow-4" defer></script>
+<script src="/self/activities.js?rev=20261109-workflow-5" defer></script>
 <% include app_footer %>

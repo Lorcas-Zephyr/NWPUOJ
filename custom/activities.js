@@ -7,7 +7,7 @@
   var listScope = new URLSearchParams(location.search).get('scope') || 'all';
   var api = '/api/v2/activities' + (id ? '/' + id : '');
   var $ = function (selector) { return root.querySelector(selector); };
-  var labels = { draft: '填写中', pending: '待审核', approved: '报名成功', returned: '退回修改', rejected: '已拒绝', withdrawn: '已撤回' };
+  var labels = { draft: '填写中', pending: '待审核', approved: '报名成功', returned: '退回修改', withdrawn: '已撤回' };
   function esc(value) { return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]; }); }
   function date(value) { return value ? new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(Number(value))) : '待定'; }
   function local(value) { return value ? new Date(Number(value) + 8 * 3600000).toISOString().slice(0, 16) : ''; }
@@ -67,7 +67,7 @@
     var notice = $('[data-draft-notice="' + kind + '"]'), draft = readDraft(kind);
     if (!notice) return;
     if (!draft || JSON.stringify(draft.context) !== JSON.stringify(draftContext(kind))) { clearDraft(kind); return; }
-    if (kind === 'mine' && (!isOpen() || !state.user_id || state.mine && state.mine.status === 'rejected')) { notice.hidden = true; return; }
+    if (kind === 'mine' && (!isOpen() || !state.user_id || state.can_manage)) { notice.hidden = true; return; }
     notice.hidden = false;
     notice.innerHTML = '<span>有尚未提交的' + (kind === 'config' ? '配置' : '报名') + '草稿</span><div><button class="app-button app-button-quiet" type="button" data-restore-draft="' + kind + '">恢复</button><button class="app-button app-button-quiet" type="button" data-discard-draft="' + kind + '">丢弃</button></div>';
   }
@@ -83,21 +83,11 @@
     var minutes = Math.max(1, Math.ceil((a.closes_at - now()) / 60000));
     return minutes >= 1440 ? '距截止 ' + Math.ceil(minutes / 1440) + ' 天' : minutes >= 60 ? '距截止 ' + Math.floor(minutes / 60) + ' 小时' : '距截止 ' + minutes + ' 分钟';
   }
-  function nextStep() {
-    var r = state.mine, a = state.activity;
-    if (!state.user_id) return ['登录后开始报名', '使用本人 OJ 账号参与', '登录报名'];
-    if (!isOpen()) return [phase(a), r ? '已提交的报名可继续查看审核结果' : '报名时间以主办方安排为准', '查看报名'];
-    if (!state.identity) return ['完善账号资料', state.identity_error, '完善资料'];
-    if (!r) return state.invitations.length ? ['你有 ' + state.invitations.length + ' 份组队邀请', '接受邀请后填写个人资料', '处理邀请'] : [a.mode === 'team' ? '创建队伍或接受邀请' : '填写并提交报名', remaining(a), '开始报名'];
-    if (r.status === 'pending') return ['等待主办方审核', '审核结果会显示在我的报名中', '查看报名'];
-    if (r.status === 'approved') return ['报名成功', a.starts_at ? '活动时间 ' + date(a.starts_at) : '留意主办方后续安排', '查看报名'];
-    if (r.status === 'rejected') return ['报名未通过', r.review_note || '查看审核说明', '查看说明'];
-    if (r.status === 'returned') return ['修改后重新提交', r.review_note || '请按审核说明补充资料', '继续填写'];
-    var own = r.members.find(function (m) { return m.user_id === state.user_id; });
-    if (!own || !own.ready) return ['确认你的报名资料', a.mode === 'team' ? '每位成员分别填写自己的信息' : remaining(a), '继续填写'];
-    if (a.mode === 'team' && Number(r.leader_id) !== state.user_id) return ['等待队长提交', '你的资料已确认', '查看队伍'];
-    var missing = Math.max(0, a.min_members - r.members.length), unready = r.members.filter(function (m) { return !m.ready; }).length;
-    return missing ? ['还需 ' + missing + ' 位队员加入', '邀请队员并等待确认', '管理队伍'] : unready ? ['等待 ' + unready + ' 位成员确认资料', remaining(a), '查看队伍'] : ['可以提交报名了', '所有成员资料已确认', '前往提交'];
+  function entryLabel() {
+    if (state.can_manage || !isOpen() && !state.mine && !state.invitations.length) return '';
+    if (!state.user_id) return '登录报名';
+    if (state.mine) return '查看报名';
+    return state.invitations.length ? '处理邀请' : '开始报名';
   }
   function updateCompletion() {
     var form = $('[data-save-answers]') || $('[data-start-registration]'); if (!form) return;
@@ -105,7 +95,7 @@
     var required = state.activity.fields.filter(function (f) { return f.required; }), values = answerValues(form).answers;
     var missing = required.filter(function (f) { return Array.isArray(values[f.id]) ? !values[f.id].length : !String(values[f.id] || '').trim(); });
     var teamName = form.elements.team_name; if (teamName) { required = required.concat({}); if (!teamName.value.trim()) missing.push({label:'队伍名称',id:'team_name'}); }
-    meter.innerHTML = '<span>' + (missing.length ? '必填 ' + (required.length - missing.length) + ' / ' + required.length : '必填信息已完整') + '</span>' + (missing.length ? '<button class="app-button app-button-quiet" type="button" data-focus-missing="' + esc(missing[0].id) + '">继续填写 ' + esc(missing[0].label) + ' →</button>' : '');
+    meter.textContent = missing.length ? '必填 ' + (required.length - missing.length) + ' / ' + required.length : '必填信息已完整';
     meter.classList.toggle('is-complete', !missing.length);
   }
   function applyTemplate(name) {
@@ -130,16 +120,17 @@
     root.querySelectorAll('[data-list-scope]').forEach(function (button) { button.setAttribute('aria-pressed', String(button.dataset.listScope === listScope)); });
     $('[data-activity-list]').innerHTML = result.items.map(function (a) {
       var d = local(a.starts_at || a.closes_at), open = phase(a) === '报名进行中';
-      var invited = Number(a.invitation_count) > 0, review = Number(a.review_count) > 0;
-      var action = invited ? '处理邀请' : a.my_status === 'draft' || a.my_status === 'returned' ? '继续报名' : a.my_status ? '查看报名' : review ? '审核报名' : open ? '查看并报名' : '查看活动';
-      var tab = a.my_status || invited ? '?tab=mine' : review ? '?tab=roster' : '';
-      return '<article class="activity-list-row"><div class="activity-date-mark"><span>' + d.slice(0, 4) + '.' + d.slice(5, 7) + '</span><strong>' + d.slice(8, 10) + '</strong><small>' + (a.starts_at ? '活动日' : '截止日') + '</small></div><div class="activity-list-content"><div class="activity-meta"><span class="activity-state ' + (open ? 'activity-state-open' : '') + '">' + phase(a) + '</span><span>' + (a.mode === 'team' ? '组队 · ' + a.min_members + '–' + a.max_members + ' 人' : '个人报名') + '</span>' + (a.my_status ? status(a.my_status) : '') + (invited ? '<span class="activity-state activity-state-pending">' + a.invitation_count + ' 份邀请</span>' : '') + (review ? '<span class="activity-caption">待审核 ' + a.review_count + '</span>' : '') + '</div><h2><a href="/activities/' + a.id + '">' + esc(a.title) + '</a></h2><div class="activity-meta"><span>报名截止 ' + date(a.closes_at) + '</span><span>' + esc(a.location || '地点待定') + '</span>' + (open ? '<span class="activity-deadline">' + remaining(a) + '</span>' : '') + '</div></div><a class="app-button ' + (open ? 'app-button-primary' : 'app-button-secondary') + '" href="/activities/' + a.id + tab + '">' + action + '<span aria-hidden="true">→</span></a></article>';
+      var managed = !!result.can_manage, invited = !managed && Number(a.invitation_count) > 0, review = Number(a.review_count) > 0;
+      var action = managed ? review ? '审核报名' : '管理活动' : invited ? '处理邀请' : a.my_status ? '查看报名' : open ? '查看并报名' : '查看活动';
+      var tab = managed ? '?tab=roster' : a.my_status || invited ? '?tab=mine' : '';
+      return '<article class="activity-list-row"><div class="activity-date-mark"><span>' + d.slice(0, 4) + '.' + d.slice(5, 7) + '</span><strong>' + d.slice(8, 10) + '</strong><small>' + (a.starts_at ? '活动日' : '截止日') + '</small></div><div class="activity-list-content"><div class="activity-meta"><span class="activity-state ' + (open ? 'activity-state-open' : '') + '">' + phase(a) + '</span><span>' + (a.mode === 'team' ? '组队 · ' + a.min_members + '–' + a.max_members + ' 人' : '个人报名') + '</span>' + (!managed && a.my_status ? status(a.my_status) : '') + (invited ? '<span class="activity-state activity-state-pending">' + a.invitation_count + ' 份邀请</span>' : '') + (review ? '<span class="activity-caption">待审核 ' + a.review_count + '</span>' : '') + '</div><h2><a href="/activities/' + a.id + '">' + esc(a.title) + '</a></h2><div class="activity-meta"><span>报名截止 ' + date(a.closes_at) + '</span><span>' + esc(a.location || '地点待定') + '</span>' + (open ? '<span class="activity-deadline">' + remaining(a) + '</span>' : '') + '</div></div><a class="app-button ' + (open ? 'app-button-primary' : 'app-button-secondary') + '" href="/activities/' + a.id + tab + '">' + action + '<span aria-hidden="true">→</span></a></article>';
     }).join('') || empty('暂无符合条件的活动', '试试其他分类或搜索关键词。');
     $('[data-list-result-count]').textContent = result.total + ' 个活动';
     pagination($('[data-activity-pages]'), result.total, result.page, 'data-list-page');
   }
   function selectedTab() {
     var tab = new URLSearchParams(location.search).get('tab') || 'intro';
+    if (tab === 'mine' && state && state.can_manage) return 'roster';
     return ['intro', 'mine'].includes(tab) || (state && state.can_manage && ['roster', 'fields', 'settings'].includes(tab)) ? tab : 'intro';
   }
   function showTab() {
@@ -239,12 +230,13 @@
   }
   function renderMine() {
     var target = $('[data-activity-mine]'), a = state.activity, r = state.mine, enabled = isOpen(), team = a.mode === 'team';
+    if (!target || state.can_manage) return;
     if (!state.user_id) { target.innerHTML = empty('登录后报名', '使用本人的 OJ 账户填写信息、接收组队邀请。') + '<a class="app-button app-button-primary" href="/login?url=' + encodeURIComponent('/activities/' + id + '?tab=mine') + '">登录报名</a>'; return; }
     var html = enabled ? '' : '<p class="activity-inline-notice">' + phase(a) + '，当前仅可查看报名信息。</p>';
     html += state.invitations.map(function (invite) { return '<div class="activity-invitation"><div><span class="activity-caption">组队邀请</span><h3>' + esc(invite.team_name) + '</h3><p>' + esc(invite.leader_username) + ' 邀请你加入队伍</p></div>' + (enabled ? '<div class="activity-button-group"><button class="app-button app-button-secondary" type="button" data-invitation="' + invite.id + '" data-invite-action="decline">拒绝</button><button class="app-button app-button-primary" type="button" data-invitation="' + invite.id + '" data-invite-action="accept">接受并加入</button></div>' : '') + '</div>'; }).join('');
     if (!r && !state.identity) { target.innerHTML = html + empty('先完善账号资料', state.identity_error) + '<a class="app-button app-button-primary" href="/user/' + state.user_id + '/edit">完善账号资料</a>'; return; }
     var leader = !r || Number(r.leader_id) === state.user_id, editing = !r || ['draft', 'returned'].includes(r.status), own = r ? r.members.find(function (m) { return m.user_id === state.user_id; }) : state.identity;
-    html += steps(team ? ['组建队伍', '确认个人信息', '队长提交', '报名结果'] : ['填写报名信息', '确认提交', '报名结果'], !r ? 0 : editing ? 1 : team ? 3 : 2);
+    html += steps(['填写报名信息', '报名结果'], editing ? 0 : 1);
     html += '<div class="activity-registration-layout"><div class="activity-registration-main">';
     if (!r && team) {
       html += '<div class="activity-section-heading"><div><h2>组队报名</h2></div></div><div class="activity-team-choice" role="group" aria-label="组队身份"><button class="app-button app-button-secondary" type="button" data-team-role="captain" aria-pressed="true">我是队长</button><button class="app-button app-button-secondary" type="button" data-team-role="member" aria-pressed="false">我是队员</button></div>';
@@ -252,16 +244,16 @@
     html += '<div class="activity-team-join" data-team-join hidden><h3>等待队长邀请</h3><div><code>' + esc(state.identity.username) + '</code><button class="app-button app-button-secondary" type="button" data-copy-username>复制用户名</button></div></div>';
     } else {
       if (r) {
-        var titles = { draft: team ? r.team_name : '完成你的报名', returned: '请修改后重新提交', pending: '报名已提交，等待审核', approved: '报名成功', rejected: '报名未通过' };
+        var titles = { draft: team ? r.team_name : '完成你的报名', returned: '请修改后重新提交', pending: '报名已提交，等待审核', approved: '报名成功' };
         html += '<div class="activity-receipt activity-receipt-' + r.status + '"><div class="activity-section-heading"><h2>' + esc(titles[r.status] || '我的报名') + '</h2></div><p>' + (r.submitted_at ? '报名编号 #' + r.id + ' · 提交于 ' + date(r.submitted_at) : '报名编号 #' + r.id) + '</p>' + (r.review_note ? '<div class="activity-review-note"><strong>审核说明</strong><p>' + esc(r.review_note) + '</p></div>' : '') + '</div>';
       } else html += '<div class="activity-section-heading"><div><h2>填写报名信息</h2></div></div>';
       if (own) {
         html += identity(own);
-        var showForm = enabled && (!r || r.status !== 'rejected') && (editing || editingAnswers);
+        var showForm = enabled && (editing || editingAnswers);
         if (showForm) html += '<form id="activity-answer-form" class="activity-answer-form" ' + (r ? 'data-save-answers' : 'data-start-registration') + '>' + (leader && team ? '<label class="app-field"><span class="app-label">队伍名称</span><input class="app-input" name="team_name" maxlength="80" value="' + esc(r.team_name) + '" required></label>' : '') + a.fields.map(function (field) { return question(field, own.answers || {}, false); }).join('') + '<div class="activity-form-completion" data-form-completion role="status"></div><div class="activity-button-group"><button class="app-button ' + (team && editing ? 'app-button-secondary' : 'app-button-primary') + '" type="submit" name="intent" value="' + (!team && editing ? 'submit' : 'save') + '">' + (!team && editing ? '确认并提交报名' : team && editing ? '保存并确认我的信息' : '保存修改') + '</button>' + (!editing ? '<button class="app-button app-button-quiet" type="button" data-cancel-edit>取消修改</button>' : '') + '</div><span class="activity-caption" data-form-draft-status></span></form>';
         else {
           html += '<dl class="activity-answer-summary">' + a.fields.map(function (field) { var value = (own.answers || {})[field.id]; return '<div><dt>' + esc(field.label) + '</dt><dd>' + esc(Array.isArray(value) ? value.join('、') : value || '未填写') + '</dd></div>'; }).join('') + '</dl>';
-          if (enabled && r && r.status !== 'rejected') html += '<button type="button" class="app-button app-button-secondary" data-edit-answers>修改报名信息</button>';
+          if (enabled && r) html += '<button type="button" class="app-button app-button-secondary" data-edit-answers>修改报名信息</button>';
         }
       }
     }
@@ -288,10 +280,10 @@
     $('[data-activity-phase]').textContent = phase(a); $('[data-activity-phase]').classList.toggle('activity-state-open', isOpen());
     $('[data-activity-description]').innerHTML = state.description_html || '<p>暂无活动介绍</p>';
     $('[data-activity-facts]').innerHTML = '<h3>活动安排</h3><dl class="activity-fact-list">' + [['报名开始', date(a.opens_at)], ['报名截止', date(a.closes_at)], ['活动时间', date(a.starts_at)], ['活动地点', a.location || '待定'], ['审核方式', a.require_review ? '提交后审核' : '提交即报名成功']].map(function (pair) { return '<div><dt>' + pair[0] + '</dt><dd>' + esc(pair[1]) + '</dd></div>'; }).join('') + '</dl>';
-    var guidance = nextStep();
-    $('[data-activity-guidance]').innerHTML = '<div><strong>' + esc(guidance[0]) + '</strong></div><a class="app-button app-button-primary" href="?tab=mine" data-activity-tab="mine">' + esc(guidance[2]) + '<span aria-hidden="true">→</span></a>';
-    $('[data-activity-entry]').innerHTML = '';
-    $('[data-mine-count]').hidden = !state.invitations.length; $('[data-mine-count]').textContent = state.invitations.length;
+    var entry = $('[data-activity-entry]'), label = entryLabel(), mineCount = $('[data-mine-count]');
+    entry.hidden = !label;
+    entry.innerHTML = label ? '<a class="app-button app-button-primary" href="?tab=mine" data-activity-tab="mine">' + label + '<span aria-hidden="true">→</span></a>' : '';
+    if (mineCount) { mineCount.hidden = !state.invitations.length; mineCount.textContent = state.invitations.length; }
     renderMine(); restoreDraft(draft); updateCompletion(); if (fill) fillConfig(a);
     if (!draft) offerDraft('mine'); if (fill) offerDraft('config');
   }
@@ -317,7 +309,7 @@
     var leader = captain || r.members[0] || {};
     var team = activity.mode === 'team', title = team ? r.team_name : leader.real_name || leader.username;
     var reviewable = !['draft', 'withdrawn'].includes(r.status);
-    var html = '<details class="activity-registration" data-roster-id="' + r.id + '"><summary>' +
+    var html = '<details class="activity-registration" name="activity-roster" data-roster-id="' + r.id + '"><summary>' +
       '<span class="activity-roster-name"><strong>' + esc(title || '个人报名') + '</strong><small>#' + r.id + ' · ' + (team ? captain ? '队长 ' : '成员 ' : '') + esc(leader.username || '—') + '</small></span>' +
       '<span class="activity-roster-members"><strong>' + r.members.length + ' 人</strong><small>' + (team ? esc(r.members.map(function (person) { return person.username; }).join(' / ')) : esc(leader.student_id || '')) + '</small></span>' +
       '<time class="activity-roster-time">' + (r.submitted_at ? date(r.submitted_at) : '尚未提交') + '</time>' + status(r.status) +
@@ -328,9 +320,9 @@
     }).join('') + '</div>';
     html += r.members.map(function (person) { return rosterMember(person, activity); }).join('') + '</div><aside class="activity-roster-review"><div class="activity-section-heading"><h3>' + (reviewable ? '审核报名' : '报名状态') + '</h3>' + status(r.status) + '</div>';
     if (r.review_note) html += '<div class="activity-last-review"><span>上次审核说明</span><p>' + esc(r.review_note) + '</p></div>';
-    if (reviewable) html += '<form class="activity-review" data-review-id="' + r.id + '" data-review-revision="' + r.revision + '"><fieldset class="app-field activity-review-decisions"><legend class="app-label">审核结果</legend>' + [['approved', '通过'], ['returned', '退回修改'], ['rejected', '拒绝']].map(function (pair) {
+    if (reviewable) html += '<form class="activity-review" data-review-id="' + r.id + '" data-review-revision="' + r.revision + '"><fieldset class="app-field activity-review-decisions"><legend class="app-label">审核结果</legend>' + [['approved', '通过'], ['returned', '退回修改']].map(function (pair) {
       return '<label><input type="radio" name="status" value="' + pair[0] + '" required' + (r.status === pair[0] ? ' checked' : '') + '><span>' + pair[1] + '</span></label>';
-    }).join('') + '</fieldset><label class="app-field"><span class="app-label">审核说明<span data-review-required' + (['returned', 'rejected'].includes(r.status) ? '' : ' hidden') + '> *</span></span><textarea class="app-textarea" name="note" rows="3" maxlength="1000" placeholder="填写需补充或修改的内容"' + (['returned', 'rejected'].includes(r.status) ? ' required' : '') + '>' + esc(r.review_note || '') + '</textarea></label><div class="activity-review-actions"><button class="app-button app-button-primary" type="submit">保存审核结果</button>' + (r.status === 'pending' ? '<button class="app-button app-button-secondary" type="submit" name="next" value="1">保存并审核下一份 →</button>' : '') + '</div></form>';
+    }).join('') + '</fieldset><label class="app-field"><span class="app-label">审核说明<span data-review-required' + (r.status === 'returned' ? '' : ' hidden') + '> *</span></span><textarea class="app-textarea" name="note" rows="3" maxlength="1000" placeholder="填写需补充或修改的内容"' + (r.status === 'returned' ? ' required' : '') + '>' + esc(r.review_note || '') + '</textarea></label><div class="activity-review-actions"><button class="app-button app-button-primary" type="submit">保存审核结果</button>' + (r.status === 'pending' ? '<button class="app-button app-button-secondary" type="submit" name="next" value="1">保存并审核下一份 →</button>' : '') + '</div></form>';
     else html += '<p>' + (r.status === 'draft' ? '尚未提交' : '报名已撤回') + '</p>';
     return html + '</aside></div></details>';
   }
@@ -352,7 +344,7 @@
     rosterPage = data.page; params.set('page', rosterPage);
     $('[data-roster-export]').href = api + '/registrations/export?' + params;
     var summary = data.summary || {}, total = Object.keys(summary).reduce(function (sum, key) { return sum + Number(summary[key] || 0); }, 0);
-    $('[data-roster-summary]').innerHTML = [['', '全部', total], ['pending', '待审核'], ['approved', '报名成功'], ['returned', '退回修改'], ['draft', '填写中'], ['rejected', '已拒绝'], ['withdrawn', '已撤回']].map(function (pair) {
+    $('[data-roster-summary]').innerHTML = [['', '全部', total], ['pending', '待审核'], ['approved', '报名成功'], ['returned', '退回修改'], ['withdrawn', '已撤回']].map(function (pair) {
       return '<button type="button" data-roster-status="' + pair[0] + '" aria-pressed="' + (params.get('status') === pair[0]) + '"><span>' + pair[1] + '</span><strong>' + (pair.length === 3 ? pair[2] : summary[pair[0]] || 0) + '</strong></button>';
     }).join('');
     var queue = $('[data-review-queue]'); queue.hidden = !summary.pending;
@@ -366,12 +358,12 @@
       var old = previous.get(record.dataset.rosterId), review = record.querySelector('[data-review-id]');
       record.open = !!(old && old.open);
       selectRosterMember(record, old && old.person);
-      // A save refreshes the counts but must not discard another open review.
+      // A save refreshes the counts but must not discard another review draft.
       // Retain its draft only while the displayed registration revision agrees.
       if (review && old && old.values && old.revision === review.dataset.reviewRevision) {
         review.elements.status.value = old.values.status || '';
         review.elements.note.value = old.values.note || '';
-        review.elements.note.required = ['returned', 'rejected'].includes(review.elements.status.value);
+        review.elements.note.required = review.elements.status.value === 'returned';
         review.querySelector('[data-review-required]').hidden = !review.elements.note.required;
       }
     });
@@ -387,6 +379,11 @@
     }
   }
   function leaveForm() { return !mineDirty || window.confirm('报名信息尚未提交，确认离开？已暂存的草稿可稍后恢复。'); }
+  root.addEventListener('toggle', function (event) {
+    var opened = event.target;
+    if (!opened.matches('[data-roster-id]') || !opened.open) return;
+    root.querySelectorAll('[data-roster-id][open]').forEach(function (record) { if (record !== opened) record.open = false; });
+  }, true);
   root.addEventListener('input', function (event) {
     if (event.target.closest('[data-activity-config]')) { configDirty = true; updatePreview(); persistDraft('config'); }
     if (event.target.closest('[data-save-answers],[data-start-registration]')) { mineDirty = true; updateCompletion(); persistDraft('mine'); }
@@ -405,7 +402,6 @@
     if (button.hasAttribute('data-team-role')) { var member = button.dataset.teamRole === 'member'; if ($('[data-team-create]')) $('[data-team-create]').hidden = member; $('[data-team-join]').hidden = !member; root.querySelectorAll('[data-team-role]').forEach(function (item) { item.setAttribute('aria-pressed', String(item === button)); }); return; }
     if (button.hasAttribute('data-copy-username')) return work(async function () { await navigator.clipboard.writeText(state.identity.username); }, '用户名已复制。');
     if (button.hasAttribute('data-activity-template')) return applyTemplate(button.dataset.activityTemplate);
-    if (button.hasAttribute('data-focus-missing')) { var field = root.querySelector('[name="' + button.dataset.focusMissing + '"]'); if (field) field.focus(); return; }
     if (button.hasAttribute('data-activity-tab')) { event.preventDefault(); if (!leaveForm()) return; mineDirty = false; editingAnswers = false; renderMine(); offerDraft('mine'); history.replaceState(null, '', button.href); work(showTab); return; }
     if (button.hasAttribute('data-config-goto')) { var targetStep = Number(button.dataset.configGoto); if (targetStep > configStep) for (var step = configStep; step < targetStep; step++) if (!validateStep(step)) return; showStep(targetStep); return; }
     if (button.hasAttribute('data-config-next')) { var next = configStep + 1; if (validateStep(configStep)) showStep(next); return; }

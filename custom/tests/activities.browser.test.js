@@ -47,7 +47,7 @@ async function fixture(mode = 'detail', tab = 'mine', manager = true, configure 
       if (body.action === 'submit') { data.mine.status = 'pending'; data.mine.revision++; }
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: { id: 1 } }) });
     }
-    if (url.pathname === '/api/v2/activities') { const items = [{...data.activity}, {...data.activity,id:2,title:'个人交流会',mode:'individual',status:'closed'}].filter(a => (url.searchParams.get('scope') !== 'mine' || a.my_status || a.invitation_count) && (!url.searchParams.get('search') || a.title.includes(url.searchParams.get('search'))) && (url.searchParams.get('scope') !== 'open' || a.status === 'published')); return route.fulfill({json:{data:{items,total:items.length,page:1,server_now:Date.now()}}}); }
+    if (url.pathname === '/api/v2/activities') { const items = [{...data.activity}, {...data.activity,id:2,title:'个人交流会',mode:'individual',status:'closed'}].filter(a => (url.searchParams.get('scope') !== 'mine' || a.my_status || a.invitation_count) && (!url.searchParams.get('search') || a.title.includes(url.searchParams.get('search'))) && (url.searchParams.get('scope') !== 'open' || a.status === 'published')); return route.fulfill({json:{data:{items,total:items.length,page:1,can_manage:data.can_manage,server_now:Date.now()}}}); }
     if (url.pathname.endsWith('/registrations')) {
       const summary = {}; for (const row of roster) summary[row.status] = (summary[row.status] || 0) + 1;
       const items = roster.filter(row => (!url.searchParams.get('status') || row.status === url.searchParams.get('status')) && (!url.searchParams.get('search') || JSON.stringify(row).includes(url.searchParams.get('search'))));
@@ -90,7 +90,7 @@ test('create form supports both registration modes, ordered fields and 24-hour h
   } finally { await f.context.close(); }
 });
 test('team captain creates, saves, invites and sees stale-version errors without losing input', async () => {
-  const f = await fixture();
+  const f = await fixture('detail', 'mine', false);
   try {
     await f.page.locator('[data-start-registration] [name="team_name"]').fill('测试队');
     await f.page.locator('[data-start-registration] button').click();
@@ -162,7 +162,7 @@ test('individuals fill and submit once, then see a receipt and explicitly edit t
 });
 
 test('team readiness blocks submission, refresh preserves edits, and the captain submits visible answers atomically', async () => {
-  const f = await fixture('detail', 'mine', true, data => {
+  const f = await fixture('detail', 'mine', false, data => {
     data.mine = {id: 4, leader_id: 1, team_name: '西工大测试队', status: 'draft', revision: 3, members: [{...data.identity, ready: false, answers: {}}, {user_id: 2, username: 'member', ready: false}], invitations: []};
   });
   try {
@@ -343,8 +343,12 @@ test('roster member selection, validation and filters preserve review drafts and
     assert.equal(f.writes.length, 0, 'return without explanation is blocked');
     await first.locator('[name="note"]').fill('需要补全联系方式');
     await second.locator('summary').click();
-    await second.locator('[value="rejected"]').check();
+    assert.equal(await first.getAttribute('open'), null, 'opening another person closes the current details');
+    assert.equal(await f.page.locator('[data-roster-id][open]').count(), 1);
+    await second.locator('[value="returned"]').check();
     await second.locator('[name="note"]').fill('尚未保存的说明');
+    await first.locator('summary').focus(); await f.page.keyboard.press('Enter');
+    assert.equal(await second.getAttribute('open'), null, 'keyboard opening is exclusive too');
     f.reject(); await first.locator('button[type="submit"]:not([name="next"])').click();
     await f.page.getByText('信息已被更新，请刷新页面后重试。').waitFor();
     assert.equal(await first.locator('[name="note"]').inputValue(), '需要补全联系方式');
@@ -354,7 +358,9 @@ test('roster member selection, validation and filters preserve review drafts and
     assert.equal(await first.locator('summary').evaluate(el => el === document.activeElement), true);
     assert.ok(await first.locator('[data-roster-person="2"]').isVisible());
     assert.equal(await second.locator('[name="note"]').inputValue(), '尚未保存的说明');
-    assert.ok(await second.locator('[value="rejected"]').isChecked());
+    assert.ok(await second.locator('[value="returned"]').isChecked());
+    assert.equal(await f.page.locator('[data-roster-id][open]').count(), 1);
+    assert.equal(await f.page.locator('[data-roster-status="draft"], [data-roster-status="rejected"], [name="status"][value="rejected"]').count(), 0);
     await f.page.locator('[data-roster-status="returned"]').click();
     await f.page.waitForFunction(() => document.querySelectorAll('[data-roster-id]').length === 1);
     assert.match(await f.page.locator('[data-roster-export]').getAttribute('href'), /status=returned/);
@@ -389,8 +395,7 @@ test('personal draft recovery survives reload, stays account-scoped and never su
   const f = await fixture('detail', 'mine', false, data => { data.activity.mode = 'individual'; });
   f.page.on('dialog', dialog => dialog.accept());
   try {
-    await f.page.locator('[data-focus-missing="f_phone"]').click();
-    assert.ok(await f.page.locator('[name="f_phone"]').evaluate(el => el === document.activeElement));
+    assert.equal(await f.page.locator('[data-focus-missing]').count(), 0);
     await f.page.locator('[data-start-registration] [name="f_phone"]').fill('13800138000');
     assert.match(await f.page.locator('[data-form-completion]').innerText(), /必填信息已完整/);
     await f.page.reload();
@@ -485,7 +490,8 @@ test('activity list includes invitations and routes participants straight to the
 });
 
 test('copy and withdrawal actions keep visible borders in both themes', async () => {
-  const f = await fixture('detail', 'settings', true, data => {
+  const f = await fixture('detail', 'settings', true);
+  const participant = await fixture('detail', 'mine', false, data => {
     data.activity.mode = 'individual';
     data.mine = {id: 4, leader_id: 1, team_name: '', status: 'approved', revision: 3, members: [{...data.identity, ready: true, answers: {f_phone:'123'}}], invitations: []};
   });
@@ -496,12 +502,62 @@ test('copy and withdrawal actions keep visible borders in both themes', async ()
       const copy = f.page.locator('[data-copy-activity]');
       const copyStyle = await copy.evaluate(el => {const s=getComputedStyle(el);return {width:s.borderTopWidth,style:s.borderTopStyle,color:s.borderTopColor};});
       assert.equal(copyStyle.style, 'solid'); assert.ok(parseFloat(copyStyle.width) >= 1); assert.notEqual(copyStyle.color, 'rgba(0, 0, 0, 0)');
-      await f.page.locator('nav [data-activity-tab="mine"]').click();
-      const withdraw = f.page.locator('[data-withdraw-registration]');
+      assert.ok(await f.page.locator('.activity-config-actions').evaluate(el => getComputedStyle(el).backgroundColor === getComputedStyle(document.body).backgroundColor), 'config actions blend into the page background');
+      await f.page.screenshot({path:'/tmp/nwpuoj-activities-config-clean-'+theme+'.png',fullPage:true,animations:'disabled'});
+      await participant.page.evaluate(value => document.documentElement.dataset.theme = value, theme);
+      const withdraw = participant.page.locator('[data-withdraw-registration]');
       const withdrawStyle = await withdraw.evaluate(el => {const s=getComputedStyle(el);return {width:s.borderTopWidth,style:s.borderTopStyle,color:s.borderTopColor};});
       assert.equal(withdrawStyle.style, 'solid'); assert.ok(parseFloat(withdrawStyle.width) >= 1); assert.notEqual(withdrawStyle.color, 'rgba(0, 0, 0, 0)');
-      await f.page.screenshot({path:'/tmp/nwpuoj-activities-withdraw-'+theme+'.png',fullPage:true,animations:'disabled'});
+      await participant.page.screenshot({path:'/tmp/nwpuoj-activities-withdraw-'+theme+'.png',fullPage:true,animations:'disabled'});
     }
+    assert.deepEqual([...f.failures, ...participant.failures], []);
+  } finally { await f.context.close(); await participant.context.close(); }
+});
+
+test('organizers have left-aligned management navigation and no registration entry', async () => {
+  const f = await fixture('detail', 'mine', true);
+  try {
+    await f.page.locator('[data-roster-id="4"]').waitFor();
+    assert.equal(await f.page.locator('[data-activity-tab="mine"], [data-activity-panel="mine"], [data-start-registration]').count(), 0);
+    assert.ok(await f.page.locator('[data-activity-tab="roster"]').evaluate(el => el.classList.contains('is-active')));
+    await f.page.locator('[data-activity-tab="intro"]').click();
+    assert.ok(await f.page.locator('[data-activity-entry]').isHidden());
+    const intro = await f.page.locator('[data-activity-tab="intro"]').boundingBox();
+    const roster = await f.page.locator('[data-activity-tab="roster"]').boundingBox();
+    assert.ok(roster.x - intro.x - intro.width < 40, 'management tabs stay beside the overview');
+    assert.equal(await f.page.locator('.activity-journey').count(), 0);
+    assert.deepEqual(f.failures, []);
+  } finally { await f.context.close(); }
+  const list = await fixture('list', 'intro', true, data => { data.activity.my_status = 'draft'; data.activity.invitation_count = 1; });
+  try {
+    assert.equal(await list.page.locator('[data-list-scope="mine"], a[href*="tab=mine"]').count(), 0);
+    assert.equal(await list.page.getByRole('link', {name:'管理活动'}).count(), 2);
+    assert.deepEqual(list.failures, []);
+  } finally { await list.context.close(); }
+});
+
+test('participants get one compact entry and two registration stages', async () => {
+  const f = await fixture('detail', 'intro', false, data => { data.activity.mode = 'individual'; });
+  try {
+    assert.equal(await f.page.locator('.activity-journey, [data-activity-guidance]').count(), 0);
+    const entry = f.page.getByRole('link', {name:'开始报名'});
+    assert.equal(await entry.count(), 1);
+    await f.page.screenshot({path:'/tmp/nwpuoj-activities-overview-clean.png',fullPage:true,animations:'disabled'});
+    await entry.click();
+    assert.deepEqual(await f.page.locator('.activity-progress li').allTextContents(), ['1填写报名信息','2报名结果']);
+    assert.equal(await f.page.locator('.activity-progress li[aria-current="step"]').textContent(), '1填写报名信息');
+    assert.equal(await f.page.getByRole('button', {name:/继续填写/}).count(), 0);
+    await f.page.locator('[name="f_phone"]').fill('123');
+    await f.page.getByRole('button', {name:'确认并提交报名'}).click();
+    await f.page.getByRole('heading', {name:'报名已提交，等待审核'}).waitFor();
+    assert.equal(await f.page.locator('.activity-progress li[aria-current="step"]').textContent(), '2报名结果');
+    f.data.mine.status = 'returned'; f.data.mine.review_note = '请补全联系方式';
+    await f.page.reload();
+    await f.page.getByRole('heading', {name:'请修改后重新提交'}).waitFor();
+    assert.equal(await f.page.locator('.activity-progress li[aria-current="step"]').textContent(), '1填写报名信息');
+    await f.page.setViewportSize({width:390,height:844});
+    assert.ok(await f.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await f.page.screenshot({path:'/tmp/nwpuoj-activities-mine-clean-mobile.png',fullPage:true,animations:'disabled'});
     assert.deepEqual(f.failures, []);
   } finally { await f.context.close(); }
 });

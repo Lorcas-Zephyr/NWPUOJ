@@ -4,6 +4,10 @@
 
 ### Changed
 
+- Simplified activity navigation and registration to two progress stages. Organizers see
+  management entries only; registration uses a compact action beside the activity details.
+- Merged rejection into editable returns, including historical records, counts and exports.
+  Roster details expand exclusively while preserving unsaved review drafts.
 - Streamlined the full activity flow with invitation-aware discovery, contextual next actions,
   completion checks, tab-scoped draft recovery, organizer templates and sequential review.
   Removed explanatory fine print and simplified the desktop/mobile layouts.
@@ -19,7 +23,7 @@
 ### Added
 
 - Activity system notifications now cover submissions, automatic registration success,
-  approval, return, rejection, invitations and accepted invitations. Team results notify
+  approval, return, invitations and accepted invitations. Team results notify
   all confirmed members; acceptance notifies the captain. Delivery is transactional.
 - Added activity search/status filters, roster counts, locked-rule indicators, and activity
   deletion with permission, revision and exact-title checks. Deleted activities are hidden
@@ -27,6 +31,7 @@
 
 ### Fixed
 
+- Activity configuration actions now match the surrounding page background in both themes.
 - Restored visible outlines for copying activities and withdrawing registrations.
 - Hour/minute selections remain open for consecutive choices.
 - Kept hour/minute options in a bounded, scrollable popup that opens from the entire control
