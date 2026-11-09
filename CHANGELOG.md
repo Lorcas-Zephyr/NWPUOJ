@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Fixed
+
+- Kept hour/minute options in a bounded, scrollable popup that opens from the entire control
+  and exposes minutes 58 and 59 at the bottom of the list.
+- Restored the activity-registration icon in the sidebar and quick navigation.
+
 ## 2.4.0 - 2026-11-09
 
 ### Added

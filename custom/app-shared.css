@@ -357,7 +357,7 @@
   border-top: 1px solid var(--app-line);
 }
 
-.app-datetime-time-controls label {
+.app-datetime-time-field {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -365,12 +365,76 @@
   font-size: 13px;
 }
 
-.app-datetime-time-controls label > span {
+.app-datetime-time-field > label {
   flex-shrink: 0;
 }
 
 .app-datetime-time-controls .app-select {
   font-variant-numeric: tabular-nums;
+}
+
+.app-datetime-select {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.app-datetime-select > select {
+  cursor: pointer;
+}
+
+.app-datetime-options {
+  position: absolute;
+  z-index: 1;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
+  max-height: 224px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px;
+  border: 1px solid var(--app-line-strong);
+  border-radius: var(--app-radius-small);
+  background: var(--app-surface-raised);
+  box-shadow: var(--app-shadow-menu);
+  scrollbar-gutter: stable;
+  touch-action: pan-y;
+}
+
+.app-datetime-options[hidden] {
+  display: none;
+}
+
+.app-datetime-options[data-placement="above"] {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+
+.app-datetime-option {
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--app-text);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  line-height: 24px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.app-datetime-option:hover,
+.app-datetime-option:focus-visible {
+  background: var(--app-accent-soft);
+  outline: none;
+}
+
+.app-datetime-option[aria-selected="true"] {
+  background: var(--app-accent);
+  color: var(--app-on-accent);
 }
 
 .app-datetime-calendar::before,

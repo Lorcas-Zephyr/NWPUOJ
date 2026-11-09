@@ -520,3 +520,65 @@ test('notification, problem-set, and rejudge schedules share the global 24-hour 
     assert.deepEqual(errors, []);
   } finally { await browser.close(); }
 });
+
+test('datetime pointer menus open across the full control and keep minutes 58/59 reachable', { timeout: 30000 }, async () => {
+  const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+  try {
+    for (const mobile of [false, true]) {
+      const context = await browser.newContext({ viewport: { width: mobile ? 390 : 1200, height: mobile ? 560 : 900 }, hasTouch: mobile, isMobile: mobile, timezoneId: 'Asia/Shanghai' });
+      const page = await context.newPage(), errors = [];
+      page.on('pageerror', error => errors.push(error.message));
+      await page.route('**/*', route => {
+        const url = new URL(route.request().url());
+        if (url.pathname.startsWith('/self/')) return route.fulfill({ contentType: url.pathname.endsWith('.js') ? 'application/javascript' : 'text/css', body: read(url.pathname.replace(/^\/self\/lib\//, 'static-libs/').replace(/^\/self\//, '')) });
+        return route.fulfill({ contentType: 'text/html', body: browserFixture('<main style="padding:24px;max-width:360px"><label>开始时间<input class="app-input" type="datetime-local" name="start" data-app-datetime-picker value="2026-11-15T12:00"></label></main>') });
+      });
+      try {
+        await page.goto('http://datetime-pointer.test/picker');
+        const input = page.getByLabel('开始时间', { exact: true });
+        await input.click({ position: { x: 12, y: 20 } });
+        const calendar = page.locator('.app-datetime-calendar.open');
+        const minute = calendar.getByRole('combobox', { name: '分钟（0–59）', exact: true });
+        const clickMinute = async position => {
+          if (mobile) await minute.tap({ position }); else await minute.click({ position });
+        };
+        await clickMinute({ x: 12, y: 20 });
+        const list = calendar.getByRole('listbox', { name: '分钟选项' });
+        await list.waitFor();
+        assert.equal(await minute.getAttribute('aria-expanded'), 'true');
+        // Real scrolling and pointer clicks catch native-popup clipping that
+        // selectOption() and counting option elements cannot detect.
+        await list.hover();
+        await page.mouse.wheel(0, 5000);
+        await page.waitForFunction(() => { const list = document.querySelector('.app-datetime-options:not([hidden])'); return list && list.scrollTop + list.clientHeight >= list.scrollHeight - 1; });
+        const bounds = await list.boundingBox();
+        assert.ok(bounds.y >= 0 && bounds.y + bounds.height <= (mobile ? 560 : 900), 'options stay inside viewport');
+        assert.ok(bounds.height <= 224, 'long list has a bounded height');
+        for (const value of ['58', '59']) {
+          const option = await list.getByRole('option', { name: value, exact: true }).boundingBox();
+          assert.ok(option.y >= bounds.y && option.y + option.height <= bounds.y + bounds.height, value + ' is fully visible at the bottom');
+        }
+        if (mobile) assert.equal(await list.getAttribute('data-placement'), 'above');
+        await list.getByRole('option', { name: '58', exact: true }).click();
+        assert.equal(await page.locator('[name="start"]').inputValue(), '2026-11-15T12:58');
+        const box = await minute.boundingBox();
+        await clickMinute({ x: box.width / 2, y: 20 });
+        await list.getByRole('option', { name: '59', exact: true }).click();
+        assert.equal(await page.locator('[name="start"]').inputValue(), '2026-11-15T12:59');
+        await clickMinute({ x: box.width - 6, y: 20 });
+        assert.ok(await list.isVisible(), 'arrow area also opens the same list');
+        await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
+        await page.screenshot({ path: '/tmp/nwpuoj-time-options-' + (mobile ? 'mobile' : 'desktop') + '.png', fullPage: true, animations: 'disabled' });
+        await minute.press('Home');
+        await page.keyboard.press('Enter');
+        assert.equal(await page.locator('[name="start"]').inputValue(), '2026-11-15T12:00');
+        await minute.press('Escape');
+        assert.equal(await calendar.count(), 0);
+        // Reopen from the middle of an already-focused date input.
+        await input.click({ position: { x: 100, y: 20 } });
+        assert.ok(await calendar.isVisible());
+        assert.deepEqual(errors, []);
+      } finally { await context.close(); }
+    }
+  } finally { await browser.close(); }
+});

@@ -13,6 +13,7 @@ const isAdminActive = appActive.startsWith('admin');
 const isImageHostActive = appPath.startsWith('/image-host');
 const appCanUseImageHost = !!(user && ((typeof appHasCapability === 'function' && appHasCapability('problem:edit')) || (typeof baseMember !== 'undefined' && baseMember)));
 const appNavIconMarkup = {
+  'calendar-days': '<path d="M8 2v4"></path><path d="M16 2v4"></path><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M3 10h18"></path><path d="M8 14h.01"></path><path d="M12 14h.01"></path><path d="M16 14h.01"></path><path d="M8 18h.01"></path><path d="M12 18h.01"></path><path d="M16 18h.01"></path>',
   house: '<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"></path><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>',
   'list-tree': '<path d="M8 5h13"></path><path d="M13 12h8"></path><path d="M13 19h8"></path><path d="M3 10a2 2 0 0 0 2 2h3"></path><path d="M3 5v12a2 2 0 0 0 2 2h3"></path>',
   'list-checks': '<path d="m3 7 2 2 4-4"></path><path d="M13 6h8"></path><path d="m3 17 2 2 4-4"></path><path d="M13 18h8"></path>',
@@ -93,7 +94,7 @@ if (syzoj.userTagsEnabled !== false && syzoj.userTags) {
   <link rel="stylesheet" href="<%- selfLib('syntect-tomorrow.css') %>?20220512">
   <link rel="stylesheet" href="/self/lib/flatpickr-4.6.13/flatpickr.min.css">
   <link rel="stylesheet" href="/self/app-shell.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20261016-legal-1">
-  <link rel="stylesheet" href="/self/app-shared.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20261104-markdown-quote-2">
+  <link rel="stylesheet" href="/self/app-shared.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20261109-time-options-1">
   <link rel="stylesheet" href="/self/app-features.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20261030-rank-statistics-1">
   <link rel="stylesheet" href="/self/username_tiers.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20260731-3">
   <!-- Load before Monaco installs its AMD loader on submission pages. -->

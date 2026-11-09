@@ -550,31 +550,131 @@
   }
 
   function setupDateTimePickers() {
+    var timeSelectSequence = 0;
     function syncTimeSelects(instance) {
       var hour = instance.calendarContainer.querySelector('[data-datetime-hour]');
       var minute = instance.calendarContainer.querySelector('[data-datetime-minute]');
       if (hour) hour.value = instance.hourElement.value;
       if (minute) minute.value = instance.minuteElement.value;
+      [hour, minute].forEach(function (select) { if (select && select.appTimeChoices) select.appTimeChoices.sync(); });
     }
     function setupTimeSelects(instance) {
       var controls = document.createElement('div');
       controls.className = 'app-datetime-time-controls';
+      var selects = [];
+      function closeTimeChoices() {
+        selects.forEach(function (select) { select.appTimeChoices.close(); });
+      }
       function timeSelect(labelText, count, attribute) {
+        var field = document.createElement('div');
+        field.className = 'app-datetime-time-field';
         var label = document.createElement('label');
-        var text = document.createElement('span');
-        text.textContent = labelText;
+        label.textContent = labelText;
+        var wrapper = document.createElement('div');
+        wrapper.className = 'app-datetime-select';
         var select = document.createElement('select');
         select.className = 'app-select';
+        select.id = 'app-datetime-time-' + (++timeSelectSequence);
+        label.htmlFor = select.id;
         select.setAttribute(attribute, '');
         select.setAttribute('aria-label', labelText + '（0–' + (count - 1) + '）');
+        select.setAttribute('aria-expanded', 'false');
+        var menu = document.createElement('div');
+        menu.className = 'app-datetime-options';
+        menu.id = select.id + '-options';
+        menu.hidden = true;
+        menu.setAttribute('role', 'listbox');
+        menu.setAttribute('aria-label', labelText + '选项');
+        select.setAttribute('aria-controls', menu.id);
+        var choices = [];
+        function close() {
+          menu.hidden = true;
+          select.setAttribute('aria-expanded', 'false');
+        }
+        function sync() {
+          choices.forEach(function (choice) { choice.setAttribute('aria-selected', String(choice.dataset.value === select.value)); });
+        }
+        function choose(value) {
+          close();
+          select.focus({ preventScroll: true });
+          select.value = value;
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+        }
         for (var value = 0; value < count; value++) {
           var option = document.createElement('option');
           option.value = option.textContent = ('0' + value).slice(-2);
           select.appendChild(option);
+          var choice = document.createElement('button');
+          choice.type = 'button';
+          choice.className = 'app-datetime-option';
+          choice.textContent = choice.dataset.value = option.value;
+          choice.tabIndex = -1;
+          choice.setAttribute('role', 'option');
+          choice.addEventListener('click', function (event) { choose(event.currentTarget.dataset.value); });
+          choices.push(choice);
+          menu.appendChild(choice);
         }
-        label.appendChild(text);
-        label.appendChild(select);
-        controls.appendChild(label);
+        function open() {
+          closeTimeChoices();
+          select.focus({ preventScroll: true });
+          var rect = select.getBoundingClientRect();
+          var viewport = window.visualViewport;
+          var top = viewport ? viewport.offsetTop : 0;
+          var bottom = top + (viewport ? viewport.height : window.innerHeight);
+          var below = bottom - rect.bottom - 12;
+          var above = rect.top - top - 12;
+          var upward = below < Math.min(224, menu.scrollHeight || 224) && above > below;
+          menu.dataset.placement = upward ? 'above' : 'below';
+          menu.style.maxHeight = Math.min(224, Math.max(40, upward ? above : below)) + 'px';
+          menu.hidden = false;
+          select.setAttribute('aria-expanded', 'true');
+          sync();
+          // Scroll only the bounded options pane, never the page or calendar.
+          menu.scrollTop = choices[select.selectedIndex].offsetTop - (menu.clientHeight - choices[select.selectedIndex].offsetHeight) / 2;
+        }
+        // A native popup cannot be sized or positioned within the viewport.
+        // Keep select semantics/keyboard value changes, but own the popup.
+        ['pointerdown', 'mousedown'].forEach(function (type) {
+          select.addEventListener(type, function (event) { if (event.button === 0) event.preventDefault(); });
+        });
+        select.addEventListener('click', function (event) {
+          event.preventDefault();
+          if (menu.hidden) open(); else close();
+        });
+        function keyboard(event) {
+          event.stopPropagation();
+          var index = choices.indexOf(document.activeElement);
+          if (index < 0) index = select.selectedIndex;
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            if (!menu.hidden) { close(); select.focus({ preventScroll: true }); }
+            else { instance.altInput.focus(); instance.close(); }
+          } else if (event.key === 'Tab') {
+            event.preventDefault();
+            closeTimeChoices();
+            if (event.shiftKey ? select === hour : select === minute) { instance.altInput.focus(); instance.close(); }
+            else (event.shiftKey ? hour : minute).focus();
+          } else if (event.key === 'Enter' || event.key === ' ' || event.key === 'F4' || event.altKey && event.key === 'ArrowDown') {
+            event.preventDefault();
+            if (menu.hidden) open(); else choose(choices[index].dataset.value);
+          } else if (!menu.hidden && ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+            event.preventDefault();
+            index = event.key === 'Home' ? 0 : event.key === 'End' ? count - 1 : Math.max(0, Math.min(count - 1, index + (event.key === 'ArrowDown' ? 1 : -1)));
+            choices[index].focus({ preventScroll: true });
+            var choice = choices[index];
+            if (choice.offsetTop < menu.scrollTop) menu.scrollTop = choice.offsetTop;
+            else if (choice.offsetTop + choice.offsetHeight > menu.scrollTop + menu.clientHeight) menu.scrollTop = choice.offsetTop + choice.offsetHeight - menu.clientHeight;
+          }
+        }
+        select.addEventListener('keydown', keyboard);
+        menu.addEventListener('keydown', keyboard);
+        select.appTimeChoices = { close: close, sync: sync };
+        selects.push(select);
+        wrapper.appendChild(select);
+        wrapper.appendChild(menu);
+        field.appendChild(label);
+        field.appendChild(wrapper);
+        controls.appendChild(field);
         return select;
       }
       var hour = timeSelect('小时', 24, 'data-datetime-hour');
@@ -585,20 +685,11 @@
         instance.setDate(date, true);
       }
       [hour, minute].forEach(function (select) {
-        select.addEventListener('change', updateTime);
-        select.addEventListener('keydown', function (event) {
-          // Let native selects handle their own option navigation instead of
-          // Flatpickr's number-input keyboard shortcuts.
-          event.stopPropagation();
-          if (event.key === 'Escape' || event.key === 'Tab' && (event.shiftKey ? select === hour : select === minute)) {
-            event.preventDefault();
-            instance.altInput.focus();
-            instance.close();
-          } else if (event.key === 'Tab') {
-            event.preventDefault();
-            (event.shiftKey ? hour : minute).focus();
-          }
-        });
+        select.addEventListener('change', function () { closeTimeChoices(); updateTime(); });
+      });
+      instance.config.onClose.push(closeTimeChoices);
+      instance.calendarContainer.addEventListener('pointerdown', function (event) {
+        if (!event.target.closest('.app-datetime-select')) closeTimeChoices();
       });
       // Keep Flatpickr's time inputs for its date calculations; show the
       // explicit hour/minute choices in the same calendar popup.
