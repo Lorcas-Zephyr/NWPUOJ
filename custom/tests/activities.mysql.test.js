@@ -96,6 +96,9 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
       await change(team, u(2), 'invite', { username: 'person3' });
       const invitations = (await service.detail(team, u(3))).invitations;
       assert.equal(invitations.length, 2, 'pending invitations do not reserve participation');
+      const invitedActivities = await service.list(u(3), 1, {scope: 'mine'});
+      assert.equal(invitedActivities.items.find(a => a.id === team).invitation_count, 2, 'my activities includes pending invitations');
+      assert.equal(invitedActivities.items.find(a => a.id === team).review_count, undefined, 'review counts are manager-only');
       await fail(service.invitation(team, invitations[0].id, u(4), { action: 'accept' }), /不存在/);
       const joined = await Promise.allSettled(invitations.map(invite => service.invitation(team, invite.id, u(3), { action: 'accept' })));
       assert.equal(joined.filter(r => r.status === 'fulfilled').length, 1, 'concurrent accepts cannot join two teams');
@@ -171,6 +174,13 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
       clock = 1003; await change(moves, u(1), 'withdraw');
       const latestWithdrawal = await service.roster(moves, admin, {export: true});
       assert.deepEqual(Array.from(latestWithdrawal.items.find(r => r.team_name === 'Older team').members, m => m.user_id), [1, 2], 'latest withdrawal wins even when its registration ID is older');
+      const queue = (await service.create(admin, config)).id;
+      clock = 1004; const firstPending = (await service.start(queue, u(1), {submit: true, answers: {f_phone: 'one'}})).id;
+      clock = 1005; const nextPending = (await service.start(queue, u(2), {submit: true, answers: {f_phone: 'two'}})).id;
+      assert.equal((await service.roster(queue, admin, {sort: 'review'})).items[0].id, firstPending, 'oldest pending submissions reviewed first');
+      assert.equal((await service.roster(queue, admin, {sort: 'latest'})).items[0].id, nextPending);
+      assert.equal((await service.roster(queue, admin, {page: 999})).page, 1, 'filter changes clamp pagination');
+      assert.equal((await service.list(admin)).items.find(a => a.id === queue).review_count, 2);
       assert.equal((await service.detail(auto, admin)).fields_locked, true);
       const removal = { title: 'Fixture', revision: (await service.detail(auto, admin)).activity.revision };
       await fail(service.remove(auto, u(1), removal), /权限/);

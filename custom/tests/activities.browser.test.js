@@ -47,7 +47,7 @@ async function fixture(mode = 'detail', tab = 'mine', manager = true, configure 
       if (body.action === 'submit') { data.mine.status = 'pending'; data.mine.revision++; }
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: { id: 1 } }) });
     }
-    if (url.pathname === '/api/v2/activities') { const items = [{...data.activity}, {...data.activity,id:2,title:'个人交流会',mode:'individual',status:'closed'}].filter(a => (!url.searchParams.get('search') || a.title.includes(url.searchParams.get('search'))) && (url.searchParams.get('scope') !== 'open' || a.status === 'published')); return route.fulfill({json:{data:{items,total:items.length,page:1,server_now:Date.now()}}}); }
+    if (url.pathname === '/api/v2/activities') { const items = [{...data.activity}, {...data.activity,id:2,title:'个人交流会',mode:'individual',status:'closed'}].filter(a => (url.searchParams.get('scope') !== 'mine' || a.my_status || a.invitation_count) && (!url.searchParams.get('search') || a.title.includes(url.searchParams.get('search'))) && (url.searchParams.get('scope') !== 'open' || a.status === 'published')); return route.fulfill({json:{data:{items,total:items.length,page:1,server_now:Date.now()}}}); }
     if (url.pathname.endsWith('/registrations')) {
       const summary = {}; for (const row of roster) summary[row.status] = (summary[row.status] || 0) + 1;
       const items = roster.filter(row => (!url.searchParams.get('status') || row.status === url.searchParams.get('status')) && (!url.searchParams.get('search') || JSON.stringify(row).includes(url.searchParams.get('search'))));
@@ -119,7 +119,7 @@ test('manager roster escapes text, reviews with the displayed revision and expor
     assert.equal(await f.page.locator('.activity-registration img').count(), 0);
     await f.page.locator('[data-review-id="4"] [value="returned"]').check();
     await f.page.locator('[data-review-id="4"] [name="note"]').fill('请核对联系方式');
-    await f.page.locator('[data-review-id="4"] button').click();
+    await f.page.locator('[data-review-id="4"] button[type="submit"]:not([name="next"])').click();
     await f.page.locator('[data-activity-message]').filter({ hasText: '审核结果已保存' }).waitFor();
     assert.equal(f.writes[0].body.revision, 7); assert.equal(f.writes[0].body.status, 'returned');
     await f.page.locator('[data-roster-search] [name="search"]').fill('captain');
@@ -339,16 +339,16 @@ test('roster member selection, validation and filters preserve review drafts and
     assert.match(await first.locator('[data-roster-person="2"]').innerText(), /<b>456<\/b>/);
     assert.equal(await first.locator('[data-roster-person="2"] b').count(), 0);
     await first.locator('[value="returned"]').check();
-    await first.locator('button[type="submit"]').click();
+    await first.locator('button[type="submit"]:not([name="next"])').click();
     assert.equal(f.writes.length, 0, 'return without explanation is blocked');
     await first.locator('[name="note"]').fill('需要补全联系方式');
     await second.locator('summary').click();
     await second.locator('[value="rejected"]').check();
     await second.locator('[name="note"]').fill('尚未保存的说明');
-    f.reject(); await first.locator('button[type="submit"]').click();
+    f.reject(); await first.locator('button[type="submit"]:not([name="next"])').click();
     await f.page.getByText('信息已被更新，请刷新页面后重试。').waitFor();
     assert.equal(await first.locator('[name="note"]').inputValue(), '需要补全联系方式');
-    await first.locator('button[type="submit"]').click();
+    await first.locator('button[type="submit"]:not([name="next"])').click();
     await f.page.getByText('审核结果已保存。').waitFor();
     assert.equal(await first.getAttribute('open'), '');
     assert.equal(await first.locator('summary').evaluate(el => el === document.activeElement), true);
@@ -370,7 +370,7 @@ test('roster member selection, validation and filters preserve review drafts and
     await f.page.locator('[data-roster-status="returned"]').click();
     await f.page.waitForFunction(() => document.querySelectorAll('[data-roster-id]').length === 1);
     await first.locator('[value="approved"]').check();
-    await first.locator('button[type="submit"]').click();
+    await first.locator('button[type="submit"]:not([name="next"])').click();
     await f.page.waitForFunction(() => !document.querySelector('[data-roster-id]'));
     assert.ok(await f.page.locator('[data-roster-search] [name="search"]').evaluate(el => el === document.activeElement));
     await f.page.locator('[data-roster-reset]').click();
@@ -381,6 +381,105 @@ test('roster member selection, validation and filters preserve review drafts and
     await f.page.setViewportSize({width: 390, height: 844});
     assert.ok(await f.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     await f.page.screenshot({path: '/tmp/nwpuoj-activity-roster-mobile.png', fullPage: true, animations: 'disabled'});
+    assert.deepEqual(f.failures, []);
+  } finally { await f.context.close(); }
+});
+
+test('personal draft recovery survives reload, stays account-scoped and never submits without confirmation', async () => {
+  const f = await fixture('detail', 'mine', false, data => { data.activity.mode = 'individual'; });
+  f.page.on('dialog', dialog => dialog.accept());
+  try {
+    await f.page.locator('[data-focus-missing="f_phone"]').click();
+    assert.ok(await f.page.locator('[name="f_phone"]').evaluate(el => el === document.activeElement));
+    await f.page.locator('[data-start-registration] [name="f_phone"]').fill('13800138000');
+    assert.match(await f.page.locator('[data-form-completion]').innerText(), /必填信息已完整/);
+    await f.page.reload();
+    await f.page.locator('[data-restore-draft="mine"]').waitFor();
+    assert.equal(await f.page.locator('[data-start-registration] [name="f_phone"]').inputValue(), '');
+    assert.equal(f.writes.length, 0);
+    await f.page.locator('[data-restore-draft="mine"]').click();
+    assert.equal(await f.page.locator('[data-start-registration] [name="f_phone"]').inputValue(), '13800138000');
+    await f.page.getByRole('button', {name:'确认并提交报名'}).click();
+    await f.page.getByRole('heading', {name:'报名已提交，等待审核'}).waitFor();
+    assert.equal(f.writes.length, 1);
+    assert.equal(await f.page.evaluate(() => sessionStorage.getItem('nwpuoj.activity.v1.1.1.mine')), null);
+    // A saved form changing elsewhere makes a local draft obsolete.
+    await f.page.getByRole('button', {name:'修改报名信息'}).click();
+    await f.page.locator('[data-save-answers] [name="f_phone"]').fill('local unfinished');
+    f.data.mine.members[0].answers.f_phone = 'new server answer';
+    await f.page.reload();
+    await f.page.getByRole('heading', {name:'报名已提交，等待审核'}).waitFor();
+    assert.ok(await f.page.locator('[data-draft-notice="mine"]').isHidden());
+    await f.page.getByRole('button', {name:'修改报名信息'}).click();
+    assert.equal(await f.page.locator('[data-save-answers] [name="f_phone"]').inputValue(), 'new server answer');
+    await f.page.locator('[data-save-answers] [name="f_phone"]').fill('private draft');
+    f.data.user_id = 9; f.data.mine = null; f.data.identity.user_id = 9;
+    await f.page.reload();
+    await f.page.locator('[data-start-registration]').waitFor();
+    assert.ok(await f.page.locator('[data-draft-notice="mine"]').isHidden());
+    assert.deepEqual(f.failures, []);
+  } finally { await f.context.close(); }
+});
+
+test('organizer templates keep content, recover configuration and flag publication issues only at the final step', async () => {
+  const f = await fixture('new'); f.page.on('dialog', dialog => dialog.accept());
+  try {
+    await f.page.locator('[name="title"]').fill('校赛');
+    await f.page.locator('[data-activity-template="team"]').click();
+    assert.equal(await f.page.locator('[name="title"]').inputValue(), '校赛');
+    assert.equal(await f.page.locator('[data-activity-template="team"]').getAttribute('aria-pressed'), 'true');
+    assert.equal(await f.page.locator('[data-field-index]').count(), 2);
+    await f.page.reload();
+    await f.page.locator('[data-restore-draft="config"]').click();
+    assert.equal(await f.page.locator('[name="title"]').inputValue(), '校赛');
+    await f.page.locator('[data-config-next]').click();
+    assert.ok(await f.page.getByRole('radio', {name:'组队报名'}).isChecked());
+    await f.page.locator('[data-config-next]').click();
+    assert.equal(await f.page.locator('[data-fields-preview] .app-field').count(), 2);
+    await f.page.locator('[data-config-next]').click();
+    assert.match(await f.page.locator('[data-publish-checks]').innerText(), /未填写活动介绍/);
+    await f.page.locator('[data-config-save]').click();
+    await f.page.waitForURL('**/activities/1');
+    assert.equal(f.writes.length, 1);
+    assert.equal(f.writes[0].body.fields.length, 2);
+    assert.equal(await f.page.evaluate(() => sessionStorage.getItem('nwpuoj.activity.v1.1.new.config')), null);
+    assert.deepEqual(f.failures, []);
+  } finally { await f.context.close(); }
+});
+
+test('continuous review opens the next pending registration and never selects an outcome automatically', async () => {
+  const f = await fixture('detail', 'roster');
+  try {
+    await f.page.locator('[data-start-review]').click();
+    await f.page.waitForFunction(() => document.querySelector('[data-roster-id="4"]').open);
+    const row = f.page.locator('[data-roster-id="4"]');
+    assert.equal(await row.locator('[name="status"]:checked').count(), 0);
+    await row.locator('[value="approved"]').check();
+    await row.getByRole('button', {name:'保存并审核下一份 →'}).click();
+    await f.page.waitForFunction(() => !document.querySelector('[data-roster-id="4"]') && document.querySelector('[data-roster-id="5"]').open);
+    assert.equal(await f.page.locator('[data-roster-id="5"] [name="status"]:checked').count(), 0);
+    assert.equal(f.writes.length, 1);
+    assert.equal(f.writes[0].body.revision, 7);
+    assert.equal(f.writes[0].body.status, 'approved');
+    await f.page.locator('[data-roster-id="5"] [value="returned"]').check();
+    assert.ok(await f.page.locator('[data-review-required]').isVisible());
+    await f.page.locator('[data-roster-id="5"] [name="note"]').fill('请核对联系方式');
+    await f.page.getByRole('button', {name:'保存并审核下一份 →'}).click();
+    await f.page.waitForFunction(() => !document.querySelector('[data-roster-id]'));
+    assert.equal(f.writes.length, 2);
+    assert.deepEqual(f.failures, []);
+  } finally { await f.context.close(); }
+});
+
+test('activity list includes invitations and routes participants straight to their next action', async () => {
+  const f = await fixture('list', 'mine', false, data => { data.activity.invitation_count = 1; });
+  try {
+    await f.page.getByRole('button', {name:'我的报名 / 邀请', exact:true}).click();
+    await f.page.getByRole('link', {name:'处理邀请'}).first().waitFor();
+    assert.match(await f.page.getByRole('link', {name:'处理邀请'}).first().getAttribute('href'), /tab=mine/);
+    assert.equal(await f.page.locator('[data-activity-template]').count(), 0);
+    await f.page.setViewportSize({width:390,height:844});
+    assert.ok(await f.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     assert.deepEqual(f.failures, []);
   } finally { await f.context.close(); }
 });

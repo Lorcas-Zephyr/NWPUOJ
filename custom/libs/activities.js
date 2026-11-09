@@ -164,13 +164,22 @@ function createService({ connection, authorize, audit = async () => {}, now = Da
     else if (scope === 'upcoming') { clauses.push("a.status='published' AND a.opens_at>?"); params.push(time); }
     else if (scope === 'ended') { clauses.push("(a.status='closed' OR (a.status='published' AND a.closes_at<=?))"); params.push(time); }
     else if (scope === 'draft' && managed) clauses.push("a.status='draft'");
-    else if (scope === 'mine') { clauses.push('EXISTS(SELECT 1 FROM activity_member m WHERE m.activity_id=a.id AND m.user_id=?)'); params.push(user ? user.id : 0); }
+    else if (scope === 'mine') {
+      clauses.push('(EXISTS(SELECT 1 FROM activity_member m WHERE m.activity_id=a.id AND m.user_id=?) OR EXISTS(SELECT 1 FROM activity_invitation i WHERE i.activity_id=a.id AND i.user_id=?))');
+      params.push(user ? user.id : 0, user ? user.id : 0);
+    }
     else if (scope !== 'all') fail('活动筛选无效。');
     const where = clauses.length ? 'WHERE ' + clauses.join(' AND ') : '';
     const items = await connection().query(`SELECT a.id,a.title,a.location,a.mode,a.status,a.opens_at,a.closes_at,a.starts_at,a.min_members,a.max_members,
-      (SELECT r.status FROM activity_member m JOIN activity_registration r ON r.id=m.registration_id WHERE m.activity_id=a.id AND m.user_id=?) AS my_status
-      FROM activity a ${where} ORDER BY a.id DESC LIMIT 30 OFFSET ?`, [user ? user.id : 0, ...params, (page - 1) * 30]);
+      (SELECT r.status FROM activity_member m JOIN activity_registration r ON r.id=m.registration_id WHERE m.activity_id=a.id AND m.user_id=?) AS my_status,
+      (SELECT COUNT(*) FROM activity_invitation i WHERE i.activity_id=a.id AND i.user_id=?) AS invitation_count
+      ${managed ? ", (SELECT COUNT(*) FROM activity_registration r WHERE r.activity_id=a.id AND r.status='pending') AS review_count" : ''}
+      FROM activity a ${where} ORDER BY a.id DESC LIMIT 30 OFFSET ?`, [user ? user.id : 0, user ? user.id : 0, ...params, (page - 1) * 30]);
     const count = await connection().query(`SELECT COUNT(*) AS n FROM activity a ${where}`, params);
+    for (const item of items) {
+      item.invitation_count = Number(item.invitation_count);
+      if (managed) item.review_count = Number(item.review_count);
+    }
     return { items, total: Number(count[0].n), page, can_manage: managed, server_now: time };
   }
   async function detail(id, user) {
@@ -346,6 +355,7 @@ function createService({ connection, authorize, audit = async () => {}, now = Da
     const page = integer(query.page || 1, 1, 100000, '页码');
     const search = String(query.search || '').trim().slice(0, 100);
     if (query.status && !STATES.includes(query.status)) fail('报名状态无效。');
+    if (query.sort && !['latest', 'review'].includes(query.sort)) fail('报名排序无效。');
     // Project one current membership per person before searching, counting or
     // paginating. Active teams take precedence even if their ID is older than
     // a withdrawn team the person previously joined. Keep historical snapshots
@@ -377,15 +387,17 @@ function createService({ connection, authorize, audit = async () => {}, now = Da
       const totals = await db.query(`${currentRoster} SELECT status,COUNT(*) AS n FROM current_roster GROUP BY status`, [id]);
       const summary = Object.fromEntries(STATES.map(status => [status, 0]));
       for (const row of totals) summary[row.status] = Number(row.n);
+      const currentPage = Math.min(page, Math.max(1, Math.ceil(Number(counts[0].n) / 30)));
       if (query.export && Number(counts[0].n) > 10000) fail('导出最多支持 10000 份报名，请按状态或关键词筛选。');
-      const rows = await db.query(`${currentRoster} SELECT * FROM current_roster WHERE ${where} ORDER BY id DESC LIMIT ? OFFSET ?`, [...params, query.export ? 10000 : 30, query.export ? 0 : (page - 1) * 30]);
+      const order = query.sort === 'review' ? "(status='pending') DESC,CASE WHEN status='pending' THEN submitted_at END ASC,id DESC" : 'id DESC';
+      const rows = await db.query(`${currentRoster} SELECT * FROM current_roster WHERE ${where} ORDER BY ${order} LIMIT ? OFFSET ?`, [...params, query.export ? 10000 : 30, query.export ? 0 : (currentPage - 1) * 30]);
       const items = rows.map(row => {
         const snapshot = JSON.parse(row.snapshot_json);
         const item = { ...row, members: JSON.parse(row.current_member_indexes).map(index => snapshot[index - 1]) };
         delete item.snapshot_json; delete item.current_member_indexes;
         return item;
       });
-      return { activity: a, items, total: Number(counts[0].n), page, summary };
+      return { activity: a, items, total: Number(counts[0].n), page: currentPage, summary };
     });
   }
   async function review(id, registrationId, user, input, context) {

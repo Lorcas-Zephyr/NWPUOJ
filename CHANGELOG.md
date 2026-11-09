@@ -4,6 +4,9 @@
 
 ### Changed
 
+- Streamlined the full activity flow with invitation-aware discovery, contextual next actions,
+  completion checks, tab-scoped draft recovery, organizer templates and sequential review.
+  Removed explanatory fine print and simplified the desktop/mobile layouts.
 - Activity descriptions now use the shared Markdown editor. Registration management uses
   compact status filters, aligned rows, member switching and an adjacent review form.
 - Rosters, status counts, searches and CSV exports show each person's current registration

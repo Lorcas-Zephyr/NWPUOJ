@@ -1,17 +1,18 @@
 <% this.title = activityPage === 'new' ? '创建活动' : '活动报名'; this.active = 'activities'; %>
 <% include app_header %>
-<link rel="stylesheet" href="/self/activities.css?rev=20261109-roster-1">
+<link rel="stylesheet" href="/self/activities.css?rev=20261109-workflow-3">
 <div class="app-page activity-page" data-activity-page="<%= activityPage %>" data-activity-id="<%= activityId %>">
   <header class="app-page-header">
-    <div class="app-page-heading"><span class="app-kicker">ACTIVITIES</span><h1 class="app-page-title" data-activity-title><%= activityPage === 'new' ? '创建活动' : '活动报名' %></h1><p class="app-page-description" data-activity-summary><%= activityPage === 'new' ? '从报名规则到发布，逐步准备你的活动。' : '找到活动，完成报名，随时查看进度。' %></p></div>
+    <div class="app-page-heading"><h1 class="app-page-title" data-activity-title><%= activityPage === 'new' ? '创建活动' : '活动报名' %></h1><p class="app-page-description" data-activity-summary></p></div>
     <div class="app-toolbar-actions"><% if (activityPage !== 'list') { %><a class="app-button app-button-secondary" href="/activities">返回活动列表</a><% } %><% if (activityManager && activityPage === 'list') { %><a class="app-button app-button-primary" href="/activities/new"><i data-lucide="plus"></i>创建活动</a><% } %></div>
   </header>
   <p class="app-form-status activity-feedback" data-activity-message role="status" hidden></p>
   <% if (activityPage === 'list') { %>
   <form class="activity-directory-tools" data-list-search>
-    <div class="activity-filter-tabs" aria-label="筛选活动"><% [['all','全部活动'],['open','报名中'],['upcoming','即将开放'],['mine','我的报名'],['ended','已结束']].concat(activityManager ? [['draft','草稿']] : []).forEach(function (item) { %><button type="button" data-list-scope="<%= item[0] %>" aria-pressed="<%= item[0] === 'all' %>"><%= item[1] %></button><% }); %></div>
+    <div class="activity-filter-tabs" aria-label="筛选活动"><% [['all','全部活动'],['open','报名中'],['upcoming','即将开放'],['mine','我的报名 / 邀请'],['ended','已结束']].concat(activityManager ? [['draft','草稿']] : []).forEach(function (item) { %><button type="button" data-list-scope="<%= item[0] %>" aria-pressed="<%= item[0] === 'all' %>"><%= item[1] %></button><% }); %></div>
     <label class="activity-search"><span class="app-sr-only">搜索活动名称或地点</span><input class="app-input" type="search" name="search" placeholder="搜索活动名称或地点" maxlength="100"><button type="submit" class="app-button app-button-quiet">搜索</button></label>
   </form>
+  <div class="activity-list-context"><span data-list-result-count></span></div>
   <div data-activity-list aria-live="polite"><div class="activity-empty">正在加载活动…</div></div><div class="activity-pagination" data-activity-pages></div>
   <% } else { %>
   <% if (activityPage === 'detail') { %>
@@ -20,14 +21,14 @@
     <% if (activityManager) { %><a class="app-tab activity-manager-tab" href="?tab=roster" data-activity-tab="roster">报名管理</a><a class="app-tab" href="?tab=settings" data-activity-tab="settings">活动配置</a><% } %>
   </nav>
   <section data-activity-panel="intro" hidden>
-    <div class="activity-overview"><div><div class="activity-section-heading"><h2>活动介绍</h2><span class="activity-state" data-activity-phase></span></div><article class="app-markdown activity-description" data-activity-description></article></div><aside class="activity-overview-aside"><div data-activity-facts></div><div data-activity-entry></div><p class="activity-caption">时间均为北京时间 · 24 小时制</p></aside></div>
+    <div class="activity-journey" data-activity-guidance></div><div class="activity-overview"><div><div class="activity-section-heading"><h2>活动介绍</h2><span class="activity-state" data-activity-phase></span></div><article class="app-markdown activity-description" data-activity-description></article></div><aside class="activity-overview-aside"><div data-activity-facts></div><div data-activity-entry></div></aside></div>
   </section>
-  <section data-activity-panel="mine" hidden><div data-activity-mine></div></section>
+  <section data-activity-panel="mine" hidden><div class="activity-draft-notice" data-draft-notice="mine" role="status" hidden></div><div data-activity-mine></div></section>
   <% if (activityManager) { %>
   <section data-activity-panel="roster" hidden>
-    <div class="activity-section-heading activity-roster-heading"><div><h2>报名管理</h2><p class="app-help">仅显示每位报名人的最新状态，展开查看资料并审核。</p></div><a class="app-button app-button-secondary" data-roster-export href="/api/v2/activities/<%= activityId %>/registrations/export">导出 CSV</a></div>
+    <div class="activity-section-heading activity-roster-heading"><div><h2>报名管理</h2></div><div class="activity-button-group"><span data-review-queue hidden></span><a class="app-button app-button-secondary" data-roster-export href="/api/v2/activities/<%= activityId %>/registrations/export">导出 CSV</a></div></div>
     <div class="activity-roster-filters" data-roster-summary aria-label="按报名状态筛选"></div>
-    <form class="activity-roster-toolbar" data-roster-search><input type="hidden" name="status" value=""><label class="activity-roster-search"><span class="app-sr-only">搜索报名</span><input class="app-input" type="search" name="search" placeholder="搜索用户名、姓名、学号、队名或答案" maxlength="100"></label><button class="app-button app-button-secondary" type="submit">查询</button><button class="app-button app-button-quiet" type="button" data-roster-reset hidden>清除筛选</button><span class="activity-roster-result-count" data-roster-result-count role="status"></span></form>
+    <form class="activity-roster-toolbar" data-roster-search><input type="hidden" name="status" value=""><label class="activity-roster-search"><span class="app-sr-only">搜索报名</span><input class="app-input" type="search" name="search" placeholder="搜索用户名、姓名、学号、队名或答案" maxlength="100"></label><button class="app-button app-button-secondary" type="submit">查询</button><button class="app-button app-button-quiet" type="button" data-roster-reset hidden>清除筛选</button><label class="activity-roster-sort"><span class="app-sr-only">名单排序</span><select class="app-select" name="sort"><option value="review">待审核优先</option><option value="latest">最新报名优先</option></select></label><span class="activity-roster-result-count" data-roster-result-count role="status"></span></form>
     <div class="activity-roster-columns" aria-hidden="true"><span data-roster-name-label>队伍 / 报名人</span><span>成员</span><span>提交时间</span><span>状态</span><span></span></div>
     <div data-activity-roster></div><div class="activity-pagination" data-roster-pages></div>
   </section>
@@ -35,38 +36,40 @@
   <% } %>
   <% if (activityManager) { %>
   <form class="app-form activity-config" data-activity-config novalidate <%= activityPage === 'new' ? '' : 'hidden' %>>
+    <div class="activity-draft-notice" data-draft-notice="config" role="status" hidden></div>
     <div class="activity-config-nav" aria-label="活动配置步骤"><% ['基本信息','报名规则','报名表单','预览与发布'].forEach(function (label, index) { %><button type="button" data-config-goto="<%= index %>"><span><%= index + 1 %></span><%= label %></button><% }); %></div>
     <p class="activity-inline-notice" data-config-locked hidden>已有报名记录，报名方式、人数、审核规则和表单已锁定。需要调整时，可复制为新活动。</p>
     <section class="activity-config-step" data-config-step="0">
-      <div class="activity-section-heading"><div><h2>先介绍一下活动</h2><p class="app-help">名称与介绍会显示在活动页，帮助参与者了解安排。</p></div><span class="activity-caption">01 / 04</span></div>
+      <div class="activity-section-heading"><div><h2>基本信息</h2></div></div>
+      <% if (activityPage === 'new') { %><div class="activity-template-picker"><div role="group" aria-label="报名模板"><button type="button" data-activity-template="individual" aria-pressed="false"><strong>个人活动</strong></button><button type="button" data-activity-template="team" aria-pressed="false"><strong>组队竞赛</strong></button><button type="button" data-activity-template="training" aria-pressed="false"><strong>培训招新</strong></button></div></div><% } %>
       <label class="app-field"><span class="app-label">活动名称 <em>*</em></span><input class="app-input" name="title" placeholder="例如：2026 西北工业大学程序设计竞赛" maxlength="120" required></label>
       <div class="app-form-grid"><label class="app-field"><span class="app-label">活动地点</span><input class="app-input" name="location" placeholder="校区、楼宇或线上地址" maxlength="200"></label><label class="app-field"><span class="app-label">活动时间（可选）</span><input class="app-input app-datetime-input" type="datetime-local" name="starts_at" step="60" data-app-datetime-picker></label></div>
       <label class="app-field activity-description-field"><span class="app-label">活动介绍</span><textarea class="app-textarea" name="description" rows="9" maxlength="60000" placeholder="介绍活动安排、报名要求、注意事项与联系方式。支持 Markdown。"></textarea></label>
     </section>
     <section class="activity-config-step" data-config-step="1" hidden>
-      <div class="activity-section-heading"><div><h2>设置报名规则</h2><p class="app-help">选择参与方式，确定报名窗口与审核流程。</p></div><span class="activity-caption">02 / 04</span></div>
-      <div class="activity-mode-choices"><label><input type="radio" name="mode" value="individual" checked><span><strong>个人报名</strong><small>每人独立填写，一次提交完成报名</small></span></label><label><input type="radio" name="mode" value="team"><span><strong>组队报名</strong><small>队长邀请成员，确认资料后整队提交</small></span></label></div>
+      <div class="activity-section-heading"><div><h2>报名规则</h2></div></div>
+      <div class="activity-mode-choices"><label><input type="radio" name="mode" value="individual" checked><span><strong>个人报名</strong></span></label><label><input type="radio" name="mode" value="team"><span><strong>组队报名</strong></span></label></div>
       <div class="app-form-grid" data-team-setting hidden><label class="app-field"><span class="app-label">最少人数（含队长）</span><input class="app-input" type="number" name="min_members" min="2" max="20" value="2" required></label><label class="app-field"><span class="app-label">最多人数（含队长）</span><input class="app-input" type="number" name="max_members" min="2" max="20" value="3" required></label></div>
       <div class="app-form-grid"><label class="app-field"><span class="app-label">报名开始时间 <em>*</em></span><input class="app-input app-datetime-input" type="datetime-local" name="opens_at" step="60" data-app-datetime-picker required></label><label class="app-field"><span class="app-label">报名截止时间 <em>*</em></span><input class="app-input app-datetime-input" type="datetime-local" name="closes_at" step="60" data-app-datetime-picker required></label></div>
       <label class="app-field"><span class="app-label">审核方式</span><select class="app-select" name="require_review"><option value="true">提交后由活动管理者审核</option><option value="false">提交即报名成功</option></select></label>
-      <p class="activity-inline-notice">报名截止后停止提交和修改，管理者仍可审核。活动报名独立于 OJ 比赛。</p>
+
     </section>
     <section class="activity-config-step" data-config-step="2" hidden>
-      <div class="activity-section-heading"><div><h2>设计报名表</h2><p class="app-help">个人与组队成员均只填写自己的信息。</p></div><span class="activity-caption">03 / 04</span></div>
-      <div class="activity-built-in"><strong>账号资料 · 自动获取</strong><span>用户名 / 姓名 / 学号 / 学院</span><small>无需重复添加；队友只能看到用户名及确认状态。</small></div>
-      <div class="activity-field-workspace"><div><div class="activity-preset-tools"><span class="activity-caption">快速添加</span><button class="app-button app-button-quiet" type="button" data-field-preset="phone">联系方式</button><button class="app-button app-button-quiet" type="button" data-field-preset="grade">年级</button><button class="app-button app-button-quiet" type="button" data-field-preset="note">备注</button></div><div data-activity-fields></div><button class="app-button app-button-secondary" type="button" data-add-field>＋ 自定义问题</button></div><aside class="activity-form-preview"><div class="activity-section-heading"><h3>填写效果</h3><span class="activity-caption">实时预览</span></div><div data-fields-preview></div></aside></div>
+      <div class="activity-section-heading"><div><h2>报名表单</h2></div></div>
+      <div class="activity-built-in"><strong>账号资料 · 自动获取</strong><span>用户名 / 姓名 / 学号 / 学院</span></div>
+      <div class="activity-field-workspace"><div><div class="activity-preset-tools"><button class="app-button app-button-quiet" type="button" data-field-preset="phone">联系方式</button><button class="app-button app-button-quiet" type="button" data-field-preset="grade">年级</button><button class="app-button app-button-quiet" type="button" data-field-preset="note">备注</button></div><div data-activity-fields></div><button class="app-button app-button-secondary" type="button" data-add-field>＋ 自定义问题</button></div><aside class="activity-form-preview"><div class="activity-section-heading"><h3>填写效果</h3></div><div data-fields-preview></div></aside></div>
     </section>
     <section class="activity-config-step" data-config-step="3" hidden>
-      <div class="activity-section-heading"><div><h2>确认并发布</h2><p class="app-help">核对信息，选择公开报名或先保存为草稿。</p></div><span class="activity-caption">04 / 04</span></div>
-      <div data-config-preview></div>
+      <div class="activity-section-heading"><div><h2>确认并发布</h2></div></div>
+      <div data-config-preview></div><div class="activity-publish-checks" data-publish-checks></div>
       <label class="app-field"><span class="app-label">发布方式</span><select class="app-select" name="status"><option value="draft">保存草稿 · 仅管理者可见</option><option value="published">公开活动 · 按设定时间开放报名</option><option value="closed">公开活动 · 关闭报名</option></select></label>
-      <p class="activity-inline-notice" data-publish-hint></p>
+
     </section>
-    <div class="activity-config-actions"><div><% if (activityPage === 'detail') { %><button class="app-button app-button-quiet" type="button" data-copy-activity>复制为新活动</button><button class="app-button app-button-danger-outline" type="button" data-delete-activity>删除活动</button><% } %><span class="activity-caption" data-config-save-hint>完成最后一步后保存</span></div><div class="activity-button-group"><button class="app-button app-button-secondary" type="button" data-config-prev hidden>上一步</button><button class="app-button app-button-primary" type="button" data-config-next>下一步</button><button class="app-button app-button-primary" type="submit" data-config-save hidden><%= activityPage === 'new' ? '创建活动' : '保存设置' %></button></div></div>
+    <div class="activity-config-actions"><div><% if (activityPage === 'detail') { %><button class="app-button app-button-quiet" type="button" data-copy-activity>复制为新活动</button><button class="app-button app-button-danger-outline" type="button" data-delete-activity>删除活动</button><% } %><span class="activity-caption" data-config-save-hint></span></div><div class="activity-button-group"><button class="app-button app-button-secondary" type="button" data-config-prev hidden>上一步</button><button class="app-button app-button-primary" type="button" data-config-next>下一步</button><button class="app-button app-button-primary" type="submit" data-config-save hidden><%= activityPage === 'new' ? '创建活动' : '保存设置' %></button></div></div>
   </form>
   <% if (activityPage === 'detail') { %><dialog class="activity-delete-dialog" data-delete-dialog aria-labelledby="activity-delete-title"><form data-confirm-delete><h2 id="activity-delete-title">删除活动</h2><p>活动将从列表移除，链接失效，所有报名与修改立即停止。已有报名记录保留。</p><label class="app-field"><span class="app-label">输入活动名称确认：<strong data-delete-name></strong></span><input class="app-input" name="title" autocomplete="off" required></label><p class="app-form-status is-error" data-delete-error role="alert" hidden></p><div class="activity-actions"><button class="app-button app-button-secondary" type="button" data-delete-cancel>取消</button><button class="app-button app-button-danger" type="submit">确认删除</button></div></form></dialog><% } %>
   <% } %>
   <% } %>
 </div>
-<script src="/self/activities.js?rev=20261109-roster-1" defer></script>
+<script src="/self/activities.js?rev=20261109-workflow-3" defer></script>
 <% include app_footer %>
