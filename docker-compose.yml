@@ -20,7 +20,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.web
-    image: nwpuoj-web:v2.3.0
+    image: nwpuoj-web:v2.4.0
     restart: unless-stopped
     depends_on:
       judge-control: { condition: service_healthy }
@@ -346,6 +346,11 @@ services:
       - ./custom/models-built/notification.js:/app/models-built/notification.js:ro
       - ./custom/modules/notification.js:/app/modules/notification.js:ro
       - ./custom/modules/banner.js:/app/modules/banner.js:ro
+      - ./custom/libs/activities.js:/app/libs/activities.js:ro
+      - ./custom/modules/_activities.js:/app/modules/_activities.js:ro
+      - ./custom/views/activities.ejs:/app/views/activities.ejs:ro
+      - ./custom/activities.js:/app/static/self/activities.js:ro
+      - ./custom/activities.css:/app/static/self/activities.css:ro
       - ./custom/libs/class-groups.js:/app/libs/class-groups.js:ro
       - ./custom/modules/_class_groups.js:/app/modules/_class_groups.js:ro
       - ./custom/views/classes.ejs:/app/views/classes.ejs:ro

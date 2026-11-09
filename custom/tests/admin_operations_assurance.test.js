@@ -60,7 +60,7 @@ test('default help documents testdata ZIP layouts for every local problem type',
   assert.match(view, /评测数据 ZIP 格式' \? 'testdata-zip-format'/);
 });
 
-test('existing help pages gain the bulk-import section once and retain the previous revision', async () => {
+test('existing help pages gain bulk-import and activity sections once and retain the previous revision', async () => {
   const module = read('custom/modules/_help_page.js');
   const start = module.indexOf('const DEFAULT_HELP =');
   const end = module.indexOf('async function requireHelpAdmin');
@@ -96,16 +96,19 @@ test('existing help pages gain the bulk-import section once and retain the previ
   await loadMigration();
   assert.match(page.content, /^# Existing administrator help/);
   assert.match(page.content, /tag_names/);
-  assert.equal(page.revision, 5);
+  assert.equal(page.revision, 6);
+  assert.match(page.content, /id="activity-registration"/);
   assert.equal(page.updated_by, null);
-  assert.equal(history.length, 1);
+  assert.equal(history.length, 2);
   assert.equal(history[0][0], 4);
+  assert.equal(history[1][0], 5);
   assert.match(history[0][1], /^# Existing administrator help/);
 
   await loadMigration();
   assert.equal((page.content.match(/id="bulk-problem-import"/g) || []).length, 1);
-  assert.equal(page.revision, 5);
-  assert.equal(history.length, 1);
+  assert.equal((page.content.match(/id="activity-registration"/g) || []).length, 1);
+  assert.equal(page.revision, 6);
+  assert.equal(history.length, 2);
 });
 
 test('announcement and banner workspaces use v2-first writes with safe image upload', () => {

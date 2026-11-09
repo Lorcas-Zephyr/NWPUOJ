@@ -1,0 +1,45 @@
+.activity-page [hidden] { display: none !important; }
+.activity-page { max-width: 1280px; }
+.activity-page .app-page-title { overflow-wrap: anywhere; }
+.activity-list-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 24px 0; border-bottom: 1px solid var(--app-line); }
+.activity-list-row h2 { margin: 0 0 8px; font-size: 19px; }
+.activity-list-row h2 a { color: var(--app-text); text-decoration: none; }
+.activity-list-row h2 a:hover { color: var(--app-accent); }
+.activity-meta,.activity-facts { display: flex; flex-wrap: wrap; gap: 12px 24px; color: var(--app-text-muted); font-size: 14px; }
+.activity-facts { padding: 20px 0; border-bottom: 1px solid var(--app-line); }
+.activity-description { margin: 28px 0; min-height: 80px; overflow-wrap: anywhere; }
+.activity-toolbar,.activity-actions,.activity-pagination { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin: 20px 0; }
+.activity-toolbar .app-field:first-child { flex: 1; min-width: 200px; }
+.activity-field-editor { padding: 18px 0; border-bottom: 1px solid var(--app-line); }
+.activity-field-editor:first-child { padding-top: 0; }
+.activity-field-editor .activity-actions { margin-bottom: 0; }
+.activity-identity { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; padding: 20px; background: var(--app-bg); border: 1px solid var(--app-line); border-radius: 12px; margin: 16px 0 24px; }
+.activity-identity div { min-width: 0; overflow-wrap: anywhere; }
+.activity-identity dt { color: var(--app-text-muted); font-size: 13px; }
+.activity-identity dd { margin: 5px 0 0; }
+.activity-page fieldset.app-field { border: 0; padding: 0; margin: 0; min-width: 0; }
+.activity-answer-form { max-width: 800px; display: grid; gap: 20px; }
+.activity-choice { display: flex; align-items: center; gap: 8px; padding: 7px 0; }
+.activity-choice input { accent-color: var(--app-accent); }
+.activity-member,.activity-invitation { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--app-line); }
+.activity-state { display: inline-flex; align-items: center; border-radius: 6px; padding: 4px 9px; font-size: 13px; background: var(--app-bg); color: var(--app-text-muted); white-space: nowrap; }
+.activity-state-approved { color: var(--app-success, #16805d); }
+.activity-state-returned,.activity-state-rejected { color: var(--app-danger, #cc4255); }
+.activity-registration { border-bottom: 1px solid var(--app-line); padding: 20px 0; }
+.activity-registration summary { cursor: pointer; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.activity-registration summary strong { flex: 1; min-width: 180px; }
+.activity-registration summary::before { content: '›'; font-size: 22px; }
+.activity-registration[open] summary::before { transform: rotate(90deg); }
+.activity-registration .app-table { min-width: 780px; }
+.activity-registration .app-table td { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 300px; }
+.activity-review { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; padding-top: 18px; }
+.activity-review .app-field:nth-child(2) { flex: 1; min-width: 220px; }
+.activity-page .app-form-status { white-space: pre-wrap; }
+.activity-page .app-form-status.is-error { color: var(--app-danger, #cc4255); }
+@media(max-width:700px) {
+ .activity-list-row { align-items: start; flex-direction: column; gap: 12px; }
+ .activity-identity { grid-template-columns: 1fr; }
+ .activity-page .app-tabs { overflow-x: auto; flex-wrap: nowrap; }
+ .activity-page .app-tab { white-space: nowrap; }
+ .activity-review .app-field { width: 100%; }
+}

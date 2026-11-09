@@ -25,7 +25,7 @@ const runtimeAuthorization = fs.readFileSync(path.resolve(__dirname, '../modules
 test('all documented built-in roles exist', () => {
   assert.deepEqual(Object.keys(BUILT_IN_ROLES), [
     'guest', 'member', 'participant', 'problem_editor', 'problem_reviewer',
-    'contest_manager', 'problemset_manager', 'judge_operator', 'content_moderator', 'rating_manager',
+    'activity_manager', 'contest_manager', 'problemset_manager', 'judge_operator', 'content_moderator', 'rating_manager',
     'site_admin', 'owner'
   ]);
 });
@@ -100,6 +100,7 @@ test('every built-in role has an explicit allowed and denied matrix branch', () 
     participant: { allow: 'contest:submit', deny: 'contest:edit' },
     problem_editor: { allow: 'problem:edit', deny: 'problem:publish' },
     problem_reviewer: { allow: 'problem:publish', deny: 'contest:edit' },
+    activity_manager: { allow: 'activity:manage', deny: 'admin:user.manage' },
     contest_manager: { allow: 'contest:edit', deny: 'rating:publish' },
     problemset_manager: { allow: 'problemset:edit', deny: 'contest:edit' },
     judge_operator: { allow: 'judge:worker.restart', deny: 'admin:user.manage' },

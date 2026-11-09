@@ -116,6 +116,7 @@ Browser / Mobile
 | participant | 单场比赛 | 查看比赛内容、提交比赛代码、查看本人结果 |
 | problem_editor | 题目/题库 | 编辑题面、标签、版本和测试数据 |
 | problem_reviewer | 题目/题库 | 审核题目、发布版本、阻止危险变更 |
+| activity_manager | 全局 | 独立活动的创建、表单配置、报名审核与名单导出 |
 | contest_manager | 单场比赛/组织 | 建赛、报名管理、比赛监控和赛后处理 |
 | judge_operator | 全局 | 查看评测服务、重启 Worker、处理评测任务 |
 | content_moderator | 全局/社区 | 审核题解、讨论、公告和工单 |
@@ -621,3 +622,24 @@ POST   /api/v2/contests/:id/ai-runs/:runId/cancel
 运行器在比赛开始前等待，开始后为每个 AI 串行执行“阅读公开题面 → 选择一题 → 提交一次 →
 等待评测 → 非 Accepted 时根据评测结果修复并再次提交”，比赛结束时自动停止。每题最多 20 次
 尝试；提示词明确禁止读取隐藏测试数据、标准答案、题解和其他选手代码。
+
+
+### 独立活动报名
+
+活动管理使用全局 `activity:manage` 能力和 `activity_manager` 角色，兼容 `manage_activity` 权限。活动管理入口只在前台 `/activities`，不授予其他后台权限。普通账户可报名已公开且处于报名时间内的活动。
+
+```text
+GET /api/v2/activities
+POST /api/v2/activities
+GET /api/v2/activities/:id
+PATCH /api/v2/activities/:id
+POST /api/v2/activities/:id/copy
+POST /api/v2/activities/:id/registrations
+POST /api/v2/activities/:id/registration/action
+POST /api/v2/activities/:id/invitations/:invitationId
+GET /api/v2/activities/:id/registrations
+GET /api/v2/activities/:id/registrations/export
+POST /api/v2/activities/:id/registrations/:registrationId/review
+```
+
+具体状态、表单和并发约束见 [活动报名维护说明](docs/activities.md)。

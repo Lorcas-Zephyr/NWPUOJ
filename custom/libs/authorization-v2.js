@@ -8,6 +8,7 @@ const BUILT_IN_ROLES = Object.freeze({
   participant: Object.freeze(['contest:read', 'contest:submit', 'submission:own.read', 'ranking:read']),
   problem_editor: Object.freeze(['problem:read', 'problem:create', 'problem:edit', 'problem:delete', 'problem:testdata.write', 'problem:tag.assign']),
   problem_reviewer: Object.freeze(['problem:read', 'problem:edit', 'problem:delete', 'problem:publish', 'problem:archive', 'problem:testdata.write', 'problem:tag.assign', 'problem:tag.catalog.manage']),
+  activity_manager: Object.freeze(['activity:manage']),
   contest_manager: Object.freeze(['contest:read', 'contest:create', 'contest:edit', 'contest:delete', 'contest:publish', 'contest:registration.manage', 'contest:standings.rebuild', 'contest:standings.export']),
   problemset_manager: Object.freeze(['problemset:read', 'problemset:create', 'problemset:edit', 'problemset:delete', 'problemset:publish', 'problemset:archive', 'problemset:registration.manage', 'problemset:standings.export']),
   judge_operator: Object.freeze(['judge:read', 'judge:worker.restart', 'submission:rejudge']),
@@ -23,7 +24,7 @@ const BUILT_IN_ROLES = Object.freeze({
     'problemset:archive', 'problemset:registration.manage', 'problemset:standings.export',
     'judge:read', 'judge:worker.restart', 'submission:rejudge',
     'discussion:moderate', 'solution:moderate', 'announcement:manage',
-    'ticket:manage', 'rating:read'
+    'ticket:manage', 'rating:read', 'activity:manage'
   ]),
   owner: Object.freeze(['*'])
 });
@@ -32,6 +33,7 @@ const LEGACY_ROLE_MAP = Object.freeze({
   manage_problem: 'problem_editor',
   manage_problem_tag: 'problem_reviewer',
   manage_contest: 'contest_manager',
+  manage_activity: 'activity_manager',
   manage_problemset: 'problemset_manager',
   manage_solution: 'content_moderator',
   manage_ticket: 'content_moderator'

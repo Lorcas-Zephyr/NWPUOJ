@@ -2,7 +2,7 @@
 
 NWPUOJ 是面向高校程序设计教学、训练和竞赛的在线评测与社区平台。项目以 SYZOJ 作为底层 Web、数据模型和 Judge 协议框架，在其上提供现代化题库、比赛、评测、管理和社区能力。
 
-当前发行版：**v2.3.0**
+当前发行版：**v2.4.0**
 
 > 项目沿革：NWPUOJ 由 AlgoBeat Online Judge 现有代码与功能继续改版而来。自 NWPUOJ 起重新采用独立版本序列，并保留 SYZOJ 作为后台框架及相关技术标识。
 
@@ -10,6 +10,8 @@ NWPUOJ 是面向高校程序设计教学、训练和竞赛的在线评测与社�
 
 详细文档：[使用手册](docs/USER_GUIDE.md) · [部署与维护手册](docs/MAINTENANCE.md) ·
 [发布与回滚](RELEASE.md) · [v2 兼容性边界](COMPATIBILITY.md)
+
+v2.4.0 新增 [独立活动报名](docs/activities.md)，支持个人、组队、自定义表单和前台活动管理。
 
 v2.3.0 新增 [两轮通信题](docs/communication-problems.md)，支持输出转换、隔离运行和分轮诊断。
 
@@ -341,7 +343,7 @@ docker compose exec mariadb mariadb -uroot syzoj
 
 ## 版本与发布
 
-NWPUOJ 使用独立语义化版本。当前发行版为 `v2.3.0`。
+NWPUOJ 使用独立语义化版本。当前发行版为 `v2.4.0`。
 
 版本号同时保存在：
 
@@ -355,8 +357,8 @@ NWPUOJ 使用独立语义化版本。当前发行版为 `v2.3.0`。
 
 ```bash
 node custom/tests/version_consistency.test.js
-git tag -a v2.3.0 -m "NWPUOJ v2.3.0"
-git push --atomic origin main v2.3.0
+git tag -a v2.4.0 -m "NWPUOJ v2.4.0"
+git push --atomic origin main v2.4.0
 ```
 
 发布检查和回滚流程见 [RELEASE.md](RELEASE.md)，变更记录见 [CHANGELOG.md](CHANGELOG.md)。

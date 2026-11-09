@@ -1,0 +1,52 @@
+<% this.title = activityPage === 'new' ? '创建活动' : '活动报名'; this.active = 'activities'; %>
+<% include app_header %>
+<link rel="stylesheet" href="/self/activities.css?rev=20261109-1">
+<div class="app-page activity-page" data-activity-page="<%= activityPage %>" data-activity-id="<%= activityId %>">
+  <header class="app-page-header"><div class="app-page-heading"><span class="app-kicker">ACTIVITIES</span><h1 class="app-page-title" data-activity-title><%= activityPage === 'new' ? '创建活动' : '活动报名' %></h1><p class="app-page-description" data-activity-summary>校内活动、个人报名与组队报名</p></div><div class="app-toolbar-actions"><% if (activityPage !== 'list') { %><a class="app-button app-button-secondary" href="/activities">返回活动列表</a><% } %><% if (activityManager && activityPage === 'list') { %><a class="app-button app-button-primary" href="/activities/new"><i data-lucide="plus"></i>创建活动</a><% } %></div></header>
+  <p class="app-form-status" data-activity-message role="status" hidden></p>
+  <% if (activityPage === 'list') { %>
+  <div data-activity-list><p class="app-help">正在加载活动…</p></div><div class="activity-pagination" data-activity-pages></div>
+  <% } else { %>
+  <% if (activityPage === 'detail') { %>
+  <nav class="app-tabs" aria-label="活动页面">
+    <a class="app-tab" href="?tab=intro" data-activity-tab="intro">活动介绍</a><a class="app-tab" href="?tab=mine" data-activity-tab="mine">我的报名</a>
+    <% if (activityManager) { %><a class="app-tab" href="?tab=roster" data-activity-tab="roster">报名名单</a><a class="app-tab" href="?tab=fields" data-activity-tab="fields">表单设置</a><a class="app-tab" href="?tab=settings" data-activity-tab="settings">活动设置</a><% } %>
+  </nav>
+  <section data-activity-panel="intro" hidden><div class="activity-facts" data-activity-facts></div><article class="app-markdown activity-description" data-activity-description></article><a class="app-button app-button-primary" href="?tab=mine">查看我的报名</a></section>
+  <section data-activity-panel="mine" hidden><div data-activity-mine></div></section>
+  <% if (activityManager) { %>
+  <section data-activity-panel="roster" hidden>
+    <form class="activity-toolbar" data-roster-search><label class="app-field"><span class="app-label">搜索报名</span><input class="app-input" type="search" name="search" placeholder="用户名、姓名、学号或队名" maxlength="100"></label><label class="app-field"><span class="app-label">报名状态</span><select class="app-select" name="status"><option value="">全部状态</option><option value="draft">填写中</option><option value="pending">待审核</option><option value="approved">报名成功</option><option value="returned">退回修改</option><option value="rejected">已拒绝</option><option value="withdrawn">已撤回</option></select></label><button class="app-button app-button-secondary" type="submit">搜索</button><a class="app-button app-button-secondary" data-roster-export href="/api/v2/activities/<%= activityId %>/registrations/export">导出 CSV（Excel）</a></form>
+    <p class="app-help">每位成员的信息仅本人和活动管理者可见。展开报名可查看表单及审核；修改已通过的信息将重新进入审核。</p>
+    <div data-activity-roster></div><div class="activity-pagination" data-roster-pages></div>
+  </section>
+  <% } %>
+  <% } %>
+  <% if (activityManager) { %>
+  <form class="app-form" data-activity-config>
+    <section data-activity-panel="settings" <%= activityPage === 'new' ? '' : 'hidden' %>>
+      <section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">DETAILS</span><h2>活动信息</h2><p>活动报名独立于 OJ 比赛。报名不会自动创建比赛账号。</p></div><div class="app-settings-fields">
+        <label class="app-field"><span class="app-label">活动名称</span><input class="app-input" name="title" maxlength="120" required></label>
+        <label class="app-field"><span class="app-label">活动介绍（Markdown）</span><textarea class="app-textarea" name="description" rows="10" maxlength="60000" placeholder="填写活动安排、参赛要求和联系方式"></textarea></label>
+        <label class="app-field"><span class="app-label">活动地点</span><input class="app-input" name="location" maxlength="200"></label>
+      </div></section>
+      <section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">REGISTRATION</span><h2>报名规则</h2><p>组队时每位队员填写同一份表单，队长统一提交。已有报名记录后，方式、人数和审核规则不可修改。</p></div><div class="app-settings-fields"><div class="app-form-grid">
+        <label class="app-field"><span class="app-label">报名方式</span><select class="app-select" name="mode"><option value="individual">个人报名</option><option value="team">组队报名</option></select></label>
+        <label class="app-field"><span class="app-label">审核方式</span><select class="app-select" name="require_review"><option value="true">管理员审核</option><option value="false">提交即报名成功</option></select></label>
+        <label class="app-field" data-team-setting hidden><span class="app-label">最少人数（含队长）</span><input class="app-input" type="number" name="min_members" min="2" max="20" value="2"></label><label class="app-field" data-team-setting hidden><span class="app-label">最多人数（含队长）</span><input class="app-input" type="number" name="max_members" min="2" max="20" value="3"></label>
+        <label class="app-field"><span class="app-label">报名开始时间</span><input class="app-input app-datetime-input" type="datetime-local" name="opens_at" step="60" data-app-datetime-picker required></label>
+        <label class="app-field"><span class="app-label">报名截止时间</span><input class="app-input app-datetime-input" type="datetime-local" name="closes_at" step="60" data-app-datetime-picker required></label>
+        <label class="app-field"><span class="app-label">活动时间（可选）</span><input class="app-input app-datetime-input" type="datetime-local" name="starts_at" step="60" data-app-datetime-picker></label>
+        <label class="app-field"><span class="app-label">发布状态</span><select class="app-select" name="status"><option value="draft">草稿，仅管理者可见</option><option value="published">公开，按时间开放报名</option><option value="closed">公开，关闭报名</option></select></label>
+      </div></div></section>
+    </section>
+    <section data-activity-panel="fields" <%= activityPage === 'new' ? '' : 'hidden' %>>
+      <section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">FORM</span><h2>报名表单</h2><p>用户名、姓名、学号、学院自动读取本人账户资料，无需重复添加。组队时每位成员分别填写下列字段。已有报名记录后表单结构不可修改。</p></div><div class="app-settings-fields"><div data-activity-fields></div><button class="app-button app-button-secondary" type="button" data-add-field><i data-lucide="plus"></i>添加字段</button></div></section>
+    </section>
+    <div class="app-settings-submit" data-config-actions <%= activityPage === 'new' ? '' : 'hidden' %>><% if (activityPage === 'detail') { %><button class="app-button app-button-secondary" type="button" data-copy-activity>复制为新活动</button><% } %><button class="app-button app-button-primary" type="submit"><%= activityPage === 'new' ? '创建活动' : '保存设置' %></button></div>
+  </form>
+  <% } %>
+  <% } %>
+</div>
+<script src="/self/activities.js?rev=20261109-1" defer></script>
+<% include app_footer %>

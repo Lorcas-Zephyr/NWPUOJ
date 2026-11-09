@@ -34,6 +34,7 @@ function hasAdminRole(user) {
     user.privileges.includes('manage_problem') ||
     user.privileges.includes('manage_problem_tag') ||
     user.privileges.includes('manage_contest') ||
+    user.privileges.includes('manage_activity') ||
     user.privileges.includes('manage_user')
   )) return true;
   return false;

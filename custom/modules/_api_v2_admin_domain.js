@@ -45,7 +45,7 @@ const bannerUpload = multer({
   }
 }).single('image');
 const LEGACY_MANAGED_PRIVILEGES = Object.freeze([
-  'manage_problem', 'manage_problem_tag', 'manage_contest', 'manage_problemset', 'manage_user'
+  'manage_problem', 'manage_problem_tag', 'manage_contest', 'manage_problemset', 'manage_activity', 'manage_user'
 ]);
 const LEGACY_MANAGED_PRIVILEGE_SET = new Set(LEGACY_MANAGED_PRIVILEGES);
 const LEGACY_CONFIG_ITEMS = Object.freeze({

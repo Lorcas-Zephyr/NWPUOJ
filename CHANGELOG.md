@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 2.4.0 - 2026-11-09
+
+### Added
+
+- Added independent activity registration with personal and team modes, configurable forms,
+  confirmed invitations, review, withdrawal, roster search, CSV export and activity copying.
+- Added a global activity-management permission; all activity settings and rosters live on
+  the public-facing activity pages. Individual identity and answers remain private.
+- Added transaction and concurrency checks for duplicate participation, stale reviews and
+  deadline enforcement; updated the help page and synchronized the displayed release version.
+
+### Upgrade
+
+- This release updates Web only. Rebuild and recreate Web; judge images remain at v2.3.0.
+- Activity tables are created additively. See [activity registration](docs/activities.md).
+
 ### Fixed
 
 - Bulk problem ZIP imports now match existing tags by the names in `problem.json` `tag_names`.

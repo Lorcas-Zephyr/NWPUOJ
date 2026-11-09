@@ -1,6 +1,6 @@
 {
   "title": "NWPU Online Judge",
-  "nwpuoj_version": "2.3.0",
+  "nwpuoj_version": "2.4.0",
   "username_regex": "^[a-zA-Z0-9\\-_]{1,20}$",
   "gravatar_url": "/self/logo.png",
   "links": [
