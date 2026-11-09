@@ -27,12 +27,13 @@ async function fixture(mode = 'detail', tab = 'mine', manager = true, configure 
   const page = await context.newPage(), failures = [], writes = [];
   const data = payload(); data.can_manage = manager; configure(data);
   const roster = [{ id: 4, leader_id: 1, team_name: '<img src=x onerror=alert(1)>', status: 'pending', revision: 7, submitted_at: Date.now(), review_note: '', members: [{ ...data.identity, answers: { f_phone: '123' } }, {user_id: 2, username: 'member', real_name: '队员', student_id: '2026000002', college: '软件学院', answers: {f_phone: '<b>456</b>'}}] }, {id: 5, leader_id: 3, team_name: '追光队', status: 'pending', revision: 2, submitted_at: Date.now(), review_note: '', members: [{user_id: 3, username: 'third', real_name: '张同学', student_id: '2026000003', college: '计算机学院', answers: {f_phone: '789'}}]}];
-  const document = html(mode, manager); let rejectNext = false;
+  const document = html(mode, manager); let rejectNext = false, detailDocument;
   page.on('pageerror', error => failures.push(error.message));
   await context.route('**/*', async route => {
     const req = route.request(), url = new URL(req.url());
     if (url.pathname.startsWith('/self/')) { const file = url.pathname.startsWith('/self/lib/') ? 'static-libs/' + url.pathname.slice(10) : url.pathname.split('/').pop(); return route.fulfill({ contentType: file.endsWith('.css') ? 'text/css' : 'application/javascript', body: read(file) }); }
     if (url.pathname.startsWith('/fixture')) return route.fulfill({ contentType: 'text/html', body: document });
+    if (url.pathname === '/activities/1') { detailDocument = detailDocument || (mode === 'detail' ? document : html('detail', manager)); return route.fulfill({ contentType: 'text/html', body: detailDocument }); }
     if (!url.pathname.startsWith('/api/v2/activities')) return route.fulfill({ status: 404, body: '' });
     if (req.method() !== 'GET') {
       const body = req.postDataJSON(); writes.push({ path: url.pathname, method: req.method(), body, headers: req.headers() });
@@ -84,6 +85,8 @@ test('create form supports both registration modes, ordered fields and 24-hour h
     await f.page.locator('[data-config-next]').click();
     await f.page.locator('[data-activity-config] button[type="submit"]').click();
     await f.page.waitForURL('**/activities/1');
+    await f.page.locator('[data-activity-panel="intro"]').waitFor();
+    assert.ok(await f.page.locator('[data-activity-config]').isHidden());
     const request = f.writes[0]; assert.equal(request.body.mode, 'team'); assert.equal(request.body.fields[0].label, '联系方式'); assert.equal(request.body.fields[1].options.length, 2);
     assert.equal(request.headers['x-csrf-token'], 'fixture');
     assert.equal(f.failures.length, 0, f.failures.join('\n'));
@@ -195,11 +198,21 @@ test('configuration locks existing rules, preserves hidden values and requires e
     await f.page.locator('[data-config-next]').click();
     assert.ok(await f.page.locator('[data-add-field]').isDisabled());
     await f.page.locator('[data-config-next]').click();
+    f.reject(); await f.page.locator('[data-config-save]').click();
+    await f.page.getByText('信息已被更新，请刷新页面后重试。').waitFor();
+    assert.match(f.page.url(), /tab=settings/);
+    assert.equal(await f.page.locator('[data-activity-config] [name="title"]').inputValue(), '更新校赛标题');
+    assert.ok(await f.page.evaluate(() => sessionStorage.getItem('nwpuoj.activity.v1.1.1.config')));
+    f.writes.length = 0;
     await f.page.locator('[data-config-save]').click();
-    await f.page.getByText('活动设置已保存。').waitFor();
+    await f.page.waitForURL('**/activities/1');
+    await f.page.locator('[data-activity-panel="intro"]').waitFor();
+    assert.ok(await f.page.locator('[data-activity-config]').isHidden());
+    assert.equal(await f.page.evaluate(() => sessionStorage.getItem('nwpuoj.activity.v1.1.1.config')), null);
     assert.equal(f.writes[0].body.mode, 'team');
     assert.equal(f.writes[0].body.min_members, '2');
     assert.equal(f.writes[0].body.fields[0].label, '联系方式');
+    await f.page.locator('[data-activity-tab="settings"]').click();
     await f.page.locator('[data-delete-activity]').click();
     const dialog = f.page.getByRole('dialog', {name: '删除活动'});
     await dialog.locator('input').fill('错误名称');
@@ -315,8 +328,11 @@ test('activity introduction uses the shared Markdown editor and preserves edits 
     assert.equal(await f.page.locator('[data-fields-preview] textarea[data-vditor-ready]').count(), 0, 'registration answers remain ordinary text');
     await f.page.locator('[data-config-next]').click();
     await f.page.locator('[data-config-save]').click();
-    await f.page.getByText('活动设置已保存。').waitFor();
+    await f.page.waitForURL('**/activities/1');
+    await f.page.locator('[data-activity-panel="intro"]').waitFor();
     assert.equal(f.writes[0].body.description, markdown);
+    await f.page.locator('[data-activity-tab="settings"]').click();
+    await f.page.waitForFunction(() => document.querySelector('[name="description"]').dataset.vditorReady === '1');
     await f.page.locator('[data-config-goto="0"]').click();
     assert.equal(await source.inputValue(), markdown);
     assert.equal(await f.page.locator('.app-vditor-host').count(), 1, 'async reload does not duplicate the editor');

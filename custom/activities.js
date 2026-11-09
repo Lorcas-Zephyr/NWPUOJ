@@ -440,7 +440,7 @@
     if (form.matches('[data-activity-config]')) {
       for (var step = 0; step < 3; step++) if (!validateStep(step)) return;
       showStep(3);
-      return work(async function () { var result = await request(api, mode === 'new' ? 'POST' : 'PATCH', configValues()); clearDraft('config'); configDirty = false; if (mode === 'new') location.href = '/activities/' + result.id; else await loadDetail(true); }, '活动设置已保存。');
+      return work(async function () { var result = await request(api, mode === 'new' ? 'POST' : 'PATCH', configValues()); clearDraft('config'); configDirty = false; location.href = '/activities/' + result.id; });
     }
     if (form.matches('[data-start-registration]')) {
       if (state.activity.mode !== 'team' && !validateAnswers(form)) return;

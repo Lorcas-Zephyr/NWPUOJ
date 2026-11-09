@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Creating or saving an activity now opens its overview; failed saves retain the form.
 - Simplified activity navigation and registration to two progress stages. Organizers see
   management entries only; registration uses a compact action beside the activity details.
 - Merged rejection into editable returns, including historical records, counts and exports.
