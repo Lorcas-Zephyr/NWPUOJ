@@ -253,7 +253,7 @@
     } else {
       if (r) {
         var titles = { draft: team ? r.team_name : '完成你的报名', returned: '请修改后重新提交', pending: '报名已提交，等待审核', approved: '报名成功', rejected: '报名未通过' };
-        html += '<div class="activity-receipt activity-receipt-' + r.status + '"><div class="activity-section-heading"><h2>' + esc(titles[r.status] || '我的报名') + '</h2></div><p>' + (r.submitted_at ? '报名编号 #' + r.id + ' · 提交于 ' + date(r.submitted_at) : team ? '每位成员确认资料后，由队长统一提交。' : '核对信息后即可提交，无需重复保存。') + '</p>' + (r.review_note ? '<div class="activity-review-note"><strong>审核说明</strong><p>' + esc(r.review_note) + '</p></div>' : '') + '</div>';
+        html += '<div class="activity-receipt activity-receipt-' + r.status + '"><div class="activity-section-heading"><h2>' + esc(titles[r.status] || '我的报名') + '</h2></div><p>' + (r.submitted_at ? '报名编号 #' + r.id + ' · 提交于 ' + date(r.submitted_at) : '报名编号 #' + r.id) + '</p>' + (r.review_note ? '<div class="activity-review-note"><strong>审核说明</strong><p>' + esc(r.review_note) + '</p></div>' : '') + '</div>';
       } else html += '<div class="activity-section-heading"><div><h2>填写报名信息</h2></div></div>';
       if (own) {
         html += identity(own);
@@ -265,7 +265,7 @@
         }
       }
     }
-    if (enabled && r) html += '<div class="activity-withdraw"><button type="button" class="app-button app-button-quiet" data-withdraw-registration>' + (leader ? '撤回' + (team ? '整队报名' : '报名') : '退出队伍') + '</button></div>';
+    if (enabled && r) html += '<div class="activity-withdraw"><button type="button" class="app-button app-button-danger-outline" data-withdraw-registration>' + (leader ? '撤回' + (team ? '整队报名' : '报名') : '退出队伍') + '</button></div>';
     target.innerHTML = html + '</div>' + mineAside(a, r) + '</div>';
     updateCompletion();
   }

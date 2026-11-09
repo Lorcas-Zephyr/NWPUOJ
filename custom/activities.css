@@ -327,3 +327,5 @@
 .activity-team-choice button[aria-pressed="true"] { color: var(--app-accent); border-color: var(--app-accent); background: var(--app-accent-soft); }
 .activity-team-join > div { display: flex; align-items: center; flex-wrap: wrap; gap: 20px; }
 .activity-team-join code { font-size: 16px; }
+
+.activity-page [data-copy-activity] { border-color: var(--app-line-strong); }

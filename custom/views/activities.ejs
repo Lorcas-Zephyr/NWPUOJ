@@ -1,6 +1,6 @@
 <% this.title = activityPage === 'new' ? '创建活动' : '活动报名'; this.active = 'activities'; %>
 <% include app_header %>
-<link rel="stylesheet" href="/self/activities.css?rev=20261109-workflow-3">
+<link rel="stylesheet" href="/self/activities.css?rev=20261109-workflow-4">
 <div class="app-page activity-page" data-activity-page="<%= activityPage %>" data-activity-id="<%= activityId %>">
   <header class="app-page-header">
     <div class="app-page-heading"><h1 class="app-page-title" data-activity-title><%= activityPage === 'new' ? '创建活动' : '活动报名' %></h1><p class="app-page-description" data-activity-summary></p></div>
@@ -65,11 +65,11 @@
       <label class="app-field"><span class="app-label">发布方式</span><select class="app-select" name="status"><option value="draft">保存草稿 · 仅管理者可见</option><option value="published">公开活动 · 按设定时间开放报名</option><option value="closed">公开活动 · 关闭报名</option></select></label>
 
     </section>
-    <div class="activity-config-actions"><div><% if (activityPage === 'detail') { %><button class="app-button app-button-quiet" type="button" data-copy-activity>复制为新活动</button><button class="app-button app-button-danger-outline" type="button" data-delete-activity>删除活动</button><% } %><span class="activity-caption" data-config-save-hint></span></div><div class="activity-button-group"><button class="app-button app-button-secondary" type="button" data-config-prev hidden>上一步</button><button class="app-button app-button-primary" type="button" data-config-next>下一步</button><button class="app-button app-button-primary" type="submit" data-config-save hidden><%= activityPage === 'new' ? '创建活动' : '保存设置' %></button></div></div>
+    <div class="activity-config-actions"><div><% if (activityPage === 'detail') { %><button class="app-button app-button-secondary" type="button" data-copy-activity>复制为新活动</button><button class="app-button app-button-danger-outline" type="button" data-delete-activity>删除活动</button><% } %><span class="activity-caption" data-config-save-hint></span></div><div class="activity-button-group"><button class="app-button app-button-secondary" type="button" data-config-prev hidden>上一步</button><button class="app-button app-button-primary" type="button" data-config-next>下一步</button><button class="app-button app-button-primary" type="submit" data-config-save hidden><%= activityPage === 'new' ? '创建活动' : '保存设置' %></button></div></div>
   </form>
   <% if (activityPage === 'detail') { %><dialog class="activity-delete-dialog" data-delete-dialog aria-labelledby="activity-delete-title"><form data-confirm-delete><h2 id="activity-delete-title">删除活动</h2><p>活动将从列表移除，链接失效，所有报名与修改立即停止。已有报名记录保留。</p><label class="app-field"><span class="app-label">输入活动名称确认：<strong data-delete-name></strong></span><input class="app-input" name="title" autocomplete="off" required></label><p class="app-form-status is-error" data-delete-error role="alert" hidden></p><div class="activity-actions"><button class="app-button app-button-secondary" type="button" data-delete-cancel>取消</button><button class="app-button app-button-danger" type="submit">确认删除</button></div></form></dialog><% } %>
   <% } %>
   <% } %>
 </div>
-<script src="/self/activities.js?rev=20261109-workflow-3" defer></script>
+<script src="/self/activities.js?rev=20261109-workflow-4" defer></script>
 <% include app_footer %>

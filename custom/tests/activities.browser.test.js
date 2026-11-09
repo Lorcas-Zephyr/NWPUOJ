@@ -483,3 +483,25 @@ test('activity list includes invitations and routes participants straight to the
     assert.deepEqual(f.failures, []);
   } finally { await f.context.close(); }
 });
+
+test('copy and withdrawal actions keep visible borders in both themes', async () => {
+  const f = await fixture('detail', 'settings', true, data => {
+    data.activity.mode = 'individual';
+    data.mine = {id: 4, leader_id: 1, team_name: '', status: 'approved', revision: 3, members: [{...data.identity, ready: true, answers: {f_phone:'123'}}], invitations: []};
+  });
+  try {
+    for (const theme of ['light', 'dark']) {
+      await f.page.evaluate(value => document.documentElement.dataset.theme = value, theme);
+      await f.page.locator('nav [data-activity-tab="settings"]').click();
+      const copy = f.page.locator('[data-copy-activity]');
+      const copyStyle = await copy.evaluate(el => {const s=getComputedStyle(el);return {width:s.borderTopWidth,style:s.borderTopStyle,color:s.borderTopColor};});
+      assert.equal(copyStyle.style, 'solid'); assert.ok(parseFloat(copyStyle.width) >= 1); assert.notEqual(copyStyle.color, 'rgba(0, 0, 0, 0)');
+      await f.page.locator('nav [data-activity-tab="mine"]').click();
+      const withdraw = f.page.locator('[data-withdraw-registration]');
+      const withdrawStyle = await withdraw.evaluate(el => {const s=getComputedStyle(el);return {width:s.borderTopWidth,style:s.borderTopStyle,color:s.borderTopColor};});
+      assert.equal(withdrawStyle.style, 'solid'); assert.ok(parseFloat(withdrawStyle.width) >= 1); assert.notEqual(withdrawStyle.color, 'rgba(0, 0, 0, 0)');
+      await f.page.screenshot({path:'/tmp/nwpuoj-activities-withdraw-'+theme+'.png',fullPage:true,animations:'disabled'});
+    }
+    assert.deepEqual(f.failures, []);
+  } finally { await f.context.close(); }
+});

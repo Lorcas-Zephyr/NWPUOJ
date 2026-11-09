@@ -1,12 +1,13 @@
 'use strict';
 
 const TypeORM = require('typeorm');
-const { createService, exportCsv } = require('../libs/activities');
+const { createService, deliverNotification, exportCsv } = require('../libs/activities');
 const { ensureRegistrationProfileSchema } = require('../libs/registration-profile-schema');
 const { appendEvent } = require('../libs/content-domain');
 const service = createService({
   connection: () => TypeORM.getConnection(),
   authorize: user => syzoj.utils.authorizationV2.authorize(user, 'activity:manage', null, { scope: 'global' }),
+  notify: (db, input) => deliverNotification(db, input, appendEvent),
   audit: async (db, event, req) => {
     await syzoj.utils.authorizationV2.recordAudit(req, { action: event.action, resourceType: 'activity', resourceId: event.activityId, scope: 'global', details: { registration_id: event.registrationId || null, status: event.status || null } }, db);
     await appendEvent(db, { stream: 'activities', type: event.action, aggregateId: String(event.activityId), actorId: event.actorId, payload: { registration_id: event.registrationId || null } });

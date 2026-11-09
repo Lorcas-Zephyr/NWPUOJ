@@ -18,12 +18,16 @@
 
 ### Added
 
+- Activity system notifications now cover submissions, automatic registration success,
+  approval, return, rejection, invitations and accepted invitations. Team results notify
+  all confirmed members; acceptance notifies the captain. Delivery is transactional.
 - Added activity search/status filters, roster counts, locked-rule indicators, and activity
   deletion with permission, revision and exact-title checks. Deleted activities are hidden
   and closed to all operations while registration records remain retained.
 
 ### Fixed
 
+- Restored visible outlines for copying activities and withdrawing registrations.
 - Hour/minute selections remain open for consecutive choices.
 - Kept hour/minute options in a bounded, scrollable popup that opens from the entire control
   and exposes minutes 58 and 59 at the bottom of the list.

@@ -14,14 +14,18 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
     const t = require('typeorm'), c = require('/app/config/web.json').db, h = process.env.SYZOJ_WEB_DB_HOST || c.host;
     const connection = await t.createConnection({ type: 'mysql', host: h.split(':')[0], port: Number(h.split(':')[1] || 3306), username: process.env.SYZOJ_WEB_DB_USERNAME || c.username, password: process.env.SYZOJ_WEB_DB_PASSWORD || c.password, database: process.env.SYZOJ_WEB_DB_DATABASE || c.database });
     const prefix = 'test_activity_' + crypto.randomBytes(6).toString('hex') + '_';
-    const names = ['activity', 'activity_registration', 'activity_member', 'activity_invitation', 'user', 'user_registration_profile', 'temporary_contest_account', 'audit_fixture'];
+    const names = ['activity', 'activity_registration', 'activity_member', 'activity_invitation', 'user', 'user_registration_profile', 'temporary_contest_account', 'audit_fixture', 'notification', 'notification_event_fixture'];
     const pattern = new RegExp('\\b(' + names.join('|') + ')\\b', 'g');
     const wrap = db => ({ query: (sql, args) => db.query(sql.replace(pattern, name => prefix + name), args), transaction: fn => connection.transaction(manager => fn(wrap(manager))) });
     const db = wrap(connection);
     const library = { exports: {} }; vm.runInNewContext(input.library, { module: library, exports: library.exports, require, Buffer, Date });
-    let clock = 1000, denied = false, rejectAudit = false;
+    let clock = 1000, denied = false, rejectAudit = false, rejectNotification = false;
     const admin = { id: 99 }, u = id => ({ id });
-    const service = library.exports.createService({ connection: () => db, now: () => clock, authorize: async user => user.id === 99 && !denied, audit: async (manager, event) => {
+    const service = library.exports.createService({ connection: () => db, now: () => clock, authorize: async user => user.id === 99 && !denied,
+      notify: (manager, notification) => library.exports.deliverNotification(manager, notification, async (transaction, event) => {
+        await transaction.query('INSERT INTO notification_event_fixture(stream,payload_json) VALUES(?,?)', [event.stream, JSON.stringify(event.payload)]);
+        if (rejectNotification) throw new Error('notification-failure');
+      }), audit: async (manager, event) => {
       await manager.query('INSERT INTO audit_fixture(action) VALUES(?)', [event.action]);
       if (rejectAudit) throw new Error('audit-failure');
     } });
@@ -34,6 +38,8 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
       await db.query('CREATE TABLE user_registration_profile(user_id INT PRIMARY KEY,student_id_scope VARCHAR(32),student_id VARCHAR(10),real_name VARCHAR(64),college VARCHAR(100)) ENGINE=InnoDB');
       await db.query('CREATE TABLE temporary_contest_account(user_id INT PRIMARY KEY) ENGINE=InnoDB');
       await db.query('CREATE TABLE audit_fixture(id INT AUTO_INCREMENT PRIMARY KEY,action VARCHAR(80)) ENGINE=InnoDB');
+      await db.query('CREATE TABLE notification(id INT AUTO_INCREMENT PRIMARY KEY,recipient_id INT,type VARCHAR(50),title VARCHAR(255),content TEXT,source_url VARCHAR(500),source_id INT,actor_id INT NULL,is_read TINYINT,created_at BIGINT,read_at BIGINT NULL) ENGINE=InnoDB');
+      await db.query('CREATE TABLE notification_event_fixture(id INT AUTO_INCREMENT PRIMARY KEY,stream VARCHAR(255),payload_json TEXT) ENGINE=InnoDB');
       for (let id = 1; id <= 8; id++) {
         await db.query('INSERT INTO user VALUES(?,?)', [id, 'person' + id]);
         await db.query('INSERT INTO user_registration_profile VALUES(?,?,?,?,?)', [id, 'ordinary', '202600000' + id, '姓名' + id, '学院']);
@@ -181,6 +187,68 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
       assert.equal((await service.roster(queue, admin, {sort: 'latest'})).items[0].id, nextPending);
       assert.equal((await service.roster(queue, admin, {page: 999})).page, 1, 'filter changes clamp pagination');
       assert.equal((await service.list(admin)).items.find(a => a.id === queue).review_count, 2);
+      // All system notifications participate in the same registration transaction.
+      const alerts = (await service.create(admin, config)).id;
+      const notices = activityId => db.query('SELECT * FROM notification WHERE source_id=? ORDER BY id', [activityId]);
+      await service.start(alerts, u(1), {submit: true, answers: {f_phone:'private answer'}});
+      let notifications = await notices(alerts);
+      assert.equal(notifications.length, 1);
+      assert.equal(notifications[0].recipient_id, 1);
+      assert.equal(notifications[0].actor_id, null, 'rendered as a system notification');
+      assert.equal(notifications[0].is_read, 0);
+      assert.equal(notifications[0].source_url, `/activities/${alerts}?tab=mine`);
+      assert.match(notifications[0].title, /等待审核/);
+      const reviewAlert = async (status, note = '') => {
+        const record = await mine(alerts, u(1));
+        return service.review(alerts, record.id, admin, {revision: record.revision,status,note});
+      };
+      await reviewAlert('approved');
+      assert.match((await notices(alerts)).at(-1).title, /审核通过/);
+      await reviewAlert('approved');
+      assert.equal((await notices(alerts)).length, 2, 'unchanged reviews do not notify twice');
+      await reviewAlert('returned', '请补全资料');
+      assert.match((await notices(alerts)).at(-1).content, /请补全资料/);
+      await reviewAlert('rejected', '不符合报名条件');
+      assert.match((await notices(alerts)).at(-1).title, /已拒绝/);
+      rejectNotification = true;
+      await fail(reviewAlert('approved'), /notification-failure/);
+      rejectNotification = false;
+      assert.equal((await mine(alerts, u(1))).status, 'rejected', 'notification failure rolls back review');
+      assert.equal((await notices(alerts)).length, 4, 'failed delivery leaves no phantom notification');
+      assert.ok(!(await notices(alerts)).some(n => n.content.includes('private answer')));
+      const automaticAlerts = (await service.create(admin, {...config,require_review:false})).id;
+      await service.start(automaticAlerts, u(1), {submit:true,answers:{f_phone:'ok'}});
+      assert.match((await notices(automaticAlerts))[0].title, /报名成功/);
+      const teamAlerts = (await service.create(admin, {...config,mode:'team',min_members:2,max_members:3})).id;
+      await service.start(teamAlerts, u(1), {team_name:'通知测试'});
+      rejectNotification = true;
+      await fail(change(teamAlerts, u(1), 'invite', {username:'person2'}), /notification-failure/);
+      rejectNotification = false;
+      assert.equal((await service.detail(teamAlerts, u(2))).invitations.length, 0, 'failed invitation notification rolls back the invitation');
+      assert.equal((await notices(teamAlerts)).length, 0);
+      await change(teamAlerts, u(1), 'invite', {username:'person2'});
+      await change(teamAlerts, u(1), 'invite', {username:'person2'});
+      notifications = await notices(teamAlerts);
+      assert.equal(notifications.length, 1, 'duplicate invitations do not repeat notifications');
+      assert.equal(notifications[0].recipient_id, 2);
+      assert.match(notifications[0].title, /组队邀请/);
+      const teamInvite = (await service.detail(teamAlerts, u(2))).invitations[0].id;
+      await service.invitation(teamAlerts, teamInvite, u(2), {action:'accept'});
+      await fail(service.invitation(teamAlerts, teamInvite, u(2), {action:'accept'}), /失效/);
+      notifications = await notices(teamAlerts);
+      assert.equal(notifications.length, 2);
+      assert.equal(notifications[1].recipient_id, 1, 'acceptance notifies the captain');
+      assert.match(notifications[1].content, /person2.*已接受/);
+      await change(teamAlerts, u(2), 'save', {answers:{f_phone:'member private'}});
+      await change(teamAlerts, u(1), 'submit', {answers:{f_phone:'captain private'},team_name:'通知测试'});
+      const submittedTeam = await mine(teamAlerts, u(1));
+      await service.review(teamAlerts, submittedTeam.id, admin, {revision:submittedTeam.revision,status:'approved'});
+      notifications = await notices(teamAlerts);
+      assert.deepEqual(notifications.filter(n => /审核通过/.test(n.title)).map(n => n.recipient_id), [1,2], 'all confirmed team members receive the result');
+      assert.equal(notifications.filter(n => /等待审核/.test(n.title)).length, 2);
+      const eventCount = await db.query('SELECT COUNT(*) AS n FROM notification_event_fixture');
+      const notificationCount = await db.query('SELECT COUNT(*) AS n FROM notification');
+      assert.equal(Number(eventCount[0].n), Number(notificationCount[0].n), 'every committed notification has one stream event');
       assert.equal((await service.detail(auto, admin)).fields_locked, true);
       const removal = { title: 'Fixture', revision: (await service.detail(auto, admin)).activity.revision };
       await fail(service.remove(auto, u(1), removal), /权限/);

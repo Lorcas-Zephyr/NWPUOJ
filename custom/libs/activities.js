@@ -79,7 +79,18 @@ function exportCsv(activity, items) {
   return '\uFEFF' + rows.map(row => row.map(csvCell).join(',')).join('\r\n') + '\r\n';
 }
 
-function createService({ connection, authorize, audit = async () => {}, now = Date.now }) {
+async function deliverNotification(db, input, publish) {
+  for (const recipient of new Set(input.recipients.map(Number))) {
+    const result = await db.query(`INSERT INTO notification
+      (recipient_id,type,title,content,source_url,source_id,actor_id,is_read,created_at,read_at)
+      VALUES (?,'activity_registration',?,?,?,?,NULL,0,?,NULL)`,
+    [recipient, input.title.slice(0, 255), input.content, `/activities/${input.activityId}?tab=mine`, input.activityId, Math.floor(input.now / 1000)]);
+    await publish(db, { stream: `notifications:user:${recipient}`, type: 'notification.created', aggregateId: result.insertId,
+      actorId: null, payload: { notification_id: Number(result.insertId), source_type: 'activity', source_id: input.activityId } });
+  }
+}
+
+function createService({ connection, authorize, audit = async () => {}, notify = async () => {}, now = Date.now }) {
   let schemaPromise;
   function ensureSchema() {
     if (!schemaPromise) schemaPromise = (async () => {
@@ -143,6 +154,13 @@ function createService({ connection, authorize, audit = async () => {}, now = Da
     await db.query('UPDATE activity_registration SET team_name=?,status=?,review_note=?,snapshot_json=?,revision=revision+1,submitted_at=?,updated_at=? WHERE id=?',
       [r.team_name, r.status, r.review_note, JSON.stringify(r.status === 'withdrawn' ? r.members : members), r.submitted_at, now(), r.id]);
     await audit(db, { action: `activity:${action}`, activityId: r.activity_id, registrationId: r.id, actorId: user.id, status: r.status }, context);
+  }
+  async function notifyStatus(db, a, r, reviewed = false) {
+    const title = { pending: '报名已提交，等待审核', approved: reviewed ? '报名审核通过' : '报名成功', returned: '报名退回修改', rejected: '报名已拒绝' }[r.status];
+    if (!title) return;
+    const members = await db.query('SELECT user_id FROM activity_member WHERE registration_id=? ORDER BY user_id', [r.id]);
+    await notify(db, { activityId: Number(a.id), recipients: members.map(m => Number(m.user_id)), title: `${a.title} · ${title}`,
+      content: `${a.mode === 'team' ? `队伍「${r.team_name}」` : '你的报名'}${r.status === 'pending' ? '已提交，请等待审核。' : r.status === 'approved' ? '已报名成功。' : r.status === 'returned' ? '需要修改后重新提交。' : '未通过审核。'}${r.review_note ? `\n审核说明：${r.review_note}` : ''}`, now: now() });
   }
   async function join(db, a, r, userId) {
     const person = await identity(db, userId);
@@ -265,6 +283,7 @@ function createService({ connection, authorize, audit = async () => {}, now = Da
         r.status = a.require_review ? 'pending' : 'approved'; r.submitted_at = now();
       }
       await saveRegistration(db, r, 'registration.create', user, context);
+      if (input.submit === true) await notifyStatus(db, a, r);
       return { id: r.id };
     });
   }
@@ -275,6 +294,7 @@ function createService({ connection, authorize, audit = async () => {}, now = Da
       const rows = await db.query('SELECT registration_id FROM activity_member WHERE activity_id=? AND user_id=?', [id, user.id]);
       if (!rows.length) fail('您还没有加入报名。', 404);
       const r = await registration(db, rows[0].registration_id); version(r, input.revision);
+      const previousStatus = r.status;
       const leader = Number(r.leader_id) === Number(user.id);
       const editing = ['draft', 'returned'].includes(r.status);
       const action = input.action;
@@ -325,12 +345,18 @@ function createService({ connection, authorize, audit = async () => {}, now = Da
         await identity(db, target[0].id);
         const occupied = await db.query('SELECT user_id FROM activity_member WHERE activity_id=? AND user_id=?', [id, target[0].id]);
         if (occupied.length) fail('该用户已报名或加入队伍。', 409);
-        await db.query('INSERT IGNORE INTO activity_invitation(activity_id,registration_id,user_id,created_at) VALUES(?,?,?,?)', [id, r.id, target[0].id, now()]);
+        const invitation = await db.query('INSERT IGNORE INTO activity_invitation(activity_id,registration_id,user_id,created_at) VALUES(?,?,?,?)', [id, r.id, target[0].id, now()]);
+        if (invitation.affectedRows) {
+          const captain = r.members.find(m => m.user_id === Number(r.leader_id));
+          await notify(db, { activityId: Number(a.id), recipients: [Number(target[0].id)], title: `${a.title} · 组队邀请`,
+            content: `${captain.username} 邀请你加入队伍「${r.team_name}」。`, now: now() });
+        }
       } else if (action === 'cancel-invitation') {
         requireLeader();
         await db.query('DELETE FROM activity_invitation WHERE registration_id=? AND id=?', [r.id, integer(input.invitation_id, 1, 2147483647, '邀请编号')]);
       } else fail('不支持的报名操作。');
       await saveRegistration(db, r, `registration.${action}`, user, context);
+      if (action === 'submit' || r.status !== previousStatus) await notifyStatus(db, a, r);
       return { id: r.id, status: r.status };
     });
   }
@@ -344,6 +370,9 @@ function createService({ connection, authorize, audit = async () => {}, now = Da
       if (input.action === 'accept') {
         if (a.mode !== 'team' || !['draft', 'returned'].includes(r.status) || r.members.length >= a.max_members) fail('该队伍已满或已提交报名。', 409);
         await join(db, a, r, user.id);
+        const joined = await identity(db, user.id);
+        await notify(db, { activityId: Number(a.id), recipients: [Number(r.leader_id)], title: `${a.title} · 邀请已接受`,
+          content: `${joined.username} 已接受邀请，加入队伍「${r.team_name}」。`, now: now() });
       } else if (input.action !== 'decline') fail('邀请操作无效。');
       await db.query('DELETE FROM activity_invitation WHERE id=?', [invitationId]);
       await saveRegistration(db, r, `invitation.${input.action}`, user, context);
@@ -403,16 +432,19 @@ function createService({ connection, authorize, audit = async () => {}, now = Da
   async function review(id, registrationId, user, input, context) {
     await manager(user); await ensureSchema();
     return connection().transaction(async db => {
-      await get(id, db, true);
+      const a = await get(id, db, true);
       const r = await registration(db, registrationId);
       if (Number(r.activity_id) !== Number(id)) fail('报名记录不存在。', 404);
       version(r, input.revision);
       if (!['pending', 'approved', 'returned', 'rejected'].includes(r.status) || !['approved', 'returned', 'rejected'].includes(input.status)) fail('当前报名状态不能审核。', 409);
-      r.review_note = text(input.note || '', 1000, '审核说明', input.status !== 'approved'); r.status = input.status;
+      const note = text(input.note || '', 1000, '审核说明', input.status !== 'approved');
+      const changed = r.status !== input.status || r.review_note !== note;
+      r.review_note = note; r.status = input.status;
       await saveRegistration(db, r, 'registration.review', user, context);
+      if (changed) await notifyStatus(db, a, r, true);
       return { id: r.id, status: r.status };
     });
   }
   return { ensureSchema, canManage, list, detail, create, update, copy, remove, start, change, invitation, roster, review };
 }
-module.exports = { createService, settings, schema, answers, open, version, exportCsv };
+module.exports = { createService, deliverNotification, settings, schema, answers, open, version, exportCsv };
