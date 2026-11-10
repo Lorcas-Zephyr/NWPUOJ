@@ -23,6 +23,8 @@
 
 ### Added
 
+- Activity registration automatically includes the account email in private identity details,
+  organizer searches and CSV exports, with account-email fallback for older registrations.
 - Activity lists and overview details show the number of registered people, including
   pending and approved submissions and counting team members individually.
 - Activity system notifications now cover submissions, automatic registration success,

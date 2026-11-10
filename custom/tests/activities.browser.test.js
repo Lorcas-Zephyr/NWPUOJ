@@ -13,7 +13,7 @@ test.before(async () => { browser = await chromium.launch({ headless: true, args
 test.after(async () => { if (browser) await browser.close(); });
 const question = { id: 'f_phone', type: 'text', label: '联系方式', required: true, options: [] };
 function payload() {
-  return { activity: { id: 1, title: '2026 校赛报名', description: '活动简介', mode: 'team', status: 'published', location: '计算机学院', opens_at: Date.now() - 86400000, closes_at: Date.now() + 86400000, starts_at: null, min_members: 2, max_members: 3, require_review: true, fields: [question], revision: 1 }, can_manage: true, user_id: 1, identity: { user_id: 1, username: 'captain', real_name: '队长', student_id: '2026000001', college: '计算机学院' }, identity_error: '', mine: null, invitations: [], server_now: Date.now(), description_html: '<p>活动简介</p>' };
+  return { activity: { id: 1, title: '2026 校赛报名', description: '活动简介', mode: 'team', status: 'published', location: '计算机学院', opens_at: Date.now() - 86400000, closes_at: Date.now() + 86400000, starts_at: null, min_members: 2, max_members: 3, require_review: true, fields: [question], revision: 1 }, can_manage: true, user_id: 1, identity: { user_id: 1, username: 'captain', real_name: '队长', student_id: '2026000001', college: '计算机学院', email: 'captain.registration@example.test' }, identity_error: '', mine: null, invitations: [], server_now: Date.now(), description_html: '<p>活动简介</p>' };
 }
 function html(mode, manager = true) {
   const template = read('views/activities.ejs').replace('<% include app_header %>', '').replace('<% include app_footer %>', '');
@@ -26,7 +26,7 @@ async function fixture(mode = 'detail', tab = 'mine', manager = true, configure 
   const context = await browser.newContext({ viewport: { width: 1360, height: 1100 } });
   const page = await context.newPage(), failures = [], writes = [];
   const data = payload(); data.can_manage = manager; configure(data);
-  const roster = [{ id: 4, leader_id: 1, team_name: '<img src=x onerror=alert(1)>', status: 'pending', revision: 7, submitted_at: Date.now(), review_note: '', members: [{ ...data.identity, answers: { f_phone: '123' } }, {user_id: 2, username: 'member', real_name: '队员', student_id: '2026000002', college: '软件学院', answers: {f_phone: '<b>456</b>'}}] }, {id: 5, leader_id: 3, team_name: '追光队', status: 'pending', revision: 2, submitted_at: Date.now(), review_note: '', members: [{user_id: 3, username: 'third', real_name: '张同学', student_id: '2026000003', college: '计算机学院', answers: {f_phone: '789'}}]}];
+  const roster = [{ id: 4, leader_id: 1, team_name: '<img src=x onerror=alert(1)>', status: 'pending', revision: 7, submitted_at: Date.now(), review_note: '', members: [{ ...data.identity, answers: { f_phone: '123' } }, {user_id: 2, username: 'member', real_name: '队员', student_id: '2026000002', college: '软件学院', email: 'member@example.test', answers: {f_phone: '<b>456</b>'}}] }, {id: 5, leader_id: 3, team_name: '追光队', status: 'pending', revision: 2, submitted_at: Date.now(), review_note: '', members: [{user_id: 3, username: 'third', real_name: '张同学', student_id: '2026000003', college: '计算机学院', answers: {f_phone: '789'}}]}];
   const document = html(mode, manager); let rejectNext = false, detailDocument;
   page.on('pageerror', error => failures.push(error.message));
   await context.route('**/*', async route => {
@@ -120,14 +120,16 @@ test('manager roster escapes text, reviews with the displayed revision and expor
   try {
     await f.page.locator('[data-roster-id="4"] summary').click();
     assert.equal(await f.page.locator('.activity-registration img').count(), 0);
+    assert.equal(await f.page.locator('[data-roster-person="1"] .activity-identity-email dd').textContent(), f.data.identity.email);
     await f.page.locator('[data-review-id="4"] [value="returned"]').check();
     await f.page.locator('[data-review-id="4"] [name="note"]').fill('请核对联系方式');
     await f.page.locator('[data-review-id="4"] button[type="submit"]:not([name="next"])').click();
     await f.page.locator('[data-activity-message]').filter({ hasText: '审核结果已保存' }).waitFor();
     assert.equal(f.writes[0].body.revision, 7); assert.equal(f.writes[0].body.status, 'returned');
-    await f.page.locator('[data-roster-search] [name="search"]').fill('captain');
+    await f.page.locator('[data-roster-search] [name="search"]').fill('captain.registration@example.test');
     await f.page.locator('[data-roster-search] button[type="submit"]').click();
-    await f.page.waitForFunction(() => document.querySelector('[data-roster-export]').href.includes('search=captain'));
+    await f.page.waitForFunction(() => new URL(document.querySelector('[data-roster-export]').href).searchParams.get('search') === 'captain.registration@example.test');
+    assert.equal(await f.page.locator('[data-roster-id]').count(), 1);
     await f.page.setViewportSize({ width: 390, height: 844 });
     assert.ok(await f.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     assert.equal(f.failures.length, 0, f.failures.join('\n'));
@@ -146,11 +148,15 @@ test('individuals fill and submit once, then see a receipt and explicitly edit t
   const f = await fixture('detail', 'mine', false, data => { data.activity.mode = 'individual'; data.activity.min_members = data.activity.max_members = 1; });
   try {
     const form = f.page.locator('[data-start-registration]');
+    assert.equal(await f.page.locator('.activity-identity-email dd').textContent(), f.data.identity.email);
+    assert.equal(await form.locator('[name="email"]').count(), 0, 'account email needs no manual entry');
     await form.locator('[name="f_phone"]').fill('13800138000');
     await form.getByRole('button', { name: '确认并提交报名' }).click();
     await f.page.getByRole('heading', { name: '报名已提交，等待审核' }).waitFor();
     assert.equal(f.writes.length, 1, 'direct personal submission is a single atomic request');
     assert.equal(f.writes[0].body.submit, true);
+    assert.equal(f.writes[0].body.email, undefined);
+    assert.equal(await f.page.locator('.activity-identity-email dd').textContent(), f.data.identity.email);
     assert.equal(f.writes[0].body.answers.f_phone, '13800138000');
     assert.equal(await f.page.locator('[data-save-answers]').count(), 0, 'submitted form is a receipt until explicitly edited');
     await f.page.getByRole('button', { name: '修改报名信息' }).click();
@@ -270,7 +276,7 @@ test('wizard validates before moving on and previews questions in desktop, mobil
 });
 
 test('activity directory filters and searches with shareable URLs and fits narrow screens', async () => {
-  const f = await fixture('list', 'intro', true, data => { data.activity.registered_count = 27; });
+  const f = await fixture('list', 'intro', true, data => { data.activity.registered_count = 27; data.identity.email = 'long.registration.email.address.for.mobile.layout@example.test'; });
   try {
     assert.equal(await f.page.locator('.activity-list-row').count(), 2);
     assert.ok(await f.page.locator('.activity-list-row').first().getByText('已报名 27 人', {exact:true}).isVisible());
@@ -357,6 +363,7 @@ test('roster member selection, validation and filters preserve review drafts and
     assert.ok(await first.locator('[data-roster-person="2"]').isVisible());
     assert.ok(await first.locator('[data-roster-person="1"]').isHidden());
     assert.match(await first.locator('[data-roster-person="2"]').innerText(), /<b>456<\/b>/);
+    assert.equal(await first.locator('[data-roster-person="2"] .activity-identity-email dd').textContent(), 'member@example.test');
     assert.equal(await first.locator('[data-roster-person="2"] b').count(), 0);
     await first.locator('[value="returned"]').check();
     await first.locator('button[type="submit"]:not([name="next"])').click();
@@ -557,7 +564,7 @@ test('organizers have left-aligned management navigation and no registration ent
 });
 
 test('participants get one compact entry and two registration stages', async () => {
-  const f = await fixture('detail', 'intro', false, data => { data.activity.mode = 'individual'; data.activity.registered_count = 27; });
+  const f = await fixture('detail', 'intro', false, data => { data.activity.mode = 'individual'; data.activity.registered_count = 27; data.identity.email = 'long.registration.email.address.for.mobile.layout@example.test'; });
   try {
     assert.equal(await f.page.locator('[data-activity-facts] .activity-fact-list > div').filter({has:f.page.locator('dt', {hasText:'已报名人数'})}).locator('dd').textContent(), '27 人');
     assert.equal(await f.page.locator('.activity-journey, [data-activity-guidance]').count(), 0);

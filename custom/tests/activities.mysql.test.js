@@ -44,14 +44,14 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
     };
     const change = async (id, user, action, extra = {}) => service.change(id, user, { action, revision: (await mine(id, user)).revision, ...extra });
     try {
-      await db.query('CREATE TABLE user(id INT PRIMARY KEY,username VARCHAR(80)) ENGINE=InnoDB');
+      await db.query('CREATE TABLE user(id INT PRIMARY KEY,username VARCHAR(80),email VARCHAR(254)) ENGINE=InnoDB');
       await db.query('CREATE TABLE user_registration_profile(user_id INT PRIMARY KEY,student_id_scope VARCHAR(32),student_id VARCHAR(10),real_name VARCHAR(64),college VARCHAR(100)) ENGINE=InnoDB');
       await db.query('CREATE TABLE temporary_contest_account(user_id INT PRIMARY KEY) ENGINE=InnoDB');
       await db.query('CREATE TABLE audit_fixture(id INT AUTO_INCREMENT PRIMARY KEY,action VARCHAR(80)) ENGINE=InnoDB');
       await db.query('CREATE TABLE notification(id INT AUTO_INCREMENT PRIMARY KEY,recipient_id INT,type VARCHAR(50),title VARCHAR(255),content TEXT,source_url VARCHAR(500),source_id INT,actor_id INT NULL,is_read TINYINT,created_at BIGINT,read_at BIGINT NULL) ENGINE=InnoDB');
       await db.query('CREATE TABLE notification_event_fixture(id INT AUTO_INCREMENT PRIMARY KEY,stream VARCHAR(255),payload_json TEXT) ENGINE=InnoDB');
       for (let id = 1; id <= 8; id++) {
-        await db.query('INSERT INTO user VALUES(?,?)', [id, 'person' + id]);
+        await db.query('INSERT INTO user VALUES(?,?,?)', [id, 'person' + id, `person${id}@example.test`]);
         await db.query('INSERT INTO user_registration_profile VALUES(?,?,?,?,?)', [id, 'ordinary', '202600000' + id, '姓名' + id, '学院']);
       }
       await db.query('INSERT INTO temporary_contest_account VALUES(8)');
@@ -61,14 +61,16 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
       await fail(service.start(personal, u(8), {}), /普通/);
       assert.equal((await service.roster(personal, admin)).total, 0, 'failed joins roll back registrations');
       await checkCount(personal, 0);
-      await service.start(personal, u(1), {});
+      await service.start(personal, u(1), {email:'forged@example.test'});
       await checkCount(personal, 0);
       await fail(service.start(personal, u(1), {}), /已在/);
       await fail(change(personal, u(1), 'submit'), /尚未保存/);
       await fail(change(personal, u(1), 'save', { answers: {} }), /联系方式/);
-      await change(personal, u(1), 'save', { answers: { f_phone: '123', real_name: 'forged' } });
+      await change(personal, u(1), 'save', { email: 'forged@example.test', answers: { f_phone: '123', real_name: 'forged', email: 'forged@example.test' } });
       await change(personal, u(1), 'submit');
       const p = await mine(personal, u(1)); assert.equal(p.status, 'pending');
+      assert.equal(p.members[0].email, 'person1@example.test', 'email comes from the account, never client input');
+      assert.equal(p.members[0].answers.email, undefined);
       await checkCount(personal, 1);
       await fail(service.review(personal, p.id, u(2), { revision: p.revision, status: 'approved' }), /权限/);
       await service.review(personal, p.id, admin, { revision: p.revision, status: 'approved' });
@@ -78,9 +80,17 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
       await change(personal, u(1), 'save', { answers: { f_phone: '456' } });
       assert.equal((await mine(personal, u(1))).status, 'pending', 'edit invalidates prior approval');
       await db.query("UPDATE user_registration_profile SET real_name='后改姓名' WHERE user_id=1");
+      await db.query("UPDATE user SET email='updated1@example.test' WHERE id=1");
       assert.equal((await mine(personal, u(1))).members[0].real_name, '姓名1', 'identity snapshot stable');
+      assert.equal((await mine(personal, u(1))).members[0].email, 'person1@example.test', 'captured email stays stable after account changes');
+      const emailRoster = await service.roster(personal, admin, {search:'person1@example.test',export:true});
+      assert.equal(emailRoster.total, 1);
+      assert.match(library.exports.exportCsv(emailRoster.activity, emailRoster.items), /person1@example\.test/);
+      assert.equal((await service.roster(personal, admin, {search:'updated1@example.test'})).total, 0, 'search matches the captured value');
       const visitor = await service.detail(personal, u(2)); assert.equal(visitor.mine, null);
       assert.ok(!JSON.stringify(visitor).includes('456'));
+      assert.ok(!JSON.stringify(visitor).includes('person1@example.test'));
+      assert.ok(!JSON.stringify(await service.detail(personal, null)).includes('@example.test'));
       await fail(service.roster(personal, u(2)), /权限/);
       denied = true; await fail(service.roster(personal, admin), /权限/); denied = false;
       const detail = await service.detail(personal, admin);
@@ -98,11 +108,14 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
       assert.equal(await mine(personal, u(1)), null);
       await checkCount(personal, 0);
       const withdrawn = (await service.roster(personal, admin)).items[0]; assert.equal(withdrawn.status, 'withdrawn'); assert.equal(withdrawn.members[0].answers.f_phone, '456');
+      assert.equal(withdrawn.members[0].email, 'person1@example.test');
       await service.start(personal, u(1), {});
       const latestPersonal = await service.roster(personal, admin);
       assert.equal(latestPersonal.total, 1, 're-registration replaces the old withdrawn row in the roster');
       assert.equal(latestPersonal.summary.withdrawn, 0);
       assert.equal(latestPersonal.summary.draft, 1);
+      assert.equal(latestPersonal.items[0].members[0].email, 'updated1@example.test', 'new registration captures the current account email');
+      assert.equal((await service.roster(personal, admin, {search:'person1@example.test'})).total, 0, 'superseded email cannot match a current roster');
       await checkCount(personal, 0);
       assert.equal((await service.roster(personal, admin, {status: 'withdrawn'})).total, 0, 'filter after deduplication');
       assert.equal((await service.roster(personal, admin, {search: '456', export: true})).total, 0, 'old answers do not match searches or exports');
@@ -130,6 +143,9 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
       assert.equal(member.members.length, 2);
       const other = member.members.find(m => m.user_id !== 3);
       assert.equal(other.real_name, undefined); assert.equal(other.answers, undefined, 'teammate answers remain private');
+      assert.equal(other.email, undefined, 'teammate email remains private');
+      assert.equal(member.members.find(m => m.user_id === 3).email, 'person3@example.test', 'joining a team captures the member account email');
+      assert.equal(member.snapshot_json, undefined, 'raw identity snapshots are not exposed to teammates');
       await fail(change(team, u(3), 'submit'), /队长/);
       await change(team, captain, 'save', { team_name: 'Winners', answers: { f_phone: 'captain' } });
       await fail(change(team, captain, 'submit'), /尚未保存/);
@@ -161,10 +177,12 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
       await service.start(auto, u(6), {}); await change(auto, u(6), 'save', { answers: { f_phone: 'ok' } }); await change(auto, u(6), 'submit');
       assert.equal((await mine(auto, u(6))).status, 'approved');
       // New personal flow creates, validates and submits in one transaction.
+      await db.query("UPDATE user SET email=NULL WHERE id=7");
       await fail(service.start(auto, u(7), { submit: true, answers: {} }), /联系方式/);
       assert.equal(await mine(auto, u(7)), null, 'invalid direct submission leaves no draft or membership');
       await service.start(auto, u(7), { submit: true, answers: { f_phone: 'direct' } });
       assert.equal((await mine(auto, u(7))).status, 'approved');
+      assert.equal((await mine(auto, u(7))).members[0].email, '', 'missing account email does not block registration');
       assert.equal((await service.roster(auto, admin)).summary.approved, 2);
       await checkCount(auto, 2);
       assert.ok((await service.list(u(7), 1, { scope: 'mine' })).items.some(a => a.id === auto && a.my_status === 'approved'));
@@ -241,6 +259,15 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
       const legacy = (await service.create(admin, config)).id;
       await service.start(legacy, u(1), {submit:true, answers:{f_phone:'old answer'}});
       await service.start(legacy, u(2), {submit:true, answers:{f_phone:'another answer'}});
+      await db.query("UPDATE activity_member SET identity_json=JSON_REMOVE(identity_json,'$.email') WHERE activity_id=? AND user_id=1", [legacy]);
+      await db.query("UPDATE activity_registration SET snapshot_json=JSON_REMOVE(snapshot_json,'$[0].email') WHERE activity_id=? AND leader_id=1", [legacy]);
+      assert.equal((await mine(legacy, u(1))).members[0].email, 'updated1@example.test', 'legacy member details fill in account email');
+      const legacyEmailRoster = await service.roster(legacy, admin, {search:'updated1@example.test',export:true});
+      assert.equal(legacyEmailRoster.total, 1, 'legacy fallback email is searchable');
+      assert.equal(legacyEmailRoster.items[0].members[0].email, 'updated1@example.test');
+      assert.match(library.exports.exportCsv(legacyEmailRoster.activity, legacyEmailRoster.items), /updated1@example\.test/);
+      const legacyStored = await db.query('SELECT snapshot_json FROM activity_registration WHERE activity_id=? AND leader_id=1', [legacy]);
+      assert.equal(JSON.parse(legacyStored[0].snapshot_json)[0].email, undefined, 'reading does not rewrite historical snapshots');
       await db.query("UPDATE activity_registration SET status=IF(leader_id=1,'rejected','returned'),review_note='请核对资料' WHERE activity_id=?", [legacy]);
       assert.equal((await mine(legacy, u(1))).status, 'returned', 'historical rejections are editable returns');
       assert.equal((await service.list(u(1))).items.find(a => a.id === legacy).my_status, 'returned');
@@ -256,6 +283,11 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
       assert.equal((await mine(legacy, u(1))).status, 'pending', 'historical rejections can be corrected and resubmitted');
       assert.equal((await mine(legacy, u(1))).review_note, '');
       await checkCount(legacy, 1);
+      await change(legacy, u(2), 'withdraw');
+      await db.query("UPDATE activity_registration SET snapshot_json=JSON_REMOVE(snapshot_json,'$[0].email') WHERE activity_id=? AND leader_id=2", [legacy]);
+      const legacyWithdrawal = await service.roster(legacy, admin, {status:'withdrawn',search:'person2@example.test',export:true});
+      assert.equal(legacyWithdrawal.total, 1, 'withdrawn legacy snapshots also support email searches');
+      assert.equal(legacyWithdrawal.items[0].members[0].email, 'person2@example.test');
       const automaticAlerts = (await service.create(admin, {...config,require_review:false})).id;
       await service.start(automaticAlerts, u(1), {submit:true,answers:{f_phone:'ok'}});
       assert.match((await notices(automaticAlerts))[0].title, /报名成功/);

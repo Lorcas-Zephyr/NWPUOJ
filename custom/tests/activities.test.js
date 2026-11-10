@@ -39,11 +39,13 @@ test('opening is inclusive, deadline exclusive and stale revisions are rejected'
   version({ revision: 2 }, 2);
 });
 test('CSV escapes formula injection, preserves student identifiers and multiline answers', () => {
-  const output = exportCsv(settings(config), [{ id: 1, team_name: '=SUM(A1)', status: 'approved', review_note: '', leader_id: 1, submitted_at: 100, members: [{ user_id: 1, username: '@evil', real_name: '张"三', student_id: '0123456789', college: '计算机学院', answers: { f_phone: 'line1\nline2' } }] }]);
+  const output = exportCsv(settings(config), [{ id: 1, team_name: '=SUM(A1)', status: 'approved', review_note: '', leader_id: 1, submitted_at: 100, members: [{ user_id: 1, username: '@evil', real_name: '张"三', student_id: '0123456789', college: '计算机学院', email: 'person@example.test', answers: { f_phone: 'line1\nline2' } }] }]);
   assert.ok(output.startsWith('\uFEFF'));
   assert.match(output, /"'=SUM\(A1\)"/);
   assert.match(output, /"'@evil"/);
   assert.match(output, /"'0123456789"/);
   assert.match(output, /"张""三"/);
+  assert.match(output, /"学院","邮箱","联系方式"/);
+  assert.match(output, /"计算机学院","person@example.test","line1/);
   assert.match(output, /"line1\nline2"/);
 });

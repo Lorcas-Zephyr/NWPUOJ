@@ -75,9 +75,9 @@ function csvCell(value) {
   return '"' + s.replace(/"/g, '""') + '"';
 }
 function exportCsv(activity, items) {
-  const header = ['报名编号', '队名', '状态', '审核说明', '提交时间', '队长', '用户名', '姓名', '学号', '学院', ...activity.fields.map(f => f.label)];
+  const header = ['报名编号', '队名', '状态', '审核说明', '提交时间', '队长', '用户名', '姓名', '学号', '学院', '邮箱', ...activity.fields.map(f => f.label)];
   const rows = [header];
-  for (const item of items) for (const member of item.members) rows.push([item.id, item.team_name, item.status, item.review_note, item.submitted_at ? new Date(Number(item.submitted_at)).toISOString() : '', Number(item.leader_id) === member.user_id ? '是' : '否', member.username, member.real_name, member.student_id, member.college, ...activity.fields.map(f => Array.isArray(member.answers[f.id]) ? member.answers[f.id].join('；') : member.answers[f.id])]);
+  for (const item of items) for (const member of item.members) rows.push([item.id, item.team_name, item.status, item.review_note, item.submitted_at ? new Date(Number(item.submitted_at)).toISOString() : '', Number(item.leader_id) === member.user_id ? '是' : '否', member.username, member.real_name, member.student_id, member.college, member.email, ...activity.fields.map(f => Array.isArray(member.answers[f.id]) ? member.answers[f.id].join('；') : member.answers[f.id])]);
   return '\uFEFF' + rows.map(row => row.map(csvCell).join(',')).join('\r\n') + '\r\n';
 }
 
@@ -136,20 +136,29 @@ function createService({ connection, authorize, audit = async () => {}, notify =
     return a;
   }
   async function identity(db, userId) {
-    const rows = await db.query(`SELECT u.id AS user_id,u.username,p.real_name,p.student_id,p.college,p.student_id_scope,t.user_id AS temporary_id
+    const rows = await db.query(`SELECT u.id AS user_id,u.username,u.email,p.real_name,p.student_id,p.college,p.student_id_scope,t.user_id AS temporary_id
       FROM user u LEFT JOIN user_registration_profile p ON p.user_id=u.id
       LEFT JOIN temporary_contest_account t ON t.user_id=u.id WHERE u.id=?`, [userId]);
     const row = rows[0];
     if (!row || row.temporary_id || row.student_id_scope !== 'ordinary') fail('请使用本人普通 OJ 账户报名。');
     if (!/^\d{10}$/.test(row.student_id || '') || !row.real_name || !row.college) fail('请先在账号设置中补全姓名、十位学号和学院。');
-    return { user_id: Number(row.user_id), username: row.username, real_name: row.real_name, student_id: row.student_id, college: row.college };
+    return { user_id: Number(row.user_id), username: row.username, real_name: row.real_name, student_id: row.student_id, college: row.college, email: row.email || '' };
+  }
+  async function fillMissingEmails(db, members) {
+    const missing = members.filter(member => member.email === undefined);
+    const ids = [...new Set(missing.map(member => Number(member.user_id)))];
+    if (!ids.length) return members;
+    const rows = await db.query(`SELECT id,email FROM user WHERE id IN (${ids.map(() => '?').join(',')})`, ids);
+    const emails = new Map(rows.map(row => [Number(row.id), row.email || '']));
+    for (const member of missing) member.email = emails.get(Number(member.user_id)) || '';
+    return members;
   }
   async function registration(db, id) {
     const rows = await db.query('SELECT * FROM activity_registration WHERE id=?', [id]);
     if (!rows[0]) fail('报名记录不存在。', 404);
     const row = rows[0];
     const members = await db.query('SELECT * FROM activity_member WHERE registration_id=? ORDER BY user_id', [id]);
-    return { ...row, status: registrationStatus(row.status), members: row.status === 'withdrawn' ? JSON.parse(row.snapshot_json) : members.map(decodeMember) };
+    return { ...row, status: registrationStatus(row.status), members: await fillMissingEmails(db, row.status === 'withdrawn' ? JSON.parse(row.snapshot_json) : members.map(decodeMember)) };
   }
   async function saveRegistration(db, r, action, user, context) {
     const members = (await db.query('SELECT * FROM activity_member WHERE registration_id=? ORDER BY user_id', [r.id])).map(decodeMember);
@@ -422,8 +431,10 @@ function createService({ connection, authorize, audit = async () => {}, notify =
     if (search) {
       where += ` AND (LOCATE(?,team_name)>0 OR EXISTS(
         SELECT 1 FROM JSON_TABLE(current_member_indexes,'$[*]' COLUMNS(member_index INT PATH '$')) visible_member
-        WHERE LOCATE(?,JSON_EXTRACT(snapshot_json,CONCAT('$[',visible_member.member_index-1,']')))>0))`;
-      params.push(search, search);
+        LEFT JOIN user u ON u.id=JSON_UNQUOTE(JSON_EXTRACT(snapshot_json,CONCAT('$[',visible_member.member_index-1,'].user_id')))
+        WHERE LOCATE(?,JSON_EXTRACT(snapshot_json,CONCAT('$[',visible_member.member_index-1,']')))>0
+          OR (JSON_CONTAINS_PATH(snapshot_json,'one',CONCAT('$[',visible_member.member_index-1,'].email'))=0 AND LOCATE(?,u.email)>0)))`;
+      params.push(search, search, search);
     }
     return connection().transaction(async db => {
       const a = await get(id, db);
@@ -441,6 +452,7 @@ function createService({ connection, authorize, audit = async () => {}, notify =
         delete item.snapshot_json; delete item.current_member_indexes; delete item.current_status;
         return item;
       });
+      await fillMissingEmails(db, items.flatMap(item => item.members));
       return { activity: a, items, total: Number(counts[0].n), page: currentPage, summary };
     });
   }

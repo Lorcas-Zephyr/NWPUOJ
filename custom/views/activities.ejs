@@ -1,6 +1,6 @@
 <% this.title = activityPage === 'new' ? '创建活动' : '活动报名'; this.active = 'activities'; %>
 <% include app_header %>
-<link rel="stylesheet" href="/self/activities.css?rev=20261109-workflow-5">
+<link rel="stylesheet" href="/self/activities.css?rev=20261110-email-1">
 <div class="app-page activity-page" data-activity-page="<%= activityPage %>" data-activity-id="<%= activityId %>">
   <header class="app-page-header">
     <div class="app-page-heading"><h1 class="app-page-title" data-activity-title><%= activityPage === 'new' ? '创建活动' : '活动报名' %></h1><p class="app-page-description" data-activity-summary></p></div>
@@ -28,7 +28,7 @@
   <section data-activity-panel="roster" hidden>
     <div class="activity-section-heading activity-roster-heading"><div><h2>报名管理</h2></div><div class="activity-button-group"><span data-review-queue hidden></span><a class="app-button app-button-secondary" data-roster-export href="/api/v2/activities/<%= activityId %>/registrations/export">导出 CSV</a></div></div>
     <div class="activity-roster-filters" data-roster-summary aria-label="按报名状态筛选"></div>
-    <form class="activity-roster-toolbar" data-roster-search><input type="hidden" name="status" value=""><label class="activity-roster-search"><span class="app-sr-only">搜索报名</span><input class="app-input" type="search" name="search" placeholder="搜索用户名、姓名、学号、队名或答案" maxlength="100"></label><button class="app-button app-button-secondary" type="submit">查询</button><button class="app-button app-button-quiet" type="button" data-roster-reset hidden>清除筛选</button><label class="activity-roster-sort"><span class="app-sr-only">名单排序</span><select class="app-select" name="sort"><option value="review">待审核优先</option><option value="latest">最新报名优先</option></select></label><span class="activity-roster-result-count" data-roster-result-count role="status"></span></form>
+    <form class="activity-roster-toolbar" data-roster-search><input type="hidden" name="status" value=""><label class="activity-roster-search"><span class="app-sr-only">搜索报名</span><input class="app-input" type="search" name="search" placeholder="搜索用户名、姓名、学号、邮箱、队名或答案" maxlength="100"></label><button class="app-button app-button-secondary" type="submit">查询</button><button class="app-button app-button-quiet" type="button" data-roster-reset hidden>清除筛选</button><label class="activity-roster-sort"><span class="app-sr-only">名单排序</span><select class="app-select" name="sort"><option value="review">待审核优先</option><option value="latest">最新报名优先</option></select></label><span class="activity-roster-result-count" data-roster-result-count role="status"></span></form>
     <div class="activity-roster-columns" aria-hidden="true"><span data-roster-name-label>队伍 / 报名人</span><span>成员</span><span>提交时间</span><span>状态</span><span></span></div>
     <div data-activity-roster></div><div class="activity-pagination" data-roster-pages></div>
   </section>
@@ -56,7 +56,7 @@
     </section>
     <section class="activity-config-step" data-config-step="2" hidden>
       <div class="activity-section-heading"><div><h2>报名表单</h2></div></div>
-      <div class="activity-built-in"><strong>账号资料 · 自动获取</strong><span>用户名 / 姓名 / 学号 / 学院</span></div>
+      <div class="activity-built-in"><strong>账号资料 · 自动获取</strong><span>用户名 / 姓名 / 学号 / 学院 / 邮箱</span></div>
       <div class="activity-field-workspace"><div><div class="activity-preset-tools"><button class="app-button app-button-quiet" type="button" data-field-preset="phone">联系方式</button><button class="app-button app-button-quiet" type="button" data-field-preset="grade">年级</button><button class="app-button app-button-quiet" type="button" data-field-preset="note">备注</button></div><div data-activity-fields></div><button class="app-button app-button-secondary" type="button" data-add-field>＋ 自定义问题</button></div><aside class="activity-form-preview"><div class="activity-section-heading"><h3>填写效果</h3></div><div data-fields-preview></div></aside></div>
     </section>
     <section class="activity-config-step" data-config-step="3" hidden>
@@ -71,5 +71,5 @@
   <% } %>
   <% } %>
 </div>
-<script src="/self/activities.js?rev=20261109-workflow-7" defer></script>
+<script src="/self/activities.js?rev=20261110-email-1" defer></script>
 <% include app_footer %>

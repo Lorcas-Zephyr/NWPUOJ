@@ -204,7 +204,7 @@
     }
     return true;
   }
-  function identity(person) { return '<dl class="activity-identity">' + [['用户名', person.username], ['姓名', person.real_name], ['学号', person.student_id], ['学院', person.college]].map(function (pair) { return '<div><dt>' + pair[0] + '</dt><dd>' + esc(pair[1]) + '</dd></div>'; }).join('') + '</dl>'; }
+  function identity(person) { return '<dl class="activity-identity">' + [['用户名', person.username], ['姓名', person.real_name], ['学号', person.student_id], ['学院', person.college], ['邮箱', person.email || '未填写']].map(function (pair) { return '<div' + (pair[0] === '邮箱' ? ' class="activity-identity-email"' : '') + '><dt>' + pair[0] + '</dt><dd>' + esc(pair[1]) + '</dd></div>'; }).join('') + '</dl>'; }
   function question(field, values, disabled) {
     var value = values[field.id], common = ' name="' + esc(field.id) + '"' + (disabled ? ' disabled' : ''), required = field.required && field.type !== 'checkbox' ? ' required' : '', control;
     if (field.type === 'textarea') control = '<textarea class="app-textarea" rows="3" maxlength="4000"' + common + required + '>' + esc(value || '') + '</textarea>';

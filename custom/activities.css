@@ -68,6 +68,7 @@
 .activity-registration-main { min-width: 0; }
 .activity-identity { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 20px; padding: 0 0 24px; border-bottom: 1px solid var(--app-line); margin: 24px 0; }
 .activity-identity div { min-width: 0; overflow-wrap: anywhere; }
+.activity-identity-email { grid-column: 1 / -1; }
 .activity-identity dt { color: var(--app-text-muted); font-size: 12px; }
 .activity-identity dd { margin: 6px 0 0; font-size: 14px; }
 .activity-page fieldset.app-field { border: 0; padding: 0; margin: 0; min-width: 0; }
