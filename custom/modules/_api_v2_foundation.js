@@ -495,12 +495,12 @@ function gatewayLimits(req, res) {
     return false;
   }
   const isWrite = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
-  const isTestdataChunk = /^\/api\/v2\/problems\/\d+\/testdata\/upload\/chunk$/.test(requestPath);
-  // A multi-GiB archive can require thousands of small requests. Keep normal
-  // write protection while allowing one active chunk upload to finish.
+  const isTestdataChunk = isWrite && /^\/api\/v2\/problems\/\d+\/testdata\/upload\/chunk\/?$/.test(requestPath);
+  // Chunks have a separate allowance so they cannot consume the normal writes
+  // needed to merge an upload or save its configuration.
   const limit = isTestdataChunk ? 1200 : (isWrite ? 60 : 180);
   const actor = res.locals.user ? `user:${res.locals.user.id}` : `ip:${req.ip || 'unknown'}`;
-  const key = `${actor}:${isWrite ? 'write' : 'read'}`;
+  const key = `${actor}:${isTestdataChunk ? 'testdata-chunk' : isWrite ? 'write' : 'read'}`;
   if (rateBuckets.size > 10000) {
     const now = Date.now();
     for (const [bucketKey, bucket] of rateBuckets) {

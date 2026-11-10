@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+const vm = require('node:vm');
 const api = require('../libs/api-v2');
 
 test('cursor encoding round trips structured values', () => {
@@ -144,6 +145,38 @@ test('gateway keeps the JSON limit while delegating known multipart uploads to r
   assert.match(source, /maximum_bytes: bodyLimit/);
   assert.match(source, /isTestdataChunk/);
   assert.match(source, /isTestdataChunk \? 1200/);
+});
+
+test('chunk uploads cannot exhaust or increase the ordinary write allowance', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_foundation.js'), 'utf8');
+  let now = 1000;
+  const context = { apiHelpers: api, syzoj: { config: { limit: {} } }, Date: { now: () => now },
+    apiFail(res, status, code) { res.status = status; res.code = code; } };
+  vm.runInNewContext(source.slice(source.indexOf('const rateBuckets ='), source.indexOf('function requireCapability(')), context);
+  const request = (pathname, method = 'POST', userId = 7) => {
+    const res = { locals: { user: { id: userId } }, headers: {}, set(name, value) { this.headers[name] = value; } };
+    const allowed = context.gatewayLimits({ baseUrl: '/api/v2', path: pathname, method, body: {}, get: () => '', ip: '127.0.0.1' }, res);
+    return { allowed, ...res };
+  };
+  const chunk = '/problems/7/testdata/upload/chunk', complete = '/problems/7/testdata/upload/complete';
+  assert.equal(request('/problems/7/judge-configuration/update').allowed, true);
+  // The reported 90,976,682-byte archive needs 174 chunks before completion.
+  for (let i = 0; i < 174; i++) assert.equal(request(chunk).allowed, true);
+  const completed = request(complete);
+  assert.equal(completed.allowed, true, 'merging the archive retains the normal write allowance');
+  assert.equal(completed.headers['X-RateLimit-Remaining'], '58');
+  for (let i = 2; i < 60; i++) assert.equal(request('/problems/7/judge-configuration/update').allowed, true);
+  assert.equal(request(complete).status, 429, 'ordinary writes still stop at 60 per minute');
+  for (let i = 174; i < 1200; i++) assert.equal(request(chunk).allowed, true);
+  const limited = request(chunk);
+  assert.equal(limited.status, 429, 'chunks retain their own bounded allowance');
+  assert.equal(limited.headers['Retry-After'], '60');
+  assert.equal(request(complete).status, 429, 'chunk allowance cannot raise the ordinary limit');
+  assert.equal(request(chunk, 'POST', 8).allowed, true, 'another account has its own allowance');
+  assert.equal(request('/problem-jobs/job', 'GET').allowed, true, 'upload writes do not consume reads');
+  now = 61000;
+  assert.equal(request(complete).allowed, true);
+  assert.equal(request(chunk).allowed, true);
 });
 
 test('anonymous write allowlist contains only public identity and markdown operations', () => {

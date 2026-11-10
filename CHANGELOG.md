@@ -36,6 +36,9 @@
 
 ### Fixed
 
+- Testdata upload chunks now use a separate rate-limit counter, so larger ZIPs can
+  finish merging without exhausting ordinary writes. The upload page waits and retries
+  HTTP 429 responses using Retry-After while preserving the current chunk and request key.
 - Activity configuration actions now match the surrounding page background in both themes.
 - Restored visible outlines for copying activities and withdrawing registrations.
 - Hour/minute selections remain open for consecutive choices.

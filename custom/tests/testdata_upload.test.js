@@ -12,6 +12,74 @@ const upload = require('../libs/testdata-upload');
 
 const exec = promisify(execFile);
 
+function uploadPage(fetch) {
+  const source = fs.readFileSync(path.join(__dirname, '../views/problem_manage.ejs'), 'utf8').replace(/<%= problem.id %>/g, '7');
+  const waits = [], status = { textContent: '' };
+  let key = 0;
+  const context = { fetch, FormData, Blob, status, window: {
+    crypto: { randomUUID: () => 'request-' + ++key },
+    setTimeout(callback, delay) { waits.push({ delay, message: status.textContent }); callback(); }
+  } };
+  vm.runInNewContext(source.slice(source.indexOf('  function setStatus('), source.indexOf('  function setType(')), context);
+  return { ...context, waits };
+}
+function uploadResponse(status, data, retryAfter = null) {
+  return { status, ok: status >= 200 && status < 300, headers: { get: () => retryAfter },
+    json: async () => status >= 400 ? { error: { message: 'fixture error' } } : { data } };
+}
+
+test('rate-limited chunks and completion resume the same request without resending earlier chunks', async () => {
+  const bytes = Buffer.alloc(2 * 512 * 1024 + 5, 65);
+  const file = Object.assign(new Blob([bytes]), { name: '中文数据.zip' });
+  const attempts = new Map(), chunks = [], keys = new Set();
+  const page = uploadPage(async (url, options) => {
+    const chunk = url.endsWith('/chunk');
+    const id = chunk ? Number(options.body.get('chunk_index')) : 'complete';
+    const previous = attempts.get(id);
+    if (previous) assert.strictEqual(options, previous, 'retry keeps its body and idempotency key');
+    else {
+      assert.ok(!keys.has(options.headers['Idempotency-Key']));
+      keys.add(options.headers['Idempotency-Key']); attempts.set(id, options);
+      if (id === 1 || id === 'complete') return uploadResponse(429, null, id === 1 ? '1' : '2');
+    }
+    if (chunk) {
+      assert.equal(options.body.get('total_chunks'), '3');
+      assert.equal(id, chunks.length, 'accepted chunks advance once, in order');
+      chunks.push(Buffer.from(await options.body.get('chunk').arrayBuffer()));
+      return uploadResponse(200, {});
+    }
+    assert.equal(JSON.parse(options.body).total_chunks, 3);
+    return uploadResponse(202, { id: 'job-7' });
+  });
+  assert.equal(await page.uploadTestdataArchive(file), 'job-7');
+  assert.deepEqual(Buffer.concat(chunks), bytes, 'retried upload preserves every byte');
+  assert.deepEqual(page.waits.map(wait => wait.delay), [1000, 2000]);
+  assert.ok(page.waits.every(wait => /秒后自动继续/.test(wait.message)));
+  assert.equal(keys.size, 4, 'each logical request gets one key');
+});
+
+test('small archives and job polling retry rate limits, but permanent errors and repeated limits stop', async () => {
+  let directCalls = 0;
+  const direct = uploadPage(async () => ++directCalls === 1 ? uploadResponse(429) : uploadResponse(202, { id: 'small-job' }));
+  assert.equal(await direct.uploadTestdataArchive(Object.assign(new Blob(['fixture']), { name: 'small.zip' })), 'small-job');
+  assert.equal(direct.waits[0].delay, 60000, 'missing Retry-After uses the server window');
+  let polls = 0;
+  const polling = uploadPage(async () => ++polls === 1
+    ? uploadResponse(429, null, new Date(Date.now() + 10000).toUTCString())
+    : uploadResponse(200, { state: 'completed' }));
+  assert.equal((await polling.waitForTestdataJob('job')).state, 'completed');
+  assert.ok(polling.waits[0].delay >= 8000 && polling.waits[0].delay <= 10000);
+  let deniedCalls = 0;
+  const denied = uploadPage(async () => { deniedCalls++; return uploadResponse(403); });
+  await assert.rejects(denied.uploadTestdataArchive(Object.assign(new Blob(['fixture']), { name: 'denied.zip' })), /fixture error/);
+  assert.equal(deniedCalls, 1); assert.equal(denied.waits.length, 0);
+  let limitedCalls = 0;
+  const limited = uploadPage(async () => { limitedCalls++; return uploadResponse(429, null, '1'); });
+  await assert.rejects(limited.uploadTestdataArchive(Object.assign(new Blob(['fixture']), { name: 'limited.zip' })), /请求过于频繁/);
+  assert.equal(limitedCalls, 4, 'automatic retry is bounded');
+  assert.equal(limited.waits.length, 3);
+});
+
 test('normalizes Windows CRLF and UTF-8 BOM without trimming data, isolated CR or missing final newline', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'nwpuoj-newlines-'));
   try {

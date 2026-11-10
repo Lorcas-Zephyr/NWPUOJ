@@ -55,12 +55,28 @@
   function requestKey() {
     return window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random();
   }
+  async function fetchWithRateLimitRetry(url, options) {
+    for (var attempt = 0; ; attempt++) {
+      var response = await fetch(url, options);
+      if (response.status !== 429) return response;
+      var retryAfter = response.headers.get('Retry-After');
+      var delay = retryAfter && /^\d+(\.\d+)?$/.test(retryAfter)
+        ? Number(retryAfter) * 1000 : Date.parse(retryAfter) - Date.now();
+      if (!Number.isFinite(delay)) delay = 60000;
+      delay = Math.max(1000, delay);
+      if (attempt >= 3 || delay > 120000) throw new Error('请求过于频繁，请稍后重试。');
+      var previousStatus = status.textContent;
+      setStatus('请求较多，' + Math.ceil(delay / 1000) + ' 秒后自动继续…');
+      await wait(delay);
+      setStatus(previousStatus);
+    }
+  }
   async function uploadTestdataArchive(file) {
     var chunkSize = 512 * 1024;
     if (file.size <= chunkSize) {
       var directPayload = new FormData();
       directPayload.append('archive', file, file.name);
-      var directResponse = await fetch('/api/v2/problems/<%= problem.id %>/testdata/upload', {
+      var directResponse = await fetchWithRateLimitRetry('/api/v2/problems/<%= problem.id %>/testdata/upload', {
         method: 'POST', credentials: 'same-origin', headers: { 'Idempotency-Key': requestKey() }, body: directPayload
       });
       var directBody = null;
@@ -77,14 +93,14 @@
       chunkPayload.append('chunk_index', String(index));
       chunkPayload.append('total_chunks', String(totalChunks));
       chunkPayload.append('chunk', file.slice(index * chunkSize, Math.min(file.size, (index + 1) * chunkSize)), file.name + '.part');
-      var chunkResponse = await fetch('/api/v2/problems/<%= problem.id %>/testdata/upload/chunk', {
+      var chunkResponse = await fetchWithRateLimitRetry('/api/v2/problems/<%= problem.id %>/testdata/upload/chunk', {
         method: 'POST', credentials: 'same-origin', headers: { 'Idempotency-Key': requestKey() }, body: chunkPayload
       });
       var chunkBody = null;
       try { chunkBody = await chunkResponse.json(); } catch (error) {}
       if (!chunkResponse.ok) throw new Error(chunkBody && chunkBody.error && chunkBody.error.message || '测试数据分片上传失败。');
     }
-    var completeResponse = await fetch('/api/v2/problems/<%= problem.id %>/testdata/upload/complete', {
+    var completeResponse = await fetchWithRateLimitRetry('/api/v2/problems/<%= problem.id %>/testdata/upload/complete', {
       method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestKey() },
       body: JSON.stringify({ upload_id: uploadId, chunk_index: 0, total_chunks: totalChunks })
     });
@@ -97,7 +113,7 @@
     var deadline = Date.now() + 10 * 60 * 1000;
     var delay = 250;
     while (Date.now() < deadline) {
-      var response = await fetch('/api/v2/problem-jobs/' + encodeURIComponent(jobId), {
+      var response = await fetchWithRateLimitRetry('/api/v2/problem-jobs/' + encodeURIComponent(jobId), {
         credentials: 'same-origin',
         cache: 'no-store'
       });
@@ -141,14 +157,14 @@
     setStatus('正在保存评测配置…');
     try {
       var endpoint = '/api/v2/problems/<%= problem.id %>/judge-configuration';
-      var current = await fetch(endpoint, { credentials: 'same-origin', cache: 'no-store' });
+      var current = await fetchWithRateLimitRetry(endpoint, { credentials: 'same-origin', cache: 'no-store' });
       var currentBody = await current.json();
       if (!current.ok) throw new Error(currentBody && currentBody.error && currentBody.error.message || '评测配置读取失败。');
       // Some public reverse proxies remove response headers.  The API also
       // exposes the resource tag in the JSON envelope for that case.
       var currentEtag = current.headers.get('ETag') || currentBody && currentBody.meta && currentBody.meta.etag || '';
       var type = typeInput.value;
-      var configResponse = await fetch(endpoint + '/update', {
+      var configResponse = await fetchWithRateLimitRetry(endpoint + '/update', {
         method: 'POST',
         credentials: 'same-origin',
         headers: {
@@ -183,7 +199,7 @@
         setStatus('正在上传附加文件…');
         var additionalPayload = new FormData();
         additionalPayload.append('archive', additional, additional.name);
-        var additionalResponse = await fetch('/api/v2/problems/<%= problem.id %>/additional-file', {
+        var additionalResponse = await fetchWithRateLimitRetry('/api/v2/problems/<%= problem.id %>/additional-file', {
           method: 'POST',
           credentials: 'same-origin',
           headers: { 'Idempotency-Key': window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random() },
