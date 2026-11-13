@@ -83,15 +83,22 @@
       var selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(position.range);
     }
   }
-  function insertImage(state, name, address, position) {
-    if (state.source.disabled || state.source.readOnly) throw new Error('当前内容不可编辑。');
+  function imageAddress(address) {
+    if (typeof address !== 'string' || !address) throw new Error('图片地址无效。');
     var url = new URL(address, location.origin);
     if (!/^https?:$/.test(url.protocol)) throw new Error('图片地址无效。');
+    // OJ assets follow the current origin, including older API responses that
+    // contain the public hostname while the editor is opened on the intranet.
+    return url.pathname.indexOf('/self/image-assets/') === 0 ? url.pathname + url.search + url.hash : url.href;
+  }
+  function insertImage(state, name, address, position) {
+    if (state.source.disabled || state.source.readOnly) throw new Error('当前内容不可编辑。');
+    var url = imageAddress(address);
     if (position) restorePosition(state, position);
     var alt = String(name || '图片').replace(/[\r\n]/g, ' ').replace(/[\\\[\]<>`*_]/g, '\\$&');
     // insertValue treats its argument as HTML in rich modes. Use the Markdown
     // API and a percent-encoded destination that also works in Lute's preview.
-    var destination = url.href.replace(/[()<>]/g, function (character) { return '%' + character.charCodeAt(0).toString(16).toUpperCase(); });
+    var destination = url.replace(/[()<>]/g, function (character) { return '%' + character.charCodeAt(0).toString(16).toUpperCase(); });
     state.editor.insertMD('![' + alt + '](' + destination + ')\n');
     state.dirty = true;
     state.flush(true);
@@ -124,12 +131,11 @@
       grid.replaceChildren();
       matches.slice(0, limit).forEach(function (item) {
         var url;
-        try { url = new URL(item.url, location.origin); } catch (_) { return; }
-        if (!/^https?:$/.test(url.protocol)) return;
+        try { url = imageAddress(item.relative_url || item.url); } catch (_) { return; }
         var button = document.createElement('button'); button.type = 'button'; button.className = 'app-image-library-item';
         button.title = String(item.original_name || '图片'); button.setAttribute('aria-label', '插入 ' + button.title);
         var preview = document.createElement('span'); preview.className = 'app-image-library-preview';
-        var image = document.createElement('img'); image.src = url.href; image.alt = ''; image.loading = 'lazy'; image.decoding = 'async';
+        var image = document.createElement('img'); image.src = url; image.alt = ''; image.loading = 'lazy'; image.decoding = 'async';
         image.addEventListener('error', function () { image.hidden = true; preview.classList.add('is-unavailable'); preview.setAttribute('aria-label', '图片暂不可预览'); });
         preview.appendChild(image);
         var name = document.createElement('span'); name.textContent = button.title;
@@ -137,7 +143,7 @@
         button.append(preview, name, size);
         button.addEventListener('click', function () {
           closeLibrary();
-          try { insertImage(state, item.original_name, url.href, position); } catch (error) { notify(error.message); }
+          try { insertImage(state, item.original_name, url, position); } catch (error) { notify(error.message); }
         });
         grid.appendChild(button);
       });
@@ -391,10 +397,8 @@
             var body = new FormData(); body.append('image', file);
             var response = await fetch('/api/v2/image-host', { method: 'POST', credentials: 'same-origin', body: body });
             var result = await response.json();
-            if (!response.ok || !result.data || !result.data.url) throw new Error(result.error && result.error.message || '图片上传失败。');
-            var url = new URL(result.data.url, location.origin);
-            if (!/^https?:$/.test(url.protocol)) throw new Error('图片地址无效。');
-            insertImage(state, file.name, url.href, position);
+            if (!response.ok || !result.data || !(result.data.relative_url || result.data.url)) throw new Error(result.error && result.error.message || '图片上传失败。');
+            insertImage(state, file.name, result.data.relative_url || result.data.url, position);
             position = capturePosition(state);
           }
           state.editor.tip('', 1);

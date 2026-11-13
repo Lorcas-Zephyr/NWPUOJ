@@ -36,6 +36,8 @@
 
 ### Fixed
 
+- Markdown image uploads and image-library inserts now use root-relative OJ asset
+  paths, with previews following the current internal or public site address.
 - Testdata upload chunks now use a separate rate-limit counter, so larger ZIPs can
   finish merging without exhausting ordinary writes. The upload page waits and retries
   HTTP 429 responses using Retry-After while preserving the current chunk and request key.

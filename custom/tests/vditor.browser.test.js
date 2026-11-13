@@ -21,6 +21,7 @@ function html(body, upload = false, app = false) {
 }
 
 async function fixture(body, options = {}) {
+  const origin = options.origin || 'http://markdown.test';
   const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   page.setDefaultTimeout(15000);
@@ -30,7 +31,7 @@ async function fixture(body, options = {}) {
   await page.route('**/*', async route => {
     const request = route.request(), url = new URL(request.url());
     requests.push(url.pathname);
-    if (url.origin !== 'http://markdown.test') {
+    if (url.origin !== origin) {
       external.push(url.origin + url.pathname);
       return route.fulfill({ status: 404, body: '' });
     }
@@ -38,7 +39,7 @@ async function fixture(body, options = {}) {
     if (url.pathname === '/api/v2/image-host') {
       uploads.push(request.postDataBuffer());
       if (options.uploadError) return route.fulfill({ status: 403, json: { error: { message: '没有图床上传权限' } } });
-      return route.fulfill({ json: { data: { url: 'https://noj.nwpu.edu.cn/uploads/image-host/fixture.png' } } });
+      return route.fulfill({ json: { data: { url: 'https://noj.nwpu.edu.cn/self/image-assets/fixture.png', relative_url: '/self/image-assets/fixture.png' } } });
     }
     if (url.pathname.startsWith('/self/')) {
       if (url.pathname.startsWith('/self/image-assets/')) return route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180"><rect width="320" height="180" fill="#f2f6fb"/><path d="M55 115L160 52L265 115" stroke="#8caacb" stroke-width="3" fill="none"/><g fill="#e2edfa" stroke="#145fb8" stroke-width="2"><circle cx="55" cy="115" r="17"/><circle cx="160" cy="52" r="17"/><circle cx="265" cy="115" r="17"/></g><g fill="#145fb8" font-size="15" text-anchor="middle" font-family="sans-serif"><text x="55" y="120">1</text><text x="160" y="57">2</text><text x="265" y="120">3</text></g></svg>' });
@@ -49,7 +50,7 @@ async function fixture(body, options = {}) {
     }
     return route.fulfill({ contentType: 'text/html', body: html(body, options.upload, options.app) });
   });
-  await page.goto('http://markdown.test/fixture', { waitUntil: 'domcontentloaded' });
+  await page.goto(origin + '/fixture', { waitUntil: 'domcontentloaded' });
   return { browser, page, errors, external, uploads, requests };
 }
 
@@ -175,21 +176,22 @@ test('local drafts restore into Vditor and continue saving without its shared ca
   } finally { await f.browser.close(); }
 });
 
-test('image uploads use the existing authorized endpoint and insert the returned URL', { timeout: 60000 }, async () => {
+test('image uploads use the existing authorized endpoint and insert root-relative paths', { timeout: 60000 }, async () => {
   const f = await fixture('<form data-problem-editor-v2><textarea name="description">图片题面</textarea></form>', { upload: true });
   try {
     await ready(f.page);
     await mode(f.page, 'sv');
     await f.page.locator('textarea.vditor-sv').focus();
     await f.page.locator('.app-vditor-host input[type="file"]').setInputFiles({ name: '图示.png', mimeType: 'image/png', buffer: Buffer.from('png fixture') });
-    await f.page.waitForFunction(() => document.querySelector('textarea[name="description"]').value.includes('/uploads/image-host/fixture.png'));
+    await f.page.waitForFunction(() => document.querySelector('textarea[name="description"]').value.includes('/self/image-assets/fixture.png'));
     assert.equal(f.uploads.length, 1);
     assert.match(f.uploads[0].toString('utf8'), /name="image"/);
-    assert.match(await f.page.locator('textarea[name="description"]').inputValue(), /!\[图示\.png\]\(https:\/\/noj\.nwpu\.edu\.cn\/uploads\/image-host\/fixture\.png\)/);
+    assert.match(await f.page.locator('textarea[name="description"]').inputValue(), /!\[图示\.png\]\(\/self\/image-assets\/fixture\.png\)/);
     await f.page.locator('.app-vditor-host input[type="file"]').setInputFiles({ name: 'bad.txt', mimeType: 'text/plain', buffer: Buffer.from('not an image') });
     await f.page.waitForFunction(() => messages.some(x => x.includes('10 MiB')));
     assert.equal(f.uploads.length, 1, 'invalid files never reach the API');
     assert.deepEqual(f.errors, []);
+    assert.deepEqual(f.external, []);
   } finally { await f.browser.close(); }
   const denied = await fixture('<form data-problem-editor-v2><textarea name="description">原始题面</textarea></form>', { upload: true, uploadError: true });
   try {
@@ -206,11 +208,14 @@ test('image uploads use the existing authorized endpoint and insert the returned
 for (const editorMode of ['ir', 'wysiwyg', 'sv']) {
   for (const action of ['upload', 'library']) {
     test(`image integration: ${action} renders and saves a loaded image in ${editorMode}`, { timeout: 60000 }, async () => {
-      const url = 'http://markdown.test/self/image-assets/fixture.png?size=1&v=2';
+      const url = '/self/image-assets/fixture.png?size=1&v=2';
+      const origin = action === 'upload' ? 'http://10.0.0.8:8080' : 'https://noj.nwpu.edu.cn';
       const name = '图示 (1) & 示例.png';
-      const asset = { id: 1, original_name: name, file_size: 2048, url };
+      const asset = { id: 1, original_name: name, file_size: 2048, url: 'https://noj.nwpu.edu.cn' + url };
+      // Also cover legacy API responses containing only the public absolute URL.
+      if (editorMode !== 'sv') asset.relative_url = url;
       const f = await fixture('<form data-problem-editor-v2><textarea name="description">前 后</textarea></form>', {
-        upload: true, app: true, api: (route, request) => route.fulfill({ json: { data: request.method() === 'GET' ? [asset] : asset } })
+        origin, upload: true, app: true, api: (route, request) => route.fulfill({ json: { data: request.method() === 'GET' ? [asset] : asset } })
       });
       try {
         await ready(f.page);
@@ -234,10 +239,12 @@ for (const editorMode of ['ir', 'wysiwyg', 'sv']) {
           await f.page.waitForFunction(() => !document.querySelector('.app-vditor-statusbar').classList.contains('is-uploading'));
         } else {
           await f.page.locator('[data-type="image-library"]').click();
+          assert.equal(await f.page.locator('.app-image-library img').first().getAttribute('src'), url);
           await f.page.getByRole('button', { name: '插入 ' + name, exact: true }).click();
         }
         const source = await f.page.locator('textarea[name="description"]').inputValue();
-        assert.ok(source.includes(url), 'saved Markdown must retain the image URL: ' + source);
+        assert.ok(source.includes('](' + url + ')'), 'saved Markdown must retain the relative image path: ' + source);
+        assert.doesNotMatch(source, /https?:\/\//);
         assert.ok(source.indexOf('前') < source.indexOf('![') && source.indexOf('后') > source.indexOf('!['), 'image stays at the selected cursor');
         const container = editorMode === 'sv' ? '.vditor-preview' : '.vditor-' + editorMode;
         await f.page.waitForFunction(selector => {
@@ -248,6 +255,7 @@ for (const editorMode of ['ir', 'wysiwyg', 'sv']) {
           throw error;
         });
         assert.equal(await f.page.locator(container + ' img').first().getAttribute('src'), url);
+        assert.equal(await f.page.locator(container + ' img').first().evaluate(image => image.src), origin + url);
         assert.equal(await f.page.locator('.app-vditor-host [data-file-selection]').count(), 0, 'toolbar upload has no generic file-selection label');
         await f.page.screenshot({ path: `/tmp/nwpuoj-vditor-image-${editorMode}-${action}.png`, fullPage: true });
         if (editorMode !== 'sv') await mode(f.page, 'sv');
@@ -320,7 +328,7 @@ test('image library searches, limits thumbnails, preserves insertion position, a
     assert.equal(await dialog.locator('.app-image-library-item').count(), 1);
     await dialog.getByRole('button', { name: '插入 示意图-30.png', exact: true }).click();
     const saved = await f.page.locator('textarea[name="description"]').inputValue();
-    assert.match(saved, /^左边 !\[示意图-30\.png\]\(http:\/\/markdown\.test\/self\/image-assets\/30\.png\)\n右边/);
+    assert.match(saved, /^左边 !\[示意图-30\.png\]\(\/self\/image-assets\/30\.png\)\n右边/);
     assert.equal(await dialog.count(), 0);
     await f.page.locator('[data-type="image-library"]').click();
     await dialog.getByRole('searchbox').fill('<img');
@@ -366,7 +374,7 @@ test('pending image uploads prevent incomplete saves and keep the selected inser
     release();
     await f.page.waitForFunction(() => !document.querySelector('.app-vditor-statusbar').classList.contains('is-uploading'));
     await f.page.getByRole('button', {name:'保存',exact:true}).click();
-    assert.match(await f.page.evaluate(() => saved), /^前 !\[上传中\.png\]\(https:\/\/noj\.nwpu\.edu\.cn\/self\/image-assets\/test\.png\)\n后/);
+    assert.match(await f.page.evaluate(() => saved), /^前 !\[上传中\.png\]\(\/self\/image-assets\/test\.png\)\n后/);
     assert.deepEqual(f.errors, []);
   } finally { release(); await f.browser.close(); }
 });

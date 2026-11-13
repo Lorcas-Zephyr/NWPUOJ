@@ -103,13 +103,17 @@ function storedPath(storageName) {
   return path.join(IMAGE_HOST_DIR, ...segments);
 }
 
+function relativeUrl(storageName) {
+  return IMAGE_HOST_URL_PREFIX + String(storageName).split('/').map(encodeURIComponent).join('/');
+}
+
 function publicUrl(req, storageName) {
-  const relative = IMAGE_HOST_URL_PREFIX + String(storageName).split('/').map(encodeURIComponent).join('/');
-  return `${syzoj.utils.getPublicBaseUrl(req)}${relative}`;
+  return `${syzoj.utils.getPublicBaseUrl(req)}${relativeUrl(storageName)}`;
 }
 
 function resource(row, req) {
   const url = publicUrl(req, row.storage_name);
+  const relative = relativeUrl(row.storage_name);
   return {
     id: Number(row.id),
     original_name: String(row.original_name),
@@ -117,8 +121,8 @@ function resource(row, req) {
     file_size: Number(row.file_size),
     created_at: api().databaseIso(row.created_at),
     url,
-    relative_url: IMAGE_HOST_URL_PREFIX + encodeURIComponent(String(row.storage_name)),
-    markdown: `![${String(row.original_name).replace(/[\[\]]/g, '')}](${url})`,
+    relative_url: relative,
+    markdown: `![${String(row.original_name).replace(/[\[\]]/g, '')}](${relative})`,
     uploader_id: Number(row.uploader_id)
   };
 }
