@@ -88,6 +88,15 @@ async function ensureFoundationSchema() {
           KEY idx_api_v2_event_aggregate (aggregate_id, id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
+    await connection.query(`
+        CREATE TABLE IF NOT EXISTS announcement_dismissal (
+          user_id INT NOT NULL,
+          announcement_id INT NOT NULL,
+          dismissed_at BIGINT NOT NULL,
+          PRIMARY KEY (user_id, announcement_id),
+          KEY idx_announcement_dismissal_announcement (announcement_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
   })().catch(error => {
     schemaPromise = null;
     throw error;

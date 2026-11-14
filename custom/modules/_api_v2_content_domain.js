@@ -35,7 +35,39 @@ async function messageSendAccess(user, res) {
 async function discussionVisibility(user) { if (!user) return { unrestricted: false, userId: 0, problemIds: [] }; const [moderator, problemManager, problemIds] = await Promise.all([can(user, 'discussion:moderate'), can(user, 'problem:edit'), syzoj.utils.authorizationV2.authorizedScopeIds(user, 'problem', 'problem:read')]); return { unrestricted: moderator || problemManager, userId: Number(user.id), problemIds: problemIds.map(Number).filter(Number.isSafeInteger) }; }
 function discussionVisibilityFilter(access) { if (access.unrestricted) return { sql: '', params: [] }; const clauses = ['article.problem_id IS NULL', 'problem.is_public=1']; const params = []; if (access.userId) { clauses.push('article.user_id=?', 'problem.user_id=?'); params.push(access.userId, access.userId); } if (access.problemIds.length) { clauses.push(`problem.id IN (${access.problemIds.map(() => '?').join(',')})`); params.push(...access.problemIds); } return { sql: `AND (${clauses.join(' OR ')})`, params }; }
 
-app.get('/api/v2/announcements', async (req, res) => { const now = Math.floor(Date.now() / 1000); const limit = api().parseLimit(req, 30, 100); const offset = Math.max(0, Number(api().decodeCursor(req.query.cursor) || 0)); const rows = await TypeORM.getConnection().query("SELECT id,title,content,level,public_time,start_time,end_time,is_active FROM announcement WHERE is_active=1 AND (start_time IS NULL OR start_time<=?) AND (end_time IS NULL OR end_time>=?) ORDER BY CASE level WHEN 'important' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END ASC,COALESCE(start_time,public_time) DESC,id DESC LIMIT ? OFFSET ?", [now, now, limit + 1, offset]); const more = rows.length > limit; const page = rows.slice(0, limit); res.locals.apiMeta.limit = limit; res.locals.apiMeta.next_cursor = more ? api().encodeCursor(offset + limit) : null; const resources = await Promise.all(page.map(async row => ({ id: Number(row.id), title: row.title, content: row.content, content_rendered: await renderAnnouncementContent(row.content), level: row.level || 'info', published_at: time(row.public_time || row.start_time), expires_at: time(row.end_time) }))); return api().send(res, resources);
+app.get('/api/v2/announcements', async (req, res) => {
+  const now = Math.floor(Date.now() / 1000);
+  const limit = api().parseLimit(req, 30, 100);
+  const offset = Math.max(0, Number(api().decodeCursor(req.query.cursor) || 0));
+  const connection = TypeORM.getConnection();
+  const rows = await connection.query("SELECT id,title,content,level,public_time,start_time,end_time,is_active FROM announcement WHERE is_active=1 AND (start_time IS NULL OR start_time<=?) AND (end_time IS NULL OR end_time>=?) ORDER BY CASE level WHEN 'important' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END ASC,COALESCE(start_time,public_time) DESC,id DESC LIMIT ? OFFSET ?", [now, now, limit + 1, offset]);
+  const page = rows.slice(0, limit);
+  const dismissed = new Set();
+  if (res.locals.user && page.length) {
+    await api().ensureFoundationSchema();
+    const records = await connection.query(`SELECT announcement_id FROM announcement_dismissal
+      WHERE user_id=? AND announcement_id IN (${page.map(() => '?').join(',')})`, [res.locals.user.id, ...page.map(row => Number(row.id))]);
+    records.forEach(record => dismissed.add(Number(record.announcement_id)));
+  }
+  res.locals.apiMeta.limit = limit;
+  res.locals.apiMeta.next_cursor = rows.length > limit ? api().encodeCursor(offset + limit) : null;
+  const resources = await Promise.all(page.map(async row => ({
+    id: Number(row.id), title: row.title, content: row.content,
+    content_rendered: await renderAnnouncementContent(row.content), level: row.level || 'info',
+    published_at: time(row.public_time || row.start_time), expires_at: time(row.end_time),
+    dismissed: dismissed.has(Number(row.id))
+  })));
+  return api().send(res, resources);
+});
+app.post('/api/v2/announcements/:id/dismiss', async (req, res) => {
+  const user = res.locals.user;
+  if (!user) return api().fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.');
+  try {
+    const result = await contentTransaction(manager => contentDomain.dismissAnnouncement(manager, {
+      userId: user.id, announcementId: req.params.id, now: Math.floor(Date.now() / 1000)
+    }));
+    return api().send(res, { id: result.id, dismissed: result.dismissed, event_id: result.eventId });
+  } catch (error) { return contentFailure(res, error); }
 });
 app.get(['/api/v2/banners', '/api/v2/banners/active'], async (req, res) => { const now = Math.floor(Date.now() / 1000); const rows = await TypeORM.getConnection().query('SELECT id,title,image_path,link_url,sort_order,start_time,end_time FROM homepage_banner WHERE is_active=1 AND (start_time IS NULL OR start_time<=?) AND (end_time IS NULL OR end_time>=?) ORDER BY sort_order DESC,id DESC', [now, now]); return api().send(res, rows.map(row => ({ id: Number(row.id), title: row.title || null, image_url: row.image_path || null, link_url: row.link_url || null, starts_at: time(row.start_time), ends_at: time(row.end_time) })));
 });

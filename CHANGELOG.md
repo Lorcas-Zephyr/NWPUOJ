@@ -4,6 +4,8 @@
 
 ### Changed
 
+- Announcement pop-up dismissals now persist per account across browsers, devices and
+  site addresses. Guest preferences stay local; saving failures keep the dialog open for retry.
 - Creating or saving an activity now opens its overview; failed saves retain the form.
 - Simplified activity navigation and registration to two progress stages. Organizers see
   management entries only; registration uses a compact action beside the activity details.

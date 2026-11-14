@@ -1479,6 +1479,28 @@ async function updateAnnouncement(manager, input) {
   return { row: updatedRows[0], auditEventId, eventId };
 }
 
+async function dismissAnnouncement(manager, input) {
+  const userId = positiveId(input.userId, 'user_id');
+  const announcementId = positiveId(input.announcementId, 'announcement_id');
+  const now = Number(input.now);
+  const rows = await manager.query(`SELECT id FROM announcement
+    WHERE id=? AND is_active=1 AND level IN ('important','warning')
+      AND (start_time IS NULL OR start_time<=?) AND (end_time IS NULL OR end_time>=?)
+    LIMIT 1 FOR UPDATE`, [announcementId, now, now]);
+  if (!rows.length) throw contentError('ANNOUNCEMENT_NOT_FOUND', 'Announcement was not found or is no longer active.', 404);
+  const existing = await manager.query('SELECT dismissed_at FROM announcement_dismissal WHERE user_id=? AND announcement_id=? LIMIT 1', [userId, announcementId]);
+  if (existing.length) return { id: announcementId, dismissed: true, eventId: null };
+  await manager.query('INSERT INTO announcement_dismissal (user_id,announcement_id,dismissed_at) VALUES (?,?,?)', [userId, announcementId, now]);
+  const eventId = await appendEvent(manager, {
+    stream: `announcements:user:${userId}`,
+    type: 'announcement.dismissed',
+    aggregateId: announcementId,
+    actorId: userId,
+    payload: { announcement_id: announcementId }
+  });
+  return { id: announcementId, dismissed: true, eventId };
+}
+
 async function deleteAnnouncement(manager, input) {
   const actorId = positiveId(input.actorId, 'actor_id');
   const announcementId = positiveId(input.announcementId, 'announcement_id');
@@ -1489,6 +1511,7 @@ async function deleteAnnouncement(manager, input) {
     throw contentError('ETAG_MISMATCH', 'Announcement changed. Reload it before deleting.', 412);
   }
   await manager.query('DELETE FROM announcement WHERE id=?', [announcementId]);
+  await manager.query('DELETE FROM announcement_dismissal WHERE announcement_id=?', [announcementId]);
   const auditEventId = await input.recordAudit({
     action: 'admin:announcement.delete',
     resourceType: 'announcement',
@@ -1928,6 +1951,7 @@ module.exports = {
   deleteBanner,
   deleteClipboard,
   disableUserTag,
+  dismissAnnouncement,
   grantUserTag,
   markAllNotificationsRead,
   markNotificationRead,

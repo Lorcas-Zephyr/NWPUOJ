@@ -1087,7 +1087,7 @@ test('announcement deletion locks the current resource and persists audit plus e
     id: 81, title: 'Notice', content: 'Body', level: 'important', start_time: 10,
     end_time: 20, is_active: 1, public_time: 5, update_time: 5
   };
-  const manager = scriptedManager([[current], { affectedRows: 1 }, { insertId: 109 }]);
+  const manager = scriptedManager([[current], { affectedRows: 1 }, { affectedRows: 2 }, { insertId: 109 }]);
   let auditManager = null;
   const result = await content.deleteAnnouncement(manager, {
     announcementId: 81,
@@ -1107,7 +1107,9 @@ test('announcement deletion locks the current resource and persists audit plus e
   assert.equal(auditManager, manager);
   assert.match(manager.calls[0].sql, /FOR UPDATE/);
   assert.match(manager.calls[1].sql, /DELETE FROM announcement/);
-  assert.match(manager.calls[2].sql, /INSERT INTO api_v2_event/);
+  assert.match(manager.calls[2].sql, /DELETE FROM announcement_dismissal WHERE announcement_id=\?/);
+  assert.deepEqual(manager.calls[2].params, [81]);
+  assert.match(manager.calls[3].sql, /INSERT INTO api_v2_event/);
 
   const stale = scriptedManager([[current]]);
   await assert.rejects(

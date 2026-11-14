@@ -579,6 +579,7 @@ GET    /api/v2/tickets/relation-search
 POST   /api/v2/tickets/:id/replies
 POST   /api/v2/tickets/:id/assign
 GET    /api/v2/announcements
+POST   /api/v2/announcements/:id/dismiss
 GET    /api/v2/banners/active
 ```
 

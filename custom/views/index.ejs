@@ -121,16 +121,22 @@ function contestType(contest) {
 <script>
 (function () {
   'use strict';
-  var dismissedKey = 'nwpuoj_dismissed_announcements';
+  var signedIn = <%= user ? 'true' : 'false' %>;
+  var dismissedKey = 'nwpuoj_dismissed_announcements:guest';
   var list = document.querySelector('[data-announcement-list]');
   var dialogHost = document.querySelector('[data-announcement-dialogs]');
 
   function dismissedItems() {
-    try { return JSON.parse(localStorage.getItem(dismissedKey) || '{}'); }
+    if (signedIn) return {};
+    try {
+      var items = JSON.parse(localStorage.getItem(dismissedKey) || '{}');
+      return items && typeof items === 'object' && !Array.isArray(items) ? items : {};
+    }
     catch (error) { return {}; }
   }
 
   function saveDismissed(items) {
+    if (signedIn) return;
     try { localStorage.setItem(dismissedKey, JSON.stringify(items)); } catch (error) {}
   }
 
@@ -191,7 +197,7 @@ function contestType(contest) {
   function showImportant(items) {
     var dismissed = dismissedItems();
     var queue = items.filter(function (item) {
-      return (item.level === 'important' || item.level === 'warning') && !dismissed[item.id];
+      return (item.level === 'important' || item.level === 'warning') && !(signedIn ? item.dismissed : dismissed[item.id]);
     });
     function next() {
       var item = queue.shift();
@@ -201,11 +207,52 @@ function contestType(contest) {
       dialog.innerHTML = '<div class="app-dialog-header"><h2></h2><button class="app-icon-button" type="button" data-dialog-close aria-label="关闭"><i data-lucide="x"></i></button></div><div class="app-dialog-body app-markdown"></div><div class="app-dialog-actions"><label class="app-check"><input type="checkbox">不再弹出</label><button class="app-button app-button-primary" type="button" data-dialog-close>我已知晓</button></div>';
       dialog.querySelector('h2').textContent = item.title;
       dialog.querySelector('.app-dialog-body').innerHTML = item.content_rendered || '';
-      dialog.addEventListener('close', function () {
-        if (dialog.querySelector('input').checked) {
+      var saving = false;
+      var confirm = dialog.querySelector('.app-button-primary');
+      var saveError = document.createElement('div');
+      saveError.className = 'app-notice app-notice-danger';
+      saveError.setAttribute('role', 'alert');
+      saveError.hidden = true;
+      dialog.querySelector('.app-dialog-body').appendChild(saveError);
+      async function closeAnnouncement() {
+        if (saving) return;
+        if (!dialog.querySelector('input').checked) { dialog.close(); return; }
+        if (!signedIn) {
           dismissed[item.id] = Math.floor(Date.now() / 1000);
           saveDismissed(dismissed);
+          dialog.close();
+          return;
         }
+        saving = true;
+        saveError.hidden = true;
+        dialog.querySelectorAll('button, input').forEach(function (control) { control.disabled = true; });
+        confirm.textContent = '保存中…';
+        try {
+          var response = await fetch('/api/v2/announcements/' + encodeURIComponent(item.id) + '/dismiss', {
+            method: 'POST', credentials: 'same-origin', keepalive: true,
+            headers: { 'Content-Type': 'application/json' }, body: '{}'
+          });
+          var payload = await response.json();
+          if (!response.ok || !payload.data || !payload.data.dismissed) throw new Error('dismiss failed');
+          dialog.close();
+        } catch (error) {
+          saveError.textContent = '未能保存“不再弹出”，请重试。';
+          saveError.hidden = false;
+          saveError.scrollIntoView({ block: 'nearest' });
+        } finally {
+          saving = false;
+          dialog.querySelectorAll('button, input').forEach(function (control) { control.disabled = false; });
+          confirm.textContent = '我已知晓';
+        }
+      }
+      dialog.addEventListener('click', function (event) {
+        if (!event.target.closest('[data-dialog-close]')) return;
+        event.preventDefault();
+        event.stopPropagation();
+        closeAnnouncement();
+      });
+      dialog.addEventListener('cancel', function (event) { event.preventDefault(); closeAnnouncement(); });
+      dialog.addEventListener('close', function () {
         dialog.remove();
         next();
       });
