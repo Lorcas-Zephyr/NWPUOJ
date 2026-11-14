@@ -38,6 +38,9 @@
 
 ### Fixed
 
+- Avatar uploads now use their 2 MiB file limit plus multipart framing allowance at
+  the API gateway, instead of the generic 1 MiB request limit. Oversized selections
+  receive a clear size message before uploading.
 - Markdown image uploads and image-library inserts now use root-relative OJ asset
   paths, with previews following the current internal or public site address.
 - Testdata upload chunks now use a separate rate-limit counter, so larger ZIPs can

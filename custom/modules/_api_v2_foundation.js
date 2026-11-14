@@ -491,7 +491,8 @@ function gatewayLimits(req, res) {
     testdataArchiveBytes: Number(syzoj.config.limit && syzoj.config.limit.testdata || 8 * 1024 * 1024 * 1024),
     testdataFilesBytes: Number(syzoj.config.limit && syzoj.config.limit.testdata || 8 * 1024 * 1024 * 1024),
     additionalFileBytes: Number(syzoj.config.limit && syzoj.config.limit.data_size || 8 * 1024 * 1024 * 1024),
-    imageHostBytes: 10 * 1024 * 1024
+    imageHostBytes: 10 * 1024 * 1024,
+    avatarBytes: 2 * 1024 * 1024
   });
   const contentLength = Number(req.get('content-length') || 0);
   const bodyBytes = apiHelpers.bodySize(req.body);

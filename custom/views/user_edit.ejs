@@ -223,6 +223,10 @@ function showError(error) { if (window.NWPUOJApp) window.NWPUOJApp.showToast(err
     form.addEventListener('submit', async function (event) {
       if (event.defaultPrevented) return;
       event.preventDefault();
+      var input = form.querySelector('input[name="avatar"]');
+      var file = input && input.files && input.files[0];
+      if (!file) { showError(new Error('请选择头像图片。')); return; }
+      if (file.size > 2 * 1024 * 1024) { showError(new Error('头像不能超过 2 MB。')); return; }
       var button = form.querySelector('[type="submit"]');
       if (button) button.disabled = true;
       try {

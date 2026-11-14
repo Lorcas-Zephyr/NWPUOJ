@@ -77,6 +77,8 @@ function requestBodyLimit(pathValue, contentType, options = {}) {
     payloadBytes = Number(options.additionalFileBytes || 8 * 1024 * 1024 * 1024);
   } else if (path === '/api/v2/image-host') {
     payloadBytes = Number(options.imageHostBytes || 10 * 1024 * 1024);
+  } else if (/^\/api\/v2\/users\/\d+\/avatar$/.test(path)) {
+    payloadBytes = Number(options.avatarBytes || 2 * 1024 * 1024);
   }
   if (!Number.isSafeInteger(payloadBytes) || payloadBytes < 1) return defaultBytes;
   return payloadBytes + Math.max(0, overheadBytes);

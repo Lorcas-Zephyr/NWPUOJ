@@ -125,6 +125,11 @@ test('request body sizing and fixed-window limits are deterministic', () => {
   assert.equal(api.requestBodyLimit('/api/v2/problems/7/testdata/files?replace=1', 'multipart/form-data; boundary=x', limits), 21 * mib);
   assert.equal(api.requestBodyLimit('/api/v2/problems/7/additional-file', 'multipart/form-data; boundary=x', limits), 31 * mib);
   assert.equal(api.requestBodyLimit('/api/v2/image-host', 'multipart/form-data; boundary=x', limits), 11 * mib);
+  assert.equal(api.requestBodyLimit('/api/v2/users/7/avatar', 'multipart/form-data; boundary=x', limits), 3 * mib);
+  assert.equal(api.requestBodyLimit('/api/v2/users/7/avatar/?retry=1', 'multipart/form-data; boundary=x', limits), 3 * mib);
+  assert.equal(api.requestBodyLimit('/api/v2/users/7/avatar', 'application/json', limits), mib);
+  assert.equal(api.requestBodyLimit('/api/v2/users/7/avatar/extra', 'multipart/form-data; boundary=x', limits), mib);
+  assert.equal(api.requestBodyLimit('/api/v2/users/me/avatar', 'multipart/form-data; boundary=x', limits), mib);
   const buckets = new Map();
   assert.deepEqual(api.consumeFixedWindow(buckets, 'member:write', 1000, 60000, 2), { allowed: true, remaining: 1, resetAt: 61000 });
   assert.equal(api.consumeFixedWindow(buckets, 'member:write', 1001, 60000, 2).allowed, true);
@@ -141,10 +146,34 @@ test('gateway keeps the JSON limit while delegating known multipart uploads to r
   assert.match(source, /testdataFilesBytes: Number\(syzoj\.config\.limit/);
   assert.match(source, /additionalFileBytes: Number\(syzoj\.config\.limit/);
   assert.match(source, /imageHostBytes: 10 \* 1024 \* 1024/);
+  assert.match(source, /avatarBytes: 2 \* 1024 \* 1024/);
   assert.match(source, /contentLength > bodyLimit \|\| bodyBytes > bodyLimit/);
   assert.match(source, /maximum_bytes: bodyLimit/);
   assert.match(source, /isTestdataChunk/);
   assert.match(source, /isTestdataChunk \? 1200/);
+});
+
+test('avatar gateway permits the advertised file size plus multipart framing without enlarging other requests', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_foundation.js'), 'utf8');
+  let failure;
+  const context = { apiHelpers: api, syzoj: { config: {} }, apiFail: (_res, status, code, _message, fields) => { failure = { status, code, fields }; } };
+  vm.runInNewContext(source.slice(source.indexOf('const rateBuckets ='), source.indexOf('function requireCapability(')), context);
+  const mib = 1024 * 1024;
+  const check = (pathname, type, length) => {
+    failure = null;
+    return context.gatewayLimits({ baseUrl: '/api/v2', path: pathname, method: 'POST', body: {},
+      get: key => ({ 'content-type': type, 'content-length': String(length) }[key] || '') },
+    { locals: { user: { id: 7 } }, set() {} });
+  };
+  assert.equal(check('/users/7/avatar', 'multipart/form-data; boundary=fixture', 2 * mib + 2048), true);
+  assert.equal(failure, null);
+  assert.equal(check('/users/7/avatar', 'multipart/form-data; boundary=fixture', 3 * mib + 1), false);
+  assert.equal(failure.status, 413);
+  assert.equal(failure.fields.maximum_bytes, 3 * mib);
+  assert.equal(check('/users/7/avatar', 'application/json', mib + 1), false);
+  assert.equal(failure.fields.maximum_bytes, mib);
+  assert.equal(check('/users/7/profile', 'multipart/form-data; boundary=fixture', mib + 1), false);
+  assert.equal(failure.fields.maximum_bytes, mib);
 });
 
 test('chunk uploads cannot exhaust or increase the ordinary write allowance', () => {
