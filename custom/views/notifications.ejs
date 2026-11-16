@@ -1,20 +1,97 @@
 <% this.title = '通知中心' %>
 <% include app_header %>
 
-<div class="app-page app-notifications-page">
-  <header class="app-page-header"><div class="app-page-heading"><span class="app-kicker">NOTIFICATIONS</span><h1 class="app-page-title">通知中心</h1><p class="app-page-description"><%= unreadCount > 0 ? unreadCount + ' 条通知尚未阅读。' : '所有通知均已阅读。' %></p></div><% if (totalCount > 0 && unreadCount > 0) { %><form method="post" data-notification-v2="read-all" data-confirm="确认将所有通知标记为已读吗？"><button class="app-button app-button-secondary" type="submit"><i data-lucide="check-check"></i>全部已读</button></form><% } %></header>
-  <nav class="app-tabs" aria-label="通知筛选"><a class="app-tab<%= filter === 'all' ? ' is-active' : '' %>" href="<%= syzoj.utils.makeUrl(['notifications']) %>">全部 <span class="app-tab-count"><%= totalCount %></span></a><a class="app-tab<%= filter === 'unread' ? ' is-active' : '' %>" href="<%= syzoj.utils.makeUrl(['notifications'], { filter: 'unread' }) %>">未读 <span class="app-tab-count"><%= unreadCount %></span></a></nav>
-  <% if (notifications.length) { %><div class="app-notification-list"><% for (const notification of notifications) { %><article class="<%= notification.is_read ? '' : 'is-unread' %>"><span class="app-notification-marker"></span><div class="app-notification-main"><header><strong><%= notification.title %></strong><time><%= syzoj.utils.formatDate(notification.created_at) %></time></header><% if (notification.content) { %><% if (notification.type === 'site_notification' && notification.contentRendered) { %><div class="app-markdown"><%- notification.contentRendered %></div><% } else { %><p><%= notification.content %></p><% } %><% } %><small><% if (notification.actor) { %>来自 <a href="<%= syzoj.utils.makeUrl(['user', notification.actor.id]) %>"><%= notification.actor.username %></a><% } else { %>系统通知<% } %></small></div><div class="app-notification-actions"><% if (notification.source_url) { %><form method="post" data-notification-v2="read" data-notification-id="<%= notification.id %>"><button class="app-icon-button" type="submit" aria-label="查看通知" title="查看通知"><i data-lucide="arrow-right"></i></button></form><% } %><form method="post" data-notification-v2="delete" data-notification-id="<%= notification.id %>" data-confirm="确认删除此通知吗？"><button class="app-icon-button" type="submit" aria-label="删除通知" title="删除通知"><i data-lucide="trash"></i></button></form></div></article><% } %></div><% include app_pagination %><% } else { %><div class="app-empty"><div class="app-empty-inner"><i data-lucide="bell-off"></i><strong><%= filter === 'unread' ? '没有未读通知' : '暂无通知' %></strong><p>新的账号、社区和比赛通知会显示在这里。</p></div></div><% } %>
+<div class="app-page app-notifications-page" data-notifications-unread="<%= unreadCount %>">
+  <header class="app-page-header"><div class="app-page-heading"><span class="app-kicker">NOTIFICATIONS</span><h1 class="app-page-title">通知中心</h1><p class="app-page-description" data-notification-summary><%= unreadCount > 0 ? unreadCount + ' 条通知尚未阅读。' : '所有通知均已阅读。' %></p></div><% if (totalCount > 0 && unreadCount > 0) { %><form method="post" data-notification-v2="read-all" data-confirm="确认将所有通知标记为已读吗？"><button class="app-button app-button-secondary" type="submit"><i data-lucide="check-check"></i>全部已读</button></form><% } %></header>
+  <nav class="app-tabs" aria-label="通知筛选"><a class="app-tab<%= filter === 'all' ? ' is-active' : '' %>" href="<%= syzoj.utils.makeUrl(['notifications']) %>">全部 <span class="app-tab-count"><%= totalCount %></span></a><a class="app-tab<%= filter === 'unread' ? ' is-active' : '' %>" href="<%= syzoj.utils.makeUrl(['notifications'], { filter: 'unread' }) %>">未读 <span class="app-tab-count" data-notification-unread-count><%= unreadCount %></span></a></nav>
+  <% if (notifications.length) { %><div class="app-notification-list"><% for (const notification of notifications) { %><article data-notification-item="<%= notification.id %>" class="<%= notification.is_read ? '' : 'is-unread' %>"><span class="app-notification-marker"></span><div class="app-notification-main"><header><strong><%= notification.title %></strong><time><%= syzoj.utils.formatDate(notification.created_at) %></time></header><% if (notification.content) { %><% if (notification.type === 'site_notification' && notification.contentRendered) { %><div class="app-markdown"><%- notification.contentRendered %></div><% } else { %><p><%= notification.content %></p><% } %><% } %><small><% if (notification.actor) { %>来自 <a href="<%= syzoj.utils.makeUrl(['user', notification.actor.id]) %>"><%= notification.actor.username %></a><% } else { %>系统通知<% } %></small></div><div class="app-notification-actions"><% if (notification.source_url && notification.source_url !== '/notifications') { %><form method="post" data-notification-v2="read" data-notification-id="<%= notification.id %>"><button class="app-icon-button" type="submit" aria-label="查看通知" title="查看通知"><i data-lucide="arrow-right"></i></button></form><% } %><form method="post" data-notification-v2="delete" data-notification-id="<%= notification.id %>" data-confirm="确认删除此通知吗？"><button class="app-icon-button" type="submit" aria-label="删除通知" title="删除通知"><i data-lucide="trash"></i></button></form></div></article><% } %></div><% if (filter === 'unread') { %><nav class="app-pagination" data-notification-next-unread<%= unreadCount > notifications.length ? '' : ' hidden' %>><a href="<%= syzoj.utils.makeUrl(['notifications'], { filter: 'unread' }) %>">继续查看未读<i data-lucide="chevron-right"></i></a></nav><% } else { %><% include app_pagination %><% } %><% } else { %><div class="app-empty"><div class="app-empty-inner"><i data-lucide="bell-off"></i><strong><%= filter === 'unread' ? '没有未读通知' : '暂无通知' %></strong><p>新的账号、社区和比赛通知会显示在这里。</p></div></div><% } %>
 </div>
 
 <script>
 (function () {
+  var root = document.querySelector('[data-notifications-unread]');
+  if (!root) return;
+  var unreadCount = Number(root.dataset.notificationsUnread);
+  var states = Array.from(root.querySelectorAll('[data-notification-item]')).map(function (item) {
+    return { item: item, title: item.querySelector('.app-notification-main header'), timer: null, pending: null, failures: 0 };
+  });
+  var queue = Promise.resolve();
   function operationKey() { return window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random(); }
-document.addEventListener('submit', async function (event) {
+  function updateUnread(count) {
+    unreadCount = Math.max(0, Number(count));
+    root.dataset.notificationsUnread = String(unreadCount);
+    root.querySelector('[data-notification-summary]').textContent = unreadCount ? unreadCount + ' 条通知尚未阅读。' : '所有通知均已阅读。';
+    root.querySelector('[data-notification-unread-count]').textContent = unreadCount;
+    var nextUnread = root.querySelector('[data-notification-next-unread]');
+    if (nextUnread) nextUnread.hidden = unreadCount <= states.filter(function (state) { return state.item.classList.contains('is-unread'); }).length;
+    var readAll = root.querySelector('[data-notification-v2="read-all"]');
+    if (readAll) readAll.hidden = !unreadCount;
+    document.querySelectorAll('a[aria-label="通知中心"] .app-notification-count').forEach(function (badge) {
+      badge.textContent = unreadCount > 99 ? '99+' : unreadCount;
+      badge.hidden = !unreadCount;
+    });
+  }
+  function isVisible(state) {
+    if (document.hidden) return false;
+    var rect = state.title.getBoundingClientRect();
+    var topbar = document.querySelector('.app-topbar');
+    var top = topbar ? Math.max(0, topbar.getBoundingClientRect().bottom) : 0;
+    return rect.width > 0 && rect.height > 0 && rect.right > 0 && rect.left < window.innerWidth &&
+      Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, top) >= Math.min(rect.height, 80) / 2;
+  }
+  async function readNotification(state) {
+    if (state.pending) return state.pending;
+    state.pending = (async function () {
+      var response = await fetch('/api/v2/notifications/' + encodeURIComponent(state.item.dataset.notificationItem) + '/read', {
+        method: 'POST', credentials: 'same-origin', keepalive: true,
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operationKey() }, body: '{}'
+      });
+      var body = await response.json();
+      if (!response.ok) throw new Error(body.error && body.error.message || '通知操作失败');
+      var wasUnread = state.item.classList.contains('is-unread');
+      state.item.classList.remove('is-unread');
+      updateUnread(body.data.unread_count == null ? unreadCount - (wasUnread ? 1 : 0) : body.data.unread_count);
+      return body.data;
+    })();
+    try { return await state.pending; } finally { state.pending = null; }
+  }
+  function scan() {
+    states.forEach(function (state) {
+      if (!isVisible(state)) { window.clearTimeout(state.timer); state.timer = null; return; }
+      if (!state.item.classList.contains('is-unread') || state.timer !== null || state.pending || state.failures >= 3) return;
+      state.timer = window.setTimeout(function () {
+        queue = queue.then(async function () {
+          state.timer = null;
+          if (!isVisible(state) || !state.item.classList.contains('is-unread')) return;
+          try { await readNotification(state); }
+          catch (_) { state.failures++; window.setTimeout(scan, 3000); }
+        });
+      }, 350);
+    });
+  }
+  if (window.IntersectionObserver) {
+    var observer = new IntersectionObserver(scan, { threshold: [0, 0.5, 1] });
+    states.forEach(function (state) { observer.observe(state.title); });
+  }
+  var scanFrame;
+  function scheduleScan() { window.cancelAnimationFrame(scanFrame); scanFrame = window.requestAnimationFrame(scan); }
+  window.addEventListener('scroll', scheduleScan, { passive: true });
+  window.addEventListener('resize', scheduleScan);
+  window.addEventListener('online', function () { states.forEach(function (state) { state.failures = 0; }); scan(); });
+  document.addEventListener('visibilitychange', scan);
+  scan();
+  document.addEventListener('submit', async function (event) {
     var form = event.target.closest('[data-notification-v2]'); if (!form || event.defaultPrevented) return;
     event.preventDefault(); var action = form.dataset.notificationV2; var id = form.dataset.notificationId; var button = form.querySelector('button[type="submit"]'); if (button) button.disabled = true;
     var endpoint = action === 'read-all' ? '/api/v2/notifications/read-all' : '/api/v2/notifications/' + encodeURIComponent(id) + (action === 'read' ? '/read' : '');
     try {
+      if (action === 'read') {
+        var state = states.find(function (entry) { return entry.item.dataset.notificationItem === id; });
+        var data = await readNotification(state);
+        if (data.source_url) window.location.assign(data.source_url);
+        else if (button) button.disabled = false;
+        return;
+      }
       var response = await fetch(endpoint, { method: action === 'delete' ? 'DELETE' : 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operationKey() }, body: action === 'delete' ? undefined : '{}' });
       var body = await response.json();
       if (!response.ok) throw new Error(body.error && body.error.message || '通知操作失败');

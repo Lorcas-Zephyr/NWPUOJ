@@ -68,7 +68,7 @@ app.get('/notifications', async (req, res) => {
 
     let pageSize = 20;
     let total = await Notification.count(where);
-    let paginate = syzoj.utils.paginate(total, req.query.page, pageSize);
+    let paginate = syzoj.utils.paginate(total, filter === 'unread' ? 1 : req.query.page, pageSize);
     let notifications = await Notification.queryPage(paginate, where, {
       created_at: 'DESC'
     });

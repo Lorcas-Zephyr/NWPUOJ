@@ -43,6 +43,63 @@ test('single notification read locks ownership and writes its event atomically',
   assert.match(manager.calls[2].sql, /INSERT INTO api_v2_event/);
 });
 
+test('automatic reading is idempotent and cannot read another user notification', async () => {
+  const manager = scriptedManager([[{ id: 8, source_url: '/notifications', is_read: 1, read_at: 100 }]]);
+  const result = await content.markNotificationRead(manager, { notificationId: 8, userId: 4, now: 200 });
+  assert.equal(result.updated, 0);
+  assert.equal(result.readAt, 100);
+  assert.equal(result.eventId, null);
+  assert.equal(manager.calls.length, 1);
+  const other = scriptedManager([[]]);
+  await assert.rejects(content.markNotificationRead(other, { notificationId: 8, userId: 5, now: 200 }), { code: 'NOTIFICATION_NOT_FOUND' });
+  assert.equal(other.calls.length, 1);
+  assert.deepEqual(other.calls[0].params, [8, 5]);
+});
+
+test('notification read response refreshes the unread count and invalidates cached header state', async () => {
+  const source = read('custom/modules/_api_v2_content_domain.js');
+  const routeSource = source.slice(source.indexOf('async function notificationUnreadCount'), source.indexOf("app.get('/api/v2/users/:id/hit-history'"));
+  const routes = new Map(), invalidated = [];
+  const manager = scriptedManager([[{ id: 8, source_url: '/contest/1', is_read: 0 }], { affectedRows: 1 }, { insertId: 72 }, [{ count: 3 }]]);
+  const api = { send: (_res, data) => data, fail: (_res, status, code) => ({ status, code }) };
+  const context = { TypeORM: { getConnection: () => manager }, contentDomain: content,
+    syzoj: { utils: { invalidateUserRequestStateCache: id => invalidated.push(id) } },
+    app: { post: (path, handler) => routes.set(path, handler), delete: () => {} },
+    api: () => api, can: async () => true, time: value => value,
+    contentTransaction: work => work(manager), contentFailure: (_res, error) => { throw error; } };
+  require('node:vm').runInNewContext(routeSource, context);
+  const route = routes.get('/api/v2/notifications/:id/read');
+  const result = await route({ params: { id: 8 } }, { locals: { user: { id: 4 } } });
+  assert.equal(result.unread_count, 3);
+  assert.deepEqual(invalidated, [4]);
+  assert.deepEqual(Array.from(manager.calls[3].params), [4]);
+  assert.match(manager.calls[3].sql, /recipient_id=\? AND is_read=0/);
+  const anonymous = await route({ params: { id: 8 } }, { locals: {} });
+  assert.equal(anonymous.status, 401);
+  assert.equal(manager.calls.length, 4);
+});
+
+test('unread inbox continues from remaining unread messages without skipping after automatic reads', async () => {
+  const routeSource = read('custom/modules/notification.js');
+  let handler, pageRequested;
+  const remaining = [{ id: 2, type: 'contest_rating', is_read: 0 }];
+  const notification = { count: async () => remaining.length,
+    queryPage: async () => remaining.slice() };
+  const context = { app: { get: (_path, route) => { handler = route; } },
+    require: name => name === 'typeorm' ? { getConnection: () => ({ query: async () => [{ cnt: remaining.length }] }) } : { linkUserMentions: async text => text },
+    syzoj: { model: () => notification, log: error => { throw error; }, utils: {
+      paginate: (_count, page) => { pageRequested = page; return { currPage: page }; }
+    } } };
+  require('node:vm').runInNewContext(routeSource, context);
+  let rendered;
+  await handler({ query: { filter: 'unread', page: '2' } }, { locals: { user: { id: 4 } }, render: (_view, data) => { rendered = data; } });
+  assert.equal(pageRequested, 1);
+  assert.equal(rendered.notifications[0].id, 2);
+  assert.equal(rendered.unreadCount, 1);
+  await handler({ query: { filter: 'all', page: '2' } }, { locals: { user: { id: 4 } }, render: () => {} });
+  assert.equal(pageRequested, '2');
+});
+
 test('notification delete locks ownership before deleting data and appending its event', async () => {
   const manager = scriptedManager([[{ id: 8 }], { affectedRows: 1 }, { insertId: 73 }]);
   const result = await content.deleteNotification(manager, { notificationId: 8, userId: 4 });
