@@ -31,12 +31,12 @@ const appStatusClasses = { pending: 'app-status-pending', in_progress: 'app-stat
   <% } else { %>
     <div class="app-ticket-list">
       <% for (const ticket of tickets) { const cat = categories[ticket.category]; const state = statusMeta[ticket.status]; const creator = creatorMap[ticket.creator_id]; const assignee = ticket.assignee_id ? assigneeMap[ticket.assignee_id] : null; const subtype = cat ? (cat.subtypes.find(function (item) { return item.value === ticket.subtype; }) || {}).label : ticket.subtype; %>
-        <a class="app-ticket-row" href="<%= syzoj.utils.makeUrl(['ticket', ticket.id]) %>">
+        <div class="app-ticket-row app-linked-row">
           <span class="app-ticket-icon"><i data-lucide="<%= appCategoryIcons[ticket.category] || 'message-square' %>"></i></span>
-          <span class="app-ticket-main"><span class="app-ticket-title"><strong><%= ticket.title %></strong><small>#<%= ticket.id %></small></span><span class="app-ticket-meta"><span><%= cat ? cat.label : ticket.category %><% if (subtype) { %> · <%= subtype %><% } %></span><% if (creator) { %><span>由 <%- syzoj.utils.renderUsername(creator) %> 创建</span><% } %><span><%= assignee ? '处理人：' : '尚未分配' %><% if (assignee) { %><%- syzoj.utils.renderUsername(assignee) %><% } %></span></span></span>
+          <span class="app-ticket-main"><span class="app-ticket-title"><strong><a class="app-row-destination" href="<%= syzoj.utils.makeUrl(['ticket', ticket.id]) %>"><%= ticket.title %></a></strong><small>#<%= ticket.id %></small></span><span class="app-ticket-meta"><span><%= cat ? cat.label : ticket.category %><% if (subtype) { %> · <%= subtype %><% } %></span><% if (creator) { %><span>由 <%- syzoj.utils.renderUsername(creator) %> 创建</span><% } %><span><%= assignee ? '处理人：' : '尚未分配' %><% if (assignee) { %><%- syzoj.utils.renderUsername(assignee) %><% } %></span></span></span>
           <span class="app-ticket-state"><span class="app-status <%= appStatusClasses[ticket.status] || 'app-status-muted' %>"><%= state ? state.label : ticket.status %></span><time><%= syzoj.utils.formatDate(ticket.updated_at) %></time></span>
           <i class="app-ticket-arrow" data-lucide="chevron-right"></i>
-        </a>
+        </div>
       <% } %>
     </div>
     <% include app_pagination %>

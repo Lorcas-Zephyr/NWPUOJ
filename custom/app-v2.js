@@ -770,20 +770,38 @@
   function refreshUsernameTiers(scope) {
     var tiers = window.__SYZOJ_USER_TIERS || {};
     var target = scope && typeof scope.querySelectorAll === 'function' ? scope : document;
-    target.querySelectorAll('a[href^="/user/"]').forEach(function (link) {
-      if (Array.prototype.some.call(link.classList, function (name) { return name.indexOf('username-tier-') === 0; })) return;
-      var path;
-      try {
-        var url = new URL(link.href, window.location.href);
-        if (url.origin !== window.location.origin) return;
-        path = url.pathname;
-      } catch (error) {
-        return;
+    var selector = 'a[href^="/user/"], [data-username-id]';
+    var names = Array.from(target.querySelectorAll(selector));
+    if (target.matches && target.matches(selector)) names.unshift(target);
+    names.forEach(function (link) {
+      var userId = link.getAttribute('data-username-id');
+      if (!userId) {
+        try {
+          var url = new URL(link.href, window.location.href);
+          if (url.origin !== window.location.origin) return;
+          var match = /^\/user\/(\d+)\/?$/.exec(url.pathname);
+          if (!match) return;
+          userId = match[1];
+        } catch (error) { return; }
       }
-      var match = /^\/user\/(\d+)\/?$/.exec(path);
-      if (!match) return;
-      link.classList.add('username-tier-' + (tiers[match[1]] || 'default'));
+      var tier = 'username-tier-' + (tiers[Number(userId)] || 'default');
+      Array.from(link.classList).forEach(function (name) {
+        if (name.indexOf('username-tier-') === 0 && name !== tier) link.classList.remove(name);
+      });
+      link.classList.add(tier);
     });
+  }
+
+  function observeUsernameTiers() {
+    if (!window.MutationObserver) return;
+    new MutationObserver(function (records) {
+      records.forEach(function (record) {
+        if (record.type === 'attributes') refreshUsernameTiers(record.target);
+        else record.addedNodes.forEach(function (node) {
+          if (node.nodeType === 1) refreshUsernameTiers(node);
+        });
+      });
+    }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['href', 'data-username-id'] });
   }
 
   function setupReveals() {
@@ -917,6 +935,7 @@
     setupFileInputs();
     setupDateTimePickers();
     refreshUsernameTiers();
+    observeUsernameTiers();
     setupReveals();
     setupGlobalEvents();
     wrapFetch();

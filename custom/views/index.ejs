@@ -15,7 +15,7 @@ function contestType(contest) {
 <div class="app-page app-home">
   <header class="app-page-header">
     <div class="app-page-heading">
-      <span class="app-kicker"><% if (user) { %>欢迎回来，<%- syzoj.utils.renderUsername(user, { noLink: true, noTag: true }) %><% } else { %>NWPU ONLINE JUDGE<% } %></span>
+      <span class="app-kicker"><% if (user) { %>欢迎回来，<%- syzoj.utils.renderUsername(user, { noTag: true }) %><% } else { %>NWPU ONLINE JUDGE<% } %></span>
       <h1 class="app-page-title"><%= syzoj.config.title %></h1>
       <p class="app-page-description">查看近期比赛、站点公告并快速进入题库。</p>
     </div>

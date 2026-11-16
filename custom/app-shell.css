@@ -578,7 +578,7 @@ body.app-v2.is-dialog-open {
   animation: app-menu-in 130ms ease-out;
 }
 
-.app-account-menu a {
+.app-account-menu > a {
   display: flex;
   min-height: 38px;
   align-items: center;
@@ -589,7 +589,7 @@ body.app-v2.is-dialog-open {
   font-size: 13px;
 }
 
-.app-account-menu a:hover {
+.app-account-menu > a:hover {
   background: var(--app-bg);
   color: var(--app-text);
 }

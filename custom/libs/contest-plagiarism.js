@@ -308,7 +308,7 @@ function parseComparisons(report, submissions) {
   return { pairs, failed: run.failedSubmissions.map(item => {
     const name = item.submissionId;
     const submission = users.get(name) || users.get(mappings.submissionIds[name]);
-    return { state: item.submissionState, username: submission ? submission.username : name, submission_id: submission ? submission.id : null };
+    return { state: item.submissionState, user_id: submission ? submission.user_id : null, username: submission ? submission.username : name, submission_id: submission ? submission.id : null };
   }) };
 }
 

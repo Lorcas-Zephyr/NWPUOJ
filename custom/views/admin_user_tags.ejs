@@ -67,12 +67,12 @@
               <td><%= record.tag_text || '-' %></td>
               <td><span class="app-status <%= record.is_visible ? 'app-status-accepted' : 'app-status-muted' %>"><%= record.is_visible ? '展示' : '隐藏' %></span></td>
               <td>
-                <% if (record.granted_by === null) { %>自动授权<% } else if (granter) { %><%= granter.username %><% if (record.granted_at) { %><small class="app-row-description"><%= syzoj.utils.formatDate(record.granted_at) %></small><% } %><% } else { %>管理员 UID #<%= record.granted_by %><% } %>
+                <% if (record.granted_by === null) { %>自动授权<% } else if (granter) { %><%- syzoj.utils.renderUsername(granter, { noTag: true }) %><% if (record.granted_at) { %><small class="app-row-description"><%= syzoj.utils.formatDate(record.granted_at) %></small><% } %><% } else { %>管理员 UID #<%= record.granted_by %><% } %>
               </td>
               <td>
                 <span class="app-status <%= record.is_disabled ? 'app-status-rejected' : 'app-status-accepted' %>"><%= record.is_disabled ? '已禁用' : '正常' %></span>
                 <% if (record.disabled_reason) { %><small class="app-row-description"><%= record.disabled_reason %></small><% } %>
-                <% if (disabler && record.disabled_at) { %><small class="app-row-description"><%= disabler.username %> · <%= syzoj.utils.formatDate(record.disabled_at) %></small><% } %>
+                <% if (disabler && record.disabled_at) { %><small class="app-row-description"><%- syzoj.utils.renderUsername(disabler, { noTag: true }) %> · <%= syzoj.utils.formatDate(record.disabled_at) %></small><% } %>
               </td>
               <td class="app-cell-actions">
                 <% if (record.is_disabled) { %>

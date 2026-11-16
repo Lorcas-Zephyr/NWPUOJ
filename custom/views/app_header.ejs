@@ -80,9 +80,9 @@ if (syzoj.userTagsEnabled !== false && syzoj.userTags) {
   <link rel="apple-touch-icon" href="/self/favicon.png?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20261104-transparent-1">
   <link rel="stylesheet" href="<%- selfLib('syntect-tomorrow.css') %>?20220512">
   <link rel="stylesheet" href="/self/lib/flatpickr-4.6.13/flatpickr.min.css">
-  <link rel="stylesheet" href="/self/app-shell.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20261016-legal-1">
+  <link rel="stylesheet" href="/self/app-shell.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20261116-username-links-1">
   <link rel="stylesheet" href="/self/app-shared.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20261109-activity-workflow-1">
-  <link rel="stylesheet" href="/self/app-features.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20261030-rank-statistics-1">
+  <link rel="stylesheet" href="/self/app-features.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20261116-username-links-1">
   <link rel="stylesheet" href="/self/username_tiers.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20260731-3">
   <!-- Load before Monaco installs its AMD loader on submission pages. -->
   <script src="/self/lib/flatpickr-4.6.13/flatpickr.min.js"></script>
@@ -179,9 +179,9 @@ if (syzoj.userTagsEnabled !== false && syzoj.userTags) {
             <a class="app-icon-button app-hide-phone" href="/messages" aria-label="站内信" title="站内信"><%- appNavIcon('mail') %><% if (typeof unreadMessagesCount !== 'undefined' && unreadMessagesCount > 0) { %><span class="app-notification-count"><%= unreadMessagesCount > 99 ? '99+' : unreadMessagesCount %></span><% } %></a>
             <% } %>
             <details class="app-account">
-              <summary><img class="app-avatar" src="<%= syzoj.utils.avatar(user, 64) %>" alt=""><span class="app-account-name"><%- syzoj.utils.renderUsername(user, { noLink: true, noTag: true }) %></span><%- appNavIcon('chevron-down') %></summary>
+              <summary><img class="app-avatar" src="<%= syzoj.utils.avatar(user, 64) %>" alt=""><span class="app-account-name"><%- syzoj.utils.renderUsername(user, { noTag: true }) %></span><%- appNavIcon('chevron-down') %></summary>
               <div class="app-account-menu">
-                <div class="app-account-meta"><strong><%- syzoj.utils.renderUsername(user, { noLink: true, noTag: true }) %></strong><span><%= appContestOnly ? '临时比赛账号' : '已登录' %></span></div>
+                <div class="app-account-meta"><strong><%- syzoj.utils.renderUsername(user, { noTag: true }) %></strong><span><%= appContestOnly ? '临时比赛账号' : '已登录' %></span></div>
                 <% if (!appContestOnly) { %>
                 <a href="<%= syzoj.utils.makeUrl(['user', user.id]) %>"><%- appNavIcon('user-round') %>个人主页</a>
                 <a href="<%= syzoj.utils.makeUrl(['user', user.id, 'edit']) %>"><%- appNavIcon('square-pen') %>账号设置</a>

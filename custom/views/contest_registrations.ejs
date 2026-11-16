@@ -254,6 +254,7 @@ document.querySelectorAll('form[data-contest-participant-v2]').forEach(function 
           var copy = document.createElement('span');
           var name = document.createElement('strong');
           var details = document.createElement('small');
+          name.dataset.usernameId = userId;
           name.textContent = account.name || account.username || ('#' + userId);
           details.textContent = ['#' + userId, account.real_name, account.student_id].filter(Boolean).join(' · ');
           copy.appendChild(name);

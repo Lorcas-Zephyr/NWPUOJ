@@ -29,7 +29,7 @@ if (appEditMessage === '') appEditMessage = '修改成功。';
 <% include app_header %>
 
 <div class="app-page app-settings-page">
-  <header class="app-page-header"><div class="app-page-heading"><span class="app-kicker">ACCOUNT SETTINGS</span><h1 class="app-page-title"><%= edited_user.id === user.id ? '账号设置' : '管理用户资料' %></h1><p class="app-page-description"><%= edited_user.username %> · 用户 #<%= edited_user.id %></p></div><div class="app-page-actions"><a class="app-button app-button-quiet" href="<%= syzoj.utils.makeUrl(['user', edited_user.id]) %>"><i data-lucide="arrow-left"></i>返回主页</a></div></header>
+  <header class="app-page-header"><div class="app-page-heading"><span class="app-kicker">ACCOUNT SETTINGS</span><h1 class="app-page-title"><%= edited_user.id === user.id ? '账号设置' : '管理用户资料' %></h1><p class="app-page-description"><%- syzoj.utils.renderUsername(edited_user, { noTag: true }) %> · 用户 #<%= edited_user.id %></p></div><div class="app-page-actions"><a class="app-button app-button-quiet" href="<%= syzoj.utils.makeUrl(['user', edited_user.id]) %>"><i data-lucide="arrow-left"></i>返回主页</a></div></header>
 
   <% if (appRequiresIdentity) { %><div class="app-notice app-notice-warning" role="alert"><i data-lucide="triangle-alert"></i><span><strong>请先补全实名资料</strong><small>填写学号、姓名和学院并保存后，方可继续使用其他功能。</small></span></div><% } %>
   <% if (appEditMessage !== null) { %><div class="app-notice <%= error_info === '' ? 'app-notice-success' : 'app-notice-danger' %>" id="account-form-message"><i data-lucide="<%= error_info === '' ? 'circle-check' : 'circle-alert' %>"></i><span id="account-form-message-text"><%= appEditMessage %></span></div><% } %>

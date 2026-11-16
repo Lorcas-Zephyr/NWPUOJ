@@ -6,7 +6,7 @@
 <section class="app-admin-section">
   <div class="app-section-header"><div><h3 class="app-section-title">AI 账户</h3><p class="app-section-description">账户由系统创建，密码不会展示或用于人工登录。</p></div></div>
   <div class="app-table-region"><table class="app-table"><thead><tr><th>账户</th><th>Provider</th><th>模型</th><th>密钥状态</th></tr></thead><tbody>
-    <% agents.forEach(function (agent) { %><tr><td class="app-cell-primary"><strong><%= agent.username %></strong></td><td><%= agent.provider %></td><td><%= agent.model %></td><td><span class="app-status <%= agent.configured ? 'app-status-accepted' : 'app-status-rejected' %>"><%= agent.configured ? '已配置' : '未配置' %></span></td></tr><% }); %>
+    <% agents.forEach(function (agent) { %><tr><td class="app-cell-primary"><strong><%- syzoj.utils.renderUsername({ id: agent.user_id, username: agent.username }, { noTag: true }) %></strong></td><td><%= agent.provider %></td><td><%= agent.model %></td><td><span class="app-status <%= agent.configured ? 'app-status-accepted' : 'app-status-rejected' %>"><%= agent.configured ? '已配置' : '未配置' %></span></td></tr><% }); %>
   </tbody></table></div>
 </section>
 
@@ -39,7 +39,7 @@
     (items || []).forEach(function (run) {
       var row = document.createElement('tr');
       var contest = '#' + run.contest_id + ' · ' + (run.contest_title || '比赛已删除');
-      [contest, run.username || run.provider || '-', stateText(run.state), run.current_problem_id == null ? '-' : '#' + run.current_problem_id, (run.current_attempt || 0) + ' / ' + (run.max_attempts || 20), timeText(run.finished_at || run.updated_at)].forEach(function (value, index) { var cell = document.createElement('td'); if (index < 2) cell.className = 'app-cell-primary'; cell.textContent = value; if (index === 2 && run.last_error) cell.title = run.last_error; row.appendChild(cell); });
+      [contest, run.username || run.provider || '-', stateText(run.state), run.current_problem_id == null ? '-' : '#' + run.current_problem_id, (run.current_attempt || 0) + ' / ' + (run.max_attempts || 20), timeText(run.finished_at || run.updated_at)].forEach(function (value, index) { var cell = document.createElement('td'); if (index < 2) cell.className = 'app-cell-primary'; cell.textContent = value; if (index === 1 && run.user_id && run.username) { var profile = document.createElement('a'); profile.href = '/user/' + Number(run.user_id); profile.textContent = run.username; cell.replaceChildren(profile); } if (index === 2 && run.last_error) cell.title = run.last_error; row.appendChild(cell); });
       var action = document.createElement('td'); if (!['completed','stopped','failed','cancelled'].includes(run.state)) { var button = document.createElement('button'); button.type = 'button'; button.className = 'app-button app-button-quiet app-button-small'; button.textContent = '停止'; button.addEventListener('click', async function () { button.disabled = true; await fetch('/api/v2/contests/' + encodeURIComponent(run.contest_id) + '/ai-runs/' + encodeURIComponent(run.id) + '/cancel', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}' }); load(); }); action.appendChild(button); } else action.textContent = '-'; row.appendChild(action); rows.appendChild(row);
     });
     if (!(items && items.length)) { var empty = document.createElement('tr'); var cell = document.createElement('td'); cell.colSpan = 7; cell.textContent = '暂无 AI 参赛记录。'; empty.appendChild(cell); rows.appendChild(empty); }

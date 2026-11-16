@@ -97,7 +97,16 @@
       var label = '#' + group.problem_id + ' ' + group.title + ' · ' + group.language_label;
       var option = node('option', label); option.value = group.key; find('group').append(option);
       var tr = node('tr'), result = node('td', (states[group.state] || [group.state])[0] + (group.message ? ' · ' + group.message : ''));
-      if (group.failed && group.failed.length) result.append(node('small', group.failed.map(function (item) { return String(item.username || item.submissionName || item.name || '') + (item.submission_id ? ' #' + item.submission_id : '') + ' ' + String(item.state || ''); }).join('；'), 'app-row-description'));
+      if (group.failed && group.failed.length) {
+        var failures = node('small', null, 'app-row-description');
+        group.failed.forEach(function (item, index) {
+          if (index) failures.append(document.createTextNode('；'));
+          var name = String(item.username || item.submissionName || item.name || '');
+          failures.append(item.user_id ? link(name, '/user/' + Number(item.user_id)) : document.createTextNode(name));
+          failures.append(document.createTextNode((item.submission_id ? ' #' + item.submission_id : '') + ' ' + String(item.state || '')));
+        });
+        result.append(failures);
+      }
       tr.append(node('td', label), node('td', group.count), result);
       var td = node('td');
       if (group.report) {
@@ -142,7 +151,7 @@
       matches = result.matches;
       find('comparison-status').textContent = '平均相似度 ' + percentage(result.similarity) + '，高亮区域为 JPlag 匹配的代码片段。';
       ['first', 'second'].forEach(function (side) {
-        var row = result[side]; find(side + '-title').replaceChildren(link(row.username + ' · #' + row.id, '/contest/submission/' + row.id));
+        var row = result[side]; find(side + '-title').replaceChildren(link(row.username, '/user/' + row.user_id), document.createTextNode(' · '), link('#' + row.id, '/contest/submission/' + row.id));
         renderCode(find(side + '-code'), row.code, side === 'first' ? 'First' : 'Second');
       });
       focusMatch(0);

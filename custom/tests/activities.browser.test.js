@@ -589,3 +589,35 @@ test('participants get one compact entry and two registration stages', async () 
     assert.deepEqual(f.failures, []);
   } finally { await f.context.close(); }
 });
+
+test('roster names keep profile links and account colors after filtering while member buttons still select details', async () => {
+  const f = await fixture('detail', 'roster');
+  try {
+    await f.page.evaluate(() => { window.__SYZOJ_USER_TIERS = { 1: 'admin', 2: 'blue', 3: 'cheater' }; window.NWPUOJApp.refreshUsernameTiers(); });
+    const record = f.page.locator('[data-roster-id="4"]');
+    assert.match(await record.locator('summary a[href="/user/1"]').first().getAttribute('class'), /username-tier-admin/);
+    await record.locator('summary').click();
+    await record.locator('[data-roster-member="2"]').click();
+    assert.ok(await record.locator('[data-roster-person="2"]').isVisible());
+    assert.equal(await record.locator('[data-roster-person="2"] .activity-identity a').getAttribute('href'), '/user/2');
+    assert.match(await record.locator('[data-roster-member="2"] span').getAttribute('class'), /username-tier-blue/);
+    await f.page.locator('[data-roster-search] [name="search"]').fill('追光队');
+    await f.page.locator('[data-roster-search]').evaluate(form => form.requestSubmit());
+    await f.page.locator('[data-roster-id="4"]').waitFor({ state: 'detached' });
+    assert.match(await f.page.locator('[data-roster-id="5"] summary a').first().getAttribute('class'), /username-tier-cheater/);
+    assert.deepEqual(f.failures, []);
+  } finally { await f.context.close(); }
+});
+
+test('team invitations and accepted memberships link each account to its own profile', async () => {
+  const f = await fixture('detail', 'mine', false, data => {
+    data.invitations = [{ id: 8, team_name: '邀请队伍', leader_id: 2, leader_username: 'leader' }];
+  });
+  try {
+    assert.equal(await f.page.locator('.activity-invitation a').getAttribute('href'), '/user/2');
+    await f.page.locator('[data-invite-action="accept"]').click();
+    await f.page.locator('.activity-member a[href="/user/2"]').waitFor();
+    assert.equal(await f.page.locator('.activity-identity a').getAttribute('href'), '/user/1');
+    assert.deepEqual(f.failures, []);
+  } finally { await f.context.close(); }
+});

@@ -9,11 +9,11 @@ const vm = require('node:vm');
 const root = path.resolve(__dirname, '../..');
 const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf8');
 
-test('profile heading and public username reuse the shared tag renderer without self links', () => {
+test('profile heading and public username reuse the shared profile link and tag renderer', () => {
   const view = read('custom/views/user.ejs');
-  assert.match(view, /<h1[^>]*>[\s\S]*?renderUsername\(show_user, \{ noLink: true \}\)[\s\S]*?<\/h1>/);
-  assert.match(view, /<dt>用户名<\/dt><dd><%- syzoj\.utils\.renderUsername\(show_user, \{ noLink: true \}\) %><\/dd>/);
-  assert.equal((view.match(/renderUsername\(show_user, \{ noLink: true \}\)/g) || []).length, 2);
+  assert.match(view, /<h1[^>]*>[\s\S]*?renderUsername\(show_user\)[\s\S]*?<\/h1>/);
+  assert.match(view, /<dt>用户名<\/dt><dd><%- syzoj\.utils\.renderUsername\(show_user\) %><\/dd>/);
+  assert.equal((view.match(/renderUsername\(show_user\)/g) || []).length, 2);
   const css = read('custom/app-features.css');
   assert.match(css, /\.app-profile-identity h1\s*\{[^}]*flex-wrap:\s*wrap/);
 });

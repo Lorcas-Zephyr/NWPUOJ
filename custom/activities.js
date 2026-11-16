@@ -9,6 +9,10 @@
   var $ = function (selector) { return root.querySelector(selector); };
   var labels = { draft: '填写中', pending: '待审核', approved: '报名成功', returned: '退回修改', withdrawn: '已撤回' };
   function esc(value) { return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]; }); }
+  function username(person) {
+    var userId = Number(person.user_id), name = esc(person.username || '—');
+    return Number.isSafeInteger(userId) && userId > 0 ? '<a href="/user/' + userId + '">' + name + '</a>' : name;
+  }
   function date(value) { return value ? new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(Number(value))) : '待定'; }
   function local(value) { return value ? new Date(Number(value) + 8 * 3600000).toISOString().slice(0, 16) : ''; }
   function epoch(value) { return value ? Date.parse(value + ':00+08:00') : null; }
@@ -204,7 +208,7 @@
     }
     return true;
   }
-  function identity(person) { return '<dl class="activity-identity">' + [['用户名', person.username], ['姓名', person.real_name], ['学号', person.student_id], ['学院', person.college], ['邮箱', person.email || '未填写']].map(function (pair) { return '<div' + (pair[0] === '邮箱' ? ' class="activity-identity-email"' : '') + '><dt>' + pair[0] + '</dt><dd>' + esc(pair[1]) + '</dd></div>'; }).join('') + '</dl>'; }
+  function identity(person) { return '<dl class="activity-identity">' + [['用户名', person.username], ['姓名', person.real_name], ['学号', person.student_id], ['学院', person.college], ['邮箱', person.email || '未填写']].map(function (pair) { return '<div' + (pair[0] === '邮箱' ? ' class="activity-identity-email"' : '') + '><dt>' + pair[0] + '</dt><dd>' + (pair[0] === '用户名' ? username(person) : esc(pair[1])) + '</dd></div>'; }).join('') + '</dl>'; }
   function question(field, values, disabled) {
     var value = values[field.id], common = ' name="' + esc(field.id) + '"' + (disabled ? ' disabled' : ''), required = field.required && field.type !== 'checkbox' ? ' required' : '', control;
     if (field.type === 'textarea') control = '<textarea class="app-textarea" rows="3" maxlength="4000"' + common + required + '>' + esc(value || '') + '</textarea>';
@@ -220,10 +224,10 @@
     var leader = Number(r.leader_id) === state.user_id, editing = ['draft', 'returned'].includes(r.status), enabled = isOpen(), missing = r.members.filter(function (m) { return m.user_id !== state.user_id && !m.ready; });
     var enough = r.members.length >= a.min_members;
     var html = '<aside class="activity-registration-aside"><div class="activity-section-heading"><h3>队伍成员 <span>' + r.members.length + '/' + a.max_members + '</span></h3><button type="button" class="app-button app-button-quiet" data-refresh-mine>刷新</button></div>';
-    html += r.members.map(function (m) { return '<div class="activity-member"><span class="activity-avatar" aria-hidden="true">' + esc(m.username.slice(0, 1).toUpperCase()) + '</span><div><strong>' + esc(m.username) + '</strong><small>' + (m.user_id === Number(r.leader_id) ? '队长' : '队员') + (m.user_id === state.user_id ? ' · 我' : '') + '</small></div><span class="activity-member-ready ' + (m.ready ? 'is-ready' : '') + '">' + (m.ready ? '已确认' : '待填写') + '</span>' + (enabled && leader && editing && m.user_id !== state.user_id ? '<button class="app-button app-button-quiet" type="button" data-remove-member="' + m.user_id + '">移除</button>' : '') + '</div>'; }).join('');
-    html += (r.invitations || []).map(function (invite) { return '<div class="activity-member activity-pending-member"><span>' + esc(invite.username) + ' · 等待接受邀请</span>' + (enabled && leader ? '<button class="app-button app-button-quiet" type="button" data-cancel-invitation="' + invite.id + '">取消</button>' : '') + '</div>'; }).join('');
+    html += r.members.map(function (m) { return '<div class="activity-member"><span class="activity-avatar" aria-hidden="true">' + esc(m.username.slice(0, 1).toUpperCase()) + '</span><div><strong>' + username(m) + '</strong><small>' + (m.user_id === Number(r.leader_id) ? '队长' : '队员') + (m.user_id === state.user_id ? ' · 我' : '') + '</small></div><span class="activity-member-ready ' + (m.ready ? 'is-ready' : '') + '">' + (m.ready ? '已确认' : '待填写') + '</span>' + (enabled && leader && editing && m.user_id !== state.user_id ? '<button class="app-button app-button-quiet" type="button" data-remove-member="' + m.user_id + '">移除</button>' : '') + '</div>'; }).join('');
+    html += (r.invitations || []).map(function (invite) { return '<div class="activity-member activity-pending-member"><span>' + username(invite) + ' · 等待接受邀请</span>' + (enabled && leader ? '<button class="app-button app-button-quiet" type="button" data-cancel-invitation="' + invite.id + '">取消</button>' : '') + '</div>'; }).join('');
     if (enabled && leader && editing && r.members.length < a.max_members) html += '<form class="activity-invite-form" data-invite-member><label class="app-field"><span class="app-label">邀请队员</span><input class="app-input" name="username" placeholder="输入队员的 OJ 用户名" maxlength="80" required></label><button class="app-button app-button-secondary" type="submit">邀请</button></form>';
-    html += '<div class="activity-submit-checklist"><h4>整队提交前</h4><p class="' + (enough ? 'is-ready' : '') + '">' + (enough ? '✓ 人数已满足要求' : '还需 ' + (a.min_members - r.members.length) + ' 位成员加入') + '</p><p>' + (missing.length ? '等待 ' + esc(missing.map(function (m) { return m.username; }).join('、')) + ' 确认资料' : '✓ 其他成员资料已确认') + '</p>';
+    html += '<div class="activity-submit-checklist"><h4>整队提交前</h4><p class="' + (enough ? 'is-ready' : '') + '">' + (enough ? '✓ 人数已满足要求' : '还需 ' + (a.min_members - r.members.length) + ' 位成员加入') + '</p><p>' + (missing.length ? '等待 ' + missing.map(username).join('、') + ' 确认资料' : '✓ 其他成员资料已确认') + '</p>';
     if (enabled && leader && editing) html += '<button class="app-button app-button-primary" type="submit" form="activity-answer-form" name="intent" value="submit" data-submit-registration' + (!enough || missing.length ? ' disabled' : '') + '>确认并提交整队报名</button>';
     else if (editing && !leader) html += '<p>等待队长提交</p>';
     return html + '</div></aside>';
@@ -233,7 +237,7 @@
     if (!target || state.can_manage) return;
     if (!state.user_id) { target.innerHTML = empty('登录后报名', '使用本人的 OJ 账户填写信息、接收组队邀请。') + '<a class="app-button app-button-primary" href="/login?url=' + encodeURIComponent('/activities/' + id + '?tab=mine') + '">登录报名</a>'; return; }
     var html = enabled ? '' : '<p class="activity-inline-notice">' + phase(a) + '，当前仅可查看报名信息。</p>';
-    html += state.invitations.map(function (invite) { return '<div class="activity-invitation"><div><span class="activity-caption">组队邀请</span><h3>' + esc(invite.team_name) + '</h3><p>' + esc(invite.leader_username) + ' 邀请你加入队伍</p></div>' + (enabled ? '<div class="activity-button-group"><button class="app-button app-button-secondary" type="button" data-invitation="' + invite.id + '" data-invite-action="decline">拒绝</button><button class="app-button app-button-primary" type="button" data-invitation="' + invite.id + '" data-invite-action="accept">接受并加入</button></div>' : '') + '</div>'; }).join('');
+    html += state.invitations.map(function (invite) { return '<div class="activity-invitation"><div><span class="activity-caption">组队邀请</span><h3>' + esc(invite.team_name) + '</h3><p>' + username({ user_id: invite.leader_id, username: invite.leader_username }) + ' 邀请你加入队伍</p></div>' + (enabled ? '<div class="activity-button-group"><button class="app-button app-button-secondary" type="button" data-invitation="' + invite.id + '" data-invite-action="decline">拒绝</button><button class="app-button app-button-primary" type="button" data-invitation="' + invite.id + '" data-invite-action="accept">接受并加入</button></div>' : '') + '</div>'; }).join('');
     if (!r && !state.identity) { target.innerHTML = html + empty('先完善账号资料', state.identity_error) + '<a class="app-button app-button-primary" href="/user/' + state.user_id + '/edit">完善账号资料</a>'; return; }
     var leader = !r || Number(r.leader_id) === state.user_id, editing = !r || ['draft', 'returned'].includes(r.status), own = r ? r.members.find(function (m) { return m.user_id === state.user_id; }) : state.identity;
     html += steps(['填写报名信息', '报名结果'], editing ? 0 : 1);
@@ -241,7 +245,7 @@
     if (!r && team) {
       html += '<div class="activity-section-heading"><div><h2>组队报名</h2></div></div><div class="activity-team-choice" role="group" aria-label="组队身份"><button class="app-button app-button-secondary" type="button" data-team-role="captain" aria-pressed="true">我是队长</button><button class="app-button app-button-secondary" type="button" data-team-role="member" aria-pressed="false">我是队员</button></div>';
       if (enabled) html += '<form class="activity-answer-form" data-start-registration data-team-create><label class="app-field"><span class="app-label">队伍名称</span><input class="app-input" name="team_name" placeholder="为你的队伍起一个名字" maxlength="80" required></label><button class="app-button app-button-primary" type="submit">创建队伍，邀请成员</button><span class="activity-caption" data-form-draft-status></span></form>';
-    html += '<div class="activity-team-join" data-team-join hidden><h3>等待队长邀请</h3><div><code>' + esc(state.identity.username) + '</code><button class="app-button app-button-secondary" type="button" data-copy-username>复制用户名</button></div></div>';
+    html += '<div class="activity-team-join" data-team-join hidden><h3>等待队长邀请</h3><div><code>' + username(state.identity) + '</code><button class="app-button app-button-secondary" type="button" data-copy-username>复制用户名</button></div></div>';
     } else {
       if (r) {
         var titles = { draft: team ? r.team_name : '完成你的报名', returned: '请修改后重新提交', pending: '报名已提交，等待审核', approved: '报名成功' };
@@ -310,13 +314,13 @@
     var team = activity.mode === 'team', title = team ? r.team_name : leader.real_name || leader.username;
     var reviewable = !['draft', 'withdrawn'].includes(r.status);
     var html = '<details class="activity-registration" name="activity-roster" data-roster-id="' + r.id + '"><summary>' +
-      '<span class="activity-roster-name"><strong>' + esc(title || '个人报名') + '</strong><small>#' + r.id + ' · ' + (team ? captain ? '队长 ' : '成员 ' : '') + esc(leader.username || '—') + '</small></span>' +
-      '<span class="activity-roster-members"><strong>' + r.members.length + ' 人</strong><small>' + (team ? esc(r.members.map(function (person) { return person.username; }).join(' / ')) : esc(leader.student_id || '')) + '</small></span>' +
+      '<span class="activity-roster-name"><strong>' + (!team && !leader.real_name && leader.username ? username(leader) : esc(title || '个人报名')) + '</strong><small>#' + r.id + ' · ' + (team ? captain ? '队长 ' : '成员 ' : '') + username(leader) + '</small></span>' +
+      '<span class="activity-roster-members"><strong>' + r.members.length + ' 人</strong><small>' + (team ? r.members.map(username).join(' / ') : esc(leader.student_id || '')) + '</small></span>' +
       '<time class="activity-roster-time">' + (r.submitted_at ? date(r.submitted_at) : '尚未提交') + '</time>' + status(r.status) +
       '<span class="activity-roster-expand"><span class="activity-roster-open-label">' + (r.status === 'pending' ? '审核' : '详情') + '</span><span class="activity-roster-close-label">收起</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></span></summary>' +
       '<div class="activity-roster-detail"><div class="activity-roster-profile"><div class="activity-section-heading"><h3>报名资料</h3></div>';
     if (r.members.length > 1) html += '<div class="activity-roster-member-switch" role="group" aria-label="选择查看的成员">' + r.members.map(function (person, index) {
-      return '<button type="button" data-roster-member="' + person.user_id + '" aria-pressed="' + (index === 0) + '">' + esc(person.username) + (person.user_id === Number(r.leader_id) ? '<small>队长</small>' : '') + '</button>';
+      return '<button type="button" data-roster-member="' + person.user_id + '" aria-pressed="' + (index === 0) + '">' + '<span data-username-id="' + Number(person.user_id) + '">' + esc(person.username) + '</span>' + (person.user_id === Number(r.leader_id) ? '<small>队长</small>' : '') + '</button>';
     }).join('') + '</div>';
     html += r.members.map(function (person) { return rosterMember(person, activity); }).join('') + '</div><aside class="activity-roster-review"><div class="activity-section-heading"><h3>' + (reviewable ? '审核报名' : '报名状态') + '</h3>' + status(r.status) + '</div>';
     if (r.review_note) html += '<div class="activity-last-review"><span>上次审核说明</span><p>' + esc(r.review_note) + '</p></div>';

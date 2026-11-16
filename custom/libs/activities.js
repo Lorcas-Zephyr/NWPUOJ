@@ -242,9 +242,9 @@ function createService({ connection, authorize, audit = async () => {}, notify =
           // and completion state; organizers alone see everyone's identity.
           result.mine.members = result.mine.members.map(m => m.user_id === Number(user.id) ? m : { user_id: m.user_id, username: m.username, ready: m.ready });
           delete result.mine.snapshot_json;
-          if (Number(result.mine.leader_id) === Number(user.id)) result.mine.invitations = await db.query('SELECT i.id,u.username FROM activity_invitation i JOIN user u ON u.id=i.user_id WHERE i.registration_id=?', [result.mine.id]);
+          if (Number(result.mine.leader_id) === Number(user.id)) result.mine.invitations = await db.query('SELECT i.id,i.user_id,u.username FROM activity_invitation i JOIN user u ON u.id=i.user_id WHERE i.registration_id=?', [result.mine.id]);
         }
-        result.invitations = await db.query(`SELECT i.id,r.team_name,u.username AS leader_username FROM activity_invitation i JOIN activity_registration r ON r.id=i.registration_id JOIN user u ON u.id=r.leader_id WHERE i.activity_id=? AND i.user_id=? AND r.status IN ('draft','returned','rejected')`, [id, user.id]);
+        result.invitations = await db.query(`SELECT i.id,r.team_name,r.leader_id,u.username AS leader_username FROM activity_invitation i JOIN activity_registration r ON r.id=i.registration_id JOIN user u ON u.id=r.leader_id WHERE i.activity_id=? AND i.user_id=? AND r.status IN ('draft','returned','rejected')`, [id, user.id]);
       }
       delete a.fields_json;
       return result;

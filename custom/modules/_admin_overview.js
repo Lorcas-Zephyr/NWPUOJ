@@ -29,7 +29,7 @@ app.get('/admin/info', async (req, res) => {
       ),
       connection.query(
         `SELECT action.judge_id,action.action_type,action.operator_time,action.reason,
-                action.affected_problem_id,action.affected_user_id,
+                action.affected_problem_id,action.affected_user_id,action.operator_id,
                 operator.username AS operator_name,affected.username AS affected_username,
                 problem.title AS problem_title
          FROM judge_state_admin_action action
@@ -39,7 +39,7 @@ app.get('/admin/info', async (req, res) => {
          ORDER BY action.operator_time DESC LIMIT 8`
       ),
       connection.query(
-        `SELECT ticket.id,ticket.title,ticket.category,ticket.status,ticket.updated_at,
+        `SELECT ticket.id,ticket.title,ticket.category,ticket.status,ticket.updated_at,ticket.creator_id,ticket.assignee_id,
                 creator.username AS creator_name,assignee.username AS assignee_name
          FROM ticket
          LEFT JOIN user creator ON creator.id=ticket.creator_id

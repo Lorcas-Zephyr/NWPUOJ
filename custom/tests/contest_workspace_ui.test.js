@@ -37,7 +37,7 @@ test('home removes the personalized training workbench and keeps a balanced publ
   );
   assert.doesNotMatch(home, /include benben_feed|关注动态|benben\/new/);
   assert.match(home, /data-home-problem-search/);
-  assert.match(home, /renderUsername\(user, \{ noLink: true, noTag: true \}\)/);
+  assert.match(home, /renderUsername\(user, \{ noTag: true \}\)/);
   assert.match(css, /\.app-dashboard-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1\.65fr\) minmax\(280px, 0\.62fr\)/s);
   assert.doesNotMatch(css, /\.app-home-training-/);
 });
@@ -432,11 +432,11 @@ test('username tiers are canonical, theme-aware, and applied to dynamic profile 
   const script = read('custom/app-v2.js');
 
   assert.match(header, /\/self\/username_tiers\.css/);
-  assert.match(header, /renderUsername\(user, \{ noLink: true, noTag: true \}\)/);
+  assert.match(header, /renderUsername\(user, \{ noTag: true \}\)/);
   assert.match(css, /:root\s*\{[^}]*--username-admin:\s*#7a3eb1/s);
   assert.match(css, /:root\[data-theme="dark"\]\s*\{[^}]*--username-admin:\s*#c9a0ec/s);
   assert.match(css, /\.username-tier-cheater\s*\{[^}]*text-decoration:\s*line-through/s);
   assert.match(script, /function refreshUsernameTiers\(scope\)/);
-  assert.ok(script.includes("var match = /^\\/user\\/(\\d+)\\/?$/.exec(path);"));
+  assert.ok(script.includes("var match = /^\\/user\\/(\\d+)\\/?$/.exec(url.pathname);"));
   assert.match(script, /refreshUsernameTiers:\s*refreshUsernameTiers/);
 });
