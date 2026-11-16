@@ -50,7 +50,7 @@ test('base lists and problem-set creators use the account ID, escaped name and g
     try {
       const name = f.page.getByRole('link', { name: author.username, exact: true });
       assert.equal(await name.getAttribute('href'), '/user/7');
-      assert.equal(await name.evaluate(el => getComputedStyle(el).color), 'rgb(0, 0, 255)');
+      assert.equal(await name.evaluate(el => getComputedStyle(el).color), 'rgb(20, 95, 184)');
       await name.click(); assert.equal(new URL(f.page.url()).pathname, '/user/7');
       assert.deepEqual(f.failures, []);
     } finally { await f.context.close(); }
@@ -85,7 +85,7 @@ test('async names, recycled links and selection labels receive the same colors i
     });
     await f.page.waitForFunction(() => document.querySelector('#list a').className === 'username-tier-blue');
     const link = f.page.locator('#list a');
-    assert.equal(await link.evaluate(el => getComputedStyle(el).color), 'rgb(0, 0, 255)');
+    assert.equal(await link.evaluate(el => getComputedStyle(el).color), 'rgb(20, 95, 184)');
     assert.match(await f.page.locator('[data-username-id]').getAttribute('class'), /username-tier-cheater/);
     await link.evaluate(el => { el.href = '/user/8'; });
     await f.page.waitForFunction(() => document.querySelector('#list a').className === 'username-tier-admin');
