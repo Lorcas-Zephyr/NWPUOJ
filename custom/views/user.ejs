@@ -17,7 +17,8 @@ const appSubmissionStats = [
 const appSubmissionTotal = appSubmissionStats.reduce((sum, item) => sum + item[1], 0);
 const appRatingSeries = (typeof ratingHistories !== 'undefined' && Array.isArray(ratingHistories)) ? ratingHistories : [];
 const appParticipatedContests = (typeof participatedContests !== 'undefined' && Array.isArray(participatedContests)) ? participatedContests : [];
-const appRatingSeriesJson = JSON.stringify(appRatingSeries.map(item => ({ name: item.contestName, value: item.value }))).replace(/</g, '\\u003c');
+const appRatingPeak = Math.max(0, ...appRatingSeries.map(item => Number(item.value)));
+const appRatingSeriesJson = JSON.stringify(appRatingSeries.map(item => ({ name: item.contestName, value: item.value, before: item.before, delta: item.delta, rank: item.rank, participants: item.participants, time: Number(item.endedAt || (item.contestId == null ? show_user.register_time : 0)) }))).replace(/</g, '\\u003c');
 %>
 <% include app_header %>
 
@@ -37,11 +38,15 @@ const appRatingSeriesJson = JSON.stringify(appRatingSeries.map(item => ({ name: 
   </div>
 
   <section class="app-profile-section app-rating-history-section">
-    <div class="app-section-heading"><div><span class="app-kicker">RATING</span><h2>Rating 变化</h2></div><% if (appRatingSeries.length > 1) { %><span class="app-section-count"><%= appRatingSeries[appRatingSeries.length - 1].value %></span><% } %></div>
+    <div class="app-section-heading"><div><span class="app-kicker">RATING</span><h2>Rating 变化</h2></div><% if (appRatingSeries.length > 1) { %><div class="app-rating-chart-summary"><span>当前 <strong class="username-tier-<%= appRatingTier %>"><%= show_user.rating %></strong></span><span>最高 <strong class="username-tier-<%= syzoj.utils.ratingTier(appRatingPeak) %>"><%= appRatingPeak %></strong></span></div><% } %></div>
     <% if (appRatingSeries.length > 1) { %>
       <div class="app-rating-chart">
-        <canvas id="user-rating-chart" tabindex="0" aria-label="Rating 变化折线图，可使用左右方向键查看节点"></canvas>
-        <div class="app-rating-chart-summary" aria-hidden="true"><span>起始 <strong><%= appRatingSeries[0].value %></strong></span><span>当前 <strong><%= appRatingSeries[appRatingSeries.length - 1].value %></strong></span></div>
+        <canvas id="user-rating-chart" tabindex="0" aria-label="Rating 变化折线图，使用左右方向键查看比赛" aria-describedby="user-rating-tooltip"></canvas>
+        <div class="app-rating-chart-tooltip" id="user-rating-tooltip" role="status" aria-live="polite" aria-atomic="true" hidden>
+          <strong data-rating-name></strong><time data-rating-date></time>
+          <div class="app-rating-chart-result"><span>Rating <b data-rating-value></b></span><b data-rating-delta></b></div>
+          <span data-rating-rank></span>
+        </div>
       </div>
       <script id="user-rating-series" type="application/json"><%- appRatingSeriesJson %></script>
     <% } else { %>
@@ -91,99 +96,169 @@ document.querySelectorAll('form[data-user-follow-v2]').forEach(function (form) {
 (function () {
   var canvas = document.getElementById('user-rating-chart');
   var source = document.getElementById('user-rating-series');
-  if (!canvas || !source) return;
+  var tooltip = document.getElementById('user-rating-tooltip');
+  if (!canvas || !source || !tooltip) return;
   var points;
   try { points = JSON.parse(source.textContent); } catch (error) { canvas.hidden = true; return; }
   if (!Array.isArray(points) || points.length < 2) { canvas.hidden = true; return; }
-  var hoveredIndex = null;
+  points = points.filter(function (point) { return Number.isFinite(Number(point.value)); });
+  if (points.length < 2) { canvas.hidden = true; return; }
+  var chart = canvas.parentElement;
+  var activeIndex = null;
   var coordinates = [];
+  var frame;
+  var bands = [
+    { from: -Infinity, to: 1200, light: '#e4e4e4', dark: '#30343c' },
+    { from: 1200, to: 1400, light: '#c2edb7', dark: '#284332' },
+    { from: 1400, to: 1600, light: '#b5e6dc', dark: '#234749' },
+    { from: 1600, to: 1900, light: '#becff0', dark: '#2c3c62' },
+    { from: 1900, to: 2100, light: '#e8c0e9', dark: '#4b3154' },
+    { from: 2100, to: 2400, light: '#f6d4a6', dark: '#54412b' },
+    { from: 2400, to: 3000, light: '#efb2b2', dark: '#572e36' },
+    { from: 3000, to: Infinity, light: '#de898f', dark: '#672c39' }
+  ];
+  var dateFormat = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' });
+  function dateLabel(time) { return time > 0 ? dateFormat.format(new Date(time * 1000)) : ''; }
   function color(name, fallback) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback; }
-  function shortLabel(value) { var text = String(value || ''); return text.length > 12 ? text.slice(0, 11) + '…' : text; }
+  function schedule() { window.cancelAnimationFrame(frame); frame = window.requestAnimationFrame(draw); }
+  function describe(point) {
+    var delta = point.delta == null ? '' : (point.delta > 0 ? '+' : '') + point.delta;
+    return point.name + '，' + dateLabel(point.time) + '，Rating ' + point.value + (delta ? '，变化 ' + delta : '') + (point.rank ? '，名次 ' + point.rank : '');
+  }
+  function updateTooltip(width) {
+    if (activeIndex === null) {
+      tooltip.hidden = true;
+      canvas.setAttribute('aria-label', 'Rating 变化折线图，使用左右方向键查看比赛');
+      return;
+    }
+    var point = points[activeIndex];
+    var position = coordinates[activeIndex];
+    tooltip.querySelector('[data-rating-name]').textContent = point.name;
+    tooltip.querySelector('[data-rating-date]').textContent = dateLabel(point.time);
+    tooltip.querySelector('[data-rating-value]').textContent = point.value;
+    var delta = tooltip.querySelector('[data-rating-delta]');
+    delta.textContent = point.delta == null ? '' : (point.delta > 0 ? '+' : '') + point.delta;
+    delta.className = point.delta > 0 ? 'app-rating-up' : point.delta < 0 ? 'app-rating-down' : '';
+    var rank = tooltip.querySelector('[data-rating-rank]');
+    rank.textContent = point.rank ? '名次 ' + point.rank + (point.participants ? ' / ' + point.participants : '') : '';
+    rank.hidden = !point.rank;
+    tooltip.hidden = false;
+    var left = position.x + 14;
+    if (left + tooltip.offsetWidth > width - 8) left = position.x - tooltip.offsetWidth - 14;
+    tooltip.style.left = Math.max(8, Math.min(width - tooltip.offsetWidth - 8, left)) + 'px';
+    tooltip.style.top = Math.max(4, Math.min(canvas.clientHeight - tooltip.offsetHeight - 8, position.y - tooltip.offsetHeight - 14)) + 'px';
+    canvas.setAttribute('aria-label', describe(point) + '。使用左右方向键查看其他比赛');
+  }
   function draw() {
     var ratio = window.devicePixelRatio || 1;
-    var width = Math.max(320, canvas.clientWidth || 640);
-    var height = Math.max(210, canvas.clientHeight || 220);
+    var width = canvas.clientWidth;
+    var height = canvas.clientHeight;
+    if (!width || !height) return;
     canvas.width = Math.round(width * ratio);
     canvas.height = Math.round(height * ratio);
     var context = canvas.getContext('2d');
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
-    context.clearRect(0, 0, width, height);
-    var padding = { top: 18, right: 18, bottom: 34, left: 48 };
+    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    var padding = { top: 14, right: 14, bottom: 34, left: width < 500 ? 42 : 48 };
     var chartWidth = width - padding.left - padding.right;
     var chartHeight = height - padding.top - padding.bottom;
     var values = points.map(function (point) { return Number(point.value); });
     var low = Math.min.apply(Math, values);
     var high = Math.max.apply(Math, values);
-    var spread = Math.max(100, high - low);
-    var minimum = Math.floor((low - Math.max(50, spread * 0.15)) / 50) * 50;
-    var maximum = Math.ceil((high + Math.max(50, spread * 0.15)) / 50) * 50;
-    if (minimum === maximum) maximum = minimum + 100;
-    context.font = '12px system-ui, sans-serif';
+    var minimum = low >= 0 ? Math.max(0, Math.floor((low - 150) / 100) * 100) : Math.floor((low - 150) / 100) * 100;
+    var maximum = Math.max(1400, Math.ceil((high + 200) / 100) * 100);
+    function y(value) { return padding.top + (maximum - value) / (maximum - minimum) * chartHeight; }
+    bands.forEach(function (band) {
+      var top = Math.min(maximum, band.to);
+      var bottom = Math.max(minimum, band.from);
+      if (top <= bottom) return;
+      context.fillStyle = dark ? band.dark : band.light;
+      context.fillRect(padding.left, y(top), chartWidth, y(bottom) - y(top));
+    });
+    var span = maximum - minimum;
+    var step = [100, 200, 400, 500, 1000, 2000, 5000].find(function (value) { return span / value <= 6; }) || Math.ceil(span / 6000) * 1000;
+    context.font = '11px system-ui, sans-serif';
     context.textBaseline = 'middle';
     context.lineWidth = 1;
-    for (var line = 0; line <= 4; line += 1) {
-      var y = padding.top + chartHeight * line / 4;
-      var label = Math.round(maximum - (maximum - minimum) * line / 4);
-      context.strokeStyle = color('--app-line', '#e5e7eb');
-      context.beginPath(); context.moveTo(padding.left, y); context.lineTo(width - padding.right, y); context.stroke();
-      context.fillStyle = color('--app-text-muted', '#6b7280');
-      context.textAlign = 'right'; context.fillText(String(label), padding.left - 9, y);
+    for (var tick = Math.ceil(minimum / step) * step; tick <= maximum; tick += step) {
+      context.strokeStyle = dark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.55)';
+      context.beginPath(); context.moveTo(padding.left, y(tick)); context.lineTo(width - padding.right, y(tick)); context.stroke();
+      context.fillStyle = color('--app-text-secondary', '#5d6470');
+      context.textAlign = 'right'; context.fillText(String(tick), padding.left - 9, y(tick));
     }
+    var dates = points.map(function (point) { return Number(point.time); });
+    var useDates = dates.every(function (time) { return Number.isFinite(time) && time > 0; });
+    var firstTime = useDates ? Math.min.apply(Math, dates) : 0;
+    var lastTime = useDates ? Math.max.apply(Math, dates) : points.length - 1;
+    var timeSpan = Math.max(1, lastTime - firstTime);
+    var inset = 9;
+    function x(time) { return padding.left + inset + (chartWidth - inset * 2) * (time - firstTime) / timeSpan; }
     coordinates = points.map(function (point, index) {
-      return {
-        x: padding.left + chartWidth * index / (points.length - 1),
-        y: padding.top + (maximum - Number(point.value)) / (maximum - minimum) * chartHeight
-      };
+      return { x: firstTime === lastTime ? padding.left + chartWidth / 2 : x(useDates ? dates[index] : index), y: y(Number(point.value)) };
     });
-    context.strokeStyle = color('--app-accent', '#2563eb');
-    context.lineWidth = 2.5;
+    var tickCount = firstTime === lastTime ? 1 : Math.min(5, Math.max(2, Math.floor(chartWidth / 125)));
+    var previousLabel = '';
+    for (var index = 0; index < tickCount; index += 1) {
+      var tickTime = firstTime + timeSpan * (tickCount === 1 ? 0 : index / (tickCount - 1));
+      var label = useDates ? dateLabel(tickTime) : String(Math.round(tickTime));
+      if (label === previousLabel) continue;
+      previousLabel = label;
+      var tickX = tickCount === 1 ? padding.left + chartWidth / 2 : x(tickTime);
+      context.strokeStyle = dark ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.4)';
+      context.beginPath(); context.moveTo(tickX, padding.top); context.lineTo(tickX, height - padding.bottom); context.stroke();
+      context.fillStyle = color('--app-text-secondary', '#5d6470');
+      context.textAlign = tickCount === 1 ? 'center' : index === 0 ? 'left' : index === tickCount - 1 ? 'right' : 'center';
+      context.fillText(label, index === 0 && tickCount > 1 ? padding.left : index === tickCount - 1 && tickCount > 1 ? width - padding.right : tickX, height - 12);
+    }
+    context.strokeStyle = color('--app-line-strong', '#d5d9e0');
+    context.strokeRect(padding.left, padding.top, chartWidth, chartHeight);
+    if (activeIndex !== null) {
+      context.strokeStyle = dark ? 'rgba(255,255,255,0.5)' : 'rgba(30,35,42,0.35)';
+      context.setLineDash([3, 4]);
+      context.beginPath(); context.moveTo(coordinates[activeIndex].x, padding.top); context.lineTo(coordinates[activeIndex].x, height - padding.bottom); context.stroke();
+      context.setLineDash([]);
+    }
+    context.strokeStyle = dark ? '#f3c65c' : '#b88a18';
+    context.lineWidth = 2;
     context.lineJoin = 'round';
     context.lineCap = 'round';
     context.beginPath();
     coordinates.forEach(function (point, index) { if (index) context.lineTo(point.x, point.y); else context.moveTo(point.x, point.y); });
     context.stroke();
     coordinates.forEach(function (point, index) {
-      context.beginPath(); context.arc(point.x, point.y, hoveredIndex === index ? 5 : 3, 0, Math.PI * 2);
-      context.fillStyle = color('--app-surface', '#ffffff'); context.fill();
-      context.strokeStyle = color('--app-accent', '#2563eb'); context.lineWidth = 2; context.stroke();
+      context.beginPath(); context.arc(point.x, point.y, activeIndex === index ? 5.5 : 3.5, 0, Math.PI * 2);
+      context.fillStyle = activeIndex === index ? (dark ? '#fff3ca' : '#fff8df') : (dark ? '#f3c65c' : '#e4bd51'); context.fill();
+      context.strokeStyle = dark ? '#17191d' : '#675221'; context.lineWidth = 1.5; context.stroke();
     });
-    context.fillStyle = color('--app-text-muted', '#6b7280');
-    context.textBaseline = 'alphabetic';
-    context.textAlign = 'left'; context.fillText(shortLabel(points[0].name), padding.left, height - 8);
-    context.textAlign = 'right'; context.fillText(shortLabel(points[points.length - 1].name), width - padding.right, height - 8);
-    if (hoveredIndex !== null) {
-      var active = coordinates[hoveredIndex];
-      var tooltip = shortLabel(points[hoveredIndex].name) + '  ' + points[hoveredIndex].value;
-      context.font = '600 12px system-ui, sans-serif';
-      var tooltipWidth = context.measureText(tooltip).width + 20;
-      var tooltipX = Math.min(width - padding.right - tooltipWidth, Math.max(padding.left, active.x - tooltipWidth / 2));
-      var tooltipY = Math.max(4, active.y - 38);
-      context.fillStyle = color('--app-text', '#111827'); context.fillRect(tooltipX, tooltipY, tooltipWidth, 28);
-      context.fillStyle = color('--app-surface', '#ffffff'); context.textAlign = 'center'; context.textBaseline = 'middle';
-      context.fillText(tooltip, tooltipX + tooltipWidth / 2, tooltipY + 14);
-      canvas.setAttribute('aria-label', points[hoveredIndex].name + '，Rating ' + points[hoveredIndex].value + '。使用左右方向键查看其他节点');
-    }
+    updateTooltip(width);
   }
-  function selectNearest(clientX) {
+  function selectNearest(event) {
+    if (!coordinates.length) return;
     var rect = canvas.getBoundingClientRect();
-    var localX = clientX - rect.left;
+    var localX = event.clientX - rect.left;
+    var localY = event.clientY - rect.top;
     var nearest = 0;
-    for (var index = 1; index < coordinates.length; index += 1) if (Math.abs(coordinates[index].x - localX) < Math.abs(coordinates[nearest].x - localX)) nearest = index;
-    hoveredIndex = nearest; draw();
+    function distance(point) { return Math.pow(point.x - localX, 2) + Math.pow(point.y - localY, 2); }
+    for (var index = 1; index < coordinates.length; index += 1) if (distance(coordinates[index]) < distance(coordinates[nearest])) nearest = index;
+    if (activeIndex !== nearest) { activeIndex = nearest; schedule(); }
   }
-  canvas.addEventListener('pointermove', function (event) { selectNearest(event.clientX); });
-  canvas.addEventListener('pointerleave', function () { hoveredIndex = null; canvas.setAttribute('aria-label', 'Rating 变化折线图，可使用左右方向键查看节点'); draw(); });
-  canvas.addEventListener('focus', function () { if (hoveredIndex === null) { hoveredIndex = points.length - 1; draw(); } });
+  canvas.addEventListener('pointermove', selectNearest);
+  canvas.addEventListener('pointerdown', function (event) { canvas.focus({ preventScroll: true }); selectNearest(event); });
+  canvas.addEventListener('pointerleave', function () { if (document.activeElement !== canvas) { activeIndex = null; schedule(); } });
+  canvas.addEventListener('focus', function () { if (activeIndex === null) { activeIndex = points.length - 1; schedule(); } });
+  canvas.addEventListener('blur', function () { activeIndex = null; schedule(); });
   canvas.addEventListener('keydown', function (event) {
-    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End', 'Escape'].includes(event.key)) return;
     event.preventDefault();
-    var direction = event.key === 'ArrowLeft' ? -1 : 1;
-    hoveredIndex = Math.max(0, Math.min(points.length - 1, (hoveredIndex === null ? points.length - 1 : hoveredIndex) + direction));
-    draw();
+    if (event.key === 'Escape') activeIndex = null;
+    else if (event.key === 'Home') activeIndex = 0;
+    else if (event.key === 'End') activeIndex = points.length - 1;
+    else activeIndex = Math.max(0, Math.min(points.length - 1, (activeIndex === null ? points.length - 1 : activeIndex) + (event.key === 'ArrowLeft' ? -1 : 1)));
+    schedule();
   });
-  var resizeFrame;
-  window.addEventListener('resize', function () { window.cancelAnimationFrame(resizeFrame); resizeFrame = window.requestAnimationFrame(draw); });
-  new MutationObserver(draw).observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme'] });
+  if (window.ResizeObserver) new ResizeObserver(schedule).observe(chart);
+  else window.addEventListener('resize', schedule);
+  new MutationObserver(schedule).observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme'] });
   draw();
 })();
 </script><% } %>
