@@ -148,6 +148,33 @@ test('IOI standings apply weights and tie only on score', () => {
   assert.deepEqual(rows.map(row => [row.user_id, row.score, row.penalty, row.rank]), [[2, 100, 4000, 1], [1, 100, 5000, 1]]);
 });
 
+test('zero-solve standings put attempts before absent players while preserving tied ranks', () => {
+  const rows = calculateStandingRows({ type: 'acm', startTime: 100, players: [
+    { player_id: 1, user_id: 1, details: {} },
+    { player_id: 2, user_id: 2, details: { 11: {} } },
+    { player_id: 3, user_id: 3, details: { 11: { accepted: false, judge_id: 41, unacceptedCount: 0 } } },
+    { player_id: 4, user_id: 4, details: {}, has_submissions: true },
+    { player_id: 5, user_id: 5, details: { 11: { unacceptedCount: 2 } } },
+    { player_id: 6, user_id: 6, details: { 11: { frozenAttempts: 1 } } },
+    { player_id: 7, user_id: 7, details: { 11: { accepted: true, acceptedTime: 200 } } }
+  ] });
+  assert.deepEqual(rows.map(row => row.user_id), [7, 3, 4, 5, 6, 1, 2]);
+  assert.deepEqual(rows.map(row => row.rank), [1, 2, 2, 2, 2, 2, 2]);
+  assert.ok(rows.slice(1).every(row => row.penalty === 0));
+});
+
+test('IOI and NOI zero-score attempts precede absences despite their later submission times', () => {
+  for (const type of ['ioi', 'noi']) {
+    const rows = calculateStandingRows({ type, players: [
+      { player_id: 1, user_id: 1, details: {} },
+      { player_id: 2, user_id: 2, details: { 11: { score: 0, time: 200 } } },
+      { player_id: 3, user_id: 3, details: { 11: { score: 0, time: 150 } } },
+      { player_id: 4, user_id: 4, details: { 11: { score: 50, time: 300 } } }
+    ] });
+    assert.deepEqual(rows.map(row => [row.user_id, row.rank]), [[4, 1], [3, 2], [2, 2], [1, 2]]);
+  }
+});
+
 test('public standings remove judge identifiers and submission diagnostics', () => {
   const row = { rank: 1, participant_id: 4, user_id: 8, username: 'member', score: 1, penalty: 120, details: { 9: { accepted: true, acceptedTime: 120, unacceptedCount: 2, judge_id: 99, submissions: { 99: { score: 100 } } } }, diagnostics: { source: 'projection' } };
   const publicRow = serializeStandingRow(row, { type: 'acm', scope: 'public' });

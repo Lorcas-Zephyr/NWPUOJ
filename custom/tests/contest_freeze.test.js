@@ -10,13 +10,13 @@ const lifecycle = require('../libs/contest-lifecycle');
 
 // Execute the actual API and HTML handlers against a deterministic database
 // fixture. This covers permissions, cache separation, API projections and CSV.
-function harness(playerCount = 3) {
+function harness(playerCount = 3, fixtureSubmissions = null) {
   const queryCounts = new Map();
   let renderCount = 0;
   let now = 300;
   let freezeMinutes = 2;
   let medalPercentages = null;
-  const submissions = [
+  const submissions = fixtureSubmissions || [
     { id: 1, user_id: 7, problem_id: 11, submit_time: 150, status: 'Wrong Answer', score: 0 },
     { id: 2, user_id: 8, problem_id: 11, submit_time: 200, status: 'Accepted', score: 100 },
     { id: 3, user_id: 7, problem_id: 11, submit_time: 220, status: 'Accepted', score: 100 }
@@ -30,7 +30,7 @@ function harness(playerCount = 3) {
   };
   const live = standings.scoreDetailsBefore(submissions, contest, 400);
   const players = Array.from({ length: playerCount }, (_, index) => index + 7).map(id => ({ player_id: id, participant_id: id, user_id: id,
-    username: 'player' + id, score_details: live.get(id) || (playerCount > 3 ? { 11: { accepted: true, acceptedTime: 230 + id, unacceptedCount: 0 } } : {}), rating: 1500,
+    username: 'player' + id, score_details: live.get(id) || (playerCount > 3 && !fixtureSubmissions ? { 11: { accepted: true, acceptedTime: 230 + id, unacceptedCount: 0 } } : {}), rating: 1500,
     temporary_account_user_id: id === 8 ? id : null, ai_agent_user_id: null }));
   const versions = [], rows = new Map();
   let pointers = null;
@@ -49,6 +49,14 @@ function harness(playerCount = 3) {
     if (/SELECT revision FROM contest_registration_setting/.test(sql)) return [{ revision: 1 }];
     if (/SELECT ranking_params FROM contest_ranklist/.test(sql)) return [{ ranking_params: '{}' }];
     if (/SELECT id,submit_time FROM judge_state/.test(sql)) return submissions.filter(row => args[0].includes(row.id));
+    if (/SELECT DISTINCT js.user_id FROM judge_state/.test(sql)) {
+      const [contestId, problemIds, start, end] = args;
+      return Array.from(new Set(submissions.filter(row =>
+        (row.type == null || row.type === 1) && (row.type_info == null || row.type_info === contestId) &&
+        problemIds.includes(row.problem_id) && row.submit_time >= start && row.submit_time < end &&
+        !row.action_type && !['Cancelled', 'Cheated'].includes(row.status)
+      ).map(row => row.user_id)), user_id => ({ user_id }));
+    }
     if (/SELECT js.user_id,js.problem_id,COUNT\(\*\) AS submissions/.test(sql)) {
       const [cutoff, contestId, problemIds, start, end] = args;
       const grouped = new Map();
@@ -276,6 +284,46 @@ test('HTML standings isolate live cache, retain class/account ranks and export t
   app.setFreeze(2);
   app.setNow(400);
   assert.equal((await app.get(route, 7)).ranklist.find(row => row.user.id === 7).player.score, 1);
+});
+
+test('HTML, live refresh, API and exports order zero-solve submitters first, including CE and pending', async () => {
+  const app = harness(6, [
+    { id: 1, user_id: 8, problem_id: 11, submit_time: 150, status: 'Cancelled', score: 0 },
+    { id: 2, user_id: 9, problem_id: 11, submit_time: 160, status: 'Compile Error', score: null },
+    { id: 3, user_id: 10, problem_id: 11, submit_time: 170, status: 'Waiting', pending: 1, score: null },
+    { id: 4, user_id: 11, problem_id: 11, submit_time: 180, status: 'Wrong Answer', score: 0 },
+    { id: 5, user_id: 12, problem_id: 11, submit_time: 190, status: 'Accepted', score: 100 }
+  ]);
+  app.setFreeze(null);
+  const expected = [12, 9, 10, 11, 7, 8];
+  const html = await app.get('/contest/:id/ranklist', 2);
+  assert.deepEqual(Array.from(html.ranklist, row => row.user.id), expected);
+  assert.deepEqual(Array.from(html.ranklist, row => row.player.standing_rank), [1, 2, 2, 2, 2, 2]);
+  const partial = await app.get('/api/v2/contests/:id/ranklist-view', 2);
+  assert.deepEqual(JSON.parse(partial.html).rows.map(row => row.user.id), expected);
+  const api = await app.get('/api/v2/contests/:id/standings', 2);
+  assert.deepEqual(Array.from(api.rows, row => row.user_id), expected);
+  const filtered = await app.get('/contest/:id/ranklist', 2, { account: 'ordinary', classes: '3' });
+  assert.deepEqual(Array.from(filtered.ranklist, row => [row.user.id, row.player.standing_rank]), [[9, 1], [7, 1]]);
+  const csv = await app.get('/contest/:id/ranklist/export', 2);
+  assert.deepEqual(Array.from(csv.matchAll(/"player(\d+)"/g), match => Number(match[1])), expected);
+  app.setFreeze(0);
+  const frozen = await app.get('/contest/:id/ranklist', 7);
+  assert.deepEqual(Array.from(frozen.ranklist, row => row.user.id), [9, 10, 11, 12, 7, 8]);
+  assert.ok(frozen.ranklist.every(row => row.player.score === 0 && row.player.standing_rank === 1));
+  assert.equal(frozen.ranklist.find(row => row.user.id === 12).player.score_details[11].accepted, undefined);
+  const frozenApi = await app.get('/api/v2/contests/:id/standings', 7);
+  assert.deepEqual(Array.from(frozenApi.rows, row => row.user_id), [9, 10, 11, 12, 7, 8]);
+});
+
+test('submission priority is applied before pagination', async () => {
+  const app = harness(105, [{ id: 1, user_id: 111, problem_id: 11, submit_time: 150, status: 'Wrong Answer', score: 0 }]);
+  app.setFreeze(null);
+  const first = await app.get('/contest/:id/ranklist', 2);
+  assert.equal(first.ranklist.length, 100);
+  assert.equal(first.ranklist[0].user.id, 111);
+  const second = await app.get('/contest/:id/ranklist', 2, { page: '2' });
+  assert.deepEqual(Array.from(second.ranklist, row => row.user.id), [106, 107, 108, 109, 110]);
 });
 
 test('partial standings recheck permissions, isolate private/live views, and skip unchanged rendering', async () => {

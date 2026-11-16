@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-16T13:59:32.715Z",
+  "generated_at": "2026-11-16T14:10:33.420Z",
   "frontend_page_routes": [
     {
       "method": "GET",
@@ -239,55 +239,55 @@
       "method": "GET",
       "route": "/contest/:id",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 356
+      "line": 360
     },
     {
       "method": "GET",
       "route": "/contest/:id/edit",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 365
+      "line": 369
     },
     {
       "method": "GET",
       "route": "/contest/:id/details",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 379
+      "line": 383
     },
     {
       "method": "GET",
       "route": "/contest/:id",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 409
+      "line": 413
     },
     {
       "method": "GET",
       "route": "/contest/:id/ranklist",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 522
+      "line": 526
     },
     {
       "method": "GET",
       "route": "/contest/:id/rating",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 625
+      "line": 629
     },
     {
       "method": "GET",
       "route": "/contest/:id/ranklist/export",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 673
+      "line": 677
     },
     {
       "method": "GET",
       "route": "/contest/:id/code-export",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 708
+      "line": 712
     },
     {
       "method": "GET",
       "route": "/contest/:id/problem/:pid",
       "source": "custom/modules/_contest_interactions.js",
-      "line": 737
+      "line": 741
     },
     {
       "method": "GET",

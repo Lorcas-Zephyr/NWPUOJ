@@ -11,7 +11,7 @@ const { normalizeStudentIdRows } = require('../libs/contest-temp-accounts');
 const { ensureRegistrationProfileSchema, ORDINARY_STUDENT_ID_SCOPE } = require('../libs/registration-profile-schema');
 const { contestConfigurationLocked, resolveContestStatus, snapshotRefreshAllowed, standingsVisibility, transitionAllowed } = require('../libs/contest-lifecycle');
 const { advanceStandingsPointers, calculateStandingRows, serializeStandingRow, normalizeFreezeAfterMinutes,
-  resolveStandingsFreeze, selectStandingsView, loadFrozenScoreDetails, submissionHiddenByFreeze,
+  resolveStandingsFreeze, selectStandingsView, loadFrozenScoreDetails, loadContestSubmitters, submissionHiddenByFreeze,
   normalizeMedalPercentages } = require('../libs/contest-standings');
 
 let schemaPromise = null;
@@ -413,6 +413,8 @@ async function standingSource(manager, contest, cutoff = null) {
     const frozenDetails = await loadFrozenScoreDetails(manager, contest, cutoff);
     for (const player of players) player.score_details = frozenDetails.get(Number(player.user_id)) || {};
   }
+  const submitters = await loadContestSubmitters(manager, contest);
+  for (const player of players) player.has_submissions = submitters.has(Number(player.user_id));
   const judgeIds = [];
   for (const player of players) {
     const details = parseJson(player.score_details, {});

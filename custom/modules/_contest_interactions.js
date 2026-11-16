@@ -9,7 +9,7 @@ const User = syzoj.model('user');
 const { linkUserMentions } = require('../libs/user-mentions');
 const { buildContestRanklistCsv } = require('../libs/contest-ranklist-export');
 const classGroups = require('../libs/class-groups');
-const { loadFrozenScoreDetails, medalForRank } = require('../libs/contest-standings');
+const { loadFrozenScoreDetails, loadContestSubmitters, medalForRank } = require('../libs/contest-standings');
 const { buildContestCodeArchive, cleanupContestCodeArchive } = require('../libs/contest-code-export');
 const { ReadCache } = require('../libs/read-cache');
 const ranklistAuxCache = new ReadCache(128);
@@ -192,6 +192,7 @@ async function loadContestRanklist(contest, cutoff = null) {
     const rankingParams = parseJson(rankingRows[0] && rankingRows[0].ranking_params, {});
     const activeProblems = new Set(String(contest.problems || '').split('|'));
     const frozenDetails = cutoff == null ? null : await loadFrozenScoreDetails(TypeORM.getConnection(), contest, cutoff);
+    const submitters = await loadContestSubmitters(TypeORM.getConnection(), contest);
     const judgeIds = [];
     const items = rows.map(row => {
       const details = frozenDetails ? frozenDetails.get(Number(row.user_id)) || {} : parseJson(row.score_details, {});
@@ -213,6 +214,7 @@ async function loadContestRanklist(contest, cutoff = null) {
           user_id: Number(row.user_id),
           score: Number(row.score || 0),
           score_details: details,
+          has_submissions: submitters.has(Number(row.user_id)),
           time_spent: Number(row.time_spent || 0)
         }
       };
@@ -252,7 +254,9 @@ async function loadContestRanklist(contest, cutoff = null) {
       item.tie = tie;
     }
     items.sort((left, right) =>
-      right.player.score - left.player.score || left.tie - right.tie || left.player.id - right.player.id
+      right.player.score - left.player.score ||
+      (left.player.score === 0 ? Number(right.player.has_submissions) - Number(left.player.has_submissions) : 0) ||
+      left.tie - right.tie || left.player.id - right.player.id
     );
     assignStandingRanks(items, contest.type);
     return items;

@@ -123,6 +123,20 @@ async function loadFrozenScoreDetails(connection, contest, cutoff) {
   return frozenScoreDetails(submissions, contest, cutoff);
 }
 
+async function loadContestSubmitters(connection, contest) {
+  const problemIds = String(contest.problems || '').split('|').map(Number).filter(id => id > 0);
+  if (!problemIds.length) return new Set();
+  const rows = await connection.query(
+    `SELECT DISTINCT js.user_id FROM judge_state js
+       LEFT JOIN judge_state_admin_action action ON action.judge_id=js.id
+      WHERE js.type=1 AND js.type_info=? AND js.problem_id IN (?)
+        AND js.submit_time>=? AND js.submit_time<? AND action.judge_id IS NULL
+        AND js.status NOT IN ('Cancelled','Cheated')`,
+    [Number(contest.id), problemIds, Number(contest.start_time), Number(contest.end_time)]
+  );
+  return new Set(rows.map(row => Number(row.user_id)));
+}
+
 function frozenScoreDetails(submissions, contest, cutoff) {
   const details = scoreDetailsBefore(submissions, contest, cutoff);
   const problems = new Set(String(contest.problems || '').split('|').map(Number));
@@ -189,10 +203,16 @@ function calculateStandingRows(input) {
       username: String(player.username || ''),
       score,
       penalty,
+      has_submissions: player.has_submissions == null ? Object.values(details).some(detail =>
+        detail.accepted || Number(detail.judge_id) > 0 || Number(detail.unacceptedCount) > 0 ||
+        Number(detail.frozenAttempts) > 0 || detail.score != null || Object.keys(detail.submissions || {}).length > 0
+      ) : !!player.has_submissions,
       details
     };
   });
-  rows.sort((left, right) => right.score - left.score || left.penalty - right.penalty || left.participant_id - right.participant_id);
+  rows.sort((left, right) => right.score - left.score ||
+    (left.score === 0 ? Number(right.has_submissions) - Number(left.has_submissions) : 0) ||
+    left.penalty - right.penalty || left.participant_id - right.participant_id);
   let rank = 0;
   let previousKey = null;
   rows.forEach((row, index) => {
@@ -261,4 +281,4 @@ function advanceStandingsPointers(current, versionId, kind, status) {
 
 module.exports = { advanceStandingsPointers, calculateStandingRows, normalizeProblemDetails, publicProblemDetails, serializeStandingRow,
   normalizeFreezeAfterMinutes, resolveStandingsFreeze, selectStandingsView, scoreDetailsBefore, loadFrozenScoreDetails,
-  frozenScoreDetails, submissionHiddenByFreeze, frozenSubmissionResult, normalizeMedalPercentages, medalForRank };
+  frozenScoreDetails, loadContestSubmitters, submissionHiddenByFreeze, frozenSubmissionResult, normalizeMedalPercentages, medalForRank };
