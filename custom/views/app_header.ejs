@@ -49,9 +49,10 @@ function appNavIcon(name, extraClass) {
 }
 let appTierMap = {};
 const appTierUserIds = new Set([
+  ...(syzoj.siteOwnerUserId ? [Number(syzoj.siteOwnerUserId)] : []),
   ...(syzoj.adminUserIds || []),
   ...(syzoj.cheaterUserIds || []),
-  ...(syzoj.userHitScores ? syzoj.userHitScores.keys() : [])
+  ...(syzoj.userRatings ? syzoj.userRatings.keys() : [])
 ]);
 for (const uid of appTierUserIds) appTierMap[uid] = syzoj.utils.calcUserTier({ id: uid });
 const appCheatedJudgeIds = [];
@@ -80,10 +81,10 @@ if (syzoj.userTagsEnabled !== false && syzoj.userTags) {
   <link rel="apple-touch-icon" href="/self/favicon.png?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20261104-transparent-1">
   <link rel="stylesheet" href="<%- selfLib('syntect-tomorrow.css') %>?20220512">
   <link rel="stylesheet" href="/self/lib/flatpickr-4.6.13/flatpickr.min.css">
-  <link rel="stylesheet" href="/self/app-shell.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20261116-username-links-1">
+  <link rel="stylesheet" href="/self/app-shell.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20261116-cf-rating-2">
   <link rel="stylesheet" href="/self/app-shared.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20261109-activity-workflow-1">
-  <link rel="stylesheet" href="/self/app-features.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20261116-username-links-1">
-  <link rel="stylesheet" href="/self/username_tiers.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20260731-3">
+  <link rel="stylesheet" href="/self/app-features.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20261116-cf-rating-2">
+  <link rel="stylesheet" href="/self/username_tiers.css?v=<%= encodeURIComponent(appVersion) %>&amp;rev=20261116-cf-rating-2">
   <!-- Load before Monaco installs its AMD loader on submission pages. -->
   <script src="/self/lib/flatpickr-4.6.13/flatpickr.min.js"></script>
   <script src="/self/lib/flatpickr-4.6.13/zh.js"></script>

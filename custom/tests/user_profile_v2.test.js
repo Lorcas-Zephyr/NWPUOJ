@@ -82,15 +82,14 @@ test('cheater name tags stay hidden across profiles and submission lists without
   assert.match(template, /adminActionType === 'cheated'\) return '作弊'/);
 });
 
-test('client username color map matches the server renderer for all Hit tiers and overrides', () => {
-  const syzoj = { utils: {}, adminUserIds: new Set([1]), cheaterUserIds: new Set([1, 7]),
-    userHitScores: new Map([[1, { total: 0 }], [2, { total: 350 }], [3, { total: 280 }],
-      [4, { total: 200 }], [5, { total: 100 }], [6, { total: 0 }], [7, { total: 400 }], [8, { total: 99 }]]) };
+test('client username color map matches the server renderer for all Rating tiers and overrides', () => {
+  const syzoj = { utils: {}, adminUserIds: new Set([1]), cheaterUserIds: new Set([7]),
+    userRatings: new Map([[1, 3000], [2, 2400], [3, 2100], [4, 1900], [5, 1600], [6, 0], [7, 1400], [8, 1200]]) };
   const context = { syzoj };
   vm.runInNewContext(read('custom/modules/_username_renderer.js'), context);
   const header = read('custom/views/app_header.ejs');
   const map = vm.runInNewContext(header.slice(header.indexOf('let appTierMap ='), header.indexOf('const appCheatedJudgeIds =')) + '\nappTierMap;', context);
-  for (let id = 1; id <= 9; id++) assert.equal(map[id] || 'default', syzoj.utils.calcUserTier({ id }));
+  for (let id = 1; id <= 9; id++) assert.equal(map[id] || 'gray', syzoj.utils.calcUserTier({ id }));
   assert.equal(map[1], 'admin');
   assert.equal(map[7], 'cheater');
   assert.equal(map[6], 'gray');
@@ -218,16 +217,15 @@ test('registration identity accepts newly added colleges', () => {
 });
 
 test('account colors stay identical across page-local admin adapters, submission lists and client maps', () => {
-  const syzoj = { utils: {}, adminUserIds: new Set([1]), cheaterUserIds: new Set([1, 7]),
-    userHitScores: new Map([[2, { total: 350 }], [3, { total: 280 }], [4, { total: 200 }],
-      [5, { total: 100 }], [6, { total: 0 }], [7, { total: 400 }], [8, { total: 99 }]]) };
+  const syzoj = { utils: {}, adminUserIds: new Set([1]), cheaterUserIds: new Set([7]),
+    userRatings: new Map([[1, 3000], [2, 2400], [3, 2100], [4, 1900], [5, 1600], [6, 0], [7, 1400], [8, 1200]]) };
   const context = { syzoj };
   vm.runInNewContext(read('custom/modules/_username_renderer.js'), context);
   const template = read('custom/views/submissions.ejs');
   vm.runInNewContext(template.slice(template.indexOf('function submissionUserTier('), template.indexOf('function submissionUserTag(')), context);
   const header = read('custom/views/app_header.ejs');
   const map = vm.runInNewContext(header.slice(header.indexOf('let appTierMap ='), header.indexOf('const appCheatedJudgeIds =')) + '\nappTierMap;', context);
-  const expected = ['admin', 'red', 'orange', 'green', 'blue', 'gray', 'cheater', 'gray', 'default'];
+  const expected = ['admin', 'red', 'orange', 'violet', 'blue', 'gray', 'cheater', 'green', 'gray'];
   for (let id = 1; id <= expected.length; id++) {
     const user = { id, username: 'fixture' + id, is_admin: id === 1 };
     const adapter = Object.create(user); adapter.is_admin = true;
@@ -236,7 +234,20 @@ test('account colors stay identical across page-local admin adapters, submission
       assert.match(syzoj.utils.renderUsername(candidate, { noLink: true }), new RegExp('username-tier-' + expected[id - 1]));
     }
     assert.equal(context.submissionUserTier(id), expected[id - 1]);
-    assert.equal(map[id] || 'default', expected[id - 1]);
+    assert.equal(map[id] || 'gray', expected[id - 1]);
     assert.equal(user.is_admin, id === 1, 'rendering never changes stored identity');
   }
+});
+
+
+test('CF thresholds apply to ordinary accounts; global admins and owner have fixed styles', () => {
+  const syzoj = { utils: {}, adminUserIds: new Set([1]), siteOwnerUserId: 3 };
+  vm.runInNewContext(read('custom/modules/_username_renderer.js'), { syzoj });
+  for (const [rating, tier] of [[-1,'gray'],[0,'gray'],[1199,'gray'],[1200,'green'],[1399,'green'],[1400,'cyan'],[1599,'cyan'],[1600,'blue'],[1899,'blue'],[1900,'violet'],[2099,'violet'],[2100,'orange'],[2399,'orange'],[2400,'red'],[2999,'red'],[3000,'legendary']]) {
+    assert.equal(syzoj.utils.calcUserTier({ id: 2, rating, is_admin: true }), tier);
+  }
+  assert.equal(syzoj.utils.calcUserTier({ id: 1, rating: 1200 }), 'admin');
+  assert.equal(syzoj.utils.calcUserTier({ id: 3, rating: 0 }), 'owner');
+  assert.equal(syzoj.utils.ratingTitle({ rating: 2300 }), 'International Master');
+  assert.equal(syzoj.utils.ratingTitle({ rating: 2600 }), 'International Grandmaster');
 });

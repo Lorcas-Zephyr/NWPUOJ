@@ -1,11 +1,17 @@
 {
-  "generated_at": "2026-11-16T12:26:22.166Z",
+  "generated_at": "2026-11-16T13:38:24.650Z",
   "frontend_page_routes": [
     {
       "method": "GET",
       "route": "/help/hit-value",
       "source": "custom/modules/__hit_score_engine.js",
-      "line": 473
+      "line": 29
+    },
+    {
+      "method": "GET",
+      "route": "/help/rating",
+      "source": "custom/modules/__hit_score_engine.js",
+      "line": 30
     },
     {
       "method": "GET",
@@ -383,13 +389,13 @@
       "method": "GET",
       "route": "/help",
       "source": "custom/modules/_help_page.js",
-      "line": 116
+      "line": 120
     },
     {
       "method": "GET",
       "route": "/admin/help",
       "source": "custom/modules/_help_page.js",
-      "line": 129
+      "line": 133
     },
     {
       "method": "GET",
@@ -485,7 +491,7 @@
       "method": "GET",
       "route": "/ranklist",
       "source": "custom/modules/_ranklist.js",
-      "line": 6
+      "line": 5
     },
     {
       "method": "GET",
@@ -605,7 +611,7 @@
       "method": "GET",
       "route": "/admin/user-tags",
       "source": "custom/modules/_user_tag.js",
-      "line": 141
+      "line": 126
     },
     {
       "method": "GET",
@@ -795,8 +801,8 @@
   "approved_runtime_callbacks": [],
   "compatibility_adapters": [],
   "summary": {
-    "frontend_page_route_registrations": 131,
-    "frontend_page_route_shapes": 111,
+    "frontend_page_route_registrations": 132,
+    "frontend_page_route_shapes": 112,
     "v1_api_reads": 0,
     "v1_write_routes": 0,
     "v1_write_route_shapes": 0,

@@ -77,7 +77,7 @@ async function ensureAgentAccounts() {
         const passwordHash = await syzoj.utils.hashPassword(password);
         const result = await manager.query(`INSERT INTO user
           (username,email,password,nickname,nameplate,information,ac_num,submit_num,is_admin,is_show,public_email,prefer_formatted_code,sex,rating,register_time)
-          VALUES (?,NULL,?,?,'','AI 参赛账户',0,0,0,1,0,1,0,?,?)`, [username, passwordHash, username, Number(syzoj.config.default.user.rating || 1500), now()]);
+          VALUES (?,NULL,?,?,'','AI 参赛账户',0,0,0,1,0,1,0,?,?)`, [username, passwordHash, username, Number(syzoj.config.default.user.rating ?? 0), now()]);
         userId = Number(result.insertId);
       }
       await manager.query(`INSERT INTO ai_agent_account (user_id,provider,model,api_key_env,enabled,created_at,updated_at)

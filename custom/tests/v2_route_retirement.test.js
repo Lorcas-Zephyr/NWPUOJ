@@ -28,7 +28,7 @@ test('administrative and contest writes authorize through v2 capabilities', () =
   assert.match(contests, /authorizationV2\.authorize\(user, 'contest:create'/);
   assert.match(contests, /requireManager\(existing, user, 'contest:edit', res\)/);
   assert.match(contests, /requireManager\(contest, res\.locals\.user, 'contest:standings\.rebuild', res\)/);
-  for (const source of [tags, hit, messages]) assert.match(source, /authorizationV2\.authorize\(/);
+  for (const source of [tags, messages]) assert.match(source, /authorizationV2\.authorize\(/);
 });
 
 test('community dynamic publishing and reading surfaces are fully removed', () => {
@@ -50,7 +50,8 @@ test('site administrator flags are restricted to protection and presentation bou
   assert.match(identity, /editedUser\.is_admin[\s\S]*actorIsOwner/);
   assert.match(admin, /hasAdminStatus[\s\S]*OWNER_CAPABILITY_REQUIRED/);
   assert.match(tags, /if \(user\.is_admin\) return true/);
-  assert.match(tags, /calcUserTier\(userId, isAdminFlag\)/);
+  assert.match(tags, /syzoj\.utils\.calcUserTier\(\{ id: r\.user_id \}\)/);
+  assert.doesNotMatch(tags, /userHitScores/);
 });
 
 test('v1 routes are physically retired and the runtime guard remains defense in depth', () => {

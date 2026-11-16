@@ -17,7 +17,7 @@ const TERMINAL_STATES = new Set(['completed', 'failed', 'cancelled']);
 const JOB_STATES = new Set(['queued', 'running', 'paused', 'cancelling', 'completed', 'failed', 'cancelled']);
 const CONFIG_FIELDS = Object.freeze({
   site_title: { type: 'string', mutable: true, minimum: 1, maximum: 80 },
-  default_user_rating: { type: 'integer', mutable: true, minimum: 1, maximum: 10000 },
+  default_user_rating: { type: 'integer', mutable: true, minimum: 0, maximum: 10000 },
   enabled_languages: { type: 'string_array', mutable: false, sensitive: false }
 });
 let configSchemaPromise = null;
@@ -182,7 +182,7 @@ async function loadConfigOverrides() {
 }
 function configValue(name) {
   if (name === 'site_title') return String(syzoj.config.title || 'NWPUOJ');
-  if (name === 'default_user_rating') return Number(syzoj.config.default && syzoj.config.default.user && syzoj.config.default.user.rating || 1500);
+  if (name === 'default_user_rating') return Number(syzoj.config.default?.user?.rating ?? 0);
   if (name === 'enabled_languages') return Array.isArray(syzoj.config.enabled_languages) ? syzoj.config.enabled_languages.slice() : [];
   return '[redacted]';
 }
@@ -640,7 +640,7 @@ app.get('/api/v2/admin/users', requireCapability('admin:user.manage'), async (re
   await ensureRegistrationProfileSchema();
   const rows = await TypeORM.getConnection().query(`SELECT u.id,u.username,u.email,u.is_admin,u.is_show,u.rating,u.register_time,COALESCE(state.status,'active') AS account_status,state.reason AS disabled_reason,state.changed_at AS status_changed_at FROM user u LEFT JOIN auth_user_state state ON state.user_id=u.id WHERE u.id>? AND (?='' OR u.username LIKE CONCAT('%',?,'%') OR u.email LIKE CONCAT('%',?,'%') OR CAST(u.id AS CHAR)=? OR EXISTS (SELECT 1 FROM user_registration_profile profile WHERE profile.user_id=u.id AND profile.student_id LIKE CONCAT('%',?,'%'))) ORDER BY u.id ASC LIMIT ?`, [cursor, keyword, keyword, keyword, keyword, keyword, limit + 1]);
   const more = rows.length > limit; res.locals.apiMeta.limit = limit; res.locals.apiMeta.next_cursor = more ? api().encodeCursor(rows[limit - 1].id) : null;
-  return api().send(res, rows.slice(0, limit).map(row => ({ id: Number(row.id), username: row.username, email: row.email ? '[redacted]' : null, is_admin: !!row.is_admin, visible_in_rankings: !!row.is_show, account_status: row.account_status, disabled_reason: row.account_status === 'disabled' ? row.disabled_reason : null, status_changed_at: iso(row.status_changed_at), rating: Number(row.rating || 1500), registered_at: row.register_time ? new Date(Number(row.register_time) * 1000).toISOString() : null })));
+  return api().send(res, rows.slice(0, limit).map(row => ({ id: Number(row.id), username: row.username, email: row.email ? '[redacted]' : null, is_admin: !!row.is_admin, visible_in_rankings: !!row.is_show, account_status: row.account_status, disabled_reason: row.account_status === 'disabled' ? row.disabled_reason : null, status_changed_at: iso(row.status_changed_at), rating: Number(row.rating ?? 0), registered_at: row.register_time ? new Date(Number(row.register_time) * 1000).toISOString() : null })));
 });
 
 function managedUserError(code, message, statusCode, fields) {
@@ -1209,7 +1209,7 @@ app.get('/admin/config', async (req, res) => {
       items: legacyConfigViewItems(),
       v2Config: {
         site_title: String(syzoj.config.title || 'NWPUOJ'),
-        default_user_rating: Number(syzoj.config.default && syzoj.config.default.user && syzoj.config.default.user.rating || 1500)
+        default_user_rating: Number(syzoj.config.default?.user?.rating ?? 0)
       }
     });
   } catch (error) { return renderLegacyAdminError(res, error); }

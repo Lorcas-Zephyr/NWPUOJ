@@ -59,7 +59,7 @@ v2.2.0 新增 [基地工作区](docs/base-workspace.md)、[周赛总榜](docs/we
 - Markdown 个人剪贴板，支持私有、公开和限时分享链接。
 - 题解投稿、审核、评论、投稿开关和审核记录。
 - 公告、首页 Banner、讨论区和工单系统。
-- Hit 值、Rating、用户名颜色、荣誉标签和作弊者状态。
+- Codeforces Rating（初始 0 分）、按 Rating 分档的用户名颜色、荣誉标签和作弊者状态。
 
 ### 管理后台
 

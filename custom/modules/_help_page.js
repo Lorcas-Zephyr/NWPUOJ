@@ -44,6 +44,10 @@ function ensureHelpSchema() {
          VALUES (1,?,1,NULL,?)`,
         [DEFAULT_HELP, Math.floor(Date.now() / 1000)]
       );
+      await connection.query("UPDATE site_help_page SET content=REPLACE(content,?,?),revision=revision+1,updated_at=? WHERE id=1 AND content LIKE ?",
+        ['## Hit 值\n\nHit 值每天 `00:00` 按 Asia/Shanghai 时区全量计算。若服务重启导致当天零点任务未执行，启动后会自动补算。',
+          '## Rating\n\n账号初始 Rating 为 0，Rated 比赛采用 Codeforces 积分算法，用户名颜色按 Rating 分档。详见 [Rating 规则](/help/rating)。',
+          Math.floor(Date.now() / 1000), '%## Hit 值\n\nHit 值每天 `00:00` 按 Asia/Shanghai 时区全量计算。若服务重启导致当天零点任务未执行，启动后会自动补算。%']);
       if (BULK_IMPORT_HELP) await connection.transaction(async manager => {
         const rows = await manager.query('SELECT * FROM site_help_page WHERE id=1 FOR UPDATE');
         const current = rows[0];

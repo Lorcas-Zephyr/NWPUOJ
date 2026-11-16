@@ -70,7 +70,7 @@ function publicMe(user) {
     sex: normalizeSex(user.sex, '0') || '0',
     public_email: !!user.public_email,
     prefer_formatted_code: !!user.prefer_formatted_code,
-    rating: Number(user.rating || 1500),
+    rating: Number(user.rating ?? 0),
     registered_at: user.register_time ? new Date(Number(user.register_time) * 1000).toISOString() : null
   };
 }

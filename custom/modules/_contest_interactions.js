@@ -595,7 +595,7 @@ async function contestRatingView(req, res) {
     );
   }
 
-  const defaultRating = Number(syzoj.config.default.user.rating || 1500);
+  const defaultRating = Number(syzoj.config.default.user.rating ?? 0);
   const entries = rows.map(row => {
     const before = row.rating_before == null ? defaultRating : Number(row.rating_before);
     const after = Number(row.rating_after);

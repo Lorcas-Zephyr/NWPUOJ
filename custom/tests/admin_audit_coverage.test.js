@@ -93,5 +93,6 @@ test('active high-risk administrative writes persist audit identifiers', () => {
   assert.match(admin, /app\.post\('\/api\/v2\/admin\/judge-workers\/:id\/restart'[\s\S]*X-Audit-Event-ID/);
   assert.match(rating, /app\.post\('\/api\/v2\/admin\/rating\/calculate-pending'[\s\S]*recordAudit/);
   assert.match(contest, /app\.delete\('\/api\/v2\/contests\/:id'[\s\S]*X-Audit-Event-ID/);
-  assert.match(hit, /app\.post\('\/api\/v2\/admin\/hit\/recalculate'[\s\S]*recordAudit/);
+  assert.match(hit, /app\.post\('\/api\/v2\/admin\/hit\/recalculate', hitRetired\)/);
+  assert.match(hit, /fail\(res, 410, 'HIT_RETIRED'/);
 });

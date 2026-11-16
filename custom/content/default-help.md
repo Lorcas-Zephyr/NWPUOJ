@@ -197,9 +197,9 @@ subtasks:
 
 选手提交的答案 ZIP 必须在根目录包含 `1.out`、`2.out` 等 `userOutput` 指定的文件，不能额外套文件夹。缺少任一文件会得到文件错误。需要自定义评分时，可按传统题相同方式增加 `specialJudge`；未配置检查器时使用普通输出比较。
 
-## Hit 值
+## Rating
 
-Hit 值每天 `00:00` 按 Asia/Shanghai 时区全量计算。若服务重启导致当天零点任务未执行，启动后会自动补算。
+账号初始 Rating 为 0，Rated 比赛采用 Codeforces 积分算法，用户名颜色按 Rating 分档。详见 [Rating 规则](/help/rating)。
 
 
 <span id="activity-registration"></span>

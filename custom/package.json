@@ -18,7 +18,7 @@
     "test:contest-freeze": "node --test tests/contest_freeze.test.js tests/contest_submission_freeze.test.js",
     "verify:design": "node tests/verify-design-checklist.js",
     "test:web:smoke": "bash tests/web_render_smoke.sh",
-    "test:syntax": "find libs libs-built modules scripts tests -type f -name '*.js' -exec node --check {} \\;",
+    "test:syntax": "find libs libs-built modules scripts tests -type f -name '*.js' -print0 | xargs -0 -n 1 node --check",
     "test:languages": "node --test tests/judge_languages.test.js tests/judge_runtime_error.test.js tests/judge_communication.test.js tests/python_time_limit.test.js tests/java_time_limit.test.js",
     "test:statistics": "node --test tests/statistics_render.test.js",
     "test:profile": "node --test tests/auth_login.test.js tests/user_profile_v2.test.js tests/user_management_v2.test.js",

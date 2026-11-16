@@ -78,22 +78,7 @@ app.post('/api/v2/notifications/read-all', async (req, res) => { const user = re
 app.post('/api/v2/notifications/:id/read', async (req, res) => { const user = res.locals.user; if (!user) return api().fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.'); if (!await can(user, 'notification:read')) return api().fail(res, 403, 'CAPABILITY_REQUIRED', 'Capability required: notification:read.'); try { const result = await contentTransaction(manager => contentDomain.markNotificationRead(manager, { notificationId: req.params.id, userId: user.id, now: Math.floor(Date.now() / 1000) })); return api().send(res, { id: result.id, is_read: true, read_at: time(result.readAt), source_url: result.sourceUrl, updated: result.updated, event_id: result.eventId }); } catch (error) { return contentFailure(res, error); } });
 app.delete('/api/v2/notifications/:id', async (req, res) => { const user = res.locals.user; if (!user) return api().fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.'); if (!await can(user, 'notification:read')) return api().fail(res, 403, 'CAPABILITY_REQUIRED', 'Capability required: notification:read.'); try { const result = await contentTransaction(manager => contentDomain.deleteNotification(manager, { notificationId: req.params.id, userId: user.id })); return api().send(res, { id: result.id, deleted: true, event_id: result.eventId }); } catch (error) { return contentFailure(res, error); } });
 
-app.get('/api/v2/users/:id/hit-history', async (req, res) => {
-  const userId = Number(req.params.id);
-  if (!Number.isSafeInteger(userId) || userId < 1) return api().fail(res, 404, 'USER_NOT_FOUND', 'The user was not found.');
-  if (syzoj.userHitHidden && syzoj.userHitHidden.has(userId) && (!res.locals.user || Number(res.locals.user.id) !== userId)) {
-    return api().fail(res, 403, 'HIT_HISTORY_PRIVATE', 'This user has hidden their HIT history.');
-  }
-  const days = Math.min(90, Math.max(1, Number.parseInt(req.query.days, 10) || 30));
-  const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
-  const rows = await TypeORM.getConnection().query(`SELECT recorded_at,basic_score,contribution_score,contest_score,practice_score
-    FROM user_hit_score_history WHERE user_id=? AND recorded_at>=? ORDER BY recorded_at ASC`, [userId, cutoff]);
-  res.set('Cache-Control', 'no-store');
-  return api().send(res, { user_id: userId, days, points: rows.map(row => ({
-    t: Number(row.recorded_at), basic: Number(row.basic_score), contribution: Number(row.contribution_score),
-    contest: Number(row.contest_score), practice: Number(row.practice_score)
-  })) });
-});
+app.get('/api/v2/users/:id/hit-history', (req, res) => api().fail(res, 410, 'HIT_RETIRED', 'Hit has been retired. Use Rating instead.'));
 
 app.patch('/api/v2/me/user-tag', async (req, res) => {
   const user = res.locals.user;

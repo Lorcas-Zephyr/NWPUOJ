@@ -1,12 +1,15 @@
 /* Canonical username tier and account-label presentation. */
 :root {
   --username-default: #4b5563;
-  --username-gray: #697386;
-  --username-blue: #145fb8;
-  --username-green: #117a49;
-  --username-orange: #a4510d;
-  --username-red: #b8323a;
+  --username-gray: #808080;
+  --username-blue: #0000ff;
+  --username-green: #008000;
+  --username-orange: #ff8c00;
+  --username-red: #ff0000;
   --username-admin: #7a3eb1;
+  --username-cyan: #03a89e;
+  --username-violet: #aa00aa;
+  --username-legendary-first: #000000;
   --username-cheater: #76513a;
 }
 
@@ -18,6 +21,9 @@
   --username-orange: #f2ae62;
   --username-red: #f58489;
   --username-admin: #c9a0ec;
+  --username-cyan: #5ed8d0;
+  --username-violet: #db91ed;
+  --username-legendary-first: #ffffff;
   --username-cheater: #c69a79;
 }
 
@@ -36,12 +42,20 @@
   font-style: italic;
 }
 
+.username-tier-cyan { color: var(--username-cyan) !important; }
+.username-tier-violet { color: var(--username-violet) !important; }
+.username-tier-legendary { color: var(--username-red) !important; display: inline-block; }
+.username-tier-legendary::first-letter { color: var(--username-legendary-first); }
+
 .username-tier-blue { color: var(--username-blue) !important; }
 .username-tier-green { color: var(--username-green) !important; }
 .username-tier-orange { color: var(--username-orange) !important; }
 .username-tier-red { color: var(--username-red) !important; }
 .username-tier-admin { color: var(--username-admin) !important; }
 
+.username-tier-cyan,
+.username-tier-violet,
+.username-tier-legendary,
 .username-tier-blue,
 .username-tier-green,
 .username-tier-orange,
@@ -87,3 +101,29 @@ a.username-tier-cheater:hover {
 .user-name-tag.tag-tier-red { background: var(--username-red); }
 .user-name-tag.tag-tier-admin { background: var(--username-admin); }
 .user-name-tag.tag-tier-cheater { background: var(--username-cheater); }
+
+.user-name-tag.tag-tier-cyan { background: var(--username-cyan); }
+.user-name-tag.tag-tier-violet { background: var(--username-violet); }
+.user-name-tag.tag-tier-legendary { background: var(--username-red); }
+
+
+.username-tier-owner {
+  color: var(--username-admin) !important;
+  font-weight: 800;
+  text-decoration-color: var(--username-admin);
+}
+@supports ((background-clip: text) or (-webkit-background-clip: text)) {
+  .username-tier-owner {
+    background-image: linear-gradient(105deg, #c93364 0%, #b96600 20%, #318321 40%, #008c9d 60%, #3c5fd2 80%, #9641c7 100%);
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent !important;
+    -webkit-text-fill-color: transparent;
+  }
+  :root[data-theme="dark"] .username-tier-owner {
+    background-image: linear-gradient(105deg, #ff8bad 0%, #f3be6c 20%, #8bdb7d 40%, #6bdde5 60%, #98b9ff 80%, #db9cf8 100%);
+  }
+}
+@media (forced-colors: active) {
+  .username-tier-owner { background: none; color: LinkText !important; -webkit-text-fill-color: LinkText; }
+}

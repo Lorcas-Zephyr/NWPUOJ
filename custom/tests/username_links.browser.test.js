@@ -10,7 +10,7 @@ const root = path.resolve(__dirname, '..');
 const read = file => fs.readFileSync(path.join(root, file), 'utf8');
 const author = { id: 7, username: 'owner<&>', is_admin: true };
 const viewer = { id: 9, username: 'viewer' };
-const tiers = { 7: 'blue', 8: 'admin', 9: 'cheater' };
+const tiers = { 7: 'blue', 8: 'admin', 9: 'cheater', 10: 'legendary', 12: 'owner' };
 let browser;
 test.before(async () => { browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] }); });
 test.after(async () => { if (browser) await browser.close(); });
@@ -19,7 +19,7 @@ function render(view, locals) {
   const code = `const fs=require('fs'),ejs=require('ejs'),vm=require('vm');
     const input=JSON.parse(fs.readFileSync(0,'utf8'));
     const syzoj={utils:{makeUrl:parts=>'/'+parts.join('/'),avatar:()=>'',formatDate:()=> '2026-11-16',getCurrentDate:()=>10},
-      adminUserIds:new Set([8]),cheaterUserIds:new Set([9]),userHitScores:new Map([[7,{total:120}]])};
+      siteOwnerUserId:12,adminUserIds:new Set([8]),cheaterUserIds:new Set([9]),userRatings:new Map([[7,1600],[8,1900],[10,3000]])};
     vm.runInNewContext(input.renderer,{syzoj});
     process.stdout.write(ejs.render(input.template,{...input.locals,syzoj}));`;
   const result = spawnSync('docker', ['compose', 'exec', '-T', 'web', 'node', '-e', code], {
@@ -50,7 +50,7 @@ test('base lists and problem-set creators use the account ID, escaped name and g
     try {
       const name = f.page.getByRole('link', { name: author.username, exact: true });
       assert.equal(await name.getAttribute('href'), '/user/7');
-      assert.equal(await name.evaluate(el => getComputedStyle(el).color), 'rgb(20, 95, 184)');
+      assert.equal(await name.evaluate(el => getComputedStyle(el).color), 'rgb(0, 0, 255)');
       await name.click(); assert.equal(new URL(f.page.url()).pathname, '/user/7');
       assert.deepEqual(f.failures, []);
     } finally { await f.context.close(); }
@@ -85,7 +85,7 @@ test('async names, recycled links and selection labels receive the same colors i
     });
     await f.page.waitForFunction(() => document.querySelector('#list a').className === 'username-tier-blue');
     const link = f.page.locator('#list a');
-    assert.equal(await link.evaluate(el => getComputedStyle(el).color), 'rgb(20, 95, 184)');
+    assert.equal(await link.evaluate(el => getComputedStyle(el).color), 'rgb(0, 0, 255)');
     assert.match(await f.page.locator('[data-username-id]').getAttribute('class'), /username-tier-cheater/);
     await link.evaluate(el => { el.href = '/user/8'; });
     await f.page.waitForFunction(() => document.querySelector('#list a').className === 'username-tier-admin');
@@ -93,5 +93,39 @@ test('async names, recycled links and selection labels receive the same colors i
     await f.page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
     assert.equal(await link.evaluate(el => getComputedStyle(el).color), 'rgb(201, 160, 236)');
     assert.deepEqual(f.failures, []);
+  } finally { await f.context.close(); }
+});
+
+
+test('legendary usernames use a contrasting first letter in both themes', async () => {
+  const f = await fixture('<a href="/user/10">legendary</a><a href="/user/11">new-account</a>');
+  try {
+    const link = f.page.locator('a[href="/user/10"]');
+    await f.page.waitForFunction(() => document.querySelector('a[href="/user/10"]').classList.contains('username-tier-legendary'));
+    assert.equal(await link.evaluate(el => getComputedStyle(el).color), 'rgb(255, 0, 0)');
+    assert.equal(await link.evaluate(el => getComputedStyle(el, '::first-letter').color), 'rgb(0, 0, 0)');
+    assert.match(await f.page.locator('a[href="/user/11"]').getAttribute('class'), /username-tier-gray/);
+    await f.page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
+    assert.equal(await link.evaluate(el => getComputedStyle(el, '::first-letter').color), 'rgb(255, 255, 255)');
+    assert.deepEqual(f.failures, []);
+  } finally { await f.context.close(); }
+});
+
+
+test('owner name stays a readable gradient across light, dark and forced colors', async () => {
+  const f = await fixture(render('problem_sets', { user: viewer, canCreateProblemSet: false, problemSets: [{ id: 900, title: 'Fixture', owner_id: 12, owner_username: 'NWPU-ICPC', ranking_mode: 'acm', problem_count: 1, participant_count: 1, visibility: 'public', status: 'published' }] }));
+  try {
+    const name = f.page.getByRole('link', { name: 'NWPU-ICPC', exact: true });
+    assert.match(await name.getAttribute('class'), /username-tier-owner/);
+    for (const theme of ['light', 'dark']) {
+      await f.page.evaluate(theme => document.documentElement.setAttribute('data-theme', theme), theme);
+      const style = await name.evaluate(el => ({ background: getComputedStyle(el).backgroundImage, clip: getComputedStyle(el).backgroundClip, color: getComputedStyle(el).color }));
+      assert.match(style.background, /linear-gradient/);
+      assert.equal(style.clip, 'text');
+      assert.equal(style.color, 'rgba(0, 0, 0, 0)');
+    }
+    await f.page.emulateMedia({ forcedColors: 'active' });
+    assert.notEqual(await name.evaluate(el => getComputedStyle(el).webkitTextFillColor), 'rgba(0, 0, 0, 0)');
+    await name.click(); assert.equal(new URL(f.page.url()).pathname, '/user/12');
   } finally { await f.context.close(); }
 });

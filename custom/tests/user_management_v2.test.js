@@ -282,18 +282,14 @@ test('privileged account editor uses only the administrator v2 resource', () => 
   assert.match(route, /req\.get\('If-Match'\) \|\| body\.if_match/);
 });
 
-test('Hit visibility settings use one ETag-protected evented v2 resource', () => {
+test('Hit controls are removed and old endpoints explicitly retired', () => {
   const route = read('custom/modules/__hit_score_engine.js');
   const view = read('custom/views/user_edit.ejs');
-  assert.match(route, /app\.get\('\/api\/v2\/me\/hit-settings'/);
-  assert.match(route, /app\.patch\('\/api\/v2\/me\/hit-settings'/);
-  assert.match(route, /user_hit_setting WHERE user_id=\? LIMIT 1 FOR UPDATE/);
-  assert.match(route, /api\.ifMatch\(req, current\)/);
-  assert.match(route, /contentDomain\.appendEvent\(manager/);
-  assert.match(route, /profile\.hit-settings\.updated/);
-  assert.match(view, /data-hit-setting-v2/);
-  assert.match(view, /fetch\('\/api\/v2\/me\/hit-settings'/);
-  assert.doesNotMatch(view, /API_DOMAIN_DISABLED|HTMLFormElement\.prototype\.submit/);
+  assert.match(route, /app\.get\('\/api\/v2\/me\/hit-settings', hitRetired\)/);
+  assert.match(route, /app\.patch\('\/api\/v2\/me\/hit-settings', hitRetired\)/);
+  assert.match(route, /fail\(res, 410, 'HIT_RETIRED'/);
+  assert.doesNotMatch(view, /data-hit-setting-v2|hide_hit|Hit 值/);
+  assert.doesNotMatch(route, /INSERT INTO user_hit|calculateAllUsers/);
 });
 
 test('administrator deletion uses only the v2 resource', () => {
@@ -319,4 +315,19 @@ test('administrator deletion uses only the v2 resource', () => {
   assert.match(view, /data-admin-user-delete-v2/);
   assert.match(view, /method: 'DELETE'/);
   assert.doesNotMatch(view, /API_DOMAIN_DISABLED|HTMLFormElement\.prototype\.submit/);
+});
+
+
+test('default Rating accepts and preserves zero through validation, save and metadata', () => {
+  const source = read('custom/modules/_api_v2_admin_domain.js');
+  const fields = source.slice(source.indexOf('const CONFIG_FIELDS ='), source.indexOf('let configSchemaPromise'));
+  const functions = source.slice(source.indexOf('function applyConfigOverride('), source.indexOf('async function ensureContentAdminSchema('));
+  const context = { syzoj: { config: { default: { user: { rating: 1500 } } } } };
+  vm.runInNewContext(fields + functions, context);
+  assert.equal(context.validateConfigChange('default_user_rating', 0).value, 0);
+  assert.equal(context.validateConfigChange('default_user_rating', '0').value, 0);
+  assert.ok(context.validateConfigChange('default_user_rating', -1).error);
+  context.applyConfigOverride('default_user_rating', 0);
+  assert.equal(context.configValue('default_user_rating'), 0);
+  assert.equal(context.configMetadataResource().fields.find(field => field.name === 'default_user_rating').value, 0);
 });

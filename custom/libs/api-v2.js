@@ -154,7 +154,7 @@ const ERROR_CATALOG = Object.freeze(Object.assign(
     'AI_AGENT_NOT_FOUND', 'AI_RUN_NOT_FOUND', 'IMAGE_HOST_NOT_FOUND'
   ]),
   catalogGroup(410, 'Write operations require a v2 resource route.', [
-    'V2_ROUTE_REQUIRED'
+    'V2_ROUTE_REQUIRED', 'HIT_RETIRED'
   ]),
   catalogGroup(409, 'The request conflicts with the current resource state.', [
     'AUTHORIZATION_WRITE_FAILED', 'AVATAR_DELETE_FAILED', 'CONTENT_WRITE_FAILED', 'CONTEST_ALREADY_SUBMITTED', 'CONTEST_DELETE_FAILED', 'CONTEST_LOCKED', 'CONTEST_RATING_FINALIZED', 'CONTEST_SUBMIT_FAILED', 'FOLLOW_FAILED',

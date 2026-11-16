@@ -14,6 +14,9 @@
     }
   ],
   "default": {
+    "user": {
+      "rating": 0
+    },
     "problem": {
       "memory_limit": 512
     }

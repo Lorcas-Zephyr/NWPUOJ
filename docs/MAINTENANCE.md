@@ -382,6 +382,21 @@ HTTP 环境开启 secure cookie。密钥改变后旧会话失效是预期行为�
 确认比赛已结束且 Rated，先处理作弊/无效提交，再在 Rating 管理页一键计算。删除或修改
 较早比赛后，按时间顺序重新计算后续比赛，不要直接手改用户 Rating。
 
+### 从旧积分切换到 Codeforces
+
+当前算法版本为 2，默认 Rating 为 0；新人前六场使用 CF 的初始分补偿。用户名颜色按 Rating 分档，全局管理员使用紫色、站长使用炫彩。
+
+`custom/scripts/reset-codeforces-rating.js` 默认只预览，按结束时间及比赛 ID 重放所有已结束 Rated 比赛。预览包含输入摘要、结果摘要、用户数和比赛列表。执行时传入同一次预览的 `--apply=<input_hash> --actor=<管理员 ID>`；输入变化会拒绝写入。
+
+```bash
+docker compose cp custom/scripts/reset-codeforces-rating.js web:/tmp/reset-codeforces-rating.js
+docker compose exec -T -e NWPUOJ_APP_ROOT=/app web node /tmp/reset-codeforces-rating.js
+```
+
+应用前完成预览与检查；将上述命令最后增加 `--apply=<input_hash> --actor=<管理员 ID>` 执行。脚本持有结算锁，在一个事务内更新全部用户、历史和结算状态，写入审计，不发批量通知。应用后重启 Web 刷新用户缓存。已有独立积分事件、投影或未完成任务时会拒绝覆盖，应先核对这些记录。
+
+数据库回归测试仅创建连接内临时表，可在 Web 容器执行 `custom/tests/codeforces_reset.mysql.test.js`（设置 `NWPUOJ_CF_DB_TEST=1`、`NWPUOJ_APP_ROOT=/app`，并用 `NWPUOJ_CF_RESET_SCRIPT` 指定重算脚本路径）。
+
 ## 13. 发布后验收记录
 
 每次大版本至少归档以下信息：

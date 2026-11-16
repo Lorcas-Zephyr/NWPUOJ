@@ -22,7 +22,6 @@ const appCanManageIdentity = appCanManageUsers;
 const appRequiresIdentity = typeof identityProfileComplete !== 'undefined' && !identityProfileComplete && edited_user.id === user.id;
 const appTagState = typeof myTagState !== 'undefined' ? myTagState : null;
 const appTagCheater = typeof myTagIsCheater !== 'undefined' ? myTagIsCheater : false;
-const appHideHit = !!(syzoj.userHitHidden && syzoj.userHitHidden.has(edited_user.id));
 let appEditMessage = error_info;
 if (appEditMessage === '') appEditMessage = '修改成功。';
 %>
@@ -34,7 +33,6 @@ if (appEditMessage === '') appEditMessage = '修改成功。';
   <% if (appRequiresIdentity) { %><div class="app-notice app-notice-warning" role="alert"><i data-lucide="triangle-alert"></i><span><strong>请先补全实名资料</strong><small>填写学号、姓名和学院并保存后，方可继续使用其他功能。</small></span></div><% } %>
   <% if (appEditMessage !== null) { %><div class="app-notice <%= error_info === '' ? 'app-notice-success' : 'app-notice-danger' %>" id="account-form-message"><i data-lucide="<%= error_info === '' ? 'circle-check' : 'circle-alert' %>"></i><span id="account-form-message-text"><%= appEditMessage %></span></div><% } %>
   <% if (req.query && req.query.saved === '1') { %><div class="app-notice app-notice-success" id="account-form-message"><i data-lucide="circle-check"></i><span id="account-form-message-text">资料已保存。</span></div><% } %>
-  <% if (req.query && req.query.hit === 'saved') { %><div class="app-notice app-notice-success"><i data-lucide="circle-check"></i><span>Hit 值显示设置已保存。</span></div><% } %>
   <% if (req.query && (req.query.avatar === 'uploaded' || req.query.avatar === 'removed')) { %><div class="app-notice app-notice-success"><i data-lucide="circle-check"></i><span><%= req.query.avatar === 'uploaded' ? '头像上传成功。' : '已恢复默认头像。' %></span></div><% } %>
 
   <section class="app-settings-section" id="avatar"><div class="app-settings-copy"><span class="app-kicker">AVATAR</span><h2>头像</h2><p>支持 JPG、PNG、WebP，文件大小不超过 2 MB。</p></div><div class="app-avatar-setting"><img src="<%= syzoj.utils.avatar(edited_user, 160) %>" alt="当前头像"><div><form class="app-form" method="post" enctype="multipart/form-data" data-avatar-v2 data-avatar-user-id="<%= edited_user.id %>"><input type="hidden" name="avatar_csrf_token" value="<%= avatarCsrfToken %>"><label class="app-file-field"><input type="file" name="avatar" accept="image/jpeg,image/png,image/webp" required><span><i data-lucide="image-plus"></i><strong>选择图片</strong><small>点击浏览本地文件</small></span></label><button class="app-button app-button-primary" type="submit"><i data-lucide="upload"></i>上传头像</button></form><% if (syzoj.utils.hasCustomAvatar(edited_user)) { %><form class="app-inline-form" method="post" data-avatar-delete-v2 data-avatar-user-id="<%= edited_user.id %>" data-confirm="确定恢复默认头像吗？"><input type="hidden" name="avatar_csrf_token" value="<%= avatarCsrfToken %>"><button class="app-button app-button-quiet" type="submit"><i data-lucide="undo"></i>恢复默认头像</button></form><% } %></div></div></section>
@@ -56,7 +54,6 @@ if (appEditMessage === '') appEditMessage = '修改成功。';
 
   <% if (appTagState && appTagState.hasPermission) { %><section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">NAME TAG</span><h2>用户名牌子</h2><p>牌子显示在用户名右侧，最多 12 个字符。<% if (appTagState.isAutoFromAdmin) { %>你的管理权限已自动授予此功能。<% } %></p></div><form class="app-form app-settings-fields" id="my-tag-form"><% if (appTagCheater) { %><div class="app-notice app-notice-warning"><i data-lucide="triangle-alert"></i><span>该账号的用户名牌子暂不展示，最近一次作弊标记满 14 天或全部标记撤销后恢复。</span></div><% } %><label class="app-field"><span class="app-label">牌子文字 <small><span id="my-tag-char-count">0</span> / 12</small></span><input class="app-input" type="text" id="my-tag-text-input" maxlength="12" value="<%= appTagState.record ? appTagState.record.tag_text || '' : (appEditedUserIsSiteOwner ? '站长' : '管理员') %>" placeholder="请输入用户名牌子"></label><label class="app-setting-row"><span><strong>展示牌子</strong><small>关闭后站内不再显示。</small></span><input class="app-switch" type="checkbox" id="my-tag-visible-input"<%= !appTagState.record || appTagState.record.is_visible !== false ? ' checked' : '' %>></label><div class="app-form-actions"><button class="app-button app-button-primary" type="button" id="my-tag-save-btn"><i data-lucide="save"></i>保存牌子</button><span class="app-form-status" id="my-tag-status" aria-live="polite"></span></div></form></section><% } else if (edited_user.id === user.id && appTagState && appTagState.isDisabled) { %><section class="app-settings-section"><div class="app-settings-copy"><span class="app-kicker">NAME TAG</span><h2>用户名牌子</h2></div><div class="app-notice app-notice-danger"><i data-lucide="ban"></i><span>牌子使用权限已被撤销<% if (appTagState.record && appTagState.record.disabled_reason) { %><small>原因：<%= appTagState.record.disabled_reason %></small><% } %></span></div></section><% } %>
 
-  <% if (edited_user.id === user.id) { %><section class="app-settings-section" id="hit"><div class="app-settings-copy"><span class="app-kicker">HIT VALUE</span><h2>Hit 值显示</h2><p>隐藏仅影响主页展示，不影响系统计算和用户名颜色。</p></div><form class="app-form app-settings-fields" method="post" data-hit-setting-v2><label class="app-setting-row"><span><strong>在主页隐藏 Hit 值</strong><small>其他用户将无法看到你的 Hit 详情。</small></span><input class="app-switch" type="checkbox" name="hide_hit"<%= appHideHit ? ' checked' : '' %>></label><div class="app-form-actions"><button class="app-button app-button-primary" type="submit">保存 Hit 设置</button></div></form></section><% } %>
 </div>
 
 <script>
@@ -246,30 +243,6 @@ function showError(error) { if (window.NWPUOJApp) window.NWPUOJApp.showToast(err
         var result = await responseBody(await fetch('/api/v2/users/' + encodeURIComponent(form.dataset.avatarUserId) + '/avatar', { method: 'DELETE', credentials: 'same-origin', headers: { 'Idempotency-Key': operationKey() } }));
         if (!result.response.ok) throw new Error(result.body && result.body.error && result.body.error.message || '恢复默认头像失败。');
         window.location.assign(window.location.pathname + '?avatar=removed#avatar');
-      } catch (error) { showError(error); if (button) button.disabled = false; }
-    });
-  });
-  document.querySelectorAll('form[data-hit-setting-v2]').forEach(function (form) {
-    form.addEventListener('submit', async function (event) {
-      if (event.defaultPrevented) return;
-      event.preventDefault();
-      var button = form.querySelector('[type="submit"]');
-      if (button) button.disabled = true;
-      try {
-        var current = await responseBody(await fetch('/api/v2/me/hit-settings', { credentials: 'same-origin' }));
-        if (!current.response.ok || !current.body || !current.body.data) throw new Error(current.body && current.body.error ? current.body.error.message : '无法读取最新 Hit 设置。');
-        var result = await responseBody(await fetch('/api/v2/me/hit-settings', {
-          method: 'PATCH',
-          credentials: 'same-origin',
-          headers: {
-            'Content-Type': 'application/json',
-            'Idempotency-Key': operationKey(),
-            'If-Match': resourceEtag(current)
-          },
-          body: JSON.stringify({ hide_hit: !!form.elements.hide_hit.checked, if_match: resourceEtag(current) })
-        }));
-        if (!result.response.ok) throw new Error(result.body && result.body.error ? result.body.error.message : 'Hit 设置保存失败。');
-        window.location.assign(window.location.pathname + '?hit=saved#hit');
       } catch (error) { showError(error); if (button) button.disabled = false; }
     });
   });

@@ -101,7 +101,7 @@ async function ensureDeletedAccount() {
             `INSERT INTO user
               (username,email,password,nickname,nameplate,information,ac_num,submit_num,is_admin,is_show,
                public_email,prefer_formatted_code,sex,rating,register_time)
-             VALUES (?,?,?,?,'',?,0,0,0,0,0,1,0,1500,?)`,
+             VALUES (?,?,?,?,'',?,0,0,0,0,0,1,0,0,?)`,
             [
               DELETED_ACCOUNT_USERNAME,
               DELETED_ACCOUNT_EMAIL,
@@ -267,7 +267,7 @@ async function deleteUserAccount(req, actor, targetId) {
 
   deleteAvatarFile(avatarPath);
   User.deleteFromCache(targetId);
-  if (syzoj.userHitScores) syzoj.userHitScores.delete(targetId);
+  if (syzoj.userRatings) syzoj.userRatings.delete(targetId);
   if (syzoj.userHitHidden) syzoj.userHitHidden.delete(targetId);
   if (syzoj.cheaterUserIds) syzoj.cheaterUserIds.delete(targetId);
   if (syzoj.utils.revokeUserSessions) await syzoj.utils.revokeUserSessions(req, targetId);

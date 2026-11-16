@@ -86,3 +86,12 @@ test('Rating reversal route commits the domain transaction before publishing its
   assert.match(source, /const \{ domain_event: domainEvent, \.\.\.result \} = transactionResult;[\s\S]*api\(\)\.publishEvent\(domainEvent\)/);
   assert.doesNotMatch(source, /deleteFromCache\(result\.user_id\); const auditEventId/);
 });
+
+
+test('reversing the first CF result restores zero without a minimum-one clamp', async () => {
+  const value = input('correction', 'eligible');
+  value.currentProjection = async () => ({ rating: 100, deviation: 350, volatility: 0.06 });
+  const result = await reversal.reverseInTransaction(managerFor(), value);
+  assert.equal(result.rating_after, 0);
+  assert.equal(result.delta, -100);
+});

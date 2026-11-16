@@ -1,14 +1,15 @@
 'use strict';
 
-const { calculatePeriod, normalizedConfig } = require('./glicko2');
+const { calculatePeriod, normalizedConfig } = require('./rating');
 
 function normalizeState(value, config) {
   const source = value || {};
   const rating = Number(source.rating ?? config.initialRating);
   const deviation = Number(source.deviation ?? config.initialDeviation);
   const volatility = Number(source.volatility ?? config.initialVolatility);
-  if (![rating, deviation, volatility].every(Number.isFinite)) throw new TypeError('Invalid Rating recalculation state.');
-  return { rating: Math.round(rating), deviation, volatility };
+  const ratedContests = Number(source.ratedContests ?? 0);
+  if (!Number.isSafeInteger(ratedContests) || ratedContests < 0 || ![rating, deviation, volatility].every(Number.isFinite)) throw new TypeError('Invalid Rating recalculation state.');
+  return { rating: Math.round(rating), deviation, volatility, ratedContests };
 }
 
 function cascadeRatingPeriods(periods, baselineInput, inputConfig) {
@@ -31,7 +32,7 @@ function cascadeRatingPeriods(periods, baselineInput, inputConfig) {
       return { userId, rank, score: Number(item.score || 0), ...states.get(userId) };
     });
     const changes = standings.length >= 2 ? calculatePeriod(standings, config) : [];
-    changes.forEach(change => states.set(change.userId, { rating: change.ratingAfter, deviation: change.deviationAfter, volatility: change.volatilityAfter }));
+    changes.forEach(change => states.set(change.userId, { rating: change.ratingAfter, deviation: change.deviationAfter, volatility: change.volatilityAfter, ratedContests: change.ratedContestsAfter }));
     calculatedPeriods.push({ contestId, changes });
   }
   return { periods: calculatedPeriods, finalStates: states };

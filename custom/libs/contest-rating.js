@@ -1,10 +1,9 @@
 const TypeORM = require('typeorm');
-const { calculateRatingChanges } = require('./rating');
+const { calculateRatingChanges, ratedContestCounts, ALGORITHM_VERSION } = require('./rating');
 const contestMutation = require('./contest-mutation');
 const migrationCycleEvidence = require('./migration-cycle-evidence');
 const ratingNotification = require('./rating-notification');
 
-const ALGORITHM_VERSION = 1;
 
 function parseJson(value, fallback) {
   if (value && typeof value === 'object') return value;
@@ -72,7 +71,7 @@ async function canonicalStandings(manager, contest) {
         score += Math.round(Number(detail.score || 0) * Number(rankingParams[problemId] || 1));
         latest = Math.max(latest, judgeTimes.get(Number(detail.judge_id)) || Number(detail.time || 0));
       }
-      standings.push({ userId, currentRating: Number(player.rating || 1500), score, tie: latest });
+      standings.push({ userId, currentRating: Number(player.rating ?? 0), score, tie: latest });
     } else {
       let score = 0;
       let penalty = 0;
@@ -82,7 +81,7 @@ async function canonicalStandings(manager, contest) {
         penalty += Number(detail.acceptedTime || 0) - Number(contest.start_time) +
           Number(detail.unacceptedCount || 0) * 20 * 60;
       }
-      standings.push({ userId, currentRating: Number(player.rating || 1500), score, tie: penalty });
+      standings.push({ userId, currentRating: Number(player.rating ?? 0), score, tie: penalty });
     }
   }
   standings.sort((left, right) => right.score - left.score || left.tie - right.tie || left.userId - right.userId);
@@ -125,7 +124,8 @@ async function finalizeContestInTransaction(manager, contestId, options = {}) {
       );
       return { status: 'skipped', userIds: [] };
     }
-    const rated = calculateRatingChanges(contestants);
+    const counts = await ratedContestCounts(manager, contestants.map(item => item.userId), 'icpc', contest);
+    const rated = calculateRatingChanges(contestants.map(item => ({ ...item, ratedContests: counts.get(item.userId) || 0 })));
     const calculationResult = await manager.query('INSERT INTO rating_calculation (contest_id) VALUES (?)', [contestId]);
     const calculationId = Number(calculationResult.insertId);
     for (const contestant of rated) {
@@ -166,6 +166,7 @@ function invalidateUserCache(userIds) {
   if (userIds.length) {
     const User = syzoj.model('user');
     userIds.forEach(userId => User.deleteFromCache(userId));
+    if (syzoj.utils.refreshUserRatings) syzoj.utils.refreshUserRatings(userIds).catch(error => syzoj.log(error));
   }
 }
 
@@ -400,7 +401,7 @@ async function recalculateRatingsFrom(contestId, options = {}) {
       if (calculationBoundary !== null) {
         await manager.query('DELETE FROM rating_history WHERE rating_calculation_id>=?', [calculationBoundary]);
         await manager.query('DELETE FROM rating_calculation WHERE id>=?', [calculationBoundary]);
-        const defaultRating = Number(syzoj.config.default.user.rating || 1500);
+        const defaultRating = Number(syzoj.config.default.user.rating ?? 0);
         for (const userId of affectedUserIds) {
           await manager.query('UPDATE user SET rating=? WHERE id=?', [baselines.has(userId) ? baselines.get(userId) : defaultRating,userId]);
         }
@@ -554,9 +555,9 @@ async function deleteContestAndRecalculate(contestId, options = {}) {
       if (calculationBoundary !== null) {
         await manager.query('DELETE FROM rating_history WHERE rating_calculation_id>=?', [calculationBoundary]);
         await manager.query('DELETE FROM rating_calculation WHERE id>=?', [calculationBoundary]);
-        const defaultRating = Number(syzoj.config.default.user.rating || 1500);
+        const defaultRating = Number(syzoj.config.default.user.rating ?? 0);
         for (const userId of affectedUserIds) {
-          await manager.query('UPDATE user SET rating=? WHERE id=?', [baselines.get(userId) || defaultRating,userId]);
+          await manager.query('UPDATE user SET rating=? WHERE id=?', [baselines.get(userId) ?? defaultRating,userId]);
         }
       }
 

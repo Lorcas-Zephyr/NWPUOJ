@@ -49,21 +49,6 @@ async function canManageUserTags(user) {
   ));
 }
 
-function calcUserTier(userId, isAdminFlag) {
-  if (isAdminFlag) return 'admin';
-  if (syzoj.adminUserIds && syzoj.adminUserIds.has(userId)) return 'admin';
-  if (syzoj.userHitScores && syzoj.userHitScores.has(userId)) {
-    let s = syzoj.userHitScores.get(userId);
-    let h = s.total || 0;
-    if (h >= 350) return 'red';
-    if (h >= 280) return 'orange';
-    if (h >= 200) return 'green';
-    if (h >= 100) return 'blue';
-    return 'gray';
-  }
-  return 'default';
-}
-
 async function refreshUserTagsCache() {
   try {
     const setting = await readUserTagGlobalSetting();
@@ -85,7 +70,7 @@ async function refreshUserTagsCache() {
     // 只把 is_visible=true 且 tag_text 非空的记录加入缓存
     for (let r of allRows) {
       if (r.is_visible && r.tag_text && r.tag_text.length > 0) {
-        let tier = calcUserTier(r.user_id, false);
+        let tier = syzoj.utils.calcUserTier({ id: r.user_id });
         newCache.set(r.user_id, { text: r.tag_text, tier: tier });
       }
     }

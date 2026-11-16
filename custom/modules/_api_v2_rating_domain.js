@@ -2,13 +2,12 @@ const TypeORM = require('typeorm');
 const crypto = require('crypto');
 const Contest = syzoj.model('contest');
 const contestRating = require('../libs/contest-rating');
-const { calculatePeriod, normalizedConfig } = require('../libs/glicko2');
+const { calculatePeriod, normalizedConfig, ratedContestCounts, ALGORITHM_VERSION } = require('../libs/rating');
 const { projectionDifference, rollbackIsCurrent, sameProjection } = require('../libs/rating-projection');
 const { cascadeRatingPeriods } = require('../libs/rating-recalculation');
 const ratingJobLifecycle = require('../libs/rating-job-lifecycle');
 const ratingReversal = require('../libs/rating-reversal');
 const ratingNotification = require('../libs/rating-notification');
-const GLICKO2_VERSION = 1;
 let schemaPromise = null;
 
 async function ensureRatingV2Schema() {
@@ -87,8 +86,8 @@ async function ensureRatingV2Schema() {
     const jobIndexes = await connection.query("SHOW INDEX FROM rating_v2_event WHERE Key_name='idx_rating_v2_event_job'");
     if (!jobIndexes.length) await connection.query('ALTER TABLE rating_v2_event ADD KEY idx_rating_v2_event_job(job_id,id)');
     const profiles = [['icpc', 'ACM Rating'], ['ioi', 'IOI Rating'], ['practice', 'Practice Rating']];
-    const defaultConfig = { rating: 1500, deviation: 350, volatility: 0.06, tau: 0.5, scale: 173.7178, minimum_deviation: 30, maximum_deviation: 350 };
-    for (const [id, name] of profiles) await connection.query(`INSERT INTO rating_v2_profile (id,name,algorithm,algorithm_version,config_json,created_at,updated_at) VALUES (?,?,?, ?,?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3)) ON DUPLICATE KEY UPDATE name=VALUES(name),algorithm=VALUES(algorithm),algorithm_version=VALUES(algorithm_version),config_json=VALUES(config_json),updated_at=UTC_TIMESTAMP(3)`, [id, name, 'glicko2', GLICKO2_VERSION, JSON.stringify(defaultConfig)]);
+    const defaultConfig = { rating: 0 };
+    for (const [id, name] of profiles) await connection.query(`INSERT INTO rating_v2_profile (id,name,algorithm,algorithm_version,config_json,created_at,updated_at) VALUES (?,?,?, ?,?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3)) ON DUPLICATE KEY UPDATE name=VALUES(name),algorithm=VALUES(algorithm),algorithm_version=VALUES(algorithm_version),config_json=VALUES(config_json),updated_at=UTC_TIMESTAMP(3)`, [id, name, 'codeforces', ALGORITHM_VERSION, JSON.stringify(defaultConfig)]);
     await ratingNotification.ensureSchema(connection);
   })().catch(error => { schemaPromise = null; throw error; });
   return schemaPromise;
@@ -100,7 +99,7 @@ async function profileFor(profileId) {
   const rows = await TypeORM.getConnection().query('SELECT * FROM rating_v2_profile WHERE id=? AND enabled=1 LIMIT 1', [profileId]);
   return rows[0] || null;
 }
-function profileConfig(profile) { return normalizedConfig(JSON.parse(profile.config_json || '{}')); }
+function profileConfig(profile) { return normalizedConfig({ ...JSON.parse(profile.config_json || '{}'), initialRating: Number(syzoj.config.default?.user?.rating ?? 0) }); }
 async function ratingStandings(manager, contest, profileId) {
   const standing = await contestRating.canonicalStandings(manager, contest); if (standing.deferred || !standing.contestants.length) return standing;
   const rows = await manager.query("SELECT user_id FROM rating_v2_contest_override WHERE profile_id=? AND contest_id=? AND status IN ('cancelled','disqualified','cheating')", [profileId, contest.id]);
@@ -109,18 +108,20 @@ async function ratingStandings(manager, contest, profileId) {
   contestants.forEach((item, index) => { const prior = contestants[index - 1]; const tied = prior && Number(prior.score) === Number(item.score) && (contest.type !== 'acm' || Number(prior.tie || 0) === Number(item.tie || 0)); item.rank = tied ? prior.rank : index + 1; });
   return { deferred: false, contestants };
 }
-async function glickoInput(profile, standings) {
+async function ratingInput(profile, standings, manager = TypeORM.getConnection()) {
   const config = profileConfig(profile);
   const ids = standings.map(item => Number(item.userId));
-  const rows = ids.length ? await TypeORM.getConnection().query('SELECT user_id,rating,deviation,volatility FROM rating_v2_current WHERE profile_id=? AND user_id IN (?)', [profile.id, ids]) : [];
+  const rows = ids.length ? await manager.query('SELECT user_id,rating,deviation,volatility FROM rating_v2_current WHERE profile_id=? AND user_id IN (?)', [profile.id, ids]) : [];
   const states = new Map(rows.map(row => [Number(row.user_id), row]));
+  const counts = await ratedContestCounts(manager, ids, profile.id);
   return standings.map(item => {
     const state = states.get(Number(item.userId));
     return {
       userId: Number(item.userId),
       rank: Number(item.rank),
       score: Number(item.score || 0),
-      rating: state ? Number(state.rating) : profile.id === 'icpc' ? Number(item.currentRating || config.initialRating) : config.initialRating,
+      rating: profile.id === 'icpc' ? Number(item.currentRating ?? config.initialRating) : state ? Number(state.rating) : config.initialRating,
+      ratedContests: counts.get(Number(item.userId)) || 0,
       deviation: state ? Number(state.deviation) : config.initialDeviation,
       volatility: state ? Number(state.volatility) : config.initialVolatility
     };
@@ -151,11 +152,13 @@ function serializeRatingJob(row) {
 }
 
 async function projectionForUser(manager, profile, userId, config, lock = false) {
+  if (profile.id === 'icpc') {
+    const users = await manager.query(`SELECT rating FROM user WHERE id=?${lock ? ' FOR UPDATE' : ''}`, [userId]);
+    return { rating: Math.round(Number(users[0]?.rating ?? config.initialRating)), deviation: config.initialDeviation, volatility: config.initialVolatility };
+  }
   const rows = await manager.query(`SELECT rating,deviation,volatility FROM rating_v2_current WHERE profile_id=? AND user_id=?${lock ? ' FOR UPDATE' : ''}`, [profile.id, userId]);
   if (rows.length) return { rating: Math.round(Number(rows[0].rating)), deviation: Number(rows[0].deviation), volatility: Number(rows[0].volatility) };
-  let rating = config.initialRating;
-  if (profile.id === 'icpc') { const users = await manager.query(`SELECT rating FROM user WHERE id=?${lock ? ' FOR UPDATE' : ''}`, [userId]); if (users.length) rating = Number(users[0].rating || config.initialRating); }
-  return { rating: Math.round(rating), deviation: config.initialDeviation, volatility: config.initialVolatility };
+  return { rating: config.initialRating, deviation: config.initialDeviation, volatility: config.initialVolatility };
 }
 
 function standingsSnapshot(standings) {
@@ -174,7 +177,28 @@ function stateFromEventBefore(row, config) {
   };
 }
 
+async function mainRatingSnapshot(manager) {
+  const history = await manager.query(`SELECT h.rating_calculation_id,h.user_id,h.rating_after,h.rank,rc.contest_id,c.end_time
+    FROM rating_history h JOIN rating_calculation rc ON rc.id=h.rating_calculation_id JOIN contest c ON c.id=rc.contest_id
+    ORDER BY c.end_time,c.id,h.user_id`);
+  const users = await manager.query('SELECT id,rating FROM user ORDER BY id');
+  const calculations = await manager.query('SELECT id,contest_id FROM rating_calculation ORDER BY id');
+  return { history, users, calculations };
+}
+function mainSnapshotHash(snapshot) { return inputHash('main', ALGORITHM_VERSION, snapshot); }
+async function lockMainRating(manager) {
+  // Serialize main-profile jobs with legacy settlement and reset/replay operations.
+  await manager.query('SELECT id FROM contest ORDER BY end_time,id FOR UPDATE');
+  await manager.query('SELECT id FROM user ORDER BY id FOR UPDATE');
+}
+
 async function publishedContestSequence(connection, profileId, fromContestId) {
+  if (profileId === 'icpc') {
+    const rows = await connection.query(`SELECT c.* FROM contest c JOIN rating_calculation rc ON rc.contest_id=c.id ORDER BY c.end_time,c.id`);
+    const index = fromContestId == null ? 0 : rows.findIndex(row => Number(row.id) === Number(fromContestId));
+    if (index < 0) throw Object.assign(new Error('The starting contest has no published Rating.'), { code: 'RATING_CONTEST_NOT_PUBLISHED' });
+    return rows.slice(index);
+  }
   let boundary = null;
   if (fromContestId != null) {
     const targets = await connection.query('SELECT id,end_time FROM contest WHERE id=? LIMIT 1', [fromContestId]);
@@ -206,11 +230,23 @@ async function buildRatingJobPreview(job) {
   const contestIds = contests.map(contest => Number(contest.id));
   await connection.query("UPDATE rating_v2_job SET stage='previewing',processed=0,total=?,updated_at=UTC_TIMESTAMP(3) WHERE id=?", [contests.length, job.id]);
   if (!contests.length) {
-    const diff = { version: 2, profile_id: profile.id, from_contest_id: null, event_watermark: String(eventWatermark), inspected_users: 0, changed_users: 0, contests: [], contest_events: [], items: [] };
+    const diff = { version: 2, algorithm_version: ALGORITHM_VERSION, profile_id: profile.id, from_contest_id: null, main_snapshot_hash: profile.id === 'icpc' ? mainSnapshotHash(await mainRatingSnapshot(connection)) : null, event_watermark: String(eventWatermark), inspected_users: 0, changed_users: 0, contests: [], contest_events: [], items: [] };
     await connection.query("UPDATE rating_v2_job SET state='paused',stage='awaiting_approval',processed=0,total=0,current_user_id=NULL,diff_json=?,error_json=NULL,updated_at=UTC_TIMESTAMP(3) WHERE id=?", [JSON.stringify(diff), job.id]);
     await api().appendEvent({ stream: `rating-job:${job.id}`, type: 'rating.recalculation.preview.ready', aggregateId: job.id, payload: { changed_users: 0, inspected_users: 0, contests: 0 } }); return;
   }
-  const eventRows = await connection.query(`SELECT * FROM rating_v2_event WHERE profile_id=? AND id<=? AND contest_id IN (?) AND kind IN ('contest','contest_recalculated') ORDER BY id ASC`, [profile.id, eventWatermark, contestIds]);
+  let eventRows = await connection.query(`SELECT * FROM rating_v2_event WHERE profile_id=? AND id<=? AND contest_id IN (?) AND kind IN ('contest','contest_recalculated') ORDER BY id ASC`, [profile.id, eventWatermark, contestIds]);
+  const mainSnapshot = profile.id === 'icpc' ? await mainRatingSnapshot(connection) : null;
+  if (mainSnapshot) {
+    const latest = new Map(eventRows.map(row => [`${row.contest_id}:${row.user_id}`, row]));
+    const prior = new Map();
+    eventRows = mainSnapshot.history.map(row => {
+      const old = latest.get(`${row.contest_id}:${row.user_id}`);
+      const event = { ...row, id: old?.id ?? null, rating_before: prior.get(Number(row.user_id)) ?? config.initialRating,
+        deviation_before: config.initialDeviation, volatility_before: config.initialVolatility };
+      prior.set(Number(row.user_id), Number(row.rating_after));
+      return event;
+    }).filter(row => contestIds.includes(Number(row.contest_id)));
+  }
   const contestIndex = new Map(contestIds.map((id, index) => [id, index])); const latestByContestUser = new Map();
   eventRows.forEach(row => latestByContestUser.set(`${Number(row.contest_id)}:${Number(row.user_id)}`, row));
   const earliestByUser = new Map(); const latestSourceByUser = new Map();
@@ -219,7 +255,9 @@ async function buildRatingJobPreview(job) {
     if (!earliest || index < earliest.index) earliestByUser.set(userId, { index, row });
     if (!latestSourceByUser.has(userId) || Number(row.id) > latestSourceByUser.get(userId)) latestSourceByUser.set(userId, Number(row.id));
   }
-  const baselines = new Map(); earliestByUser.forEach(({ row }, userId) => baselines.set(userId, stateFromEventBefore(row, config)));
+  const baselines = new Map();
+  const counts = await ratedContestCounts(connection, Array.from(earliestByUser.keys()), profile.id, contests[0]);
+  earliestByUser.forEach(({ row }, userId) => baselines.set(userId, { ...stateFromEventBefore(row, config), ratedContests: counts.get(userId) || 0 }));
   const periodInputs = []; const contestSummaries = [];
   for (let index = 0; index < contests.length; index += 1) {
     if (await ratingJobWasCancelled(connection, job.id)) return;
@@ -228,6 +266,16 @@ async function buildRatingJobPreview(job) {
     const snapshot = standingsSnapshot(standing.contestants); periodInputs.push({ contestId: Number(contest.id), standings: snapshot });
     contestSummaries.push({ contest_id: Number(contest.id), title: contest.title || '', ended_at: contest.end_time == null ? null : new Date(Number(contest.end_time) * 1000).toISOString(), standings_hash: standingsHash(contest.id, profile.id, standing.contestants), participants: snapshot.length });
     await connection.query('UPDATE rating_v2_job SET processed=?,current_user_id=NULL,updated_at=UTC_TIMESTAMP(3) WHERE id=?', [index + 1, job.id]);
+  }
+  const allUsers = Array.from(new Set([...baselines.keys(), ...periodInputs.flatMap(period => period.standings.map(item => item.userId))]));
+  const boundaryCounts = await ratedContestCounts(connection, allUsers, profile.id, contests[0]);
+  for (const userId of allUsers) {
+    let baseline = baselines.get(userId) || { rating: config.initialRating, deviation: config.initialDeviation, volatility: config.initialVolatility };
+    if (mainSnapshot) {
+      const earlier = mainSnapshot.history.filter(row => Number(row.user_id) === userId && (Number(row.end_time) < Number(contests[0].end_time) || (Number(row.end_time) === Number(contests[0].end_time) && Number(row.contest_id) < Number(contests[0].id))));
+      baseline = { rating: earlier.length ? Number(earlier[earlier.length - 1].rating_after) : config.initialRating, deviation: config.initialDeviation, volatility: config.initialVolatility };
+    }
+    baselines.set(userId, { ...baseline, ratedContests: boundaryCounts.get(userId) || 0 });
   }
   const recalculation = cascadeRatingPeriods(periodInputs, baselines, config); const items = [];
   for (const [userId, after] of recalculation.finalStates.entries()) {
@@ -240,15 +288,15 @@ async function buildRatingJobPreview(job) {
     const previousRatingBefore = source && source.rating_before != null ? Math.round(Number(source.rating_before)) : null;
     const previousRatingAfter = source && source.rating_after != null ? Math.round(Number(source.rating_after)) : null;
     const notificationChanged = !source || previousRatingBefore !== Math.round(Number(change.ratingBefore)) || previousRatingAfter !== Math.round(Number(change.ratingAfter));
-    contestEvents.push({ contest_id: period.contestId, user_id: change.userId, rank: change.rank, score: Number(change.score || 0), rating_before: change.ratingBefore, rating_after: change.ratingAfter, deviation_before: change.deviationBefore, deviation_after: change.deviationAfter, volatility_before: change.volatilityBefore, volatility_after: change.volatilityAfter, delta: change.delta, supersedes_event_id: source ? String(source.id) : null, previous_rating_before: previousRatingBefore, previous_rating_after: previousRatingAfter, notification_changed: notificationChanged });
+    contestEvents.push({ contest_id: period.contestId, user_id: change.userId, rank: change.rank, score: Number(change.score || 0), rating_before: change.ratingBefore, rating_after: change.ratingAfter, deviation_before: change.deviationBefore, deviation_after: change.deviationAfter, volatility_before: change.volatilityBefore, volatility_after: change.volatilityAfter, delta: change.delta, supersedes_event_id: source?.id == null ? null : String(source.id), previous_rating_before: previousRatingBefore, previous_rating_after: previousRatingAfter, notification_changed: notificationChanged });
   }));
   const removedContestEvents = [];
   for (const [key, source] of latestByContestUser.entries()) {
-    if (!recalculatedContestUsers.has(key)) removedContestEvents.push({ contest_id: Number(source.contest_id), user_id: Number(source.user_id), supersedes_event_id: String(source.id) });
+    if (!recalculatedContestUsers.has(key)) removedContestEvents.push({ contest_id: Number(source.contest_id), user_id: Number(source.user_id), supersedes_event_id: source.id == null ? null : String(source.id) });
   }
   const endingWatermark = await connection.query('SELECT COALESCE(MAX(id),0) AS id FROM rating_v2_event WHERE profile_id=?', [profile.id]);
   if (Number(endingWatermark[0].id || 0) !== eventWatermark) throw Object.assign(new Error('Rating events changed while the preview was being built.'), { code: 'RATING_JOB_STALE' });
-  const diff = { version: 2, profile_id: profile.id, from_contest_id: contestIds[0], event_watermark: String(eventWatermark), inspected_users: recalculation.finalStates.size, changed_users: items.length, contests: contestSummaries, contest_events: contestEvents, removed_contest_events: removedContestEvents, items };
+  const diff = { version: 2, algorithm_version: ALGORITHM_VERSION, profile_id: profile.id, main_snapshot_hash: mainSnapshot ? mainSnapshotHash(mainSnapshot) : null, from_contest_id: contestIds[0], event_watermark: String(eventWatermark), inspected_users: recalculation.finalStates.size, changed_users: items.length, contests: contestSummaries, contest_events: contestEvents, removed_contest_events: removedContestEvents, items };
   await connection.query("UPDATE rating_v2_job SET state='paused',stage='awaiting_approval',processed=total,current_user_id=NULL,diff_json=?,error_json=NULL,updated_at=UTC_TIMESTAMP(3) WHERE id=?", [JSON.stringify(diff), job.id]);
   await api().appendEvent({ stream: `rating-job:${job.id}`, type: 'rating.recalculation.preview.ready', aggregateId: job.id, payload: { changed_users: items.length, inspected_users: recalculation.finalStates.size, contests: contests.length } });
 }
@@ -259,7 +307,18 @@ async function applyRatingJob(job) {
     if (!currentJob || currentJob.cancel_requested) { if (currentJob) await manager.query("UPDATE rating_v2_job SET state='cancelled',stage='cancelled',updated_at=UTC_TIMESTAMP(3) WHERE id=?", [job.id]); return []; }
     const profileRows = await manager.query('SELECT * FROM rating_v2_profile WHERE id=? AND enabled=1 LIMIT 1', [currentJob.profile_id]); if (!profileRows.length) throw Object.assign(new Error('Rating profile is unavailable.'), { code: 'RATING_PROFILE_INVALID' });
     const profile = profileRows[0]; const config = profileConfig(profile); const diff = safeJson(currentJob.diff_json, { items: [], contests: [], contest_events: [], removed_contest_events: [] }); const rollback = []; const notificationRollback = [];
-    if (Number(diff.version || 0) !== 2) throw Object.assign(new Error('This preview uses an obsolete recalculation format. Create a new preview.'), { code: 'RATING_JOB_PREVIEW_OBSOLETE' });
+    if (Number(diff.version || 0) !== 2 || Number(diff.algorithm_version) !== ALGORITHM_VERSION) throw Object.assign(new Error('This preview uses an obsolete recalculation format. Create a new preview.'), { code: 'RATING_JOB_PREVIEW_OBSOLETE' });
+    let historyRollback = null;
+    if (profile.id === 'icpc') {
+      await lockMainRating(manager);
+      if (mainSnapshotHash(await mainRatingSnapshot(manager)) !== diff.main_snapshot_hash) throw Object.assign(new Error('Main Rating history changed after preview.'), { code: 'RATING_JOB_STALE' });
+      const ids = (diff.contests || []).map(item => item.contest_id);
+      historyRollback = ids.length ? {
+        contest_ids: ids,
+        rows: await manager.query('SELECT h.* FROM rating_history h JOIN rating_calculation rc ON rc.id=h.rating_calculation_id WHERE rc.contest_id IN (?)', [ids]),
+        finalizations: await manager.query('SELECT * FROM contest_rating_finalization WHERE contest_id IN (?)', [ids])
+      } : null;
+    }
     const watermarkRows = await manager.query('SELECT COALESCE(MAX(id),0) AS id FROM rating_v2_event WHERE profile_id=?', [profile.id]);
     if (String(watermarkRows[0].id || 0) !== String(diff.event_watermark || 0)) throw Object.assign(new Error('Rating events changed after this preview. Create a new preview.'), { code: 'RATING_JOB_STALE' });
     for (const expected of diff.contests || []) {
@@ -274,6 +333,18 @@ async function applyRatingJob(job) {
       const item = diff.items[index]; const before = await projectionForUser(manager, profile, item.user_id, config, true);
       if (!sameProjection(before, item.before)) throw Object.assign(new Error(`Rating projection changed for user #${item.user_id}. Create a new preview.`), { code: 'RATING_JOB_STALE' });
       lockedProjection.set(Number(item.user_id), before);
+    }
+    if (profile.id === 'icpc') {
+      for (const contest of diff.contests || []) {
+        const calculations = await manager.query('SELECT id FROM rating_calculation WHERE contest_id=?', [contest.contest_id]);
+        const calculationId = calculations[0]?.id;
+        if (!calculationId) throw Object.assign(new Error('Main Rating calculation changed.'), { code: 'RATING_JOB_STALE' });
+        await manager.query('DELETE FROM rating_history WHERE rating_calculation_id=?', [calculationId]);
+        const events = (diff.contest_events || []).filter(event => event.contest_id === contest.contest_id);
+        for (const event of events) await manager.query('INSERT INTO rating_history (rating_calculation_id,user_id,rating_after,rank) VALUES (?,?,?,?)', [calculationId, event.user_id, event.rating_after, event.rank]);
+        await manager.query('UPDATE contest_rating_finalization SET status=?,participant_count=?,algorithm_version=?,skip_reason=? WHERE contest_id=?',
+          [events.length ? 'completed' : 'skipped', contest.participants, ALGORITHM_VERSION, events.length ? null : 'fewer_than_two_eligible_participants', contest.contest_id]);
+      }
     }
     const contestSummaries = new Map((diff.contests || []).map(item => [Number(item.contest_id), item]));
     const lastAppliedEvent = new Map(); const notificationNow = Math.floor(Date.now() / 1000);
@@ -336,10 +407,11 @@ async function applyRatingJob(job) {
       rollback.push({ user_id: item.user_id, before, after: item.after, apply_event_id: String(eventId) });
       await manager.query('UPDATE rating_v2_job SET processed=?,current_user_id=?,updated_at=UTC_TIMESTAMP(3) WHERE id=?', [index + 1, item.user_id, job.id]);
     }
-    await manager.query("UPDATE rating_v2_job SET state='completed',stage='completed',processed=total,current_user_id=NULL,rollback_json=?,completed_at=UTC_TIMESTAMP(3),updated_at=UTC_TIMESTAMP(3) WHERE id=?", [JSON.stringify({ version: 2, projections: rollback, notifications: notificationRollback }), job.id]);
+    await manager.query("UPDATE rating_v2_job SET state='completed',stage='completed',processed=total,current_user_id=NULL,rollback_json=?,completed_at=UTC_TIMESTAMP(3),updated_at=UTC_TIMESTAMP(3) WHERE id=?", [JSON.stringify({ version: 2, projections: rollback, notifications: notificationRollback, history: historyRollback, main_snapshot_hash: profile.id === 'icpc' ? mainSnapshotHash(await mainRatingSnapshot(manager)) : null }), job.id]);
     return rollback.map(item => item.user_id);
   });
   changedUsers.forEach(userId => syzoj.model('user').deleteFromCache(userId));
+  if (syzoj.utils.refreshUserRatings) await syzoj.utils.refreshUserRatings(changedUsers);
   await api().appendEvent({ stream: `rating-job:${job.id}`, type: 'rating.recalculation.completed', aggregateId: job.id, payload: { changed_users: changedUsers.length } });
 }
 
@@ -358,24 +430,24 @@ async function runRatingJob(jobId) {
 app.get(['/api/v2/ratings/profiles', '/api/v2/rating/profiles'], async (req, res) => { await ensureRatingV2Schema(); const rows = await TypeORM.getConnection().query('SELECT id,name,algorithm,algorithm_version,config_json,enabled FROM rating_v2_profile WHERE enabled=1 ORDER BY id'); return api().send(res, rows.map(row => ({ id: row.id, name: row.name, algorithm: row.algorithm, algorithm_version: Number(row.algorithm_version), config: JSON.parse(row.config_json || '{}') }))); });
 app.get(['/api/v2/ratings/leaderboard', '/api/v2/rating/leaderboard'], async (req, res) => {
   await ensureRatingV2Schema(); const profileId = String(req.query.profile || 'icpc'); const limit = api().parseLimit(req, 50, 100); const cursor = api().decodeCursor(req.query.cursor); const profile = await requireProfile(res, profileId); if (!profile) return;
-  const cursorRating = cursor && Number(cursor.rating); const cursorUser = cursor && Number(cursor.user_id);
+  const cursorRating = cursor ? Number(cursor.rating) : null; const cursorUser = cursor && Number(cursor.user_id);
   const rows = profileId === 'icpc'
-    ? await TypeORM.getConnection().query(`SELECT user.id AS user_id,user.username,COALESCE(projection.rating,user.rating) AS rating,projection.deviation,projection.volatility
+    ? await TypeORM.getConnection().query(`SELECT user.id AS user_id,user.username,user.rating AS rating,projection.deviation,projection.volatility
       FROM user LEFT JOIN rating_v2_current projection ON projection.user_id=user.id AND projection.profile_id='icpc'
-      WHERE (? IS NULL OR COALESCE(projection.rating,user.rating)<? OR (COALESCE(projection.rating,user.rating)=? AND user.id>?))
-      ORDER BY COALESCE(projection.rating,user.rating) DESC,user.id ASC LIMIT ?`, [cursorRating || null, cursorRating || null, cursorRating || null, cursorUser || 0, limit + 1])
+      WHERE (? IS NULL OR user.rating<? OR (user.rating=? AND user.id>?))
+      ORDER BY user.rating DESC,user.id ASC LIMIT ?`, [cursorRating ?? null, cursorRating ?? null, cursorRating ?? null, cursorUser || 0, limit + 1])
     : await TypeORM.getConnection().query(`SELECT projection.user_id,user.username,projection.rating,projection.deviation,projection.volatility
       FROM rating_v2_current projection INNER JOIN user ON user.id=projection.user_id
       WHERE projection.profile_id=? AND (? IS NULL OR projection.rating<? OR (projection.rating=? AND projection.user_id>?))
-      ORDER BY projection.rating DESC,projection.user_id ASC LIMIT ?`, [profileId, cursorRating || null, cursorRating || null, cursorRating || null, cursorUser || 0, limit + 1]);
+      ORDER BY projection.rating DESC,projection.user_id ASC LIMIT ?`, [profileId, cursorRating ?? null, cursorRating ?? null, cursorRating ?? null, cursorUser || 0, limit + 1]);
   const more = rows.length > limit; const page = rows.slice(0, limit); res.locals.apiMeta.limit = limit; res.locals.apiMeta.next_cursor = more ? api().encodeCursor({ rating: Number(page[page.length - 1].rating), user_id: Number(page[page.length - 1].user_id) }) : null;
-  return api().send(res, page.map((row, index) => ({ rank: index + 1, user_id: Number(row.user_id), username: row.username, rating: Math.round(Number(row.rating || 1500)), deviation: row.deviation == null ? null : Number(row.deviation), volatility: row.volatility == null ? null : Number(row.volatility), profile: profileId })));
+  return api().send(res, page.map((row, index) => ({ rank: index + 1, user_id: Number(row.user_id), username: row.username, rating: Math.round(Number(row.rating ?? 0)), deviation: row.deviation == null ? null : Number(row.deviation), volatility: row.volatility == null ? null : Number(row.volatility), profile: profileId })));
 });
 app.get(['/api/v2/ratings/users/:id/history', '/api/v2/users/:id/rating-history'], async (req, res) => {
   await ensureRatingV2Schema(); const profileId = String(req.query.profile || 'icpc'); const profile = await requireProfile(res, profileId); if (!profile) return;
   const limit = api().parseLimit(req, 50, 100); const cursor = api().decodeCursor(req.query.cursor) || {}; const beforeId = Number(cursor.id || 0); const userId = Number(req.params.id); const connection = TypeORM.getConnection();
   const existing = await connection.query('SELECT id FROM rating_v2_event WHERE profile_id=? AND user_id=? LIMIT 1', [profileId, userId]);
-  if (!existing.length && profileId === 'icpc') {
+  if (profileId === 'icpc') {
     const rows = await connection.query(`SELECT history.rating_calculation_id AS id,history.user_id,history.rating_after,history.rank,calculation.contest_id,contest.title,contest.end_time
       FROM rating_history history INNER JOIN rating_calculation calculation ON calculation.id=history.rating_calculation_id
       LEFT JOIN contest ON contest.id=calculation.contest_id WHERE history.user_id=? AND history.rating_calculation_id>? ORDER BY history.rating_calculation_id ASC LIMIT ?`, [userId, beforeId, limit + 1]);
@@ -396,9 +468,9 @@ app.post(['/api/v2/contests/:id/rating-preview', '/api/v2/contests/:id/rating/pr
   const contestId = Number(req.params.id); const contest = await Contest.findById(contestId); if (!contest) return api().fail(res, 404, 'CONTEST_NOT_FOUND', 'Contest was not found.'); if (Number(contest.end_time) > Math.floor(Date.now() / 1000)) return api().fail(res, 409, 'CONTEST_NOT_ENDED', 'Rating can be previewed after the contest ends.'); const profileId = String(req.body && req.body.profile_id || 'icpc'); await ensureRatingV2Schema(); const profile = await requireProfile(res, profileId); if (!profile) return;
   const finalized = profileId === 'icpc' ? await TypeORM.getConnection().query("SELECT status FROM contest_rating_finalization WHERE contest_id=? AND status='completed' LIMIT 1", [contestId]) : []; if (finalized.length) return api().fail(res, 409, 'RATING_ALREADY_PUBLISHED', 'Rating for this contest was already published.');
   const manager = TypeORM.getConnection().manager; const standing = await ratingStandings(manager, contest, profile.id); if (standing.deferred) return api().fail(res, 409, 'RATING_INPUT_PENDING', 'Submissions are still pending.'); if (standing.contestants.length < 2) return api().fail(res, 409, 'RATING_NOT_ENOUGH_PARTICIPANTS', 'At least two eligible participants are required.');
-  const input = await glickoInput(profile, standing.contestants); const changes = calculatePeriod(input, profileConfig(profile)); const diff = { profile_id: profileId, algorithm: 'glicko2', algorithm_version: GLICKO2_VERSION, config: JSON.parse(profile.config_json || '{}'), standings_hash: standingsHash(contestId, profileId, standing.contestants), contestants: changes }; const hash = inputHash(contestId, profileId, input); const id = crypto.randomUUID();
-  await TypeORM.getConnection().query('INSERT INTO rating_v2_preview (id,contest_id,profile_id,status,algorithm_version,input_hash,diff_json,created_by,created_at) VALUES (?,?,?,\'pending\',?,?,?, ?,UTC_TIMESTAMP(3)) ON DUPLICATE KEY UPDATE id=id', [id, contestId, profileId, GLICKO2_VERSION, hash, JSON.stringify(diff), user.id]);
-  const rows = await TypeORM.getConnection().query('SELECT * FROM rating_v2_preview WHERE contest_id=? AND profile_id=? AND input_hash=? LIMIT 1', [contestId, profileId, hash]); const preview = rows[0]; const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, { action: 'rating:preview', resourceType: 'contest', resourceId: contestId, reason: syzoj.utils.operationReason(req, '生成 Rating 预览'), details: { preview_id: preview.id } }); return api().send(res, { id: preview.id, contest_id: contestId, profile_id: profileId, status: preview.status, algorithm_version: GLICKO2_VERSION, diff, audit_event_id: auditEventId }, 201);
+  const input = await ratingInput(profile, standing.contestants); const changes = calculatePeriod(input, profileConfig(profile)); const diff = { profile_id: profileId, algorithm: 'codeforces', algorithm_version: ALGORITHM_VERSION, config: JSON.parse(profile.config_json || '{}'), standings_hash: standingsHash(contestId, profileId, standing.contestants), contestants: changes }; const hash = inputHash(contestId, profileId, input); const id = crypto.randomUUID();
+  await TypeORM.getConnection().query('INSERT INTO rating_v2_preview (id,contest_id,profile_id,status,algorithm_version,input_hash,diff_json,created_by,created_at) VALUES (?,?,?,\'pending\',?,?,?, ?,UTC_TIMESTAMP(3)) ON DUPLICATE KEY UPDATE id=id', [id, contestId, profileId, ALGORITHM_VERSION, hash, JSON.stringify(diff), user.id]);
+  const rows = await TypeORM.getConnection().query('SELECT * FROM rating_v2_preview WHERE contest_id=? AND profile_id=? AND input_hash=? LIMIT 1', [contestId, profileId, hash]); const preview = rows[0]; const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, { action: 'rating:preview', resourceType: 'contest', resourceId: contestId, reason: syzoj.utils.operationReason(req, '生成 Rating 预览'), details: { preview_id: preview.id } }); return api().send(res, { id: preview.id, contest_id: contestId, profile_id: profileId, status: preview.status, algorithm_version: ALGORITHM_VERSION, diff, audit_event_id: auditEventId }, 201);
 });
 
 app.post(['/api/v2/contests/:id/rating-publish', '/api/v2/contests/:id/rating/publish'], async (req, res) => {
@@ -409,16 +481,17 @@ app.post(['/api/v2/contests/:id/rating-publish', '/api/v2/contests/:id/rating/pu
       const rows = await manager.query('SELECT * FROM rating_v2_preview WHERE id=? AND contest_id=? FOR UPDATE', [previewId, contestId]); if (!rows.length) { const error = new Error('Rating preview was not found.'); error.code = 'RATING_PREVIEW_NOT_FOUND'; error.statusCode = 404; throw error; }
       const preview = rows[0]; if (preview.status === 'published') return { status: 'published', event_ids: [] }; if (preview.status !== 'pending') { const error = new Error('Rating preview is not publishable.'); error.code = 'RATING_PREVIEW_INVALID'; error.statusCode = 409; throw error; }
       const finalizations = preview.profile_id === 'icpc' ? await manager.query('SELECT status FROM contest_rating_finalization WHERE contest_id=? FOR UPDATE', [contestId]) : []; if (finalizations.length) { const error = new Error('Rating for this contest was already finalized.'); error.code = 'RATING_ALREADY_PUBLISHED'; error.statusCode = 409; throw error; }
-      const diff = JSON.parse(preview.diff_json || '{}'); const contestants = Array.isArray(diff.contestants) ? diff.contestants : []; if (contestants.length < 2 || !diff.standings_hash) { const error = new Error('Rating preview has no publishable contestants or uses an obsolete format.'); error.code = 'RATING_PREVIEW_INVALID'; error.statusCode = 409; throw error; }
+      const diff = JSON.parse(preview.diff_json || '{}'); if (diff.algorithm !== 'codeforces' || diff.algorithm_version !== ALGORITHM_VERSION) throw Object.assign(new Error('Rating algorithm changed. Create a new preview.'), { code: 'RATING_PREVIEW_STALE', statusCode: 409 }); const contestants = Array.isArray(diff.contestants) ? diff.contestants : []; if (contestants.length < 2 || !diff.standings_hash) { const error = new Error('Rating preview has no publishable contestants or uses an obsolete format.'); error.code = 'RATING_PREVIEW_INVALID'; error.statusCode = 409; throw error; }
       const contestRows = await manager.query('SELECT * FROM contest WHERE id=? FOR UPDATE', [contestId]); if (!contestRows.length) { const error = new Error('Contest was not found.'); error.code = 'CONTEST_NOT_FOUND'; error.statusCode = 404; throw error; }
       const currentStanding = await ratingStandings(manager, contestRows[0], preview.profile_id); if (currentStanding.deferred) { const error = new Error('Submissions are still pending.'); error.code = 'RATING_INPUT_PENDING'; error.statusCode = 409; throw error; }
       if (standingsHash(contestId, preview.profile_id, currentStanding.contestants) !== diff.standings_hash) { const error = new Error('Contest standings changed after this preview. Create a new preview.'); error.code = 'RATING_PREVIEW_STALE'; error.statusCode = 409; throw error; }
+      const profile = await profileFor(preview.profile_id);
+      const freshInput = await ratingInput(profile, currentStanding.contestants, manager);
+      if (inputHash(contestId, preview.profile_id, freshInput) !== preview.input_hash) throw Object.assign(new Error('Rating or participation count changed. Create a new preview.'), { code: 'RATING_PREVIEW_STALE', statusCode: 409 });
       const calculation = preview.profile_id === 'icpc' ? await manager.query('INSERT INTO rating_calculation (contest_id) VALUES (?)', [contestId]) : null; const calculationId = calculation ? Number(calculation.insertId) : null; const eventIds = []; const notificationIds = []; const notificationNow = Math.floor(Date.now() / 1000);
       for (const contestant of contestants) {
-        const currentRows = await manager.query('SELECT rating,deviation,volatility FROM rating_v2_current WHERE profile_id=? AND user_id=? FOR UPDATE', [preview.profile_id, contestant.userId]);
-        let current = currentRows[0]; if (!current && preview.profile_id === 'icpc') { const users = await manager.query('SELECT rating FROM user WHERE id=? FOR UPDATE', [contestant.userId]); current = users.length ? { rating: users[0].rating, deviation: contestant.deviationBefore, volatility: contestant.volatilityBefore } : null; }
-        const currentRating = current ? Math.round(Number(current.rating)) : Math.round(Number(contestant.ratingBefore)); const currentDeviation = current ? Number(current.deviation) : Number(contestant.deviationBefore); const currentVolatility = current ? Number(current.volatility) : Number(contestant.volatilityBefore);
-        if (currentRating !== Math.round(Number(contestant.ratingBefore)) || Math.abs(currentDeviation - Number(contestant.deviationBefore)) > 0.000001 || Math.abs(currentVolatility - Number(contestant.volatilityBefore)) > 0.000000001) { const error = new Error('Rating changed after this preview. Create a new preview.'); error.code = 'RATING_PREVIEW_STALE'; error.statusCode = 409; throw error; }
+        const current = await projectionForUser(manager, profile, contestant.userId, profileConfig(profile), true);
+        if (!sameProjection(current, { rating: contestant.ratingBefore, deviation: contestant.deviationBefore, volatility: contestant.volatilityBefore })) throw Object.assign(new Error('Rating changed after this preview. Create a new preview.'), { code: 'RATING_PREVIEW_STALE', statusCode: 409 });
         const source = `preview:${previewId}:user:${contestant.userId}`; const inserted = await manager.query(`INSERT INTO rating_v2_event (profile_id,user_id,contest_id,kind,delta,rating_before,rating_after,deviation_before,deviation_after,volatility_before,volatility_after,preview_id,reason,source_event_id,created_by,created_at)
           VALUES (?,?,?,'contest',?,?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(3))`, [preview.profile_id, contestant.userId, contestId, contestant.delta, contestant.ratingBefore, contestant.ratingAfter, contestant.deviationBefore, contestant.deviationAfter, contestant.volatilityBefore, contestant.volatilityAfter, previewId, reason, source, user.id]);
         const eventId = Number(inserted.insertId); eventIds.push(String(eventId));
@@ -442,11 +515,11 @@ app.post(['/api/v2/contests/:id/rating-publish', '/api/v2/contests/:id/rating/pu
           notificationIds.push(String(notification.notificationId));
         }
       }
-      if (preview.profile_id === 'icpc') await manager.query(`INSERT INTO contest_rating_finalization (contest_id,rating_calculation_id,status,participant_count,algorithm_version,completed_at,skip_reason) VALUES (?,?,'completed',?,?,UNIX_TIMESTAMP(),NULL)`, [contestId, calculationId, contestants.length, GLICKO2_VERSION]);
+      if (preview.profile_id === 'icpc') await manager.query(`INSERT INTO contest_rating_finalization (contest_id,rating_calculation_id,status,participant_count,algorithm_version,completed_at,skip_reason) VALUES (?,?,'completed',?,?,UNIX_TIMESTAMP(),NULL)`, [contestId, calculationId, contestants.length, ALGORITHM_VERSION]);
       await manager.query("UPDATE rating_v2_preview SET status='published',approved_by=?,approved_at=UTC_TIMESTAMP(3) WHERE id=?", [user.id, previewId]);
       return { status: 'published', event_ids: eventIds, notification_ids: notificationIds, participant_count: contestants.length, user_ids: contestants.map(item => Number(item.userId)) };
     });
-    (result.user_ids || []).forEach(userId => syzoj.model('user').deleteFromCache(userId)); delete result.user_ids;
+    (result.user_ids || []).forEach(userId => syzoj.model('user').deleteFromCache(userId)); if (syzoj.utils.refreshUserRatings) await syzoj.utils.refreshUserRatings(result.user_ids || []); delete result.user_ids;
     const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, { action: 'rating:publish', resourceType: 'contest', resourceId: contestId, reason, details: { preview_id: previewId, participant_count: result.participant_count || 0, event_ids: result.event_ids } }); await syzoj.utils.apiV2.appendEvent({ stream: `rating:${contestId}`, type: 'rating.published', aggregateId: contestId, actor: user, payload: { contest_id: contestId, preview_id: previewId, audit_event_id: auditEventId } }); return api().send(res, { contest_id: contestId, preview_id: previewId, ...result, audit_event_id: auditEventId });
   } catch (error) { return api().fail(res, error.statusCode || 409, error.code || 'RATING_PUBLISH_FAILED', error.message); }
 });
@@ -478,6 +551,7 @@ async function reverseRatingEvent(req, res, user) {
     }));
     const { domain_event: domainEvent, ...result } = transactionResult;
     syzoj.model('user').deleteFromCache(result.user_id);
+    if (syzoj.utils.refreshUserRatings) await syzoj.utils.refreshUserRatings([result.user_id]);
     api().publishEvent(domainEvent);
     if (result.job_id) setImmediate(() => runRatingJob(result.job_id));
     return api().send(res, result, result.job_id ? 202 : 201);
@@ -499,14 +573,14 @@ app.post(['/api/v2/ratings/users/:id/adjustments', '/api/v2/rating/adjustments']
   try {
     const result = await TypeORM.getConnection().transaction(async manager => {
       const users = await manager.query('SELECT id,rating FROM user WHERE id=? FOR UPDATE', [userId]); if (!users.length) { const error = new Error('User was not found.'); error.code = 'USER_NOT_FOUND'; error.statusCode = 404; throw error; }
-      const rows = await manager.query('SELECT rating,deviation,volatility FROM rating_v2_current WHERE profile_id=? AND user_id=? FOR UPDATE', [profileId, userId]); const current = rows[0] || { rating: profileId === 'icpc' ? users[0].rating : config.initialRating, deviation: config.initialDeviation, volatility: config.initialVolatility }; const before = Math.round(Number(current.rating)); const after = Math.max(1, before + delta); const source = `adjustment:${crypto.randomUUID()}`;
+      const rows = await manager.query('SELECT rating,deviation,volatility FROM rating_v2_current WHERE profile_id=? AND user_id=? FOR UPDATE', [profileId, userId]); const current = profileId === 'icpc' ? { rating: users[0].rating, deviation: config.initialDeviation, volatility: config.initialVolatility } : rows[0] || { rating: config.initialRating, deviation: config.initialDeviation, volatility: config.initialVolatility }; const before = Math.round(Number(current.rating)); const after = before + delta; const source = `adjustment:${crypto.randomUUID()}`;
       const inserted = await manager.query(`INSERT INTO rating_v2_event (profile_id,user_id,contest_id,kind,delta,rating_before,rating_after,deviation_before,deviation_after,volatility_before,volatility_after,preview_id,reason,source_event_id,created_by,created_at)
         VALUES (?,?,NULL,'adjustment',?,?,?,?,?,?,?,NULL,?,?,?,UTC_TIMESTAMP(3))`, [profileId, userId, after - before, before, after, current.deviation, current.deviation, current.volatility, current.volatility, reason, source, user.id]); const eventId = Number(inserted.insertId);
       await manager.query(`INSERT INTO rating_v2_current (profile_id,user_id,rating,deviation,volatility,last_event_id,updated_at) VALUES (?,?,?,?,?,?,UTC_TIMESTAMP(3))
         ON DUPLICATE KEY UPDATE rating=VALUES(rating),deviation=VALUES(deviation),volatility=VALUES(volatility),last_event_id=VALUES(last_event_id),updated_at=VALUES(updated_at)`, [profileId, userId, after, current.deviation, current.volatility, eventId]); if (profileId === 'icpc') await manager.query('UPDATE user SET rating=? WHERE id=?', [after, userId]);
       return { event_id: String(eventId), profile_id: profileId, user_id: userId, rating_before: before, rating_after: after, delta: after - before };
     });
-    syzoj.model('user').deleteFromCache(userId); const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, { action: 'rating:adjust', resourceType: 'user', resourceId: userId, reason, details: result }); return api().send(res, { ...result, audit_event_id: auditEventId }, 201);
+    syzoj.model('user').deleteFromCache(userId); if (syzoj.utils.refreshUserRatings) await syzoj.utils.refreshUserRatings([userId]); const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, { action: 'rating:adjust', resourceType: 'user', resourceId: userId, reason, details: result }); return api().send(res, { ...result, audit_event_id: auditEventId }, 201);
   } catch (error) { return api().fail(res, error.statusCode || 409, error.code || 'RATING_ADJUSTMENT_FAILED', error.message); }
 });
 
@@ -588,6 +662,15 @@ app.post('/api/v2/rating/jobs/:id/rollback', async (req, res) => {
     const userIds = await TypeORM.getConnection().transaction(async manager => {
       const jobs = await manager.query('SELECT * FROM rating_v2_job WHERE id=? FOR UPDATE', [job.id]); const currentJob = jobs[0]; if (!currentJob || currentJob.state !== 'completed' || currentJob.stage !== 'completed') throw Object.assign(new Error('The Rating job is no longer rollbackable.'), { code: 'RATING_JOB_STATE_CHANGED' });
       const profileRows = await manager.query('SELECT * FROM rating_v2_profile WHERE id=? LIMIT 1', [currentJob.profile_id]); if (!profileRows.length) throw Object.assign(new Error('Rating profile is unavailable.'), { code: 'RATING_PROFILE_INVALID' }); const profile = profileRows[0]; const config = profileConfig(profile); const rollbackState = safeJson(currentJob.rollback_json, []); const rollback = Array.isArray(rollbackState) ? rollbackState : rollbackState.projections || []; const notificationRollback = Array.isArray(rollbackState) ? [] : rollbackState.notifications || [];
+      if (profile.id === 'icpc') {
+        await lockMainRating(manager);
+        if (mainSnapshotHash(await mainRatingSnapshot(manager)) !== rollbackState.main_snapshot_hash) throw Object.assign(new Error('Main Rating changed after this job.'), { code: 'RATING_ROLLBACK_STALE' });
+        if (rollbackState.history) {
+          await manager.query('DELETE h FROM rating_history h JOIN rating_calculation rc ON rc.id=h.rating_calculation_id WHERE rc.contest_id IN (?)', [rollbackState.history.contest_ids]);
+          for (const row of rollbackState.history.rows) await manager.query('INSERT INTO rating_history (rating_calculation_id,user_id,rating_after,rank) VALUES (?,?,?,?)', [row.rating_calculation_id, row.user_id, row.rating_after, row.rank]);
+          for (const row of rollbackState.history.finalizations) await manager.query('UPDATE contest_rating_finalization SET status=?,participant_count=?,algorithm_version=?,skip_reason=? WHERE contest_id=?', [row.status, row.participant_count, row.algorithm_version, row.skip_reason, row.contest_id]);
+        }
+      }
       for (const item of rollback) {
         const current = await projectionForUser(manager, profile, item.user_id, config, true); if (!rollbackIsCurrent(current, item)) throw Object.assign(new Error(`Rating changed after this job for user #${item.user_id}.`), { code: 'RATING_ROLLBACK_STALE' });
         const inserted = await manager.query(`INSERT INTO rating_v2_event (profile_id,user_id,contest_id,kind,delta,rating_before,rating_after,deviation_before,deviation_after,volatility_before,volatility_after,preview_id,reason,source_event_id,job_id,supersedes_event_id,created_by,created_at)
@@ -607,7 +690,7 @@ app.post('/api/v2/rating/jobs/:id/rollback', async (req, res) => {
       }
       await manager.query("UPDATE rating_v2_job SET stage='rolled_back',rolled_back_at=UTC_TIMESTAMP(3),updated_at=UTC_TIMESTAMP(3) WHERE id=?", [job.id]); return rollback.map(item => Number(item.user_id));
     });
-    userIds.forEach(userId => syzoj.model('user').deleteFromCache(userId)); const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, { action: 'rating:recalculate.rollback', resourceType: 'rating_job', resourceId: job.id, reason, details: { affected_users: userIds.length } }); await api().appendEvent({ stream: `rating-job:${job.id}`, type: 'rating.recalculation.rolled_back', aggregateId: job.id, actor: res.locals.user, payload: { affected_users: userIds.length, audit_event_id: auditEventId } }); return api().send(res, { id: job.id, state: 'completed', stage: 'rolled_back', affected_users: userIds.length, audit_event_id: String(auditEventId) });
+    userIds.forEach(userId => syzoj.model('user').deleteFromCache(userId)); if (syzoj.utils.refreshUserRatings) await syzoj.utils.refreshUserRatings(userIds); const auditEventId = await syzoj.utils.authorizationV2.recordAudit(req, { action: 'rating:recalculate.rollback', resourceType: 'rating_job', resourceId: job.id, reason, details: { affected_users: userIds.length } }); await api().appendEvent({ stream: `rating-job:${job.id}`, type: 'rating.recalculation.rolled_back', aggregateId: job.id, actor: res.locals.user, payload: { affected_users: userIds.length, audit_event_id: auditEventId } }); return api().send(res, { id: job.id, state: 'completed', stage: 'rolled_back', affected_users: userIds.length, audit_event_id: String(auditEventId) });
   } catch (error) { return api().fail(res, 409, error.code || 'RATING_ROLLBACK_FAILED', error.message); }
 });
 

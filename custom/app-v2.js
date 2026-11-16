@@ -784,7 +784,7 @@
           userId = match[1];
         } catch (error) { return; }
       }
-      var tier = 'username-tier-' + (tiers[Number(userId)] || 'default');
+      var tier = 'username-tier-' + (tiers[Number(userId)] || 'gray');
       Array.from(link.classList).forEach(function (name) {
         if (name.indexOf('username-tier-') === 0 && name !== tier) link.classList.remove(name);
       });

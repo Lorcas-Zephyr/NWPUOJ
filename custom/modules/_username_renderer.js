@@ -1,12 +1,4 @@
-// 用户名渲染 helper:
-// 优先级:
-//   1. 全局管理身份缓存 → admin 紫色 + 自定义 tag(若设置)
-//   2. 普通用户 + 有未满 14 天的 cheated 标记 → cheater 棕色，不显示用户名牌子
-//   3. 普通用户 + 按 Hit 值分档(gray/blue/green/orange/red)
-//   4. 普通用户 + 无 Hit 数据 → default 深灰
-//
-// 文件名以 _ 开头确保字母排序最前
-
+// Global roles have fixed name styles; ordinary accounts follow Codeforces Rating tiers.
 function escapeHtml(s) {
   if (s === null || s === undefined) return '';
   return String(s).replace(/[&<>"']/g, function(c) {
@@ -14,36 +6,45 @@ function escapeHtml(s) {
   });
 }
 
-function tierFromHit(hit) {
-  if (hit >= 350) return 'red';
-  if (hit >= 280) return 'orange';
-  if (hit >= 200) return 'green';
-  if (hit >= 100) return 'blue';
+function ratingTier(rating) {
+  if (rating >= 3000) return 'legendary';
+  if (rating >= 2400) return 'red';
+  if (rating >= 2100) return 'orange';
+  if (rating >= 1900) return 'violet';
+  if (rating >= 1600) return 'blue';
+  if (rating >= 1400) return 'cyan';
+  if (rating >= 1200) return 'green';
   return 'gray';
 }
 
-// 判定用户名 tier(同步,使用全局缓存)
-// 返回 admin/cheater/red/orange/green/blue/gray/default
+function userRating(user) {
+  const id = Number(user && user.id);
+  return syzoj.userRatings && syzoj.userRatings.has(id) ? syzoj.userRatings.get(id) : Number(user && user.rating || 0);
+}
+
 function calcTier(user) {
   if (!user) return 'default';
-  const userId = Number(user.id);
-
-  // Request-local editor adapters may set is_admin for legacy page access.
-  // Colors always come from the same account caches, including ID-only lists.
-  if (syzoj.adminUserIds && syzoj.adminUserIds.has(userId)) return 'admin';
-
-  // 2. 非管理员 + 仍在 14 天展示期内 → 棕色（缓存每分钟刷新）
-  if (syzoj.cheaterUserIds && syzoj.cheaterUserIds.has(userId)) return 'cheater';
-
-  // 3. 按 Hit 值分档
-  if (syzoj.userHitScores && syzoj.userHitScores.has(userId)) {
-    let s = syzoj.userHitScores.get(userId);
-    return tierFromHit(s.total || 0);
-  }
-
-  // 4. 默认
-  return 'default';
+  if (Number(syzoj.siteOwnerUserId) === Number(user.id)) return 'owner';
+  if (syzoj.adminUserIds && syzoj.adminUserIds.has(Number(user.id))) return 'admin';
+  if (syzoj.cheaterUserIds && syzoj.cheaterUserIds.has(Number(user.id))) return 'cheater';
+  return ratingTier(userRating(user));
 }
+
+syzoj.utils.ratingTier = ratingTier;
+syzoj.utils.userRating = userRating;
+syzoj.utils.ratingTitle = function (user) {
+  const value = userRating(user);
+  if (value >= 3000) return 'Legendary Grandmaster';
+  if (value >= 2600) return 'International Grandmaster';
+  if (value >= 2400) return 'Grandmaster';
+  if (value >= 2300) return 'International Master';
+  if (value >= 2100) return 'Master';
+  if (value >= 1900) return 'Candidate Master';
+  if (value >= 1600) return 'Expert';
+  if (value >= 1400) return 'Specialist';
+  if (value >= 1200) return 'Pupil';
+  return 'Newbie';
+};
 
 // 渲染 tag HTML
 // 优先级:

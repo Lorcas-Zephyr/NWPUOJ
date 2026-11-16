@@ -54,7 +54,7 @@ async function reverseInTransaction(manager, input) {
   const profile = profiles[0];
   const current = await input.currentProjection(manager, profile, Number(original.user_id));
   const inverseDelta = -Number(original.delta || 0);
-  const after = Math.max(1, Number(current.rating) + inverseDelta);
+  const after = Number(current.rating) + inverseDelta;
   const source = String(input.sourceId || `rating-reverse:${originalId}:${crypto.randomUUID()}`);
   const inserted = await manager.query(`INSERT INTO rating_v2_event (profile_id,user_id,contest_id,kind,delta,rating_before,rating_after,deviation_before,deviation_after,volatility_before,volatility_after,preview_id,reason,source_event_id,job_id,supersedes_event_id,created_by,created_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,NULL,?,?,UTC_TIMESTAMP(3))`, [profile.id, original.user_id, original.contest_id, REVERSAL_TYPES[reversalType], after - current.rating, current.rating, after, current.deviation, current.deviation, current.volatility, current.volatility, input.reason, source, originalId, input.actorId]);

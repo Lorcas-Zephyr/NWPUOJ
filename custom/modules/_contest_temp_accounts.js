@@ -149,7 +149,7 @@ async function importTemporaryAccounts({ contestId, actor, rows, req }) {
             (username,email,password,nickname,nameplate,information,ac_num,submit_num,is_admin,is_show,
              public_email,prefer_formatted_code,sex,rating,register_time)
            VALUES (?,NULL,?,?,'','临时比赛账户',0,0,0,1,0,1,0,?,?)`,
-          [username,row.passwordHash,row.name,Number(syzoj.config.default.user.rating || 1500),now]
+          [username,row.passwordHash,row.name,Number(syzoj.config.default.user.rating ?? 0),now]
         );
         const userId = Number(userResult.insertId);
         await manager.query(
