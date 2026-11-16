@@ -18,7 +18,7 @@ const appSubmissionTotal = appSubmissionStats.reduce((sum, item) => sum + item[1
 const appRatingSeries = (typeof ratingHistories !== 'undefined' && Array.isArray(ratingHistories)) ? ratingHistories : [];
 const appParticipatedContests = (typeof participatedContests !== 'undefined' && Array.isArray(participatedContests)) ? participatedContests : [];
 const appRatingPeak = Math.max(0, ...appRatingSeries.map(item => Number(item.value)));
-const appRatingSeriesJson = JSON.stringify(appRatingSeries.map(item => ({ name: item.contestName, value: item.value, before: item.before, delta: item.delta, rank: item.rank, participants: item.participants, time: Number(item.endedAt || (item.contestId == null ? show_user.register_time : 0)) }))).replace(/</g, '\\u003c');
+const appRatingSeriesJson = JSON.stringify(appRatingSeries.map(item => ({ name: item.contestName, contestId: item.contestId, value: item.value, before: item.before, delta: item.delta, rank: item.rank, participants: item.participants, time: Number(item.endedAt || (item.contestId == null ? show_user.register_time : 0)) }))).replace(/</g, '\\u003c');
 %>
 <% include app_header %>
 
@@ -43,7 +43,7 @@ const appRatingSeriesJson = JSON.stringify(appRatingSeries.map(item => ({ name: 
       <div class="app-rating-chart">
         <canvas id="user-rating-chart" tabindex="0" aria-label="Rating 变化折线图，使用左右方向键查看比赛" aria-describedby="user-rating-tooltip"></canvas>
         <div class="app-rating-chart-tooltip" id="user-rating-tooltip" role="status" aria-live="polite" aria-atomic="true" hidden>
-          <strong data-rating-name></strong><time data-rating-date></time>
+          <strong><a data-rating-name></a></strong><time data-rating-date></time>
           <div class="app-rating-chart-result"><span>Rating <b data-rating-value></b></span><b data-rating-delta></b></div>
           <span data-rating-rank></span>
         </div>
@@ -107,6 +107,8 @@ document.querySelectorAll('form[data-user-follow-v2]').forEach(function (form) {
   var activeIndex = null;
   var coordinates = [];
   var frame;
+  var hideTimer = null;
+  var pointerFocus = false;
   var bands = [
     { from: -Infinity, to: 1200, light: '#e4e4e4', dark: '#30343c' },
     { from: 1200, to: 1400, light: '#c2edb7', dark: '#284332' },
@@ -121,6 +123,15 @@ document.querySelectorAll('form[data-user-follow-v2]').forEach(function (form) {
   function dateLabel(time) { return time > 0 ? dateFormat.format(new Date(time * 1000)) : ''; }
   function color(name, fallback) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback; }
   function schedule() { window.cancelAnimationFrame(frame); frame = window.requestAnimationFrame(draw); }
+  function cancelHide() { window.clearTimeout(hideTimer); hideTimer = null; }
+  function hideTooltip() { cancelHide(); activeIndex = null; canvas.style.cursor = ''; schedule(); }
+  function hideSoon() {
+    if (hideTimer !== null || activeIndex === null) return;
+    hideTimer = window.setTimeout(function () {
+      hideTimer = null;
+      if (!tooltip.matches(':hover') && !tooltip.contains(document.activeElement)) hideTooltip();
+    }, 300);
+  }
   function describe(point) {
     var delta = point.delta == null ? '' : (point.delta > 0 ? '+' : '') + point.delta;
     return point.name + '，' + dateLabel(point.time) + '，Rating ' + point.value + (delta ? '，变化 ' + delta : '') + (point.rank ? '，名次 ' + point.rank : '');
@@ -133,7 +144,11 @@ document.querySelectorAll('form[data-user-follow-v2]').forEach(function (form) {
     }
     var point = points[activeIndex];
     var position = coordinates[activeIndex];
-    tooltip.querySelector('[data-rating-name]').textContent = point.name;
+    var name = tooltip.querySelector('[data-rating-name]');
+    name.textContent = point.name;
+    var contestId = Number(point.contestId);
+    if (Number.isSafeInteger(contestId) && contestId > 0) name.setAttribute('href', '/contest/' + contestId + '/details');
+    else name.removeAttribute('href');
     tooltip.querySelector('[data-rating-date]').textContent = dateLabel(point.time);
     tooltip.querySelector('[data-rating-value]').textContent = point.value;
     var delta = tooltip.querySelector('[data-rating-delta]');
@@ -232,7 +247,7 @@ document.querySelectorAll('form[data-user-follow-v2]').forEach(function (form) {
     });
     updateTooltip(width);
   }
-  function selectNearest(event) {
+  function selectPoint(event) {
     if (!coordinates.length) return;
     var rect = canvas.getBoundingClientRect();
     var localX = event.clientX - rect.left;
@@ -240,18 +255,38 @@ document.querySelectorAll('form[data-user-follow-v2]').forEach(function (form) {
     var nearest = 0;
     function distance(point) { return Math.pow(point.x - localX, 2) + Math.pow(point.y - localY, 2); }
     for (var index = 1; index < coordinates.length; index += 1) if (distance(coordinates[index]) < distance(coordinates[nearest])) nearest = index;
+    var radius = event.pointerType === 'touch' ? 20 : 8;
+    if (distance(coordinates[nearest]) > radius * radius) {
+      canvas.style.cursor = '';
+      if (event.type === 'pointerdown') hideTooltip();
+      else hideSoon();
+      return;
+    }
+    cancelHide();
+    canvas.style.cursor = 'pointer';
     if (activeIndex !== nearest) { activeIndex = nearest; schedule(); }
   }
-  canvas.addEventListener('pointermove', selectNearest);
-  canvas.addEventListener('pointerdown', function (event) { canvas.focus({ preventScroll: true }); selectNearest(event); });
-  canvas.addEventListener('pointerleave', function () { if (document.activeElement !== canvas) { activeIndex = null; schedule(); } });
-  canvas.addEventListener('focus', function () { if (activeIndex === null) { activeIndex = points.length - 1; schedule(); } });
-  canvas.addEventListener('blur', function () { activeIndex = null; schedule(); });
-  canvas.addEventListener('keydown', function (event) {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End', 'Escape'].includes(event.key)) return;
+  canvas.addEventListener('pointermove', function (event) { if (event.pointerType !== 'touch') selectPoint(event); });
+  canvas.addEventListener('pointerdown', function (event) {
+    pointerFocus = true; canvas.focus({ preventScroll: true }); pointerFocus = false;
+    selectPoint(event);
+  });
+  canvas.addEventListener('pointerleave', function (event) { if (event.pointerType !== 'touch') hideSoon(); });
+  canvas.addEventListener('focus', function () {
+    if (!pointerFocus && activeIndex === null) { cancelHide(); activeIndex = points.length - 1; schedule(); }
+  });
+  tooltip.addEventListener('pointerenter', cancelHide);
+  tooltip.addEventListener('pointerleave', hideSoon);
+  tooltip.addEventListener('focusin', cancelHide);
+  chart.addEventListener('focusout', function (event) { if (!chart.contains(event.relatedTarget)) hideTooltip(); });
+  document.addEventListener('pointerdown', function (event) { if (!chart.contains(event.target)) hideTooltip(); });
+  chart.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape') { event.preventDefault(); hideTooltip(); return; }
+    if (event.target !== canvas) return;
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
-    if (event.key === 'Escape') activeIndex = null;
-    else if (event.key === 'Home') activeIndex = 0;
+    cancelHide();
+    if (event.key === 'Home') activeIndex = 0;
     else if (event.key === 'End') activeIndex = points.length - 1;
     else activeIndex = Math.max(0, Math.min(points.length - 1, (activeIndex === null ? points.length - 1 : activeIndex) + (event.key === 'ArrowLeft' ? -1 : 1)));
     schedule();

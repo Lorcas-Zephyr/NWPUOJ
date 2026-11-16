@@ -2629,12 +2629,14 @@
   color: var(--app-text);
   font-size: 13px;
   line-height: 1.5;
-  pointer-events: none;
   overflow-wrap: anywhere;
 }
 
 .app-rating-chart-tooltip[hidden] { display: none; }
 .app-rating-chart-tooltip > strong { display: block; max-width: 100%; font-weight: 600; }
+.app-rating-chart-tooltip [data-rating-name] { color: inherit; }
+.app-rating-chart-tooltip [data-rating-name][href] { color: var(--app-accent); }
+.app-rating-chart-tooltip [data-rating-name][href]:hover { text-decoration: underline; }
 .app-rating-chart-tooltip time { display: block; margin-top: 2px; color: var(--app-text-secondary); font-size: 12px; }
 .app-rating-chart-result { display: flex; align-items: baseline; justify-content: space-between; gap: 20px; margin-top: 8px; font-variant-numeric: tabular-nums; }
 .app-rating-chart-result [data-rating-value] { margin-left: 5px; font-size: 18px; }

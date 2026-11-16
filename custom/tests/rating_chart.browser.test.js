@@ -33,6 +33,18 @@ function render(series) {
 }
 async function fixture(series = history(), mobile = false) {
   const context = await browser.newContext({ viewport: { width: mobile ? 390 : 1100, height: 1000 }, hasTouch: mobile, isMobile: mobile });
+  await context.addInitScript(() => {
+    const transform = CanvasRenderingContext2D.prototype.setTransform;
+    const arc = CanvasRenderingContext2D.prototype.arc;
+    CanvasRenderingContext2D.prototype.setTransform = function (...args) {
+      if (this.canvas.id === 'user-rating-chart') window.ratingChartNodes = [];
+      return transform.apply(this, args);
+    };
+    CanvasRenderingContext2D.prototype.arc = function (x, y, ...args) {
+      if (this.canvas.id === 'user-rating-chart') window.ratingChartNodes.push({ x, y });
+      return arc.call(this, x, y, ...args);
+    };
+  });
   const page = await context.newPage(); const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('dialog', async dialog => { errors.push('Unexpected dialog: ' + dialog.message()); await dialog.dismiss(); });
@@ -46,6 +58,13 @@ async function fixture(series = history(), mobile = false) {
   });
   await page.goto('http://rating-chart.test/fixture');
   return { context, page, errors, canvas: page.locator('#user-rating-chart'), tooltip: page.locator('#user-rating-tooltip') };
+}
+
+async function renderedNodes(f) {
+  await f.canvas.scrollIntoViewIfNeeded();
+  const bounds = await f.canvas.boundingBox();
+  const nodes = await f.page.evaluate(() => window.ratingChartNodes);
+  return nodes.map(point => ({ x: bounds.x + point.x, y: bounds.y + point.y }));
 }
 
 test('CF bands, chronological dates and full event details render with keyboard navigation', async () => {
@@ -65,6 +84,7 @@ test('CF bands, chronological dates and full event details render with keyboard 
     await f.page.waitForFunction(() => document.querySelector('[data-rating-name]').textContent === '初始 Rating');
     assert.equal(await f.tooltip.locator('[data-rating-value]').textContent(), '0');
     assert.equal(await f.tooltip.locator('[data-rating-rank]').isVisible(), false);
+    assert.equal(await f.tooltip.locator('[data-rating-name]').getAttribute('href'), null);
     await f.canvas.press('Escape'); assert.equal(await f.tooltip.isVisible(), false);
     const colors = await f.canvas.evaluate(canvas => {
       const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
@@ -74,6 +94,57 @@ test('CF bands, chronological dates and full event details render with keyboard 
     for (const color of ['228,228,228','194,237,183','181,230,220','190,207,240','232,192,233','246,212,166','239,178,178','222,137,143']) assert.ok(colors[color] > 100, 'missing Rating band: ' + color);
     await f.canvas.evaluate(el => el.blur());
     await f.page.locator('.app-rating-history-section').screenshot({ path: '/tmp/noj-rating-chart-light.png' });
+    assert.deepEqual(f.errors, []);
+  } finally { await f.context.close(); }
+});
+
+test('only nodes open mouse tooltips, and hovering the contest link keeps it clickable', async () => {
+  const f = await fixture(history([0, 600, 1200]));
+  try {
+    const nodes = await renderedNodes(f), last = nodes[2];
+    const bounds = await f.canvas.boundingBox();
+    await f.page.mouse.move(bounds.x + bounds.width / 2, bounds.y + 20);
+    assert.equal(await f.tooltip.isVisible(), false);
+    await f.page.mouse.click((nodes[0].x + nodes[1].x) / 2, (nodes[0].y + nodes[1].y) / 2);
+    assert.equal(await f.tooltip.isVisible(), false);
+    await f.page.mouse.move(last.x, last.y);
+    await f.page.waitForFunction(() => !document.querySelector('#user-rating-tooltip').hidden);
+    const link = f.tooltip.locator('[data-rating-name]');
+    assert.equal(await link.getAttribute('href'), '/contest/2/details');
+    assert.equal(await link.textContent(), 'NWPU Round 2');
+    const linkBounds = await link.boundingBox();
+    await f.page.mouse.move(linkBounds.x + linkBounds.width / 2, linkBounds.y + linkBounds.height / 2, { steps: 12 });
+    await f.page.waitForTimeout(450);
+    assert.equal(await f.tooltip.isVisible(), true);
+    await f.page.mouse.move(bounds.x + 20, bounds.y + 20);
+    await f.page.waitForFunction(() => document.querySelector('#user-rating-tooltip').hidden);
+    await f.page.mouse.move(last.x, last.y);
+    await f.page.waitForFunction(() => !document.querySelector('#user-rating-tooltip').hidden);
+    await link.click();
+    await f.page.waitForURL('http://rating-chart.test/contest/2/details');
+    assert.deepEqual(f.errors, []);
+  } finally { await f.context.close(); }
+});
+
+test('touch selects only nearby nodes and keyboard users can tab into the contest link', async () => {
+  const f = await fixture(history([0, 600, 1200]), true);
+  try {
+    const nodes = await renderedNodes(f), last = nodes[2];
+    await f.page.touchscreen.tap(nodes[1].x, last.y);
+    assert.equal(await f.tooltip.isVisible(), false);
+    await f.page.touchscreen.tap(last.x, last.y);
+    await f.page.waitForFunction(() => !document.querySelector('#user-rating-tooltip').hidden);
+    const link = f.tooltip.locator('[data-rating-name]');
+    assert.equal(await link.getAttribute('href'), '/contest/2/details');
+    await f.canvas.press('Tab');
+    assert.equal(await link.evaluate(el => el === document.activeElement), true);
+    assert.equal(await f.tooltip.isVisible(), true);
+    await link.press('Escape');
+    await f.page.waitForFunction(() => document.querySelector('#user-rating-tooltip').hidden);
+    await f.page.touchscreen.tap(last.x, last.y);
+    await f.page.waitForFunction(() => !document.querySelector('#user-rating-tooltip').hidden);
+    await link.tap();
+    await f.page.waitForURL('http://rating-chart.test/contest/2/details');
     assert.deepEqual(f.errors, []);
   } finally { await f.context.close(); }
 });
