@@ -26,12 +26,22 @@ function fixture() {
   const judges = new Map([
     [101, { id: 101, problem_id: 11, user_id: 3, type: 0, is_public: false }],
     [102, { id: 102, problem_id: 12, user_id: 2, type: 0, is_public: false }],
-    [103, { id: 103, problem_id: 11, user_id: 3, type: 1, type_info: 21, is_public: false }]
+    [103, { id: 103, problem_id: 11, user_id: 3, type: 1, type_info: 21, is_public: false }],
+    [104, { id: 104, problem_id: 11, user_id: 3, type: 1, type_info: 22, is_public: false }]
   ]);
-  const users = new Map([1, 2, 3, 4, 5, 6].map(id => [id, { id, is_admin: id === 1, hasPrivilege: async () => false }]));
-  const contest = { id: 21, holder_id: 6, isSupervisior: async user => !!user && user.id === 6 };
+  const users = new Map([1, 2, 3, 4, 5, 6, 7, 8].map(id => [id, { id, is_admin: id === 1, hasPrivilege: async () => false }]));
+  const contest = { id: 21, holder_id: 6, admins: '7', isSupervisior: async user => !!user && [6, 7].includes(user.id) };
+  class JudgeState {
+    static async findById(id) { return judges.get(id) || null; }
+    async loadRelationships() { this.problem = problems.get(this.problem_id); this.user = users.get(this.user_id); }
+    async isAllowedVisitBy() { await this.loadRelationships(); return false; }
+  }
+  for (const [id, data] of judges) judges.set(id, Object.assign(new JudgeState(), data, {
+    code: 'int main() {}', compilation: 'compile details', result: { compile: { message: 'compile details' } }
+  }));
   const manager = { query: async (sql, args) => {
-    if (sql.startsWith('SELECT id,admins')) return [{ id: 21, admins: '' }];
+    if (sql.startsWith('SELECT id,admins')) return args[0] === 21 ? [contest] : [];
+    if (sql.includes('FROM submission_v2_projection')) return [{ ...judges.get(args[0]), submission_id: args[0], source_visibility: 'private' }];
     if (sql.includes('FROM submission_v2_result_revision')) return [];
     writes.push({ sql, args }); return {};
   } };
@@ -50,15 +60,18 @@ function fixture() {
   } };
   const context = vm.createContext({ ...auth, syzoj, Problem, judgeStatus: require('../libs/judge-status'),
     Contest: { findById: async id => id === 21 ? contest : null },
-    JudgeState: { findById: async id => judges.get(id) || null },
+    JudgeState,
     TypeORM: { getConnection: () => ({ ...manager, transaction: fn => fn(manager) }) },
     effectiveCapabilities: async user => user.id === 1 ? ['*'] : user.id === 4 ? ['judge:read', 'submission:rejudge'] : user.id === 5 ? ['judge:read'] : [],
     policyDecision: async (_user, capability) => ({ effect: denied.has(capability) ? 'deny' : null }),
     requestReads: { memo: (_key, fn) => fn() },
     ensureSubmissionSchema: async () => {},
+    projectStatus: async () => {},
+    hasValidAcceptedSubmission: async () => false,
+    hasAccessiblePublishedProblemSet: async () => false,
     crypto: { randomUUID: () => 'fixture-job' },
     setImmediate: fn => scheduled.push(fn),
-    submissionDomain: { appendEvent: async (_manager, input) => input },
+    submissionDomain: { ...require('../libs/submission-domain'), appendEvent: async (_manager, input) => input },
     app: { post: (route, fn) => routes.set(route, fn), get: (route, fn) => routes.set(route, fn) }
   });
   vm.runInContext(section('modules/_api_v2_authorization.js', 'async function assignedContestAdministratorAllows(', 'function recentLoginSatisfied('), context);
@@ -66,10 +79,14 @@ function fixture() {
   vm.runInContext(section('modules/_judge_admin_action.js', 'async function canAccessProblemSubmission(', 'function operationReason('), context);
   utils.canManageJudgeAction = context.canManageJudgeAction;
   vm.runInContext(section('modules/_user_privilege_loader.js', 'const originalProblemEdit =', '\nensureSiteOwner()'), context);
+  vm.runInContext(section('modules/_submission_visibility.js', 'const originalAllowedVisit =', 'async function guardSubmissionDetail('), context);
+  vm.runInContext(section('modules/_submission_visibility.js', 'async function canViewSubmissionDetail(', 'async function problemSetSubmissionContext('), context);
   vm.runInContext(section('modules/_api_v2_submission_domain.js', 'async function canViewSubmission(', 'function validLanguage('), context);
+  vm.runInContext(section('modules/_api_v2_submission_domain.js', 'function publicSubmission(', 'function publishDomainEvent('), context);
+  vm.runInContext(section('modules/_api_v2_submission_domain.js', "app.get('/api/v2/submissions/:id',", "app.get('/api/v2/submissions/:id/testpoints'"), context);
   vm.runInContext(section('modules/_api_v2_submission_domain.js', "app.post('/api/v2/submissions/:id/rejudge'", 'async function runProjectionRebuildJob('), context);
   vm.runInContext(section('modules/_api_v2_submission_domain.js', "app.get('/api/v2/submissions/:id/testpoints'", "app.get('/api/v2/submissions/:id/events'"), context);
-  return { context, utils, users, problems, judges, writes, scheduled, denied,
+  return { context, utils, users, problems, judges, contest, writes, scheduled, denied,
     accessible(value) { accessible = value; }, frozen(value) { frozen = value; },
     async request(route, userId, judgeId = 101, body = {}) {
       const res = { locals: { user: users.get(userId), apiMeta: {} } };
@@ -166,4 +183,46 @@ test('uploader can view private testpoints and result history without exposing o
   }
   f.accessible(false);
   assert.equal((await f.request('/api/v2/submissions/:id/result-revisions', 2)).status, 403);
+});
+
+test('contest creator and assigned managers read private code, testpoints and history only within that contest', async () => {
+  const f = fixture();
+  for (const frozen of [false, true]) {
+    f.frozen(frozen);
+    for (const userId of [6, 7]) {
+      assert.equal(await f.context.canViewSubmissionDetail(f.judges.get(103), f.users.get(userId)), true);
+      for (const route of ['/api/v2/submissions/:id', '/api/v2/submissions/:id/testpoints', '/api/v2/submissions/:id/result-revisions']) {
+        const res = await f.request(route, userId, 103);
+        assert.equal(res.status, 200, `${route}, manager ${userId}`);
+        if (route === '/api/v2/submissions/:id') {
+          assert.equal(res.data.source, 'int main() {}');
+          assert.equal(res.data.compilation, 'compile details');
+          assert.ok(res.data.result);
+        }
+        assert.equal((await f.request(route, userId, 104)).status, 403, 'other contest');
+        assert.equal((await f.request(route, userId, 101)).status, 403, 'practice submission for same problem');
+        assert.equal((await f.request(route, 8, 103)).status, 403, 'unrelated user');
+      }
+    }
+  }
+  f.contest.admins = '';
+  assert.equal((await f.request('/api/v2/submissions/:id', 7, 103)).status, 403, 'assignment removal applies immediately');
+  f.denied.add('contest:edit');
+  assert.equal((await f.request('/api/v2/submissions/:id', 6, 103)).status, 403, 'explicit policy deny');
+  f.denied.clear(); f.accessible(false);
+  assert.equal((await f.request('/api/v2/submissions/:id', 6, 103)).status, 403, 'workspace gate');
+});
+
+test('scoped detail permission loads relationships before the legacy controller reads judge.problem', async () => {
+  for (const userId of [2, 6, 7]) {
+    const f = fixture(), judge = f.judges.get(103), user = f.users.get(userId);
+    assert.equal(judge.problem, undefined, 'findById does not hydrate relations');
+    assert.equal(await judge.isAllowedVisitBy(user), true);
+    assert.equal(judge.problem, f.problems.get(11));
+    assert.equal(judge.user, f.users.get(3));
+    assert.equal(await judge.problem.isAllowedEditBy(user), userId === 2, 'legacy controller can read the related problem without crashing');
+    assert.equal(user.is_admin, false);
+  }
+  const f = fixture();
+  assert.equal(await f.judges.get(103).isAllowedVisitBy(f.users.get(8)), false);
 });

@@ -1,6 +1,6 @@
 // 用户名渲染 helper:
 // 优先级:
-//   1. 管理身份(is_admin/有管理权限) → admin 紫色 + 自定义 tag(若设置)
+//   1. 全局管理身份缓存 → admin 紫色 + 自定义 tag(若设置)
 //   2. 普通用户 + 有未满 14 天的 cheated 标记 → cheater 棕色，不显示用户名牌子
 //   3. 普通用户 + 按 Hit 值分档(gray/blue/green/orange/red)
 //   4. 普通用户 + 无 Hit 数据 → default 深灰
@@ -26,17 +26,18 @@ function tierFromHit(hit) {
 // 返回 admin/cheater/red/orange/green/blue/gray/default
 function calcTier(user) {
   if (!user) return 'default';
+  const userId = Number(user.id);
 
-  // 1. 管理员优先(is_admin 或在 adminUserIds 缓存中) → 不受 cheater 影响
-  if (user.is_admin) return 'admin';
-  if (syzoj.adminUserIds && syzoj.adminUserIds.has(user.id)) return 'admin';
+  // Request-local editor adapters may set is_admin for legacy page access.
+  // Colors always come from the same account caches, including ID-only lists.
+  if (syzoj.adminUserIds && syzoj.adminUserIds.has(userId)) return 'admin';
 
   // 2. 非管理员 + 仍在 14 天展示期内 → 棕色（缓存每分钟刷新）
-  if (syzoj.cheaterUserIds && syzoj.cheaterUserIds.has(user.id)) return 'cheater';
+  if (syzoj.cheaterUserIds && syzoj.cheaterUserIds.has(userId)) return 'cheater';
 
   // 3. 按 Hit 值分档
-  if (syzoj.userHitScores && syzoj.userHitScores.has(user.id)) {
-    let s = syzoj.userHitScores.get(user.id);
+  if (syzoj.userHitScores && syzoj.userHitScores.has(userId)) {
+    let s = syzoj.userHitScores.get(userId);
     return tierFromHit(s.total || 0);
   }
 

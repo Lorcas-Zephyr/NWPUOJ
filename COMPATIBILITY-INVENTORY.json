@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-16T11:58:35.884Z",
+  "generated_at": "2026-11-16T12:26:22.166Z",
   "frontend_page_routes": [
     {
       "method": "GET",
@@ -557,13 +557,13 @@
       "method": "GET",
       "route": "/submission/:id",
       "source": "custom/modules/_submission_visibility.js",
-      "line": 126
+      "line": 129
     },
     {
       "method": "GET",
       "route": "/contest/submission/:id",
       "source": "custom/modules/_submission_visibility.js",
-      "line": 127
+      "line": 130
     },
     {
       "method": "GET",

@@ -46,12 +46,7 @@ function rankSortUrl(sort, defaultOrder) {
         for (const rankUser of ranklist) {
           rankPosition += 1;
           let hitValue = typeof rankUser.__hitTotal !== 'undefined' ? rankUser.__hitTotal : (syzoj.userHitScores && syzoj.userHitScores.has(rankUser.id) ? (syzoj.userHitScores.get(rankUser.id).total || 0) : 0);
-          let hitTier = 'default';
-          if (rankUser.is_admin || (syzoj.adminUserIds && syzoj.adminUserIds.has(rankUser.id))) hitTier = 'admin';
-          else if (hitValue >= 350) hitTier = 'red';
-          else if (hitValue >= 280) hitTier = 'orange';
-          else if (hitValue >= 200) hitTier = 'green';
-          else if (hitValue >= 100) hitTier = 'blue';
+          const hitTier = syzoj.utils.calcUserTier(rankUser);
         %>
           <tr>
             <td class="app-cell-number"><span class="app-rank-position <%= rankPosition <= 3 ? 'is-top' : '' %>"><%= rankPosition %></span></td>

@@ -34,19 +34,10 @@ function submissionFormatSize(bytes) {
   return (value === Math.round(value) ? value : value.toFixed(1)) + ' ' + units[unit];
 }
 function submissionUserTier(userId) {
-  if (syzoj.adminUserIds && syzoj.adminUserIds.has(userId)) return 'admin';
-  if (syzoj.cheaterUserIds && syzoj.cheaterUserIds.has(userId)) return 'cheater';
-  if (syzoj.userHitScores && syzoj.userHitScores.has(userId)) {
-    const hit = syzoj.userHitScores.get(userId).total || 0;
-    if (hit >= 350) return 'red';
-    if (hit >= 280) return 'orange';
-    if (hit >= 200) return 'green';
-    if (hit >= 100) return 'blue';
-  }
-  return 'default';
+  return syzoj.utils.calcUserTier({ id: userId });
 }
 function submissionUserTag(userId) {
-  if (syzoj.cheaterUserIds && syzoj.cheaterUserIds.has(userId) && !(syzoj.adminUserIds && syzoj.adminUserIds.has(userId))) return null;
+  if (submissionUserTier(userId) === 'cheater') return null;
   if (syzoj.userTagsEnabled !== false && syzoj.userTags && syzoj.userTags.has(userId)) return syzoj.userTags.get(userId);
   return null;
 }

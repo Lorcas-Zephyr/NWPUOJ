@@ -59,7 +59,19 @@ async function canAccessProblemSubmission(user, judge, capability) {
   }, { scope });
 }
 
-syzoj.utils.canReadJudgeDetails = (user, judge) => canAccessProblemSubmission(user, judge, 'judge:read');
+async function canManageSubmissionContest(user, judge) {
+  if (!user || !judge || Number(judge.type) !== 1) return false;
+  if (syzoj.utils.baseWorkspace && !await syzoj.utils.baseWorkspace.canAccessSubmission(judge, user)) return false;
+  const contest = await Contest.findById(Number(judge.type_info));
+  if (!contest) return false;
+  const scope = `contest:${contest.id}`;
+  return syzoj.utils.authorizationV2.authorize(user, 'contest:edit', {
+    id: Number(contest.id), ownerId: Number(contest.holder_id), scope
+  }, { scope });
+}
+
+syzoj.utils.canReadJudgeDetails = async (user, judge) =>
+  await canAccessProblemSubmission(user, judge, 'judge:read') || await canManageSubmissionContest(user, judge);
 
 async function canManageJudgeAction(user, judge) {
   if (!user || !judge) return false;
@@ -68,13 +80,7 @@ async function canManageJudgeAction(user, judge) {
   if (Number(judge.type) !== 1) return false;
   const scope = `contest:${judge.type_info}`;
   if (await syzoj.utils.authorizationV2.authorize(user, 'submission:rejudge', { scope }, { scope })) return true;
-  const contest = await Contest.findById(Number(judge.type_info));
-  if (!contest || !await contest.isSupervisior(user)) return false;
-  return syzoj.utils.authorizationV2.authorize(user, 'contest:edit', {
-    id: contest.id,
-    ownerId: contest.holder_id,
-    scope: `contest:${contest.id}`
-  }, { scope: `contest:${contest.id}` });
+  return canManageSubmissionContest(user, judge);
 }
 
 function operationReason(req) {

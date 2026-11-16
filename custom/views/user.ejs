@@ -11,9 +11,9 @@ const appCanViewEmailActivation = !!(user && (
 const appEmailActivated = Number(user && user.id) === Number(show_user.id)
   ? !!(user.is_email_verified || (syzoj.verifiedUserIds && syzoj.verifiedUserIds.has(Number(show_user.id))))
   : !!(syzoj.verifiedUserIds && syzoj.verifiedUserIds.has(Number(show_user.id)));
-const appIsManager = show_user.is_admin || !!(syzoj.adminUserIds && syzoj.adminUserIds.has(show_user.id));
+const appHitTier = syzoj.utils.calcUserTier(show_user);
+const appIsManager = appHitTier === 'admin';
 const appHitTotal = appHitScores ? appHitScores.total : 0;
-const appHitTier = appIsManager ? 'admin' : (appHitTotal >= 350 ? 'red' : (appHitTotal >= 280 ? 'orange' : (appHitTotal >= 200 ? 'green' : (appHitTotal >= 100 ? 'blue' : 'default'))));
 const appHitTierLabel = appIsManager ? '管理员' : (appHitTotal >= 350 ? '大神' : (appHitTotal >= 280 ? '高手' : (appHitTotal >= 200 ? '进阶' : (appHitTotal >= 100 ? '入门' : '萌新'))));
 const appSubmissionStats = [
   ['Accepted', statistics['Accepted'] || 0, 'app-verdict-accepted'], ['Wrong Answer', statistics['Wrong Answer'] || 0, 'app-verdict-wrong'],

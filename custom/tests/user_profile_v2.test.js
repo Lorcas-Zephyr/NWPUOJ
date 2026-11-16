@@ -56,7 +56,7 @@ test('cheater name tags stay hidden across profiles and submission lists without
   const context = { syzoj };
   vm.runInNewContext(read('custom/modules/_username_renderer.js'), context);
   const template = read('custom/views/submissions.ejs');
-  vm.runInNewContext(template.slice(template.indexOf('function submissionUserTag('), template.indexOf('function submissionLink(')), context);
+  vm.runInNewContext(template.slice(template.indexOf('function submissionUserTier('), template.indexOf('function submissionLink(')), context);
   for (const options of [{}, { noLink: true }]) {
     const html = syzoj.utils.renderUsername({ id: 7, username: 'fixture-cheater' }, options);
     assert.match(html, /username-tier-cheater/);
@@ -215,4 +215,28 @@ test('registration identity accepts newly added colleges', () => {
   }
   assert.throws(() => context.validateIdentity({ student_id: '2026000001', real_name: '测试用户', college: '不存在的学院' }, true),
     error => error.registrationCode === 2013);
+});
+
+test('account colors stay identical across page-local admin adapters, submission lists and client maps', () => {
+  const syzoj = { utils: {}, adminUserIds: new Set([1]), cheaterUserIds: new Set([1, 7]),
+    userHitScores: new Map([[2, { total: 350 }], [3, { total: 280 }], [4, { total: 200 }],
+      [5, { total: 100 }], [6, { total: 0 }], [7, { total: 400 }], [8, { total: 99 }]]) };
+  const context = { syzoj };
+  vm.runInNewContext(read('custom/modules/_username_renderer.js'), context);
+  const template = read('custom/views/submissions.ejs');
+  vm.runInNewContext(template.slice(template.indexOf('function submissionUserTier('), template.indexOf('function submissionUserTag(')), context);
+  const header = read('custom/views/app_header.ejs');
+  const map = vm.runInNewContext(header.slice(header.indexOf('let appTierMap ='), header.indexOf('const appCheatedJudgeIds =')) + '\nappTierMap;', context);
+  const expected = ['admin', 'red', 'orange', 'green', 'blue', 'gray', 'cheater', 'gray', 'default'];
+  for (let id = 1; id <= expected.length; id++) {
+    const user = { id, username: 'fixture' + id, is_admin: id === 1 };
+    const adapter = Object.create(user); adapter.is_admin = true;
+    for (const candidate of [user, adapter, { ...adapter, id: String(id) }]) {
+      assert.equal(syzoj.utils.calcUserTier(candidate), expected[id - 1]);
+      assert.match(syzoj.utils.renderUsername(candidate, { noLink: true }), new RegExp('username-tier-' + expected[id - 1]));
+    }
+    assert.equal(context.submissionUserTier(id), expected[id - 1]);
+    assert.equal(map[id] || 'default', expected[id - 1]);
+    assert.equal(user.is_admin, id === 1, 'rendering never changes stored identity');
+  }
 });

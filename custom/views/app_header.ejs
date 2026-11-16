@@ -48,25 +48,12 @@ function appNavIcon(name, extraClass) {
   return '<svg class="app-static-icon app-static-icon-' + name + (extraClass ? ' ' + extraClass : '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + appNavIconMarkup[name] + '</svg>';
 }
 let appTierMap = {};
-if (syzoj.adminUserIds) {
-  for (const uid of syzoj.adminUserIds) appTierMap[uid] = 'admin';
-}
-if (syzoj.cheaterUserIds) {
-  for (const uid of syzoj.cheaterUserIds) {
-    if (appTierMap[uid] !== 'admin') appTierMap[uid] = 'cheater';
-  }
-}
-if (syzoj.userHitScores) {
-  for (const [uid, scoreData] of syzoj.userHitScores) {
-    if (appTierMap[uid]) continue;
-    const score = scoreData.total || 0;
-    if (score >= 350) appTierMap[uid] = 'red';
-    else if (score >= 280) appTierMap[uid] = 'orange';
-    else if (score >= 200) appTierMap[uid] = 'green';
-    else if (score >= 100) appTierMap[uid] = 'blue';
-    else appTierMap[uid] = 'gray';
-  }
-}
+const appTierUserIds = new Set([
+  ...(syzoj.adminUserIds || []),
+  ...(syzoj.cheaterUserIds || []),
+  ...(syzoj.userHitScores ? syzoj.userHitScores.keys() : [])
+]);
+for (const uid of appTierUserIds) appTierMap[uid] = syzoj.utils.calcUserTier({ id: uid });
 const appCheatedJudgeIds = [];
 const appCancelledJudgeIds = [];
 const appCheaterUserIds = [];

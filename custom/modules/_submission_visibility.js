@@ -92,6 +92,9 @@ const originalAllowedVisit = JudgeState.prototype.isAllowedVisitBy;
 if (!JudgeState.prototype.__nwpuAcceptedSourceAccess) {
   JudgeState.prototype.isAllowedVisitBy = async function isAllowedVisitByWithAcceptedSource(user) {
     if (syzoj.utils.baseWorkspace && !await syzoj.utils.baseWorkspace.canAccessSubmission(this, user)) return false;
+    // The legacy detail controller reads judge.problem immediately after this
+    // method; preserve the relationship-loading contract on scoped grants too.
+    await this.loadRelationships();
     if (await syzoj.utils.canReadJudgeDetails(user, this)) return true;
     if (await originalAllowedVisit.call(this, user)) return true;
     return !!(user && Number(this.type) === 0 &&
