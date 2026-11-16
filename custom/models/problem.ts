@@ -143,7 +143,7 @@ export default class Problem extends Model {
     if (!user) return false;
     if (user.is_admin || Number(user.id) === Number(syzoj.siteOwnerUserId || 0)) return true;
     if (await user.hasPrivilege('manage_problem')) return Number(this.user_id) === Number(user.id);
-    return false;
+    return Number(this.user_id) === Number(user.id);
   }
 
   getTestdataPath() {

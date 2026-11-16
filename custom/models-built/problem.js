@@ -166,7 +166,7 @@ var Problem = /** @class */ (function (_super) {
                     case 1:
                         if (_a.sent())
                             return [2 /*return*/, Number(this.user_id) === Number(user.id)];
-                        return [2 /*return*/, user.is_admin];
+                        return [2 /*return*/, Number(this.user_id) === Number(user.id)];
                 }
             });
         });

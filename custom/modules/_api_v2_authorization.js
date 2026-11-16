@@ -312,7 +312,7 @@ async function authorize(subject, capability, resource, context = {}) {
     if (workspaceDecision === true) return (await policyDecision(subject, capability, resource, context, scope)).effect !== 'deny';
   }
   const unrestricted = !!subject.is_admin || Number(subject.id) === Number(syzoj.siteOwnerUserId || 0);
-  const ownerAllowed = resourceOwnerAllows(subject, capability, resource);
+  const ownerAllowed = resourceOwnerAllows(subject, capability, resource, scope);
   const assignedAdministrator = !unrestricted && !ownerAllowed && await assignedContestAdministratorAllows(subject, capability, resource, scope);
   if (resource && RESOURCE_OWNER_RESTRICTED_CAPABILITIES.has(capability) && !unrestricted && !ownerAllowed && !assignedAdministrator) return false;
   const baseAllowed = ownerAllowed || assignedAdministrator ||

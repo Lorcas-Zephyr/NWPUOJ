@@ -62,7 +62,7 @@ test('legacy request-local editor elevation cannot grant base membership or mana
 test('workspace capabilities grant manage-own locally without granting global create or catalog administration', async () => {
   const { base } = serviceHarness();
   const owner = { id: 2 };
-  for (const capability of ['problem:edit', 'problem:publish', 'problem:archive', 'problem:testdata.write', 'problem:delete']) {
+  for (const capability of ['problem:edit', 'problem:publish', 'problem:archive', 'problem:testdata.write', 'problem:delete', 'judge:read', 'submission:rejudge']) {
     assert.equal(await base.authorize(owner, capability, {}, 'problem:11'), true);
     assert.equal(await base.authorize({ id: 3 }, capability, {}, 'problem:11'), false);
   }

@@ -48,11 +48,26 @@ setTimeout(refreshAdminActionCache, 1000);
 setInterval(refreshAdminActionCache, 60 * 1000);
 syzoj.utils.refreshJudgeAdminActionCache = refreshAdminActionCache;
 
+async function canAccessProblemSubmission(user, judge, capability) {
+  if (!user || !judge) return false;
+  if (syzoj.utils.baseWorkspace && !await syzoj.utils.baseWorkspace.canAccessSubmission(judge, user)) return false;
+  const problem = await syzoj.model('problem').findById(Number(judge.problem_id));
+  if (!problem) return false;
+  const scope = `problem:${problem.id}`;
+  return syzoj.utils.authorizationV2.authorize(user, capability, {
+    id: Number(problem.id), ownerId: Number(problem.user_id), scope
+  }, { scope });
+}
+
+syzoj.utils.canReadJudgeDetails = (user, judge) => canAccessProblemSubmission(user, judge, 'judge:read');
+
 async function canManageJudgeAction(user, judge) {
   if (!user || !judge) return false;
-  const scope = Number(judge.type) === 1 ? `contest:${judge.type_info}` : `problem:${judge.problem_id}`;
-  if (await syzoj.utils.authorizationV2.authorize(user, 'submission:rejudge', { scope }, { scope })) return true;
+  if (syzoj.utils.baseWorkspace && !await syzoj.utils.baseWorkspace.canAccessSubmission(judge, user)) return false;
+  if (await canAccessProblemSubmission(user, judge, 'submission:rejudge')) return true;
   if (Number(judge.type) !== 1) return false;
+  const scope = `contest:${judge.type_info}`;
+  if (await syzoj.utils.authorizationV2.authorize(user, 'submission:rejudge', { scope }, { scope })) return true;
   const contest = await Contest.findById(Number(judge.type_info));
   if (!contest || !await contest.isSupervisior(user)) return false;
   return syzoj.utils.authorizationV2.authorize(user, 'contest:edit', {

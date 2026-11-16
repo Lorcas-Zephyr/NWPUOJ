@@ -225,6 +225,8 @@ test('v2 serialization removes sealed verdict, usage and completion time; detail
     syzoj: { utils: {
       apiV2: { databaseIso: value => value },
       contestV2: { isSubmissionFrozen: async () => frozen },
+      canReadJudgeDetails: async () => true,
+      canManageJudgeAction: async () => false,
       authorizationV2: { authorize: async () => true }
     } }
   });

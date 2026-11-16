@@ -32,7 +32,8 @@ function fixture({ viewerId = 1, submitterId = viewerId, pending = false, type =
   vm.runInNewContext(read('libs-built/submissions_process.js'), processor);
   const processResults = processor.module.exports;
   const routes = new Map();
-  const utils = { makeUrl: parts => '/' + parts.join('/'), canViewSubmissionDetail: async () => true };
+  const utils = { makeUrl: parts => '/' + parts.join('/'), canViewSubmissionDetail: async () => true,
+    canManageJudgeAction: async user => !!user && [1, 2, 10, 11].includes(user.id) };
   const dependencies = {
     jsonwebtoken: { sign: JSON.stringify },
     '../libs/submissions_process': processResults, '../libs/judger': cache,
@@ -82,11 +83,11 @@ function fixture({ viewerId = 1, submitterId = viewerId, pending = false, type =
 }
 
 test('site admins and relevant contest managers see all testpoints in their own contest submissions', async () => {
-  for (const viewerId of [1, 2, 10]) {
+  for (const viewerId of [1, 2, 10, 11]) {
     const f = fixture({ viewerId });
     const { values, originalConfig } = await f.render();
     assert.equal(values.displayConfig.inContest, true);
-    assert.equal(values.displayConfig.showRejudge, false, 'display fix does not grant rejudge permissions');
+    assert.equal(values.displayConfig.showRejudge, true, 'rejudge uses the same scoped permission as the API');
     for (const flag of ['showScore', 'showUsage', 'showCode', 'showResult', 'showTestdata', 'showDetailResult', 'showDiagnostics']) assert.equal(values.displayConfig[flag], true, flag);
     const cases = values.detailResult.judge.subtasks[0].cases;
     assert.equal(cases.length, 20);

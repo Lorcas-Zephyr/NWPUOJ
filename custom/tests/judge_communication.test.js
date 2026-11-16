@@ -223,7 +223,8 @@ test('raw and historical API communication results hide intermediate data from c
   const text = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_submission_domain.js'), 'utf8');
   let ended = false, details = true;
   const contest = { isSupervisior: async user => user.id === 2, isEnded: () => ended, allowedSeeingTestcase: () => details };
-  const context = { Contest: { findById: async () => contest }, require: () => processor };
+  const context = { Contest: { findById: async () => contest }, require: () => processor,
+    syzoj: { utils: { canManageJudgeAction: async user => user.id === 4 } } };
   vm.runInNewContext(text.slice(text.indexOf('async function visibleCommunicationResult('), text.indexOf('function validLanguage(')), context);
   const judge = { type: 1, type_info: 21, user_id: 7 };
   const result = { judge: { subtasks: [{ cases: [{ status: 2, result: { type: 1, time: 1, memory: 2,
@@ -244,7 +245,7 @@ test('raw and historical API communication results hide intermediate data from c
   const after = await context.visibleCommunicationResult(judge, { id: 7 }, result);
   assert.equal(after.judge.subtasks[0].cases[0].result.time, 1);
   assert.equal(after.judge.subtasks[0].cases[0].result.communication, undefined);
-  for (const user of [{ id: 2 }, { id: 1, is_admin: true }]) assert.equal(await context.visibleCommunicationResult(judge, user, result), result);
+  for (const user of [{ id: 2 }, { id: 4 }, { id: 1, is_admin: true }]) assert.equal(await context.visibleCommunicationResult(judge, user, result), result);
   assert.equal(await context.visibleCommunicationResult({ type: 0 }, { id: 7 }, result), result);
   assert.ok(result.judge.subtasks[0].cases[0].result.communication, 'filtering must not mutate durable results');
   for (const route of ['/api/v2/submissions/:id', '/api/v2/submissions/:id/testpoints', '/api/v2/submissions/:id/result-revisions']) {

@@ -302,15 +302,15 @@ async function canViewSubmission(judge, user) {
   if (!judge || !user) return false;
   if (syzoj.utils.baseWorkspace && !await syzoj.utils.baseWorkspace.canAccessSubmission(judge, user)) return false;
   if (Number(judge.user_id) === Number(user.id)) return true;
-  if (await syzoj.utils.contestV2.isSubmissionFrozen(judge, user)) return false;
-  if (await syzoj.utils.authorizationV2.authorize(user, 'judge:read', null, {})) return true;
+  if (await syzoj.utils.contestV2.isSubmissionFrozen(judge, user) && !await syzoj.utils.canManageJudgeAction(user, judge)) return false;
+  if (await syzoj.utils.canReadJudgeDetails(user, judge)) return true;
   return !!(judge.is_public && judge.type === 0);
 }
 
 async function canViewSubmissionDiagnostics(judge, user) {
   if (!judge || !user) return false;
   if (Number(judge.user_id) === Number(user.id)) return true;
-  return syzoj.utils.authorizationV2.authorize(user, 'judge:read', null, {});
+  return syzoj.utils.canReadJudgeDetails(user, judge);
 }
 
 async function visibleCommunicationResult(judge, user, result) {
@@ -318,11 +318,11 @@ async function visibleCommunicationResult(judge, user, result) {
     result.judge.subtasks.some(subtask => (subtask.cases || []).some(testcase => testcase.result && testcase.result.communication));
   if (!hasCommunication || Number(judge.type) !== 1) return result;
   const contest = await Contest.findById(judge.type_info);
-  const supervisor = user && (user.is_admin || contest && await contest.isSupervisior(user));
+  const supervisor = user && (user.is_admin || contest && await contest.isSupervisior(user) || await syzoj.utils.canManageJudgeAction(user, judge));
   if (supervisor) return result;
   const ended = contest && contest.isEnded();
   // Apply the same disclosure as the rendered contest submission. In particular,
-  // ownership and global judge:read do not disclose private intermediate input.
+  // submission authorship alone does not disclose private intermediate input.
   return require('../libs/submissions_process').processOverallResult(result, {
     showDetailResult: !!(contest && (ended || contest.allowedSeeingTestcase())),
     showUsage: !!ended, showTestdata: false, showDiagnostics: false
@@ -847,7 +847,7 @@ app.get('/api/v2/submissions/:id', async (req, res) => {
   );
   if (!rows.length) return api.fail(res, 409, 'SUBMISSION_PROJECTION_MISSING', 'Submission projection is not ready.');
   const row = rows[0];
-  const canReadAll = await syzoj.utils.authorizationV2.authorize(res.locals.user, 'judge:read', null, {});
+  const canReadAll = await syzoj.utils.canReadJudgeDetails(res.locals.user, judge);
   const visibleResult = await visibleCommunicationResult(judge, res.locals.user, judge.result);
   return api.send(res, Object.assign(publicSubmission(row, res.locals.user.id, { includeCode: true, canReadAll }), { result: Number(res.locals.user.id) === Number(judge.user_id) || canReadAll ? visibleResult : null, compilation: Number(res.locals.user.id) === Number(judge.user_id) || canReadAll ? judge.compilation : null }));
 });
@@ -865,8 +865,8 @@ app.get('/api/v2/submissions/:id/result-revisions', async (req, res) => {
   if (!user) return api.fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.');
   const judge = await JudgeState.findById(Number(req.params.id));
   if (!judge) return api.fail(res, 404, 'SUBMISSION_NOT_FOUND', 'Submission was not found.');
-  if (await syzoj.utils.contestV2.isSubmissionFrozen(judge, user)) return api.fail(res, 403, 'SUBMISSION_FORBIDDEN', '封榜期间不能查看其他用户的评测结果。');
-  const canReadAll = await syzoj.utils.authorizationV2.authorize(user, 'judge:read', null, {});
+  if (!await canViewSubmission(judge, user)) return api.fail(res, 403, 'SUBMISSION_FORBIDDEN', 'You cannot view this submission.');
+  const canReadAll = await syzoj.utils.canReadJudgeDetails(user, judge);
   if (Number(judge.user_id) !== Number(user.id) && !canReadAll) return api.fail(res, 403, 'SUBMISSION_FORBIDDEN', 'You cannot view historical results for this submission.');
   await ensureSubmissionSchema(); const limit = api.parseLimit(req, 30, 100); const cursor = Number(api.decodeCursor(req.query.cursor) || 0);
   const rows = await TypeORM.getConnection().query(`SELECT id,legacy_status,pending,score,total_time,max_memory,result_json,compilation_text,created_by,reason,created_at
@@ -895,7 +895,8 @@ app.post('/api/v2/submissions/:id/cancel', async (req, res) => {
   if (!res.locals.user) return api.fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.');
   const judge = await JudgeState.findById(Number(req.params.id));
   if (!judge) return api.fail(res, 404, 'SUBMISSION_NOT_FOUND', 'Submission was not found.');
-  const canManage = await syzoj.utils.authorizationV2.authorize(res.locals.user, 'submission:rejudge', null, {});
+  if (syzoj.utils.baseWorkspace && !await syzoj.utils.baseWorkspace.canAccessSubmission(judge, res.locals.user)) return api.fail(res, 403, 'SUBMISSION_FORBIDDEN', 'You cannot cancel this submission.');
+  const canManage = await syzoj.utils.canManageJudgeAction(res.locals.user, judge);
   if (Number(judge.user_id) !== Number(res.locals.user.id) && !canManage) return api.fail(res, 403, 'SUBMISSION_FORBIDDEN', 'You cannot cancel this submission.');
   if (!judge.pending && ['Accepted', 'Wrong Answer', 'Compile Error', 'Runtime Error', 'Time Limit Exceeded', 'Memory Limit Exceeded', 'Invalid Interaction', 'Presentation Error'].includes(judge.status)) return api.fail(res, 409, 'SUBMISSION_TERMINAL', 'The submission has already finished.');
   await ensureSubmissionSchema();
@@ -1015,11 +1016,11 @@ app.post('/api/v2/submissions/:id/rejudge', async (req, res) => {
   const api = syzoj.utils.apiV2;
   if (!res.locals.user) return api.fail(res, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.');
   const reason = syzoj.utils.operationReason(req, '重新评测提交');
-  const allowed = await syzoj.utils.authorizationV2.authorize(res.locals.user, 'submission:rejudge', null, {});
-  if (!allowed) return api.fail(res, 403, 'CAPABILITY_REQUIRED', 'Capability required: submission:rejudge.');
-  if (!syzoj.utils.authorizationV2.recentLoginSatisfied(req)) return api.fail(res, 403, 'RECENT_LOGIN_REQUIRED', 'Please sign in again or complete MFA before rejudging a submission.');
   const judge = await JudgeState.findById(Number(req.params.id));
   if (!judge) return api.fail(res, 404, 'SUBMISSION_NOT_FOUND', 'Submission was not found.');
+  const allowed = await syzoj.utils.canManageJudgeAction(res.locals.user, judge);
+  if (!allowed) return api.fail(res, 403, 'CAPABILITY_REQUIRED', 'Capability required: submission:rejudge.');
+  if (!syzoj.utils.authorizationV2.recentLoginSatisfied(req)) return api.fail(res, 403, 'RECENT_LOGIN_REQUIRED', 'Please sign in again or complete MFA before rejudging a submission.');
   await ensureSubmissionSchema();
   const jobId = crypto.randomUUID();
   const queued = await TypeORM.getConnection().transaction(async manager => {

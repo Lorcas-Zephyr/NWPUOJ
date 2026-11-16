@@ -152,6 +152,12 @@ const originalProblemEdit = Problem.prototype.isAllowedEditBy;
 Problem.prototype.isAllowedEditBy = async function isAllowedEditBy(user) {
   if (syzoj.utils.baseWorkspace && await syzoj.utils.baseWorkspace.contains('problem', this.id)) return syzoj.utils.baseWorkspace.canManage('problem', this, user);
   if (!user) return false;
+  if (syzoj.utils.authorizationV2) {
+    const scope = `problem:${this.id}`;
+    return syzoj.utils.authorizationV2.authorize(user, 'problem:edit', {
+      id: Number(this.id), ownerId: Number(this.user_id), scope
+    }, { scope });
+  }
   if (user.is_admin || Number(user.id) === Number(syzoj.siteOwnerUserId || 0)) return true;
   if (await user.hasPrivilege('manage_problem')) return Number(this.user_id) === Number(user.id);
   return originalProblemEdit.call(this, user);
@@ -169,6 +175,12 @@ const originalProblemManage = Problem.prototype.isAllowedManageBy;
 Problem.prototype.isAllowedManageBy = async function isAllowedManageBy(user) {
   if (syzoj.utils.baseWorkspace && await syzoj.utils.baseWorkspace.contains('problem', this.id)) return syzoj.utils.baseWorkspace.canManage('problem', this, user);
   if (!user) return false;
+  if (syzoj.utils.authorizationV2) {
+    const scope = `problem:${this.id}`;
+    return syzoj.utils.authorizationV2.authorize(user, 'problem:edit', {
+      id: Number(this.id), ownerId: Number(this.user_id), scope
+    }, { scope });
+  }
   if (user.is_admin || Number(user.id) === Number(syzoj.siteOwnerUserId || 0)) return true;
   if (await user.hasPrivilege('manage_problem')) return Number(this.user_id) === Number(user.id);
   return originalProblemManage.call(this, user);

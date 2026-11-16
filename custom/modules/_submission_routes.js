@@ -455,10 +455,11 @@ app.get(['/submission/:id', '/contest/submission/:id'], async (req, res, next) =
     const id = parseProblemId(req.params.id);
     const judge = id && await JudgeState.findById(id);
     let latestContestTitle = null;
-    let managerDisplayConfig = null;
+    const canManage = !!(judge && await syzoj.utils.canManageJudgeAction(res.locals.user, judge));
+    let managerDisplayConfig = canManage ? practiceDisplayConfig() : null;
     if (judge && Number(judge.type) === 1) {
       const contest = await Contest.findById(Number(judge.type_info));
-      if (contest && await isContestSupervisor(contest, res.locals.user)) {
+      if (!managerDisplayConfig && contest && await isContestSupervisor(contest, res.locals.user)) {
         managerDisplayConfig = await contestDisplayConfig(contest, res.locals.user);
       }
       const rows = await TypeORM.getConnection().query(
@@ -478,12 +479,12 @@ app.get(['/submission/:id', '/contest/submission/:id'], async (req, res, next) =
         // stored result with the same manager policy as the contest list.
         if (managerDisplayConfig) {
           options.displayConfig = Object.assign({}, options.displayConfig, managerDisplayConfig, {
-            inContest: options.displayConfig.inContest,
-            showRejudge: options.displayConfig.showRejudge
+            inContest: options.displayConfig.inContest
           });
           options.roughResult = submissionsProcess.getRoughResult(judge, options.displayConfig, false);
           options.detailResult = submissionsProcess.processOverallResult(judge.result, options.displayConfig);
         }
+        options.displayConfig = Object.assign({}, options.displayConfig, { showRejudge: canManage });
         options.socketToken = null;
         options.submissionPending = !!(judge && judge.pending);
         options.submissionStatusToken = makeSubmissionStatusToken(
@@ -606,9 +607,11 @@ async function getListStatuses(payloads, user) {
         (!judge.is_public || activeContestProblemIds.has(Number(judge.problem_id)))) continue;
       currentDisplayConfig = practiceDisplayConfig();
     }
+    const detailManager = payload.view === 'detail' && await syzoj.utils.canManageJudgeAction(user, judge);
+    if (detailManager) currentDisplayConfig = practiceDisplayConfig();
     currentDisplayConfig.showProgress = !!(currentDisplayConfig.showDetailResult ||
       user && Number(judge.user_id) === Number(user.id));
-    const frozen = contestId && await syzoj.utils.contestV2.isSubmissionFrozen(judge, user, freezeViews);
+    const frozen = contestId && !detailManager && await syzoj.utils.contestV2.isSubmissionFrozen(judge, user, freezeViews);
     statuses.push({
       submissionId: Number(judge.id),
       taskId: judge.task_id,

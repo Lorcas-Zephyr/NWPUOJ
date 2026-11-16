@@ -70,7 +70,7 @@ async function canAccessSubmission(judge, user) {
   if (!await contains('problem', judge.problem_id)) return true;
   return canReadProblem(await syzoj.model('problem').findById(Number(judge.problem_id)), user);
 }
-const PROBLEM_ACTIONS = new Set(['problem:read', 'problem:edit', 'problem:delete', 'problem:publish', 'problem:archive', 'problem:testdata.write', 'problem:tag.assign']);
+const PROBLEM_ACTIONS = new Set(['problem:read', 'problem:edit', 'problem:delete', 'problem:publish', 'problem:archive', 'problem:testdata.write', 'problem:tag.assign', 'judge:read', 'submission:rejudge']);
 const CONTEST_ACTIONS = new Set(['contest:read', 'contest:edit', 'contest:delete', 'contest:publish', 'contest:start', 'contest:end', 'contest:freeze', 'contest:registration.manage', 'contest:standings.rebuild', 'contest:standings.export', 'contest:register', 'contest:submit']);
 async function authorize(user, capability, resource, scope) {
   const match = /^(problem|contest):(\d+)$/.exec(String(scope || resource && resource.scope || ''));

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-13T13:49:44.711Z",
+  "generated_at": "2026-11-16T11:58:35.884Z",
   "frontend_page_routes": [
     {
       "method": "GET",
@@ -557,49 +557,49 @@
       "method": "GET",
       "route": "/submission/:id",
       "source": "custom/modules/_submission_visibility.js",
-      "line": 124
+      "line": 126
     },
     {
       "method": "GET",
       "route": "/contest/submission/:id",
       "source": "custom/modules/_submission_visibility.js",
-      "line": 125
+      "line": 127
     },
     {
       "method": "GET",
       "route": "/problem/:id/submissions",
       "source": "custom/modules/_user_privilege_loader.js",
-      "line": 196
+      "line": 208
     },
     {
       "method": "GET",
       "route": "/contest/:id/problem/:pid/submissions",
       "source": "custom/modules/_user_privilege_loader.js",
-      "line": 209
+      "line": 221
     },
     {
       "method": "GET",
       "route": "/user/:id",
       "source": "custom/modules/_user_privilege_loader.js",
-      "line": 468
+      "line": 480
     },
     {
       "method": "GET",
       "route": "/user/:id/edit",
       "source": "custom/modules/_user_privilege_loader.js",
-      "line": 493
+      "line": 505
     },
     {
       "method": "GET",
       "route": "/problem/:id/submit",
       "source": "custom/modules/_user_privilege_loader.js",
-      "line": 506
+      "line": 518
     },
     {
       "method": "GET",
       "route": "/contest/:id/problem/:pid/submit",
       "source": "custom/modules/_user_privilege_loader.js",
-      "line": 540
+      "line": 552
     },
     {
       "method": "GET",

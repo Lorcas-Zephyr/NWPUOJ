@@ -123,11 +123,18 @@ function scopeMatches(grantedType, grantedId, requestedScope) {
   return grantedType === requested.type && String(grantedId || '') === String(requested.id || '');
 }
 
-function resourceOwnerAllows(subject, capability, resource) {
+function resourceOwnerAllows(subject, capability, resource, scope = resource && resource.scope) {
+  const requested = normalizeScope(scope);
+  const resourceScope = normalizeScope(resource && resource.scope);
+  // A problem uploader manages its submissions; a submission's author does not.
+  const problemSubmission = ['judge:read', 'submission:rejudge'].includes(capability) &&
+    requested.type === 'problem' && resourceScope.type === 'problem' &&
+    Number.isSafeInteger(Number(requested.id)) && Number(requested.id) > 0 &&
+    Number(resourceScope.id) === Number(requested.id) && Number(resource.id) === Number(requested.id);
   return !!(
     subject && resource &&
     Number(resource.ownerId) === Number(subject.id) &&
-    (RESOURCE_OWNER_CAPABILITIES.has(capability) || RESOURCE_OWNER_RESTRICTED_CAPABILITIES.has(capability))
+    (RESOURCE_OWNER_CAPABILITIES.has(capability) || RESOURCE_OWNER_RESTRICTED_CAPABILITIES.has(capability) || problemSubmission)
   );
 }
 
