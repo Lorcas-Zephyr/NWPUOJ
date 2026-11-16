@@ -40,8 +40,7 @@ function problemGroup(displayId) {
   if (value.startsWith('U')) return 'U';
   return '#';
 }
-const visibleProblems = problems.filter(problem => problem.is_public || problem.allowedEdit);
-const problemGroupCounts = visibleProblems.reduce((counts, problem) => {
+const problemGroupCounts = problems.reduce((counts, problem) => {
   const group = problemGroup(problem.getDisplayId());
   counts[group] = (counts[group] || 0) + 1;
   return counts;
@@ -146,7 +145,7 @@ function judgeStateClass(state) {
     </form>
   </section>
 
-  <% if (visibleProblems.length) { %>
+  <% if (problems.length) { %>
     <% if (canBulkActions) { %>
       <form method="post" id="problem-bulk-delete-form" data-select-group data-problem-bulk-v2>
         <input type="hidden" name="repository" value="<%= currentRepository %>">
@@ -183,7 +182,7 @@ function judgeStateClass(state) {
         </thead>
         <tbody>
           <% let previousProblemGroup = null; %>
-          <% for (const problem of problems) { if (!(problem.is_public || problem.allowedEdit)) continue; const currentProblemGroup = problemGroup(problem.getDisplayId()); %>
+          <% for (const problem of problems) { const currentProblemGroup = problemGroup(problem.getDisplayId()); %>
             <% if (currentProblemGroup !== previousProblemGroup) { previousProblemGroup = currentProblemGroup; %>
               <tr class="app-table-group"><td colspan="<%= problemColumnCount %>"><%= currentProblemGroup %><span><%= problemGroupCounts[currentProblemGroup] %> 题</span></td></tr>
             <% } %>

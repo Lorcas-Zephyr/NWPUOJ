@@ -35,32 +35,47 @@ function applyProgress(query, progress, user) {
 }
 
 async function applyVisibility(query, user) {
+  const alias = '`' + String(query.alias || 'problem').replace(/`/g, '') + '`';
   await syzoj.utils.baseWorkspace.ensureSchema();
-  query.andWhere(syzoj.utils.baseWorkspace.outside('problem', '`' + String(query.alias || 'problem').replace(/`/g, '') + '`.id'));
+  query.andWhere(syzoj.utils.baseWorkspace.outside('problem', alias + '.id'));
   query.andWhere(`NOT EXISTS (
     SELECT 1 FROM problem_v2_state archived_problem
     WHERE archived_problem.problem_id = \`${String(query.alias || 'problem').replace(/`/g, '')}\`.id
       AND archived_problem.lifecycle_status = 'archived'
   )`);
   const authorization = syzoj.utils.authorizationV2;
-  const canReadAll = !!(user && await authorization.authorize(user, 'problem:read', null, { scope: 'global' }));
-  if (user && !canReadAll) {
-    const scopedProblemIds = await authorization.authorizedScopeIds(user, 'problem', 'problem:read');
+  // Generic problem:read is also granted to ordinary members. Private entries
+  // require the same resource-level edit permission as problem management.
+  const unrestricted = !!(user && (user.is_admin || Number(user.id) === Number(syzoj.siteOwnerUserId || 0)));
+  if (user && !unrestricted) {
     query.andWhere(new TypeORM.Brackets(qb => {
-      qb.where('is_public = 1').orWhere('user_id = :viewerId', { viewerId: user.id });
-      if (scopedProblemIds.length) qb.orWhere('id IN (:...scopedProblemIds)', { scopedProblemIds });
+      qb.where(`${alias}.is_public = 1`).orWhere(`${alias}.user_id = :viewerId`, { viewerId: user.id });
     }));
   } else if (!user) {
-    query.andWhere('is_public = 1');
+    query.andWhere(`${alias}.is_public = 1`);
   }
-  if (canReadAll) return;
-  const alias = '`' + String(query.alias || 'problem').replace(/`/g, '') + '`';
-  query.andWhere(`NOT EXISTS (
-    SELECT 1 FROM contest active_contest
-    WHERE active_contest.end_time > UNIX_TIMESTAMP()
-      AND CONCAT('|',COALESCE(active_contest.problems,''),'|')
-        LIKE CONCAT('%|',${alias}.id,'|%')
-  )`);
+  if (!unrestricted) {
+    query.andWhere(`NOT EXISTS (
+      SELECT 1 FROM contest active_contest
+      WHERE active_contest.end_time > UNIX_TIMESTAMP()
+        AND CONCAT('|',COALESCE(active_contest.problems,''),'|')
+          LIKE CONCAT('%|',${alias}.id,'|%')
+    )`);
+  }
+  if (!user) return;
+  // Apply explicit permission denies before both COUNT and LIMIT/OFFSET.
+  // Only inspect private candidates; public rows need no per-item checks.
+  const privateProblems = await query.clone()
+    .select(`${alias}.id`, 'id').addSelect(`${alias}.user_id`, 'user_id')
+    .andWhere(`${alias}.is_public = 0`).getRawMany();
+  const deniedProblemIds = [];
+  for (const problem of privateProblems) {
+    const resource = { id: problem.id, ownerId: problem.user_id, scope: `problem:${problem.id}` };
+    if (!await authorization.authorize(user, 'problem:edit', resource, { scope: resource.scope })) {
+      deniedProblemIds.push(problem.id);
+    }
+  }
+  if (deniedProblemIds.length) query.andWhere(`${alias}.id NOT IN (:...deniedProblemIds)`, { deniedProblemIds });
 }
 
 function orderExpression(sort, repository) {
@@ -122,6 +137,7 @@ function applyKeyword(query, repository, keyword) {
 
 async function renderProblems(req, res, query, repository, sortConfig, extra, priorityOrder) {
   const Problem = syzoj.model('problem');
+  await applyVisibility(query, res.locals.user);
   if (priorityOrder) {
     query.orderBy(priorityOrder, 'ASC');
     query.addOrderBy(orderExpression(sortConfig.sort, repository), sortConfig.order.toUpperCase());
@@ -196,7 +212,6 @@ module.exports = function registerProblemRepositories() {
       const sortConfig = validateSort(req, true);
       const query = Problem.createQueryBuilder();
       applyRepository(query, repository);
-      await applyVisibility(query, res.locals.user);
       applyProgress(query, progress, res.locals.user);
       const keyword = String(req.query.keyword || '').trim();
       const priorityOrder = applyKeyword(query, repository, keyword);
@@ -215,7 +230,6 @@ module.exports = function registerProblemRepositories() {
       const keyword = String(req.query.keyword || '').trim();
       const query = Problem.createQueryBuilder();
       applyRepository(query, repository);
-      await applyVisibility(query, res.locals.user);
       applyProgress(query, progress, res.locals.user);
       const priorityOrder = applyKeyword(query, repository, keyword);
       await renderProblems(req, res, query, repository, sortConfig, null, priorityOrder);
@@ -244,7 +258,6 @@ module.exports = function registerProblemRepositories() {
 
       const query = Problem.createQueryBuilder();
       applyRepository(query, repository);
-      await applyVisibility(query, res.locals.user);
       applyProgress(query, progress, res.locals.user);
       const keyword = String(req.query.keyword || '').trim();
       const priorityOrder = applyKeyword(query, repository, keyword);
