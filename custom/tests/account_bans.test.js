@@ -40,6 +40,11 @@ test('invalid duration, ambiguous expiry, malformed IP and oversized reasons nev
     { type: 'ip', permanent: false, expires_at: '2099-01-01T00:00' },
     { type: 'ip', permanent: true, ip: '127.0.0.1/8' },
     { type: 'ip', permanent: true, ip: 'localhost' },
+    { type: 'ip', permanent: true, ips: [] },
+    { type: 'ip', permanent: true, ips: '192.0.2.1' },
+    { type: 'ip', permanent: true, ips: ['192.0.2.1', 'invalid'] },
+    { type: 'ip', permanent: true, ips: ['192.0.2.1', null] },
+    { type: 'ip', permanent: true, ips: Array(201).fill('192.0.2.1') },
     { type: 'ip', permanent: true, ip: '1.2.3.4', reason: 'x'.repeat(1001) }
   ]) assert.equal((await h.request(body)).code, 'VALIDATION_FAILED', JSON.stringify(body));
 });

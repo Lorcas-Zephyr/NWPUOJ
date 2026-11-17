@@ -19,13 +19,13 @@ test('ban lifecycle, transactions, login IP selection and irreversible session r
     const pattern = new RegExp('\\b(' + tables.join('|') + ')\\b','g');
     const wrap = db => ({ query: (sql,args) => db.query(sql.replace(pattern,name=>prefix+name),args), transaction: fn => conn.transaction(m=>fn(wrap(m))) });
     const db = wrap(conn), routes = {}, revoked = [];
-    let rejectAudit = false;
+    let rejectAudit = false, auditCalls = 0, rejectAuditAt = 0;
     const normalize = require('/app/libs/login-ip').normalizeIp;
     const utils = {
       apiV2: { send: (res,data,status=200)=>Object.assign(res,{status,data}), fail: (res,status,code,message)=>Object.assign(res,{status,code,message}) },
       authorizationV2: { authorize: async ()=>true, recentLoginSatisfied: ()=>true, recordAudit: async (_req,event,manager)=>{
         await manager.query('INSERT INTO audit_fixture(action) VALUES(?)',[event.action]);
-        if (rejectAudit) throw new Error('audit rejected');
+        if (rejectAudit || ++auditCalls === rejectAuditAt) throw new Error('audit rejected');
         return 1;
       } },
       normalizeBanIp: normalize,
@@ -105,6 +105,30 @@ test('ban lifecycle, transactions, login IP selection and irreversible session r
       assert.equal((await guard(2,'192.0.2.1','192.0.2.1',Date.now()+1)).res.allowed,true);
       assert.deepEqual(revoked.at(-1),['ip','192.0.2.1']);
       assert.equal((await call('get','/api/v2/admin/bans',{}, {},admin,{status:'all',q:'alice'})).data.total,3);
+      await db.query("INSERT INTO auth_audit_event(action,resource_type,resource_id,ip_address,created_at) VALUES('auth:login','user','1','2001:db8::1',UTC_TIMESTAMP(3))");
+      const count=async table=>Number((await db.query('SELECT COUNT(*) n FROM '+table))[0].n);
+      const before={bans:await count('account_ban'),audits:await count('audit_fixture'),sessions:revoked.length};
+      const batch={type:'ip',permanent:true,user_id:1,ips:['192.0.2.1','2001:db8::1','::ffff:192.0.2.1']};
+      assert.equal((await create({...batch,ips:['192.0.2.1','192.0.2.50']})).status,422,'every profile IP must belong to the account');
+      assert.equal(await count('account_ban'),before.bans,'invalid batch writes nothing');
+      rejectAuditAt=auditCalls+2;
+      assert.equal((await create(batch)).status,503,'failure on second IP rejects the entire batch');
+      assert.equal(await count('account_ban'),before.bans);
+      assert.equal(await count('audit_fixture'),before.audits,'all audits roll back with the batch');
+      assert.equal(revoked.length,before.sessions,'failed batch does not revoke sessions');
+      rejectAuditAt=0;
+      const batchResult=await create(batch);
+      assert.equal(batchResult.status,201); assert.equal(batchResult.data.total,2,'aliases are deduplicated');
+      assert.deepEqual(Array.from(batchResult.data.items,x=>x.ip),['192.0.2.1','2001:db8::1']);
+      assert.equal(await count('audit_fixture'),before.audits+2);
+      assert.deepEqual(revoked.slice(-2),[['ip','192.0.2.1'],['ip','2001:db8::1']]);
+      for(const ip of ['192.0.2.1','2001:db8::1']) {
+        assert.equal((await guard(2,ip,ip)).res.code,'IP_BANNED','each selected IP blocks existing sessions');
+      }
+      assert.equal((await guard(2,'192.0.2.50','192.0.2.50',Date.now()+1)).res.allowed,true);
+      await lift(batchResult.data.items[0].id);
+      assert.equal(await utils.findActiveIpBan('192.0.2.1'),null);
+      assert.ok(await utils.findActiveIpBan('2001:db8::1'),'each IP can be lifted independently');
       console.log('account/IP bans, aliases, expiry, audit rollback, protected accounts, session revocation: passed');
     } finally {
       for(const name of tables) await conn.query('DROP TABLE IF EXISTS '+prefix+name);

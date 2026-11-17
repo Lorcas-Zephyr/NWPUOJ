@@ -19,9 +19,9 @@ function render(view, locals) {
   const code = `const fs=require('fs'),ejs=require('ejs'),vm=require('vm');
     const input=JSON.parse(fs.readFileSync(0,'utf8'));
     const syzoj={utils:{makeUrl:parts=>'/'+parts.join('/'),avatar:()=>'',formatDate:()=> '2026-11-16',getCurrentDate:()=>10},
-      siteOwnerUserId:12,adminUserIds:new Set([8]),cheaterUserIds:new Set([9]),userRatings:new Map([[7,1600],[8,1900],[10,3000]])};
+      config:{title:'NWPUOJ'},siteOwnerUserId:12,adminUserIds:new Set([8]),cheaterUserIds:new Set([9]),userRatings:new Map([[7,1600],[8,1900],[10,3000]])};
     vm.runInNewContext(input.renderer,{syzoj});
-    process.stdout.write(ejs.render(input.template,{...input.locals,syzoj}));`;
+    process.stdout.write(ejs.render(input.template,{selfLib:name=>'/self/'+name,serializejs:JSON.stringify,...input.locals,syzoj}));`;
   const result = spawnSync('docker', ['compose', 'exec', '-T', 'web', 'node', '-e', code], {
     cwd: path.join(root, '..'), input: JSON.stringify({ template, locals, renderer: read('modules/_username_renderer.js') }), encoding: 'utf8'
   });
@@ -128,4 +128,33 @@ test('owner name stays a readable gradient across light, dark and forced colors'
     assert.notEqual(await name.evaluate(el => getComputedStyle(el).webkitTextFillColor), 'rgba(0, 0, 0, 0)');
     await name.click(); assert.equal(new URL(f.page.url()).pathname, '/user/12');
   } finally { await f.context.close(); }
+});
+
+test('profile navigation icons remain visible for owners and legendary users without recoloring menu labels', async () => {
+  for (const id of [12,10]) {
+    const header = render('app_header', {user:{id,username:'fixture-user'},req:{path:'/',query:{}},title:'首页'});
+    const account = header.match(/<details class="app-account">[\s\S]*?<\/details>/)[0];
+    const command = header.match(/<dialog class="app-dialog app-command-dialog"[\s\S]*?<\/dialog>/)[0];
+    const mobile = header.match(/<nav class="app-mobile-nav[\s\S]*?<\/nav>/)[0];
+    const f = await fixture(account + command + mobile);
+    try {
+      await f.page.locator('.app-account > summary').click({position:{x:4,y:4}});
+      const link = f.page.locator('.app-account-menu > a').filter({hasText:'个人主页'});
+      assert.equal(await link.getAttribute('href'),'/user/'+id);
+      for(const theme of ['light','dark']) {
+        await f.page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);
+        assert.doesNotMatch(await link.getAttribute('class') || '', /username-tier-/);
+        const icon = link.locator('svg');
+        assert.ok(await icon.isVisible());
+        assert.notEqual(await icon.evaluate(el=>getComputedStyle(el).stroke),'rgba(0, 0, 0, 0)');
+        assert.equal(await link.evaluate(el=>getComputedStyle(el).display),'flex');
+      }
+      assert.match(await f.page.locator('.app-account-name a').getAttribute('class'),new RegExp('username-tier-'+tiers[id]));
+      for(const selector of ['[data-command-item][href="/user/'+id+'"]','.app-mobile-nav > a[href="/user/'+id+'"]']) {
+        assert.doesNotMatch(await f.page.locator(selector).getAttribute('class') || '',/username-tier-/);
+      }
+      await link.click(); assert.equal(new URL(f.page.url()).pathname,'/user/'+id);
+      assert.deepEqual(f.failures,[]);
+    } finally {await f.context.close();}
+  }
 });

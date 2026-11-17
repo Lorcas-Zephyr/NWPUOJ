@@ -1,7 +1,7 @@
 <% this.adminPage = 'bans'; %>
 <% include admin_header %>
-<div class="app-admin-toolbar">
-  <form class="app-admin-search" method="get" action="/admin/bans" role="search">
+<div class="app-admin-toolbar app-ban-toolbar">
+  <form class="app-admin-search app-ban-search" method="get" action="/admin/bans" role="search">
     <input class="app-input" type="search" name="q" value="<%= keyword %>" placeholder="用户名、UID 或 IP" aria-label="搜索封禁">
     <select class="app-select" name="status" aria-label="封禁状态"><option value="active">生效中</option><option value="all"<%= showAll ? ' selected' : '' %>>全部记录</option></select>
     <button class="app-button app-button-secondary" type="submit">搜索</button>

@@ -777,6 +777,8 @@
     names.forEach(function (link) {
       var userId = link.getAttribute('data-username-id');
       if (!userId) {
+        // Profile navigation labels and icons are not displayed usernames.
+        if (link.matches('.app-account-menu > a, [data-command-item], .app-mobile-nav > a, .app-icon-button')) return;
         try {
           var url = new URL(link.href, window.location.href);
           if (url.origin !== window.location.origin) return;

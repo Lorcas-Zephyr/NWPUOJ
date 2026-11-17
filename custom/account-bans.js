@@ -7,23 +7,32 @@
   var errorBox = form.querySelector('[data-ban-error]');
   var targetLabel = form.querySelector('[data-ban-target]');
   var profileButton = document.querySelector('[data-open-user-ban]');
+  var ipChoices = form.querySelector('[data-ban-ip-choices]');
+  var selectAll = form.querySelector('[data-ban-ip-all]');
   var target = null, busy = false;
   var api = window.NWPUOJApi;
   var dateFormat = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
   function message(error) { errorBox.textContent = error.message || String(error); errorBox.hidden = false; }
   function headers() { return { 'Content-Type': 'application/json', 'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content, 'Idempotency-Key': window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).slice(2) }; }
+  function selectedIps() {
+    return Array.from(ipChoices.querySelectorAll('input:checked')).map(function (input) { return input.value; });
+  }
   function fields() {
     var ip = form.elements.type.value === 'ip';
     form.querySelector('[data-ban-username-field]').hidden = !!target || ip;
     form.elements.username.required = !target && !ip;
     form.querySelector('[data-ban-ip-field]').hidden = !ip;
-    form.elements.login_ip.hidden = !target;
+    form.querySelector('[data-ban-ip-selection]').hidden = !target;
     form.elements.ip.hidden = !!target;
-    form.elements.login_ip.required = ip && !!target;
     form.elements.ip.required = ip && !target;
+    var count = ipChoices.querySelectorAll('input').length, selected = selectedIps().length;
+    selectAll.checked = count > 0 && count === selected;
+    selectAll.indeterminate = selected > 0 && selected < count;
+    selectAll.disabled = busy || !count;
+    form.querySelector('[data-ban-ip-count]').textContent = '已选 ' + selected + ' / ' + count;
     form.querySelector('[data-ban-expiry-field]').hidden = form.elements.duration.value !== 'custom';
     form.querySelector('[data-ban-ip-impact]').hidden = !ip;
-    submit.disabled = busy || (ip && !!target && !form.elements.login_ip.options.length);
+    submit.disabled = busy || (ip && !!target && !selected);
   }
   async function profileState(id) {
     return (await api.readResource('/api/v2/admin/bans/users/' + encodeURIComponent(id))).data;
@@ -44,7 +53,7 @@
     targetLabel.textContent = target ? target.username || '用户 #' + target.id : '';
     form.elements.type.value = button.dataset.type || 'account';
     form.elements.ip.value = button.dataset.ip || '';
-    form.elements.login_ip.replaceChildren();
+    ipChoices.replaceChildren();
     var appending = button.hasAttribute('data-append-ban') || button.textContent.includes('追加');
     dialog.querySelector('h2').textContent = appending ? '追加封禁' : '新增封禁';
     submit.textContent = appending ? '追加封禁' : '确认封禁';
@@ -57,13 +66,22 @@
       try {
         var data = await profileState(target.id);
         data.ips.forEach(function (record) {
-          var option = document.createElement('option');
-          option.value = record.ip;
-          option.textContent = record.ip + ' · ' + dateFormat.format(new Date(record.last_login));
-          form.elements.login_ip.appendChild(option);
+          var option = document.createElement('label');
+          option.className = 'app-ban-ip-option';
+          var checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.name = 'login_ip';
+          checkbox.value = record.ip;
+          checkbox.checked = button.dataset.ip === record.ip;
+          var address = document.createElement('code');
+          address.textContent = record.ip;
+          var time = document.createElement('time');
+          time.dateTime = record.last_login;
+          time.textContent = dateFormat.format(new Date(record.last_login));
+          option.append(checkbox, address, time);
+          ipChoices.appendChild(option);
         });
-        if (button.dataset.ip) form.elements.login_ip.value = button.dataset.ip;
-        if (!data.ips.length && form.elements.type.value === 'ip') message('该账号暂无可封禁的登录 IP。');
+        if (!data.ips.length) ipChoices.textContent = '暂无登录 IP';
       } catch (error) { message(error); }
       finally { busy = false; fields(); }
     }
@@ -73,6 +91,11 @@
   });
   form.elements.type.addEventListener('change', fields);
   form.elements.duration.addEventListener('change', fields);
+  ipChoices.addEventListener('change', fields);
+  selectAll.addEventListener('change', function () {
+    ipChoices.querySelectorAll('input').forEach(function (input) { input.checked = selectAll.checked; });
+    fields();
+  });
   form.addEventListener('submit', async function (event) {
     event.preventDefault();
     if (busy) return;
@@ -88,7 +111,10 @@
     var payload = { type: form.elements.type.value, permanent: duration === 'permanent', expires_at: expiry ? expiry.toISOString() : null };
     if (target) payload.user_id = target.id;
     else payload.username = form.elements.username.value.trim();
-    if (payload.type === 'ip') payload.ip = target ? form.elements.login_ip.value : form.elements.ip.value.trim();
+    if (payload.type === 'ip') {
+      payload.ips = target ? selectedIps() : form.elements.ip.value.trim().split(/[\s,，;；]+/).filter(Boolean);
+      if (!payload.ips.length) { message('请至少选择或输入一个 IP。'); return; }
+    }
     busy = true; fields();
     try {
       await api.writeResource('/api/v2/admin/bans', 'POST', payload, { headers: headers() });

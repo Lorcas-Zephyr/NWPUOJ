@@ -127,38 +127,53 @@ app.post('/api/v2/admin/bans', async (req, res) => {
     if (!['account', 'ip'].includes(type)) throw failure('请选择账号或 IP 封禁类型。');
     const expiresAt = expiry(body), reason = String(body.reason || '').trim();
     if (reason.length > 1000) throw failure('封禁原因不能超过 1000 个字符。');
-    const targetIp = type === 'ip' ? syzoj.utils.normalizeBanIp(body.ip) : null;
-    if (type === 'ip' && !targetIp) throw failure('请输入有效的 IPv4 或 IPv6 地址。');
+    let targetIps = [null];
+    if (type === 'ip') {
+      const addresses = body.ips === undefined ? [body.ip] : body.ips;
+      if (!Array.isArray(addresses) || !addresses.length || addresses.length > 200) {
+        throw failure('请选择 1 至 200 个登录 IP。');
+      }
+      targetIps = addresses.map(address => typeof address === 'string' ? syzoj.utils.normalizeBanIp(address) : null);
+      if (targetIps.some(address => !address)) throw failure('请输入有效的 IPv4 或 IPv6 地址。');
+      targetIps = Array.from(new Set(targetIps));
+    }
     // A profile supplies user_id; a standalone admin entry can supply a username or an IP.
     const requestedId = body.user_id == null || body.user_id === '' ? null : positiveId(body.user_id);
     const username = String(body.username || '').trim();
     if (type === 'account' && requestedId == null && !username) throw failure('请输入用户名。');
-    const result = await connection().transaction(async manager => {
+    const results = await connection().transaction(async manager => {
       let target = null;
       if (requestedId != null || type === 'account') {
         const targets = await manager.query('SELECT id,username,is_admin FROM user WHERE ' + (requestedId != null ? 'id=?' : 'username=?') + ' LIMIT 1 FOR UPDATE', [requestedId == null ? username : requestedId]);
         if (!targets.length) throw failure('用户不存在。', 'USER_NOT_FOUND', 404);
         target = targets[0];
         protectAccount(actor, target);
-        if (type === 'ip' && !(await loginIps(target.id, manager)).some(item => item.ip === targetIp)) {
-          throw failure('请选择该账号的登录 IP。');
+        if (type === 'ip') {
+          const allowedIps = new Set((await loginIps(target.id, manager)).map(item => item.ip));
+          if (targetIps.some(address => !allowedIps.has(address))) throw failure('请选择该账号的登录 IP。');
         }
       }
-      const inserted = await manager.query(`INSERT INTO account_ban
-        (target_type,target_user_id,target_ip,reason,created_by,created_at,expires_at)
-        VALUES (?,?,?,?,?,UTC_TIMESTAMP(3),?)`, [type, target ? target.id : null, targetIp, reason || null, actor.id, expiresAt]);
-      const id = Number(inserted.insertId);
-      const auditId = await syzoj.utils.authorizationV2.recordAudit(req, {
-        action: 'admin:account-ban.create', resourceType: 'account_ban', resourceId: id, reason,
-        details: { type, user_id: target ? target.id : null, ip: targetIp, expires_at: expiresAt }
-      }, manager);
-      return { id, type, user_id: target ? Number(target.id) : null, ip: targetIp, audit_event_id: String(auditId) };
+      const items = [];
+      for (const targetIp of targetIps) {
+        const inserted = await manager.query(`INSERT INTO account_ban
+          (target_type,target_user_id,target_ip,reason,created_by,created_at,expires_at)
+          VALUES (?,?,?,?,?,UTC_TIMESTAMP(3),?)`, [type, target ? target.id : null, targetIp, reason || null, actor.id, expiresAt]);
+        const id = Number(inserted.insertId);
+        const auditId = await syzoj.utils.authorizationV2.recordAudit(req, {
+          action: 'admin:account-ban.create', resourceType: 'account_ban', resourceId: id, reason,
+          details: { type, user_id: target ? target.id : null, ip: targetIp, expires_at: expiresAt }
+        }, manager);
+        items.push({ id, type, user_id: target ? Number(target.id) : null, ip: targetIp, audit_event_id: String(auditId) });
+      }
+      return items;
     });
     if (type === 'account') {
-      await syzoj.utils.revokeUserSessions(req, result.user_id);
-      if (syzoj.utils.baseWorkspace) syzoj.utils.baseWorkspace.revokeConnections([result.user_id]);
-    } else await syzoj.utils.revokeIpSessions(req, targetIp);
-    return api().send(res, result, 201);
+      await syzoj.utils.revokeUserSessions(req, results[0].user_id);
+      if (syzoj.utils.baseWorkspace) syzoj.utils.baseWorkspace.revokeConnections([results[0].user_id]);
+    } else {
+      for (const targetIp of targetIps) await syzoj.utils.revokeIpSessions(req, targetIp);
+    }
+    return api().send(res, type === 'ip' && body.ips !== undefined ? { items: results, total: results.length } : results[0], 201);
   } catch (error) { return fail(res, error); }
 });
 

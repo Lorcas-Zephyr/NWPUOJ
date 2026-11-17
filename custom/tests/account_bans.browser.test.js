@@ -51,15 +51,34 @@ test('profile supports login-IP choice, permanent ban and append state; ordinary
   const f=await fixture();
   try{
     await f.page.locator('[data-open-user-ban]').click();
-    await f.page.locator('[name="login_ip"] option').first().waitFor({state:'attached'});
+    await f.page.locator('[name="login_ip"]').first().waitFor({state:'attached'});
     await f.page.locator('[name="type"]').selectOption('ip');
-    assert.equal(await f.page.locator('[name="login_ip"] option').count(),2);
-    await f.page.locator('[name="login_ip"]').selectOption('2001:db8::1');
+    assert.equal(await f.page.locator('[name="login_ip"]').count(),2);
+    assert.equal(await f.page.locator('[data-ban-submit]').isDisabled(),true);
+    await f.page.locator('[name="login_ip"][value="2001:db8::1"]').check();
+    assert.equal(await f.page.locator('[data-ban-ip-all]').evaluate(el=>el.indeterminate),true);
+    await f.page.locator('[data-ban-ip-all]').check();
+    assert.equal(await f.page.locator('[name="login_ip"]:checked').count(),2);
     await f.page.locator('[name="duration"]').selectOption('permanent');
     await f.page.locator('[data-ban-submit]').click();
     await f.page.getByRole('button',{name:'追加封禁',exact:true}).waitFor();
-    assert.equal(f.writes[0].body.ip,'2001:db8::1');assert.equal(f.writes[0].body.permanent,true);assert.equal(f.writes[0].body.user_id,1);
+    assert.deepEqual(f.writes[0].body.ips,['192.0.2.1','2001:db8::1']);assert.equal(f.writes[0].body.permanent,true);assert.equal(f.writes[0].body.user_id,1);
     assert.equal(f.writes[0].headers['x-csrf-token'],'fixture');assert.ok(f.writes[0].headers['idempotency-key']);
+    await f.page.locator('[data-open-user-ban]').click();
+    await f.page.locator('[name="login_ip"]').first().waitFor({state:'attached'});
+    await f.page.locator('[name="type"]').selectOption('ip');
+    assert.equal(await f.page.locator('[name="login_ip"]:checked').count(),0,'reopening clears previous choices');
+    await f.page.locator('[data-ban-ip-all]').check();
+    await f.page.locator('[data-ban-ip-all]').uncheck();
+    assert.equal(await f.page.locator('[data-ban-submit]').isDisabled(),true);
+    for(const theme of ['light','dark']) {
+      await f.page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);
+      await f.page.setViewportSize({width:390,height:844});
+      await f.page.locator('[name="login_ip"][value="2001:db8::1"]').check();
+      assert.ok(await f.page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+      assert.ok(await f.page.locator('[data-ban-ip-choices]').evaluate(el=>el.scrollWidth<=el.clientWidth));
+      await f.page.screenshot({path:'/tmp/noj-bans-multiselect-'+theme+'.png',fullPage:true});
+    }
     assert.deepEqual(f.errors,[]);
   }finally{await f.context.close();}
   const ordinary=await fixture('profile',false);
@@ -89,6 +108,15 @@ test('custom expiry uses shared 24-hour controls inside the modal and submits Be
 test('admin table adds records and cancels an individual ban',async()=>{
   const f=await fixture('admin');
   try{
+    for(const width of [1280,820,390]) {
+      await f.page.setViewportSize({width,height:1000});
+      const search=f.page.locator('.app-ban-search button');
+      assert.equal(await search.evaluate(el=>getComputedStyle(el).whiteSpace),'nowrap');
+      assert.ok(await search.evaluate(el=>el.scrollWidth<=el.clientWidth));
+      assert.ok(await search.evaluate(el=>el.getBoundingClientRect().height<60));
+      assert.ok(await f.page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    }
+    await f.page.setViewportSize({width:1280,height:1000});
     await f.page.locator('[data-new-ban]').click();
     await f.page.locator('[name="username"]').fill('alice');
     await f.page.locator('[name="duration"]').selectOption('24');
@@ -99,6 +127,23 @@ test('admin table adds records and cancels an individual ban',async()=>{
     await f.page.locator('[data-lift-ban]').click();
     await f.page.waitForTimeout(100);
     assert.equal(f.writes[1].headers['x-http-method-override'] || f.writes[1].method,'DELETE');
+    assert.deepEqual(f.errors,[]);
+  }finally{await f.context.close();}
+});
+test('admin supports multiple manually entered IPs and append preselects the recorded IP',async()=>{
+  const f=await fixture('admin');
+  try{
+    await f.page.locator('[data-new-ban]').click();
+    await f.page.locator('[name="type"]').selectOption('ip');
+    await f.page.locator('[name="ip"]').fill('192.0.2.1，2001:db8::1\n192.0.2.2');
+    await f.page.locator('[data-ban-submit]').click();
+    await f.page.waitForFunction(()=>!document.querySelector('dialog[open]'));
+    assert.deepEqual(f.writes[0].body.ips,['192.0.2.1','2001:db8::1','192.0.2.2']);
+    await f.page.locator('[data-append-ban]').evaluate(el=>{el.dataset.type='ip';el.dataset.ip='2001:db8::1';});
+    await f.page.locator('[data-append-ban]').click();
+    await f.page.locator('[name="login_ip"]').first().waitFor({state:'attached'});
+    assert.equal(await f.page.locator('[name="login_ip"]:checked').count(),1);
+    assert.equal(await f.page.locator('[name="login_ip"]:checked').inputValue(),'2001:db8::1');
     assert.deepEqual(f.errors,[]);
   }finally{await f.context.close();}
 });
