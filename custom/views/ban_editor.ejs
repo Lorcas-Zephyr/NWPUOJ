@@ -1,0 +1,17 @@
+<dialog class="app-dialog app-ban-dialog" id="ban-editor" aria-labelledby="ban-editor-title">
+  <form class="app-form" data-ban-form>
+    <div class="app-dialog-header"><h2 id="ban-editor-title">新增封禁</h2><button class="app-icon-button" type="button" data-dialog-close aria-label="关闭"><i data-lucide="x"></i></button></div>
+    <div class="app-dialog-body">
+      <div class="app-notice app-notice-danger" data-ban-error role="alert" hidden></div>
+      <p class="app-ban-target" data-ban-target hidden></p>
+      <label class="app-field"><span class="app-label">封禁类型</span><select class="app-select" name="type"><option value="account">封禁账号</option><option value="ip">封禁登录 IP</option></select></label>
+      <label class="app-field" data-ban-username-field><span class="app-label">用户名</span><input class="app-input" name="username" maxlength="80" autocomplete="off" placeholder="完整用户名"></label>
+      <label class="app-field" data-ban-ip-field hidden><span class="app-label">登录 IP</span><select class="app-select" name="login_ip" aria-label="选择登录 IP" hidden></select><input class="app-input" name="ip" autocomplete="off" placeholder="IPv4 或 IPv6 地址"></label>
+      <label class="app-field"><span class="app-label">封禁期限</span><select class="app-select" name="duration"><option value="24">1 天</option><option value="168">7 天</option><option value="720">30 天</option><option value="custom">选择解封时间</option><option value="permanent">永久</option></select></label>
+      <label class="app-field" data-ban-expiry-field hidden><span class="app-label">解封时间（北京时间）</span><input class="app-input app-datetime-input" type="datetime-local" name="expires_at" step="60" data-app-datetime-picker></label>
+      <div class="app-notice" data-ban-ip-impact hidden>该 IP 下所有账号的登录与现有会话均会被封禁。</div>
+    </div>
+    <div class="app-dialog-actions"><button class="app-button app-button-secondary" type="button" data-dialog-close>取消</button><button class="app-button app-button-danger" type="submit" data-ban-submit>确认封禁</button></div>
+  </form>
+</dialog>
+<script src="/self/account-bans.js?rev=20261117-1" defer></script>

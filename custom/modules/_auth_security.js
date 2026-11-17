@@ -4,6 +4,8 @@ const path = require('path');
 const { Worker } = require('worker_threads');
 const TypeORM = require('typeorm');
 const { sendSiteMail } = require('../libs/site-mail');
+const { normalizeIp: normalizeBanIp } = require('../libs/login-ip');
+const { contact_email: APPEAL_EMAIL } = require('../content/legal/manifest.json');
 
 const User = syzoj.model('user');
 const CURRENT_PREFIX = 'bcrypt$';
@@ -89,6 +91,66 @@ const bcryptPool = new BcryptWorkerPool(BCRYPT_WORKER_COUNT);
 syzoj.log('[auth-security] bcrypt worker pool initialized: ' + BCRYPT_WORKER_COUNT);
 
 let resetTablePromise = null;
+let accountBanSchemaPromise = null;
+
+function ensureAccountBanSchema() {
+  if (!accountBanSchemaPromise) {
+    accountBanSchemaPromise = TypeORM.getConnection().query(`
+      CREATE TABLE IF NOT EXISTS account_ban (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        target_type ENUM('account','ip') NOT NULL,
+        target_user_id INT NULL,
+        target_ip VARCHAR(45) NULL,
+        reason VARCHAR(1000) NULL,
+        created_by INT NOT NULL,
+        created_at DATETIME(3) NOT NULL,
+        expires_at DATETIME(3) NULL,
+        lifted_by INT NULL,
+        lifted_at DATETIME(3) NULL,
+        KEY idx_account_ban_user (target_type,target_user_id,lifted_at,expires_at),
+        KEY idx_account_ban_ip (target_type,target_ip,lifted_at,expires_at),
+        KEY idx_account_ban_history (created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `).catch(error => { accountBanSchemaPromise = null; throw error; });
+  }
+  return accountBanSchemaPromise;
+}
+
+async function findActiveBan(type, target) {
+  await ensureAccountBanSchema();
+  const column = type === 'account' ? 'target_user_id' : 'target_ip';
+  const rows = await TypeORM.getConnection().query(
+    `SELECT id,reason,DATE_FORMAT(created_at,'%Y-%m-%dT%H:%i:%s.%fZ') AS created_at,
+       DATE_FORMAT(expires_at,'%Y-%m-%dT%H:%i:%s.%fZ') AS expires_at FROM account_ban
+     WHERE target_type=? AND ${column}=? AND lifted_at IS NULL
+       AND (expires_at IS NULL OR expires_at>UTC_TIMESTAMP(3))
+     ORDER BY (expires_at IS NULL) DESC,expires_at DESC,created_at DESC LIMIT 1`,
+    [type, target]
+  );
+  return rows[0] || null;
+}
+
+function formatBanExpiry(ban) {
+  if (!ban || !ban.expires_at) return '永久';
+  const date = ban.expires_at instanceof Date ? ban.expires_at : new Date(ban.expires_at);
+  if (!Number.isFinite(date.getTime())) return '永久';
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+  }).format(date);
+}
+
+function banLoginMessage(type, ban) {
+  const subject = type === 'ip' ? '您的 IP' : '您的账号';
+  const period = ban && ban.expires_at ? `至 ${formatBanExpiry(ban)}（北京时间）` : '（永久）';
+  return `${subject}已被封禁${period}。如有异议请邮件申诉：${APPEAL_EMAIL}`;
+}
+
+async function findActiveAccountBan(userId) { return findActiveBan('account', Number(userId)); }
+async function findActiveIpBan(ipValue) {
+  const ip = normalizeBanIp(ipValue);
+  return ip ? findActiveBan('ip', ip) : null;
+}
 function ensureResetTable() {
   if (!resetTablePromise) {
     resetTablePromise = (async () => {
@@ -184,10 +246,12 @@ async function establishAuthenticatedSession(req, userId, options = {}) {
   const rememberMe = options.rememberMe === undefined
     ? !!(req.session && Number(req.session.user_id) === Number(userId) && req.session.rememberMe === true)
     : options.rememberMe === true;
+  const authenticatedIp = normalizeBanIp(req.ip);
   await regenerateSession(req);
   req.session.user_id = Number(userId);
   req.session.rememberMe = rememberMe;
   req.session.apiV2AuthenticatedAt = Date.now();
+  req.session.authenticatedIp = authenticatedIp;
   // Regeneration creates a fresh cookie, so apply the policy again now,
   // rather than waiting until the redirected page's request.
   syzoj.utils.applySessionCookiePolicy(req);
@@ -215,6 +279,35 @@ async function revokeUserSessions(req, userId) {
       if (error.code !== 'ENOENT') syzoj.log('[auth-security] revoke session failed: ' + error.message);
     }
   }));
+}
+
+async function revokeIpSessions(req, ipValue) {
+  const targetIp = normalizeBanIp(ipValue);
+  const storePath = req.sessionStore && req.sessionStore.options && req.sessionStore.options.path;
+  if (!targetIp || !storePath) return;
+  let files;
+  try {
+    files = await fs.promises.readdir(storePath);
+  } catch (error) {
+    syzoj.log('[auth-security] list sessions for IP revocation failed: ' + error.message);
+    return;
+  }
+  await Promise.all(files.filter(file => file.endsWith('.json')).map(async file => {
+    const filePath = path.join(storePath, file);
+    try {
+      const session = JSON.parse(await fs.promises.readFile(filePath, 'utf8'));
+      if (normalizeBanIp(session.authenticatedIp) === targetIp || normalizeBanIp(session.lastIp) === targetIp) await fs.promises.unlink(filePath);
+    } catch (error) {
+      if (error.code !== 'ENOENT') syzoj.log('[auth-security] revoke IP session failed: ' + error.message);
+    }
+  }));
+}
+
+function destroySession(req) {
+  return new Promise((resolve, reject) => {
+    if (!req.session || typeof req.session.destroy !== 'function') return resolve();
+    req.session.destroy(error => error ? reject(error) : resolve());
+  });
 }
 
 async function getUserAccountState(userId) {
@@ -278,32 +371,65 @@ syzoj.utils.passwordNeedsUpgrade = passwordNeedsUpgrade;
 syzoj.utils.isStoredPassword = isStoredPassword;
 syzoj.utils.establishAuthenticatedSession = establishAuthenticatedSession;
 syzoj.utils.revokeUserSessions = revokeUserSessions;
+syzoj.utils.revokeIpSessions = revokeIpSessions;
 syzoj.utils.clearLegacyLoginCookie = clearLegacyLoginCookie;
 syzoj.utils.ensureAccountStateSchema = ensureResetTable;
 syzoj.utils.getUserAccountState = getUserAccountState;
 syzoj.utils.isUserAccountActive = isUserAccountActive;
+syzoj.utils.ensureAccountBanSchema = ensureAccountBanSchema;
+syzoj.utils.findActiveAccountBan = findActiveAccountBan;
+syzoj.utils.findActiveIpBan = findActiveIpBan;
+syzoj.utils.normalizeBanIp = normalizeBanIp;
+syzoj.utils.accountBanLoginMessage = banLoginMessage;
+syzoj.utils.accountBanAppealEmail = APPEAL_EMAIL;
 
-app.use(async (req, res, next) => {
+syzoj.utils.enforceAccountBans = async function (req, res, next) {
   if (!res.locals.user) return next();
   try {
     const state = await getUserAccountState(res.locals.user.id);
-    if (state.status !== 'disabled') return next();
-    const disabledUserId = Number(res.locals.user.id);
+    await ensureAccountBanSchema();
+    const addresses = Array.from(new Set([req.ip, req.session && req.session.authenticatedIp, req.session && req.session.lastIp].map(normalizeBanIp).filter(Boolean)));
+    const authenticatedAt = Number(req.session && req.session.apiV2AuthenticatedAt || 0);
+    const sessionStart = new Date(Number.isFinite(authenticatedAt) ? authenticatedAt : 0).toISOString().slice(0, 23).replace('T', ' ');
+    // A ban revokes sessions created before it, even after it expires or is lifted.
+    // Keep this database check authoritative if an in-flight request rewrites a deleted session file.
+    const active = 'lifted_at IS NULL AND (expires_at IS NULL OR expires_at>UTC_TIMESTAMP(3))';
+    const rows = await TypeORM.getConnection().query(`SELECT target_type,(${active}) AS active,
+        DATE_FORMAT(expires_at,'%Y-%m-%dT%H:%i:%s.%fZ') AS expires_at
+      FROM account_ban WHERE ((target_type='account' AND target_user_id=?)
+        ${addresses.length ? "OR (target_type='ip' AND target_ip IN (?))" : ''})
+        AND ((${active}) OR created_at>=?)
+      ORDER BY (${active}) DESC,(target_type='account') DESC,(expires_at IS NULL) DESC,expires_at DESC LIMIT 1`,
+    addresses.length ? [Number(res.locals.user.id), addresses, sessionStart] : [Number(res.locals.user.id), sessionStart]);
+    const ban = rows[0];
+    if (state.status !== 'disabled' && !ban) {
+      if (req.session) {
+        if (!req.session.authenticatedIp) req.session.authenticatedIp = normalizeBanIp(req.ip);
+        req.session.lastIp = normalizeBanIp(req.ip);
+      }
+      return next();
+    }
     res.locals.user = null;
     if (req.session) delete req.session.user_id;
+    res.clearCookie('connect.sid', syzoj.utils.secureCookieOptions(req));
+    await destroySession(req);
     clearLegacyLoginCookie(req, res);
-    const error = new ErrorMessage('账号已停用，请联系管理员。');
+    const activeBan = ban && Number(ban.active);
+    const error = new ErrorMessage(activeBan ? banLoginMessage(ban.target_type, ban)
+      : state.status === 'disabled' ? '账号已停用，请联系管理员。' : '此登录会话已失效，请重新登录。');
     error.statusCode = 403;
-    error.code = 'ACCOUNT_DISABLED';
+    error.code = activeBan ? (ban.target_type === 'account' ? 'ACCOUNT_BANNED' : 'IP_BANNED')
+      : state.status === 'disabled' ? 'ACCOUNT_DISABLED' : 'SESSION_REVOKED';
     if (req.path.startsWith('/api/v2/') && syzoj.utils.apiV2) {
-      return syzoj.utils.apiV2.fail(res, 403, 'ACCOUNT_DISABLED', 'This account has been disabled.', { user_id: disabledUserId });
+      req.apiV2SkipOperationCompletion = true;
+      return syzoj.utils.apiV2.fail(res, 403, error.code, error.message, { expires_at: activeBan ? ban.expires_at : null, appeal_email: APPEAL_EMAIL });
     }
     return res.status(403).render('error', { err: error });
   } catch (error) {
     syzoj.log('[auth-security] account state check failed: ' + (error.stack || error.message));
     return next(error);
   }
-});
+};
 
 app.use(async (req, res, next) => {
   clearLegacyLoginCookie(req, res);

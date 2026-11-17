@@ -119,6 +119,10 @@ services:
       - ./custom/modules/_api_v2_contract.js:/app/modules/_api_v2_contract.js:ro
       - ./custom/modules/_admin_overview.js:/app/modules/_admin_overview.js:ro
       - ./custom/modules/_admin_users.js:/app/modules/_admin_users.js:ro
+      - ./custom/modules/_account_bans.js:/app/modules/_account_bans.js:ro
+      - ./custom/views/admin_bans.ejs:/app/views/admin_bans.ejs:ro
+      - ./custom/views/ban_editor.ejs:/app/views/ban_editor.ejs:ro
+      - ./custom/account-bans.js:/app/static/self/account-bans.js:ro
       - ./custom/modules/_contest_temp_accounts.js:/app/modules/_contest_temp_accounts.js:ro
       - ./custom/modules/_judge_workers_admin.js:/app/modules/_judge_workers_admin.js:ro
       - ./custom/modules/api_v2.js:/app/modules/api_v2.js:ro

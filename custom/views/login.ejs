@@ -24,6 +24,12 @@
   </section>
 </div>
 
+<dialog class="app-dialog" id="login-ban-notice" aria-labelledby="login-ban-title">
+  <div class="app-dialog-header"><h2 id="login-ban-title">无法登录</h2><button class="app-icon-button" type="button" data-dialog-close aria-label="关闭"><i data-lucide="x"></i></button></div>
+  <div class="app-dialog-body"><p data-login-ban-message></p><a data-login-ban-email></a></div>
+  <div class="app-dialog-actions"><button class="app-button app-button-primary" type="button" data-dialog-close>知道了</button></div>
+</dialog>
+
 <script>
 (function () {
   var form = document.getElementById('login-form');
@@ -43,6 +49,17 @@
         if (result.data && result.data.data && result.data.data.authenticated) return window.location.assign(result.data.data.redirect_url === '/contests' ? '/contests' : redirectUrl);
         var code = result.data && result.data.error && result.data.error.code;
         if (code === 'LOGIN_RATE_LIMITED' || result.status === 429) showError('登录尝试过于频繁，请稍后再试。');
+        else if (code === 'ACCOUNT_BANNED' || code === 'IP_BANNED') {
+          showError(result.data.error.message);
+          var notice = document.getElementById('login-ban-notice');
+          notice.querySelector('[data-login-ban-message]').textContent = result.data.error.message;
+          var address = result.data.error.fields && result.data.error.fields.appeal_email;
+          var link = notice.querySelector('[data-login-ban-email]');
+          link.hidden = !address || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address);
+          if (!link.hidden) { link.textContent = '邮件申诉'; link.href = 'mailto:' + address; }
+          if (!notice.open) notice.showModal();
+          document.body.classList.add('is-dialog-open');
+        }
         else if (code === 'ACCOUNT_DISABLED') showError('账户已停用，请联系管理员。');
         else if (code === 'AUTHENTICATION_UNAVAILABLE' || result.status >= 500) showError('登录服务暂时不可用。');
         else showError('账号或密码错误。');

@@ -718,6 +718,7 @@
       if (typeof window.flatpickr === 'function') {
         var picker = window.flatpickr(input, {
           locale: window.flatpickr.l10ns.zh,
+          appendTo: input.closest('dialog') || undefined,
           enableTime: true,
           time_24hr: true,
           disableMobile: true,

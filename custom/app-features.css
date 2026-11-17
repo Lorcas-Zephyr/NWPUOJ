@@ -9635,3 +9635,12 @@
   .app-set-problem-row { grid-template-columns: 20px 58px minmax(100px, 1fr) 34px 34px 34px; }
   .app-rank-class-filter-menu { left: 0; min-width: min(300px, calc(100vw - 32px)); right: auto; }
 }
+
+.app-ban-dialog { overflow: visible; }
+.app-ban-dialog .app-dialog-body { display: grid; gap: 16px; max-height: 65dvh; overflow-y: auto; }
+.app-ban-dialog .app-field { grid-column: 1 / -1; }
+.app-ban-dialog .app-ban-target { margin: 0; font-weight: 650; overflow-wrap: anywhere; }
+.app-ban-dialog .app-notice { margin: 0; }
+.app-ban-dialog .flatpickr-calendar { max-width: calc(100vw - 40px); }
+.app-ban-table td > div { margin-top: 4px; }
+.app-profile-actions { flex-wrap: wrap; }

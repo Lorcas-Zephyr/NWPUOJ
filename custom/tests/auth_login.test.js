@@ -238,3 +238,36 @@ test('weekly IP checks run after successful audit and failures do not block logi
   assert.equal((await h.login('alice', 'wrong')).status, 401);
   assert.deepEqual(checked, [1]);
 });
+
+test('account and IP bans reject sign-in before issuing a session, including account aliases', async () => {
+  const h = harness();
+  h.utils.accountBanAppealEmail = 'npuicpc@163.com';
+  h.utils.accountBanLoginMessage = (type, ban) => (type === 'ip' ? '您的IP' : '您的账号') + '已被封禁' + (ban.expires_at || '永久') + '，申诉：npuicpc@163.com';
+  h.utils.findActiveAccountBan = async id => id === 1 ? { expires_at: '2030-01-01T00:00:00Z' } : null;
+  for (const identifier of ['alice', 'alice@example.test', '0012345678']) {
+    const result = await h.login(identifier);
+    assert.equal(result.status, 403);
+    assert.equal(result.error.code, 'ACCOUNT_BANNED');
+    assert.match(result.error.message, /2030.*npuicpc@163.com/);
+  }
+  assert.equal((await h.login('alice', 'wrong')).error.code, 'INVALID_CREDENTIALS');
+  h.utils.findActiveIpBan = async ip => ip === 'blocked-client' ? {} : null;
+  const calls = h.verifyCalls();
+  const blocked = await h.login('unknown', 'anything', 'blocked-client');
+  assert.equal(blocked.error.code, 'IP_BANNED');
+  assert.equal(h.verifyCalls(), calls, 'IP check precedes expensive password verification');
+  assert.equal(h.sessions.length, 0);
+  assert.equal(h.audits.length, 0);
+  h.utils.findActiveAccountBan = async () => null;
+  assert.equal((await h.login('alice')).status, 200, 'expired/lifted bans allow fresh sign-ins');
+});
+
+test('ban lookup failures fail closed without issuing sessions', async () => {
+  const h = harness();
+  h.utils.findActiveIpBan = async () => { throw new Error('database unavailable'); };
+  assert.equal((await h.login('alice')).status, 503);
+  h.utils.findActiveIpBan = async () => null;
+  h.utils.findActiveAccountBan = async () => { throw new Error('database unavailable'); };
+  assert.equal((await h.login('alice')).status, 503);
+  assert.equal(h.sessions.length, 0);
+});

@@ -1,0 +1,26 @@
+<% this.adminPage = 'bans'; %>
+<% include admin_header %>
+<div class="app-admin-toolbar">
+  <form class="app-admin-search" method="get" action="/admin/bans" role="search">
+    <input class="app-input" type="search" name="q" value="<%= keyword %>" placeholder="用户名、UID 或 IP" aria-label="搜索封禁">
+    <select class="app-select" name="status" aria-label="封禁状态"><option value="active">生效中</option><option value="all"<%= showAll ? ' selected' : '' %>>全部记录</option></select>
+    <button class="app-button app-button-secondary" type="submit">搜索</button>
+  </form>
+  <button class="app-button app-button-primary" type="button" data-new-ban><i data-lucide="plus"></i>新增封禁</button>
+</div>
+<% if (banList.items.length) { %>
+<div class="app-table-region"><table class="app-table app-ban-table"><thead><tr><th>封禁对象</th><th>期限</th><th>状态</th><th>操作人 / 时间</th><th>操作</th></tr></thead><tbody>
+<% for (const ban of banList.items) { %>
+<tr>
+  <td><% if (ban.type === 'account') { %><%- ban.username ? syzoj.utils.renderUsername({ id: ban.user_id, username: ban.username }) : '已删除用户 #' + ban.user_id %><% } else { %><code><%= ban.ip %></code><% if (ban.username) { %><div><%- syzoj.utils.renderUsername({ id: ban.user_id, username: ban.username }) %></div><% } %><% } %></td>
+  <td><%= ban.expires_at ? new Date(ban.expires_at).toLocaleString('zh-CN', {timeZone:'Asia/Shanghai',hourCycle:'h23'}) : '永久' %></td>
+  <td><span class="app-status <%= ban.active ? 'app-status-rejected' : 'app-status-muted' %>"><%= ban.active ? '生效中' : ban.lifted_at ? '已取消' : '已到期' %></span></td>
+  <td><%- ban.creator_name ? syzoj.utils.renderUsername({id:ban.created_by,username:ban.creator_name}) : '—' %><div><%= new Date(ban.created_at).toLocaleString('zh-CN', {timeZone:'Asia/Shanghai',hourCycle:'h23'}) %></div></td>
+  <td><div class="app-inline-actions"><button class="app-button app-button-secondary" type="button" data-append-ban data-type="<%= ban.type %>" data-user-id="<%= ban.user_id || '' %>" data-username="<%= ban.username || '' %>" data-ip="<%= ban.ip || '' %>">追加</button><% if (ban.active) { %><button class="app-button app-button-danger-outline" type="button" data-lift-ban="<%= ban.id %>">取消封禁</button><% } %></div></td>
+</tr>
+<% } %>
+</tbody></table></div>
+<% } else { %><div class="app-empty"><div class="app-empty-inner"><i data-lucide="shield-check"></i><strong>暂无匹配的封禁记录</strong></div></div><% } %>
+<nav class="app-pagination" aria-label="封禁分页"><span>共 <%= banList.total %> 条 · 第 <%= banList.page %> / <%= banList.page_count %> 页</span><span class="app-pagination-pages"><% if (banList.page > 1) { %><a href="<%= syzoj.utils.makeUrl(['admin','bans'],{q:keyword,status:showAll?'all':'active',page:banList.page-1}) %>" aria-label="上一页"><i data-lucide="chevron-left"></i></a><% } %><% if (banList.page < banList.page_count) { %><a href="<%= syzoj.utils.makeUrl(['admin','bans'],{q:keyword,status:showAll?'all':'active',page:banList.page+1}) %>" aria-label="下一页"><i data-lucide="chevron-right"></i></a><% } %></span></nav>
+<% include ban_editor %>
+<% include admin_footer %>

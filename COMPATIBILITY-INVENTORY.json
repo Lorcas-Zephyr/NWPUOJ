@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-17T03:05:40.308Z",
+  "generated_at": "2026-11-17T03:54:27.625Z",
   "frontend_page_routes": [
     {
       "method": "GET",
@@ -12,6 +12,12 @@
       "route": "/help/rating",
       "source": "custom/modules/__hit_score_engine.js",
       "line": 30
+    },
+    {
+      "method": "GET",
+      "route": "/admin/bans",
+      "source": "custom/modules/_account_bans.js",
+      "line": 93
     },
     {
       "method": "GET",
@@ -125,7 +131,7 @@
       "method": "GET",
       "route": "/password/reset/:token",
       "source": "custom/modules/_auth_security.js",
-      "line": 328
+      "line": 454
     },
     {
       "method": "GET",
@@ -515,13 +521,13 @@
       "method": "GET",
       "route": "/login",
       "source": "custom/modules/_request_security.js",
-      "line": 166
+      "line": 169
     },
     {
       "method": "GET",
       "route": "/sign_up",
       "source": "custom/modules/_request_security.js",
-      "line": 166
+      "line": 169
     },
     {
       "method": "GET",
@@ -801,8 +807,8 @@
   "approved_runtime_callbacks": [],
   "compatibility_adapters": [],
   "summary": {
-    "frontend_page_route_registrations": 132,
-    "frontend_page_route_shapes": 112,
+    "frontend_page_route_registrations": 133,
+    "frontend_page_route_shapes": 113,
     "v1_api_reads": 0,
     "v1_write_routes": 0,
     "v1_write_route_shapes": 0,

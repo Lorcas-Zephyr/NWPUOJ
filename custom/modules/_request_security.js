@@ -4,6 +4,9 @@ const apiV2Helpers = require('../libs/api-v2');
 const v2RouteEnforcement = require('../libs/v2-route-enforcement');
 app.use(require('../libs/request-read-cache').middleware);
 
+// Install before every domain route; the auth service is initialized before requests arrive.
+app.use((req, res, next) => syzoj.utils.enforceAccountBans ? syzoj.utils.enforceAccountBans(req, res, next) : next());
+
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const SESSION_MAX_AGE = 12 * 60 * 60 * 1000;
 const REMEMBERED_SESSION_MAX_AGE = 30 * 24 * 60 * 60 * 1000;

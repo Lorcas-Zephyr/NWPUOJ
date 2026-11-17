@@ -645,3 +645,14 @@ POST /api/v2/activities/:id/registrations/:registrationId/review
 ```
 
 具体状态、表单和并发约束见 [活动报名维护说明](docs/activities.md)。
+
+### Account and IP bans
+
+Only global site administrators and the owner can manage bans. Profile controls select an account or a recorded login IP; `/admin/bans` supports search, pagination, timed/permanent records, append and revoke. Each record remains independently effective until expiry or revocation; removing one does not remove others. Writes and their audits commit together. Account/normalized-IP bans reject login with the expiry and the legal contact email. Both invalidate existing sessions, including sessions whose login IP differs from their current IP; expired/lifted records still revoke sessions older than their creation. New sessions after unban are allowed.
+
+```text
+GET /api/v2/admin/bans
+GET /api/v2/admin/bans/users/:id
+POST /api/v2/admin/bans
+DELETE /api/v2/admin/bans/:id
+```

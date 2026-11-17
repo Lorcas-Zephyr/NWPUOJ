@@ -148,6 +148,8 @@ function catalogGroup(status, message, codes) {
 
 const ERROR_CATALOG = Object.freeze(Object.assign(
   {},
+  catalogGroup(404, 'Ban record was not found.', ['BAN_NOT_FOUND']),
+  catalogGroup(503, 'Ban management is temporarily unavailable.', ['BAN_SERVICE_UNAVAILABLE']),
   catalogGroup(409, 'Base problem migration failed.', ['BASE_MIGRATION_FAILED']),
   catalogGroup(422, 'Only base problems may be migrated.', ['BASE_PROBLEM_REQUIRED']),
   catalogGroup(400, 'The request is invalid.', [
@@ -158,7 +160,7 @@ const ERROR_CATALOG = Object.freeze(Object.assign(
     'INVALID_CREDENTIALS'
   ]),
   catalogGroup(403, 'You do not have permission to access this resource.', [
-    'ACCOUNT_DISABLED', 'ADMIN_USER_TAG_PROTECTED', 'ATTACHMENT_FORBIDDEN', 'CLIPBOARD_FORBIDDEN', 'CONTEST_FORBIDDEN',
+    'ACCOUNT_DISABLED', 'ACCOUNT_BANNED', 'IP_BANNED', 'SESSION_REVOKED', 'ADMIN_USER_TAG_PROTECTED', 'ATTACHMENT_FORBIDDEN', 'CLIPBOARD_FORBIDDEN', 'CONTEST_FORBIDDEN',
     'CONTEST_PARTICIPATION_REQUIRED', 'DISCUSSION_FORBIDDEN', 'HIT_HISTORY_PRIVATE', 'JOB_FORBIDDEN', 'MESSAGE_FORBIDDEN',
     'OPERATION_FORBIDDEN', 'OWNER_ACCOUNT_PROTECTED', 'PROBLEM_FORBIDDEN',
     'SELF_ACCOUNT_STATUS_FORBIDDEN', 'SELF_USER_TAG_DISABLE_FORBIDDEN', 'SOLUTION_FORBIDDEN', 'STANDINGS_HIDDEN', 'TEMPORARY_CONTEST_SCOPE',

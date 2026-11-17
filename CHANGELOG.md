@@ -25,6 +25,9 @@
 
 ### Added
 
+- Global administrators can manage permanent or timed account/IP bans from user profiles
+  and a searchable administration page. Bans reject sign-ins with expiry and appeal contact,
+  revoke existing sessions, support additional records and individual cancellation, and retain audits.
 - Activity registration automatically includes the account email in private identity details,
   organizer searches and CSV exports, with account-email fallback for older registrations.
 - Activity lists and overview details show the number of registered people, including

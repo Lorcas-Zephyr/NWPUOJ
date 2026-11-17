@@ -21,7 +21,7 @@ function createHarness(sources, Clock = Date) {
   const vm = require('node:vm');
   const middlewares = [], routes = {}, utils = {};
   const context = vm.createContext({
-    Date: Clock, URL, Buffer, process: { env: {} },
+    Date: Clock, URL, Buffer, process: { env: {} }, normalizeBanIp: value => value || null,
     app: { use: fn => middlewares.push(fn), get() {}, post: (url, fn) => { routes[url] = fn; } },
     syzoj: { utils },
     require(name) {
@@ -35,7 +35,7 @@ function createHarness(sources, Clock = Date) {
   utils.apiV2 = { send: (res, data) => res.json(data) };
   utils.authorizationV2 = { recordAudit: async () => {} };
   utils.clearLegacyLoginCookie = (req, res) => res.clearCookie('login', utils.secureCookieOptions(req));
-  return { utils, routes, middleware: middlewares[1], establish: context.establishAuthenticatedSession };
+  return { utils, routes, middleware: middlewares.find(fn => String(fn).includes("applySessionCookiePolicy(req)")), establish: context.establishAuthenticatedSession };
 }
 
 test('cookie policy extends only opted-in authenticated sessions and keeps secure flags', () => {
@@ -65,7 +65,7 @@ test('cookie policy extends only opted-in authenticated sessions and keeps secur
 test('regeneration sets lifetime immediately, rotates CSRF, and preserves only same-user choices', async () => {
   let now = 1000000, rotations = 0;
   const h = createHarness(sources, class extends Date { static now() { return now; } });
-  const req = { secure: true };
+  const req = { secure: true, ip: '192.0.2.4' };
   function freshSession() {
     return { cookie: {}, regenerate(callback) { rotations++; req.session = freshSession(); callback(); } };
   }
@@ -76,6 +76,7 @@ test('regeneration sets lifetime immediately, rotates CSRF, and preserves only s
   assert.equal(req.session.cookie.secure, true);
   assert.notEqual(req.session.globalCsrfToken, 'before-login');
   assert.equal(req.session.apiV2AuthenticatedAt, now);
+  assert.equal(req.session.authenticatedIp, '192.0.2.4');
   const token = req.session.globalCsrfToken;
   now += DAY;
   h.utils.applySessionCookiePolicy(req);

@@ -132,6 +132,16 @@ app.post('/api/v2/auth/login', async (req, res) => {
   const password = String(req.body && req.body.password || '');
   const rememberMe = req.body && req.body.remember_me;
   const key = loginKey(req, username);
+  try {
+    const ipBan = syzoj.utils.findActiveIpBan && await syzoj.utils.findActiveIpBan(req.ip);
+    if (ipBan) return api().fail(res, 403, 'IP_BANNED', syzoj.utils.accountBanLoginMessage('ip', ipBan), {
+      expires_at: ipBan.expires_at || null,
+      appeal_email: syzoj.utils.accountBanAppealEmail || null
+    });
+  } catch (error) {
+    syzoj.log('[identity-v2] IP ban check failed: ' + (error.stack || error.message));
+    return api().fail(res, 503, 'AUTHENTICATION_UNAVAILABLE', 'Sign-in is temporarily unavailable.');
+  }
   if (!username || !password) return api().fail(res, 422, 'VALIDATION_FAILED', 'An account identifier and password are required.', { username: !username ? 'required' : undefined, password: !password ? 'required' : undefined });
   if (rememberMe !== undefined && typeof rememberMe !== 'boolean') return api().fail(res, 422, 'VALIDATION_FAILED', 'Remember me must be a boolean.', { remember_me: 'boolean_required' });
   if (loginBlocked(key)) return api().fail(res, 429, 'LOGIN_RATE_LIMITED', 'Too many failed sign-in attempts. Try again later.');
@@ -144,6 +154,12 @@ app.post('/api/v2/auth/login', async (req, res) => {
       recordFailure(throttleKey);
       return api().fail(res, 401, 'INVALID_CREDENTIALS', 'The account identifier or password is incorrect.');
     }
+    const accountBan = syzoj.utils.findActiveAccountBan && await syzoj.utils.findActiveAccountBan(user.id);
+    if (accountBan) return api().fail(res, 403, 'ACCOUNT_BANNED', syzoj.utils.accountBanLoginMessage('account', accountBan), {
+      user_id: Number(user.id),
+      expires_at: accountBan.expires_at || null,
+      appeal_email: syzoj.utils.accountBanAppealEmail || null
+    });
     if (syzoj.utils.isUserAccountActive && !await syzoj.utils.isUserAccountActive(user.id)) {
       return api().fail(res, 403, 'ACCOUNT_DISABLED', 'This account has been disabled. Contact an administrator.');
     }
