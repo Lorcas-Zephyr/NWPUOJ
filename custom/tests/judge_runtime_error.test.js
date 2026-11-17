@@ -12,7 +12,9 @@ const TestcaseResultType = { Accepted: 1, WrongAnswer: 2, PartiallyCorrect: 3, M
   InvalidInteraction: 10, PresentationError: 11 };
 
 function loadJudge(options = {}) {
-  const calls = { diff: 0, spj: 0 };
+  const calls = { diff: 0, spj: 0, started: 0, closed: [], originalsClosed: [] };
+  let nextFd = 10, signalEof;
+  const eof = new Promise(resolve => { signalEof = resolve; });
   const userRun = { outputLimitExceeded: false,
     result: { status: SandboxStatus.OK, code: 0, time: 1000000, memory: 1024 }, ...options.run };
   const files = new Map([['answer', options.fixedGroup ? 'NOJ_FIXED_GROUP_V1 fixture' : 'answer']]);
@@ -20,7 +22,7 @@ function loadJudge(options = {}) {
     path, util: require('node:util'),
     randomstring: { generate: () => 'fixture' },
     winston: { debug() {}, verbose() {} },
-    syspipe: { pipe: () => ({ read: 10, write: 11 }) },
+    syspipe: { pipe: () => ({ read: nextFd++, write: nextFd++ }) },
     'simple-sandbox/lib/interfaces': { SandboxStatus },
     '../interfaces': { TestcaseResultType },
     './config': { globalConfig: { workingDirectory: '/work', testDataDirectory: '/testdata' } },
@@ -30,7 +32,13 @@ function loadJudge(options = {}) {
       tryReadFile: async name => path.basename(name) === 'score.txt' ? '100' : files.get(path.basename(name))
     },
     'fs-extra': {
-      copy: async () => {}, close: async () => {}, writeFile: async () => {},
+      openSync: () => nextFd++, closeSync: fd => { calls.originalsClosed.push(fd); },
+      copy: async () => {}, close: async fd => {
+        if (options.waitForEof) assert.equal(calls.started, 2, 'both programs inherit their descriptors before the parent closes them');
+        assert.ok(!calls.closed.includes(fd), 'a descriptor must not be closed twice');
+        calls.closed.push(fd);
+        if (calls.closed.includes(13) && calls.closed.includes(17)) signalEof();
+      }, writeFile: async () => {},
       move: async () => {
         if (options.missingOutput) throw Object.assign(new Error('Missing output'), { code: 'ENOENT' });
       }
@@ -39,10 +47,12 @@ function loadJudge(options = {}) {
     './executable': { fetchBinary: async name => [name, { name }, 'source'] },
     './run': {
       runProgram: async (_language, binary) => {
+        calls.started++;
         if (binary !== 'user') calls.spj++;
-        return [Promise.resolve(binary === 'user' ? userRun : {
+        const result = binary === 'user' ? userRun : {
           outputLimitExceeded: false, result: { status: SandboxStatus.OK, code: 0 }
-        }), () => {}];
+        };
+        return [options.waitForEof && binary !== 'user' ? eof.then(() => result) : Promise.resolve(result), () => {}];
       },
       runDiff: async () => { calls.diff++; return { pass: options.pass !== false, message: 'diff' }; }
     }
@@ -122,5 +132,15 @@ test('interaction preserves acceptance and interactor cancellation handling', as
   for (const status of [SandboxStatus.OK, SandboxStatus.Cancelled]) {
     const { judge, task } = loadJudge({ run: { result: { status, code: 0, time: 1000000, memory: 1024 } } });
     assert.equal((await judge.judgeInteraction(task)).result, TestcaseResultType.Accepted);
+  }
+});
+
+test('ordinary interactors can wait for contestant EOF with or without an answer file', { timeout: 1000 }, async () => {
+  for (const answerData of ['answer', null]) {
+    const { judge, task, calls } = loadJudge({ waitForEof: true });
+    task.answerData = answerData;
+    assert.equal((await judge.judgeInteraction(task)).result, TestcaseResultType.Accepted);
+    assert.deepEqual(calls.closed.sort((a,b) => a-b), [12,13,16,17]);
+    assert.deepEqual(calls.originalsClosed, [10,11,14,15]);
   }
 });

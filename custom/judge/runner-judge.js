@@ -228,6 +228,26 @@ async function judgeStandard(task) {
     }
 }
 exports.judgeStandard = judgeStandard;
+function createInteractionPipe() {
+    // syspipe does not set FD_CLOEXEC. Reopening through Node gives both ends
+    // close-on-exec, so sandboxed programs only retain their dup2'ed stdin/out.
+    const original = syspipe.pipe();
+    const pipe = {};
+    try {
+        pipe.read = fse.openSync(`/proc/self/fd/${original.read}`, 'r');
+        pipe.write = fse.openSync(`/proc/self/fd/${original.write}`, 'w');
+        return pipe;
+    }
+    catch (error) {
+        if (pipe.read !== undefined) fse.closeSync(pipe.read);
+        if (pipe.write !== undefined) fse.closeSync(pipe.write);
+        throw error;
+    }
+    finally {
+        fse.closeSync(original.read);
+        fse.closeSync(original.write);
+    }
+}
 async function judgeInteraction(task) {
     let pipe1 = null, pipe2 = null;
     try {
@@ -250,20 +270,17 @@ async function judgeInteraction(task) {
         winston.debug("Fetching interactor binary...");
         const [interactorBinaryDirectory, interactorLanguage] = await executable_1.fetchBinary(task.interactorExecutableName);
         await fse.writeFile(pathLib.join(spjWorkingDir, 'code'), userCode);
-        pipe1 = syspipe.pipe(),
-            pipe2 = syspipe.pipe();
+        pipe1 = createInteractionPipe();
+        pipe2 = createInteractionPipe();
         const [userProgramTaskPromise, stopUser] = await run_1.runProgram(userLanguage, userBinaryDirectory, workingDir, task.time, task.memory * 1024 * 1024, pipe1.read, pipe2.write, tempErrFile);
         const [interactorTaskPromise] = await run_1.runProgram(interactorLanguage, interactorBinaryDirectory, spjWorkingDir, task.time * 2, task.memory * 1024 * 1024, pipe2.read, pipe1.write, tempErrFile);
-        // Fixed-group interactors validate contestant EOF. Keeping parent-side
-        // writers open prevents EOF even after the contestant has exited.
-        const fixedGroup = answerFilePath != null && /^NOJ_FIXED_GROUP_V1 /.test(await utils_2.tryReadFile(answerFilePath));
-        if (fixedGroup) {
-            for (const p of [pipe1, pipe2]) {
-                await fse.close(p.read);
-                await fse.close(p.write);
-            }
-            pipe1 = pipe2 = null;
+        // Both sandboxes have inherited their pipe ends. Parent copies must
+        // close for either program to observe EOF when its peer exits.
+        for (const p of [pipe1, pipe2]) {
+            await fse.close(p.read);
+            await fse.close(p.write);
         }
+        pipe1 = pipe2 = null;
         const [interactorResult, runResult] = await Promise.all([interactorTaskPromise
                 .then((result) => { stopUser(); return result; }, (err) => { stopUser(); return Promise.reject(err); }), userProgramTaskPromise]);
         const time = Math.round(runResult.result.time / 1e6), memory = runResult.result.memory / 1024;
