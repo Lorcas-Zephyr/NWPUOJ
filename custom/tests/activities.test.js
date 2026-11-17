@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { settings, schema, answers, open, version, exportCsv } = require('../libs/activities');
+const { settings, schema, answers, open, version, exportCsv, returnMailMessage } = require('../libs/activities');
 const auth = require('../libs/authorization-v2');
 const field = { id: 'f_phone', label: '联系方式', type: 'text', required: true, options: [] };
 const config = { title: '校赛报名', description: '', location: '', mode: 'individual', status: 'published', opens_at: 100, closes_at: 200, fields: [field], require_review: true };
@@ -48,4 +48,21 @@ test('CSV escapes formula injection, preserves student identifiers and multiline
   assert.match(output, /"学院","邮箱","联系方式"/);
   assert.match(output, /"计算机学院","person@example.test","line1/);
   assert.match(output, /"line1\nline2"/);
+});
+
+test('return email uses the approved copy, Beijing deadline, escaped content and a direct registration link', () => {
+  const mail = returnMailMessage({ id: 12, title: '<校赛>\r\n报名', closes_at: Date.parse('2026-11-18T00:59:00+08:00') },
+    { review_note: '请核对 <img src=x onerror=alert(1)>\n补全姓名 & 学号' }, { username: '<someone>', email: ' person@example.test ' }, 'https://noj.nwpu.edu.cn');
+  assert.deepEqual(mail.to, { address: 'person@example.test' });
+  assert.match(mail.subject, /^【NWPUOJ】「.*」报名退回通知$/);
+  assert.ok(!/[\r\n]/.test(mail.subject));
+  assert.match(mail.html, /&lt;someone&gt;，您好/);
+  assert.ok(!mail.html.includes('<img'));
+  assert.match(mail.html, /&lt;img src=x onerror=alert\(1\)&gt;<br>补全姓名 &amp; 学号/);
+  assert.match(mail.html, /2026\/11\/18 00:59（北京时间）/);
+  assert.match(mail.html, /href="https:\/\/noj\.nwpu\.edu\.cn\/activities\/12\?tab=mine"/);
+  assert.match(mail.text, /退回原因：\n请核对/);
+  assert.match(mail.text, /在「我的报名」中查看并修改信息/);
+  assert.match(mail.text, /NWPUOJ 活动管理团队$/);
+  assert.throws(() => returnMailMessage({ id: 12 }, {}, {}, 'javascript:alert(1)'));
 });

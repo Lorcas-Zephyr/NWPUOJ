@@ -13,15 +13,16 @@ function mailConfiguration() {
   };
 }
 
-async function sendSiteMail(message) {
+async function sendSiteMail(message, timeouts = {}) {
   const configuration = mailConfiguration();
   const fromName = String(process.env.SYZOJ_WEB_SMTP_FROM_NAME || syzoj.config.title || 'Online Judge');
-  const transporter = nodemailer.createTransport(configuration);
+  const transporter = nodemailer.createTransport({ ...configuration, ...timeouts });
   return transporter.sendMail({
     from: `"${fromName.replace(/["\r\n]/g, '')}" <${configuration.auth.user}>`,
     to: message.to,
     subject: message.subject,
-    html: message.html
+    html: message.html,
+    text: message.text
   });
 }
 

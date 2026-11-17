@@ -458,7 +458,19 @@
     }
     if (form.matches('[data-list-search]')) return work(function () { return loadList(1); });
     if (form.matches('[data-roster-search]')) return work(function () { return loadRoster(1); });
-    if (form.matches('[data-review-id]')) return work(async function () { var data = Object.fromEntries(new FormData(form)); data.revision = Number(form.dataset.reviewRevision); await request(api + '/registrations/' + form.dataset.reviewId + '/review', 'POST', data); if (event.submitter && event.submitter.name === 'next') { $('[data-roster-search]').elements.status.value = 'pending'; $('[data-roster-search]').elements.sort.value = 'review'; await loadRoster(1, null, true); } else await loadRoster(rosterPage, Number(form.dataset.reviewId)); }, '审核结果已保存。');
+    if (form.matches('[data-review-id]')) return work(async function () {
+      var data = Object.fromEntries(new FormData(form)); data.revision = Number(form.dataset.reviewRevision);
+      var result = await request(api + '/registrations/' + form.dataset.reviewId + '/review', 'POST', data);
+      if (event.submitter && event.submitter.name === 'next') { $('[data-roster-search]').elements.status.value = 'pending'; $('[data-roster-search]').elements.sort.value = 'review'; await loadRoster(1, null, true); }
+      else await loadRoster(rosterPage, Number(form.dataset.reviewId));
+      var email = result.email;
+      if (!email) return message('审核结果已保存。');
+      var details = [];
+      if (email.sent) details.push('已发送 ' + email.sent + ' 封退回邮件');
+      if (email.failed) details.push(email.failed + ' 封邮件发送失败');
+      if (email.missing) details.push(email.missing + ' 人邮箱缺失或无效');
+      message('报名已退回。' + details.join('，') + (details.length ? '。' : ''), !!(email.failed || email.missing));
+    });
   });
   window.addEventListener('beforeunload', function (event) { if (configDirty || mineDirty) { event.preventDefault(); event.returnValue = ''; } });
   work(async function () {

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-17T04:05:55.890Z",
+  "generated_at": "2026-11-17T13:45:54.977Z",
   "frontend_page_routes": [
     {
       "method": "GET",
@@ -23,19 +23,19 @@
       "method": "GET",
       "route": "/activities",
       "source": "custom/modules/_activities.js",
-      "line": 49
+      "line": 53
     },
     {
       "method": "GET",
       "route": "/activities/new",
       "source": "custom/modules/_activities.js",
-      "line": 50
+      "line": 54
     },
     {
       "method": "GET",
       "route": "/activities/:id",
       "source": "custom/modules/_activities.js",
-      "line": 51
+      "line": 55
     },
     {
       "method": "GET",

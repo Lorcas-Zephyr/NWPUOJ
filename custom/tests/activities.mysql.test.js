@@ -18,10 +18,22 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
     const pattern = new RegExp('\\b(' + names.join('|') + ')\\b', 'g');
     const wrap = db => ({ query: (sql, args) => db.query(sql.replace(pattern, name => prefix + name), args), transaction: fn => connection.transaction(manager => fn(wrap(manager))) });
     const db = wrap(connection);
-    const library = { exports: {} }; vm.runInNewContext(input.library, { module: library, exports: library.exports, require, Buffer, Date });
-    let clock = 1000, denied = false, rejectAudit = false, rejectNotification = false;
+    const library = { exports: {} }; vm.runInNewContext(input.library, { module: library, exports: library.exports, require, Buffer, Date, URL });
+    let clock = 1000, denied = false, rejectAudit = false, rejectNotification = false, rejectMail = false, refuseMail = false;
+    const mails = [], mailErrors = [];
     const admin = { id: 99 }, u = id => ({ id });
     const service = library.exports.createService({ connection: () => db, now: () => clock, authorize: async user => user.id === 99 && !denied,
+      publicBaseUrl: () => 'https://noj.example.test',
+      reportMailError: (error, ids) => mailErrors.push({ error, ids }),
+      sendMail: async mail => {
+        const activityId = Number(mail.text.match(/\/activities\/(\d+)\?tab=mine/)[1]);
+        const committed = await db.query('SELECT status FROM activity_registration WHERE activity_id=? ORDER BY id DESC LIMIT 1', [activityId]);
+        assert.equal(committed[0].status, 'returned', 'another connection sees the committed return before SMTP');
+        if (rejectMail) throw new Error('smtp-failure');
+        if (refuseMail) return { accepted: [], rejected: [mail.to.address] };
+        mails.push(mail);
+        return { accepted: [mail.to.address], rejected: [] };
+      },
       notify: (manager, notification) => library.exports.deliverNotification(manager, notification, async (transaction, event) => {
         await transaction.query('INSERT INTO notification_event_fixture(stream,payload_json) VALUES(?,?)', [event.stream, JSON.stringify(event.payload)]);
         if (rejectNotification) throw new Error('notification-failure');
@@ -245,7 +257,21 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
       assert.match((await notices(alerts)).at(-1).title, /审核通过/);
       await reviewAlert('approved');
       assert.equal((await notices(alerts)).length, 2, 'unchanged reviews do not notify twice');
-      await reviewAlert('returned', '请补全资料');
+      assert.equal(mails.length, 0, 'registration, approval and reads never send return mail');
+      rejectAudit = true;
+      await fail(reviewAlert('returned', '请补全资料'), /audit-failure/);
+      rejectAudit = false; rejectNotification = true;
+      await fail(reviewAlert('returned', '请补全资料'), /notification-failure/);
+      rejectNotification = false;
+      assert.equal(mails.length, 0, 'rolled-back returns never send mail');
+      const mailResult = await reviewAlert('returned', '请补全资料');
+      assert.equal(mailResult.email.sent, 1);
+      assert.equal(mails.length, 1);
+      assert.equal(mails[0].to.address, 'updated1@example.test');
+      assert.match(mails[0].text, /请补全资料/);
+      assert.ok(!mails[0].text.includes('private answer'), 'private answers are not included in mail');
+      await fail(service.review(alerts, (await mine(alerts, u(1))).id, admin, {revision:1,status:'returned',note:'stale'}), /更新/);
+      assert.equal(mails.length, 1, 'replayed requests cannot send a second email');
       assert.match((await notices(alerts)).at(-1).content, /请补全资料/);
       await reviewAlert('rejected', '不符合报名条件');
       assert.match((await notices(alerts)).at(-1).title, /退回修改/);
@@ -256,6 +282,22 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
       assert.equal((await mine(alerts, u(1))).status, 'returned', 'notification failure rolls back review');
       assert.equal((await notices(alerts)).length, 4, 'failed delivery leaves no phantom notification');
       assert.ok(!(await notices(alerts)).some(n => n.content.includes('private answer')));
+      await reviewAlert('returned', '不符合报名条件');
+      assert.equal(mails.length, 3, 'each successful explicit return sends mail even when the note is unchanged');
+      assert.equal((await notices(alerts)).length, 4);
+      rejectMail = true;
+      const smtpFailure = await reviewAlert('returned', '邮件故障仍然退回');
+      rejectMail = false;
+      assert.equal(smtpFailure.email.failed, 1);
+      assert.equal((await mine(alerts, u(1))).review_note, '邮件故障仍然退回');
+      assert.equal(mailErrors.at(-1).ids.userId, 1);
+      assert.equal((await notices(alerts)).length, 5, 'SMTP failure preserves the committed system notification');
+      refuseMail = true;
+      assert.equal((await reviewAlert('returned', '邮件服务器拒收')).email.failed, 1);
+      refuseMail = false;
+      await db.query('UPDATE user SET email=NULL WHERE id=1');
+      assert.equal((await reviewAlert('returned', '缺少邮箱')).email.missing, 1);
+      await db.query("UPDATE user SET email='updated1@example.test' WHERE id=1");
       const legacy = (await service.create(admin, config)).id;
       await service.start(legacy, u(1), {submit:true, answers:{f_phone:'old answer'}});
       await service.start(legacy, u(2), {submit:true, answers:{f_phone:'another answer'}});
@@ -318,6 +360,16 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
       notifications = await notices(teamAlerts);
       assert.deepEqual(notifications.filter(n => /审核通过/.test(n.title)).map(n => n.recipient_id), [1,2], 'all confirmed team members receive the result');
       assert.equal(notifications.filter(n => /等待审核/.test(n.title)).length, 2);
+      const teamMailCount = mails.length;
+      const approvedTeam = await mine(teamAlerts, u(1));
+      const teamReturns = await Promise.allSettled([
+        service.review(teamAlerts, approvedTeam.id, admin, {revision:approvedTeam.revision,status:'returned',note:'核对队伍资料'}),
+        service.review(teamAlerts, approvedTeam.id, admin, {revision:approvedTeam.revision,status:'returned',note:'核对队伍资料'})
+      ]);
+      assert.equal(teamReturns.filter(r => r.status === 'fulfilled').length, 1);
+      assert.equal(mails.length, teamMailCount + 2, 'concurrent duplicate return sends once per current team member');
+      assert.deepEqual(mails.slice(teamMailCount).map(m => m.to.address).sort(), ['person2@example.test', 'updated1@example.test']);
+      assert.ok(mails.slice(teamMailCount).every(m => !m.text.includes('private') && !Array.isArray(m.to)), 'team mail is delivered separately without exposing other addresses or answers');
       const eventCount = await db.query('SELECT COUNT(*) AS n FROM notification_event_fixture');
       const notificationCount = await db.query('SELECT COUNT(*) AS n FROM notification');
       assert.equal(Number(eventCount[0].n), Number(notificationCount[0].n), 'every committed notification has one stream event');

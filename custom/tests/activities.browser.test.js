@@ -27,7 +27,7 @@ async function fixture(mode = 'detail', tab = 'mine', manager = true, configure 
   const page = await context.newPage(), failures = [], writes = [];
   const data = payload(); data.can_manage = manager; configure(data);
   const roster = [{ id: 4, leader_id: 1, team_name: '<img src=x onerror=alert(1)>', status: 'pending', revision: 7, submitted_at: Date.now(), review_note: '', members: [{ ...data.identity, answers: { f_phone: '123' } }, {user_id: 2, username: 'member', real_name: '队员', student_id: '2026000002', college: '软件学院', email: 'member@example.test', answers: {f_phone: '<b>456</b>'}}] }, {id: 5, leader_id: 3, team_name: '追光队', status: 'pending', revision: 2, submitted_at: Date.now(), review_note: '', members: [{user_id: 3, username: 'third', real_name: '张同学', student_id: '2026000003', college: '计算机学院', answers: {f_phone: '789'}}]}];
-  const document = html(mode, manager); let rejectNext = false, detailDocument;
+  const document = html(mode, manager); let rejectNext = false, detailDocument, reviewEmail;
   page.on('pageerror', error => failures.push(error.message));
   await context.route('**/*', async route => {
     const req = route.request(), url = new URL(req.url());
@@ -46,7 +46,9 @@ async function fixture(mode = 'detail', tab = 'mine', manager = true, configure 
       if (url.pathname.includes('/invitations/') && body.action === 'accept') { data.mine = {id: 4, leader_id: 2, team_name: '邀请队伍', status: 'draft', revision: 3, members: [{...data.identity, answers: {}, ready: false}, {user_id: 2, username: 'leader', ready: true}], invitations: []}; data.invitations = []; }
       if (body.submit) { data.mine.members[0].answers = body.answers; data.mine.members[0].ready = true; data.mine.status = data.activity.require_review ? 'pending' : 'approved'; }
       if (body.action === 'submit') { data.mine.status = 'pending'; data.mine.revision++; }
-      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: { id: 1 } }) });
+      const result = { id: 1 };
+      if (url.pathname.endsWith('/review') && body.status === 'returned') result.email = reviewEmail || { sent: roster.find(r => r.id === Number(url.pathname.split('/').at(-2))).members.length, failed: 0, missing: 0 };
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: result }) });
     }
     if (url.pathname === '/api/v2/activities') { const items = [{...data.activity}, {...data.activity,id:2,title:'个人交流会',mode:'individual',status:'closed'}].filter(a => (url.searchParams.get('scope') !== 'mine' || a.my_status || a.invitation_count) && (!url.searchParams.get('search') || a.title.includes(url.searchParams.get('search'))) && (url.searchParams.get('scope') !== 'open' || a.status === 'published')); return route.fulfill({json:{data:{items,total:items.length,page:1,can_manage:data.can_manage,server_now:Date.now()}}}); }
     if (url.pathname.endsWith('/registrations')) {
@@ -58,7 +60,7 @@ async function fixture(mode = 'detail', tab = 'mine', manager = true, configure 
   });
   await page.goto('http://activity.test/fixture?tab=' + tab);
   if (mode === 'new') await page.locator('[data-config-step="0"]').waitFor(); else if (mode === 'list') await page.locator('.activity-list-row').first().waitFor(); else await page.locator('[data-activity-title]').filter({ hasText: '2026 校赛报名' }).waitFor();
-  return { page, context, failures, writes, data, roster, reject: () => { rejectNext = true; } };
+  return { page, context, failures, writes, data, roster, reject: () => { rejectNext = true; }, mailResult: value => { reviewEmail = value; } };
 }
 test('create form supports both registration modes, ordered fields and 24-hour hour/minute selects', async () => {
   const f = await fixture('new');
@@ -124,7 +126,7 @@ test('manager roster escapes text, reviews with the displayed revision and expor
     await f.page.locator('[data-review-id="4"] [value="returned"]').check();
     await f.page.locator('[data-review-id="4"] [name="note"]').fill('请核对联系方式');
     await f.page.locator('[data-review-id="4"] button[type="submit"]:not([name="next"])').click();
-    await f.page.locator('[data-activity-message]').filter({ hasText: '审核结果已保存' }).waitFor();
+    await f.page.locator('[data-activity-message]').filter({ hasText: '报名已退回。已发送 2 封退回邮件。' }).waitFor();
     assert.equal(f.writes[0].body.revision, 7); assert.equal(f.writes[0].body.status, 'returned');
     await f.page.locator('[data-roster-search] [name="search"]').fill('captain.registration@example.test');
     await f.page.locator('[data-roster-search] button[type="submit"]').click();
@@ -141,6 +143,23 @@ test('ordinary participants never receive management UI', async () => {
     assert.equal(await f.page.locator('[data-activity-config]').count(), 0);
     assert.equal(await f.page.locator('[data-activity-tab="roster"]').count(), 0);
     assert.ok(await f.page.locator('[data-activity-panel="intro"]').isVisible());
+  } finally { await f.context.close(); }
+});
+
+test('return mail failure is visible while the successful review and current revision are retained', async () => {
+  const f = await fixture('detail', 'roster');
+  try {
+    f.mailResult({ sent: 0, failed: 1, missing: 1 });
+    await f.page.locator('[data-roster-id="4"] summary').click();
+    await f.page.locator('[data-review-id="4"] [value="returned"]').check();
+    await f.page.locator('[data-review-id="4"] [name="note"]').fill('请补全报名资料');
+    await f.page.locator('[data-review-id="4"] button[type="submit"]:not([name="next"])').click();
+    const notice = f.page.locator('[data-activity-message].is-error');
+    await notice.filter({ hasText: '报名已退回。1 封邮件发送失败，1 人邮箱缺失或无效。' }).waitFor();
+    assert.equal(await f.page.locator('[data-review-id="4"]').getAttribute('data-review-revision'), '8');
+    assert.equal(f.roster[0].status, 'returned');
+    assert.equal(f.writes.length, 1);
+    assert.deepEqual(f.failures, []);
   } finally { await f.context.close(); }
 });
 
@@ -380,7 +399,7 @@ test('roster member selection, validation and filters preserve review drafts and
     await f.page.getByText('信息已被更新，请刷新页面后重试。').waitFor();
     assert.equal(await first.locator('[name="note"]').inputValue(), '需要补全联系方式');
     await first.locator('button[type="submit"]:not([name="next"])').click();
-    await f.page.getByText('审核结果已保存。').waitFor();
+    await f.page.getByText('报名已退回。已发送 2 封退回邮件。').waitFor();
     assert.equal(await first.getAttribute('open'), '');
     assert.equal(await first.locator('summary').evaluate(el => el === document.activeElement), true);
     assert.ok(await first.locator('[data-roster-person="2"]').isVisible());

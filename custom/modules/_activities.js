@@ -4,10 +4,14 @@ const TypeORM = require('typeorm');
 const { createService, deliverNotification, exportCsv } = require('../libs/activities');
 const { ensureRegistrationProfileSchema } = require('../libs/registration-profile-schema');
 const { appendEvent } = require('../libs/content-domain');
+const { sendSiteMail } = require('../libs/site-mail');
 const service = createService({
   connection: () => TypeORM.getConnection(),
   authorize: user => syzoj.utils.authorizationV2.authorize(user, 'activity:manage', null, { scope: 'global' }),
   notify: (db, input) => deliverNotification(db, input, appendEvent),
+  sendMail: message => sendSiteMail(message, { connectionTimeout: 10000, greetingTimeout: 10000, socketTimeout: 15000 }),
+  publicBaseUrl: req => syzoj.utils.getPublicBaseUrl(req),
+  reportMailError: (error, ids) => syzoj.log(`[activity-return-mail] activity=${ids.activityId} registration=${ids.registrationId} user=${ids.userId} code=${error.code || 'SEND_FAILED'}`),
   audit: async (db, event, req) => {
     await syzoj.utils.authorizationV2.recordAudit(req, { action: event.action, resourceType: 'activity', resourceId: event.activityId, scope: 'global', details: { registration_id: event.registrationId || null, status: event.status || null } }, db);
     await appendEvent(db, { stream: 'activities', type: event.action, aggregateId: String(event.activityId), actorId: event.actorId, payload: { registration_id: event.registrationId || null } });

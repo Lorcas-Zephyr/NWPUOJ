@@ -92,7 +92,26 @@ async function deliverNotification(db, input, publish) {
   }
 }
 
-function createService({ connection, authorize, audit = async () => {}, notify = async () => {}, now = Date.now }) {
+function returnMailMessage(activity, registration, recipient, baseUrl) {
+  const escape = value => String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  const link = new URL(`/activities/${Number(activity.id)}?tab=mine`, baseUrl);
+  if (!['https:', 'http:'].includes(link.protocol)) throw new Error('Invalid activity mail URL.');
+  const deadline = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(Number(activity.closes_at)));
+  const title = String(activity.title).replace(/[\r\n]/g, ' ');
+  return {
+    to: { address: String(recipient.email).trim() },
+    subject: `【NWPUOJ】「${title}」报名退回通知`,
+    text: `${recipient.username}，您好：\n\n您在「${activity.title}」中提交的报名已被退回，请修改报名信息后重新提交。\n\n退回原因：\n${registration.review_note}\n\n请前往活动页面，在「我的报名」中查看并修改信息，于 ${deadline}（北京时间）前重新提交。\n\n查看并修改报名：${link.href}\n\n如有疑问，请联系活动负责人。\n\nNWPUOJ 活动管理团队`,
+    html: `<p>${escape(recipient.username)}，您好：</p>` +
+      `<p>您在「${escape(activity.title)}」中提交的报名已被退回，请修改报名信息后重新提交。</p>` +
+      `<p><strong>退回原因：</strong><br>${escape(registration.review_note).replace(/\r?\n/g, '<br>')}</p>` +
+      `<p>请前往活动页面，在「我的报名」中查看并修改信息，于 <strong>${escape(deadline)}（北京时间）</strong> 前重新提交。</p>` +
+      `<p><a href="${escape(link.href)}">查看并修改报名</a></p>` +
+      '<p>如有疑问，请联系活动负责人。</p><p>NWPUOJ 活动管理团队</p>'
+  };
+}
+
+function createService({ connection, authorize, audit = async () => {}, notify = async () => {}, sendMail, publicBaseUrl = () => '', reportMailError = () => {}, now = Date.now }) {
   let schemaPromise;
   function ensureSchema() {
     if (!schemaPromise) schemaPromise = (async () => {
@@ -458,7 +477,8 @@ function createService({ connection, authorize, audit = async () => {}, notify =
   }
   async function review(id, registrationId, user, input, context) {
     await manager(user); await ensureSchema();
-    return connection().transaction(async db => {
+    let returned;
+    const result = await connection().transaction(async db => {
       const a = await get(id, db, true);
       const r = await registration(db, registrationId);
       if (Number(r.activity_id) !== Number(id)) fail('报名记录不存在。', 404);
@@ -470,9 +490,32 @@ function createService({ connection, authorize, audit = async () => {}, notify =
       r.review_note = note; r.status = status;
       await saveRegistration(db, r, 'registration.review', user, context);
       if (changed) await notifyStatus(db, a, r, true);
+      if (status === 'returned' && sendMail) {
+        const recipients = await db.query(`SELECT m.user_id,u.username,u.email FROM activity_member m
+          LEFT JOIN user u ON u.id=m.user_id WHERE m.registration_id=? ORDER BY m.user_id`, [r.id]);
+        returned = { activity: a, registration: r, recipients };
+      }
       return { id: r.id, status: r.status };
     });
+    // SMTP runs after commit, so a rolled-back review never sends a return email.
+    if (returned) {
+      const deliveries = await Promise.all(returned.recipients.map(async recipient => {
+        const email = String(recipient.email || '').trim();
+        if (!email || !/^[^\s@<>;,]+@[^\s@<>;,]+\.[^\s@<>;,]+$/.test(email)) return 'missing';
+        try {
+          const response = await sendMail(returnMailMessage(returned.activity, returned.registration, recipient, publicBaseUrl(context)));
+          if (!response || !Array.isArray(response.accepted) || !response.accepted.length) throw new Error('SMTP did not accept the recipient.');
+          return 'sent';
+        } catch (error) {
+          reportMailError(error, { activityId: Number(id), registrationId: Number(registrationId), userId: Number(recipient.user_id) });
+          return 'failed';
+        }
+      }));
+      result.email = { sent: 0, failed: 0, missing: 0 };
+      for (const delivery of deliveries) result.email[delivery]++;
+    }
+    return result;
   }
   return { ensureSchema, canManage, list, detail, create, update, copy, remove, start, change, invitation, roster, review };
 }
-module.exports = { createService, deliverNotification, settings, schema, answers, open, version, exportCsv };
+module.exports = { createService, deliverNotification, returnMailMessage, settings, schema, answers, open, version, exportCsv };
