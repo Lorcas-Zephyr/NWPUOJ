@@ -19,6 +19,7 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
     const wrap = db => ({ query: (sql, args) => db.query(sql.replace(pattern, name => prefix + name), args), transaction: fn => connection.transaction(manager => fn(wrap(manager))) });
     const db = wrap(connection);
     const library = { exports: {} }; vm.runInNewContext(input.library, { module: library, exports: library.exports, require, Buffer, Date, URL });
+    const exportXlsx = require('/app/libs/activities').exportXlsx;
     let clock = 1000, denied = false, rejectAudit = false, rejectNotification = false, rejectMail = false, refuseMail = false;
     const mails = [], mailErrors = [];
     const admin = { id: 99 }, u = id => ({ id });
@@ -42,6 +43,17 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
       if (rejectAudit) throw new Error('audit-failure');
     } });
     const fail = async (promise, expression) => assert.rejects(promise, expression);
+    const exportValues = async roster => {
+      const directory = fs.mkdtempSync(require('path').join(require('os').tmpdir(), 'noj-activity-export-'));
+      const file = require('path').join(directory, 'export.xlsx');
+      try {
+        const contents = await exportXlsx(JSON.parse(JSON.stringify(roster.activity)), JSON.parse(JSON.stringify(roster.items)));
+        assert.ok(Buffer.isBuffer(contents));
+        assert.deepEqual(Array.from(contents.subarray(0, 4)), [0x50, 0x4b, 0x03, 0x04], 'download is an XLSX ZIP archive');
+        fs.writeFileSync(file, contents);
+        return require('child_process').execFileSync('unzip', ['-p', file, 'xl/sharedStrings.xml'], { encoding: 'utf8' });
+      } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+    };
     const config = { title: 'Fixture', description: 'test', location: 'test', mode: 'individual', status: 'published', opens_at: 1000, closes_at: 2000, require_review: true, fields: [{ id: 'f_phone', label: '联系方式', type: 'text', required: true, options: [] }] };
     const mine = async (id, user) => (await service.detail(id, user)).mine;
     const checkCount = async (id, expected) => {
@@ -97,7 +109,7 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
       assert.equal((await mine(personal, u(1))).members[0].email, 'person1@example.test', 'captured email stays stable after account changes');
       const emailRoster = await service.roster(personal, admin, {search:'person1@example.test',export:true});
       assert.equal(emailRoster.total, 1);
-      assert.match(library.exports.exportCsv(emailRoster.activity, emailRoster.items), /person1@example\.test/);
+      assert.ok((await exportValues(emailRoster)).includes('person1@example.test'));
       assert.equal((await service.roster(personal, admin, {search:'updated1@example.test'})).total, 0, 'search matches the captured value');
       const visitor = await service.detail(personal, u(2)); assert.equal(visitor.mine, null);
       assert.ok(!JSON.stringify(visitor).includes('456'));
@@ -307,7 +319,7 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
       const legacyEmailRoster = await service.roster(legacy, admin, {search:'updated1@example.test',export:true});
       assert.equal(legacyEmailRoster.total, 1, 'legacy fallback email is searchable');
       assert.equal(legacyEmailRoster.items[0].members[0].email, 'updated1@example.test');
-      assert.match(library.exports.exportCsv(legacyEmailRoster.activity, legacyEmailRoster.items), /updated1@example\.test/);
+      assert.ok((await exportValues(legacyEmailRoster)).includes('updated1@example.test'));
       const legacyStored = await db.query('SELECT snapshot_json FROM activity_registration WHERE activity_id=? AND leader_id=1', [legacy]);
       assert.equal(JSON.parse(legacyStored[0].snapshot_json)[0].email, undefined, 'reading does not rewrite historical snapshots');
       await db.query("UPDATE activity_registration SET status=IF(leader_id=1,'rejected','returned'),review_note='请核对资料' WHERE activity_id=?", [legacy]);
@@ -318,7 +330,7 @@ test('personal/team lifecycle, authorization, privacy, rollback and concurrent j
       assert.equal(merged.total, 2); assert.equal(merged.summary.returned, 2);
       assert.ok(merged.items.every(r => r.status === 'returned' && r.review_note === '请核对资料'));
       assert.equal((await service.roster(legacy, admin, {status:'rejected'})).total, 2, 'older filters resolve to the merged state');
-      assert.ok(!library.exports.exportCsv(merged.activity, merged.items).includes('rejected'));
+      assert.ok(!(await exportValues(merged)).includes('rejected'));
       const legacyRecord = await mine(legacy, u(1));
       await fail(service.review(legacy, legacyRecord.id, admin, {revision:legacyRecord.revision,status:'rejected',note:''}), /审核说明/);
       await change(legacy, u(1), 'submit', {answers:{f_phone:'corrected answer'}});

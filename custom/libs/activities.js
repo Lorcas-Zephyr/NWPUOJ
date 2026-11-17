@@ -69,16 +69,31 @@ function version(current, value) {
 }
 function decodeActivity(row) { return row && { ...row, fields: JSON.parse(row.fields_json), require_review: !!row.require_review }; }
 function decodeMember(row) { return { user_id: Number(row.user_id), ...JSON.parse(row.identity_json), answers: JSON.parse(row.answers_json), ready: !!row.ready }; }
-function csvCell(value) {
-  let s = String(value == null ? '' : value);
-  if (/^\s*[=+\-@\t\r]/.test(s) || /^0\d+$/.test(s) || /^\d{10,}$/.test(s)) s = "'" + s;
-  return '"' + s.replace(/"/g, '""') + '"';
-}
-function exportCsv(activity, items) {
+async function exportXlsx(activity, items) {
+  const ExcelJS = require('exceljs');
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('报名信息', { views: [{ state: 'frozen', ySplit: 1 }] });
   const header = ['报名编号', '队名', '状态', '审核说明', '提交时间', '队长', '用户名', '姓名', '学号', '学院', '邮箱', ...activity.fields.map(f => f.label)];
-  const rows = [header];
-  for (const item of items) for (const member of item.members) rows.push([item.id, item.team_name, item.status, item.review_note, item.submitted_at ? new Date(Number(item.submitted_at)).toISOString() : '', Number(item.leader_id) === member.user_id ? '是' : '否', member.username, member.real_name, member.student_id, member.college, member.email, ...activity.fields.map(f => Array.isArray(member.answers[f.id]) ? member.answers[f.id].join('；') : member.answers[f.id])]);
-  return '\uFEFF' + rows.map(row => row.map(csvCell).join(',')).join('\r\n') + '\r\n';
+  sheet.addRow(header);
+  for (const item of items) for (const member of item.members) {
+    const values = [item.team_name, item.status, item.review_note, item.submitted_at ? new Date(Number(item.submitted_at)).toISOString() : '', Number(item.leader_id) === Number(member.user_id) ? '是' : '否', member.username, member.real_name, member.student_id, member.college, member.email, ...activity.fields.map(f => Array.isArray(member.answers[f.id]) ? member.answers[f.id].join('；') : member.answers[f.id])];
+    // String cells preserve identifiers and never interpret user input as formulas.
+    sheet.addRow([Number(item.id), ...values.map(value => String(value == null ? '' : value))]);
+  }
+  sheet.columns.forEach((column, index) => {
+    column.numFmt = index === 0 ? '0' : '@';
+    let width = 10;
+    column.eachCell(cell => {
+      for (const line of String(cell.value == null ? '' : cell.value).split(/\r?\n/)) {
+        width = Math.max(width, Array.from(line).reduce((sum, ch) => sum + (ch.codePointAt(0) > 255 ? 2 : 1), 0) + 2);
+      }
+    });
+    column.width = Math.min(width, 42);
+    column.alignment = { vertical: 'top', wrapText: true };
+  });
+  sheet.getRow(1).font = { bold: true };
+  sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: Math.max(sheet.rowCount, 1), column: header.length } };
+  return workbook.xlsx.writeBuffer();
 }
 
 async function deliverNotification(db, input, publish) {
@@ -518,4 +533,4 @@ function createService({ connection, authorize, audit = async () => {}, notify =
   }
   return { ensureSchema, canManage, list, detail, create, update, copy, remove, start, change, invitation, roster, review };
 }
-module.exports = { createService, deliverNotification, returnMailMessage, settings, schema, answers, open, version, exportCsv };
+module.exports = { createService, deliverNotification, returnMailMessage, settings, schema, answers, open, version, exportXlsx };

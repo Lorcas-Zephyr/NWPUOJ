@@ -1,7 +1,7 @@
 'use strict';
 
 const TypeORM = require('typeorm');
-const { createService, deliverNotification, exportCsv } = require('../libs/activities');
+const { createService, deliverNotification, exportXlsx } = require('../libs/activities');
 const { ensureRegistrationProfileSchema } = require('../libs/registration-profile-schema');
 const { appendEvent } = require('../libs/content-domain');
 const { sendSiteMail } = require('../libs/site-mail');
@@ -70,8 +70,9 @@ app.get('/api/v2/activities/:id/registrations', endpoint((req, res, user) => ser
 app.get('/api/v2/activities/:id/registrations/export', endpoint(async (req, res, user) => {
   const data = await service.roster(activityId(req), user, { ...req.query, export: true });
   await syzoj.utils.authorizationV2.recordAudit(req, { action: 'activity:registration.export', resourceType: 'activity', resourceId: activityId(req), details: { count: data.total } });
-  res.set('Content-Type', 'text/csv; charset=utf-8');
-  res.set('Content-Disposition', `attachment; filename="activity-${activityId(req)}.csv"`);
-  res.send(exportCsv(data.activity, data.items));
+  const file = await exportXlsx(data.activity, data.items);
+  res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.set('Content-Disposition', `attachment; filename="activity-${activityId(req)}.xlsx"`);
+  res.send(file);
 }));
 app.post('/api/v2/activities/:id/registrations/:registrationId/review', endpoint((req, res, user) => service.review(activityId(req), Number(req.params.registrationId), user, req.body, req)));

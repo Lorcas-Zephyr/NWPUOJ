@@ -120,6 +120,7 @@ test('team captain creates, saves, invites and sees stale-version errors without
 test('manager roster escapes text, reviews with the displayed revision and exports filtered results', async () => {
   const f = await fixture('detail', 'roster');
   try {
+    assert.equal(await f.page.locator('[data-roster-export]').textContent(), '导出 Excel');
     await f.page.locator('[data-roster-id="4"] summary').click();
     assert.equal(await f.page.locator('.activity-registration img').count(), 0);
     assert.equal(await f.page.locator('[data-roster-person="1"] .activity-identity-email dd').textContent(), f.data.identity.email);
