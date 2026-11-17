@@ -137,6 +137,32 @@ test('request body sizing and fixed-window limits are deterministic', () => {
   assert.equal(api.consumeFixedWindow(buckets, 'member:write', 61000, 60000, 2).allowed, true);
 });
 
+test('submission routes are identified precisely and use a true rolling-window budget', () => {
+  for (const route of [
+    '/api/v2/problems/7/submissions',
+    '/problems/7/submit-answer?source=upload',
+    '/contests/8/problems/2/submissions/',
+    '/problem-sets/9/problems/3/submit-answer'
+  ]) assert.equal(api.isSubmissionCreatePath(route), true, route);
+  for (const route of [
+    '/api/v2/submissions/7/rejudge',
+    '/problems/7/judge-configuration',
+    '/problems/7/submissions/extra',
+    '/contests/8/submit'
+  ]) assert.equal(api.isSubmissionCreatePath(route), false, route);
+
+  const buckets = new Map();
+  assert.deepEqual(api.consumeSlidingWindow(buckets, 'user:7:submission', 1000, 10000, 2), {
+    allowed: true, remaining: 1, resetAt: 11000
+  });
+  assert.equal(api.consumeSlidingWindow(buckets, 'user:7:submission', 9000, 10000, 2).allowed, true);
+  const limited = api.consumeSlidingWindow(buckets, 'user:7:submission', 10001, 10000, 2);
+  assert.deepEqual(limited, { allowed: false, remaining: 0, resetAt: 11000 });
+  assert.equal(api.consumeSlidingWindow(buckets, 'user:7:submission', 11000, 10000, 2).allowed, true);
+  assert.equal(api.consumeSlidingWindow(buckets, 'user:7:submission', 11001, 10000, 2).resetAt, 19000);
+  assert.equal(api.consumeSlidingWindow(buckets, 'user:7:submission', 19000, 10000, 2).allowed, true);
+});
+
 test('gateway keeps the JSON limit while delegating known multipart uploads to route limits', () => {
   const source = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_foundation.js'), 'utf8');
   assert.match(source, /const requestPath = `\$\{req\.baseUrl \|\| ''\}\$\{req\.path \|\| ''\}` \|\| req\.originalUrl/);
@@ -206,6 +232,32 @@ test('chunk uploads cannot exhaust or increase the ordinary write allowance', ()
   now = 61000;
   assert.equal(request(complete).allowed, true);
   assert.equal(request(chunk).allowed, true);
+});
+
+test('submission gateway caps all submission entry points per account and returns retry timing', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../modules/_api_v2_foundation.js'), 'utf8');
+  let now = 1000;
+  const context = { apiHelpers: api, syzoj: { config: { limit: {} } }, Date: { now: () => now },
+    apiFail(res, status, code, message, fields) { res.status = status; res.code = code; res.message = message; res.fields = fields; } };
+  vm.runInNewContext(source.slice(source.indexOf('const rateBuckets ='), source.indexOf('function requireCapability(')), context);
+  const request = (pathname, userId = 7) => {
+    const res = { locals: { user: { id: userId } }, headers: {}, set(name, value) { this.headers[name] = value; } };
+    const allowed = context.gatewayLimits({ baseUrl: '/api/v2', path: pathname, method: 'POST', body: {},
+      get: () => '', ip: '127.0.0.1' }, res);
+    return { allowed, ...res };
+  };
+  for (let i = 0; i < 30; i++) assert.equal(request('/problems/7/submissions').allowed, true);
+  const limited = request('/problem-sets/9/problems/3/submit-answer');
+  assert.equal(limited.allowed, false);
+  assert.equal(limited.status, 429);
+  assert.equal(limited.code, 'SUBMISSION_RATE_LIMITED');
+  assert.equal(limited.headers['X-RateLimit-Limit'], '30');
+  assert.equal(limited.headers['X-RateLimit-Remaining'], '0');
+  assert.equal(limited.headers['Retry-After'], '600');
+  assert.equal(limited.fields.retry_after_seconds, 600);
+  assert.equal(request('/contests/8/problems/2/submissions', 8).allowed, true, 'another user has a separate budget');
+  now += 10 * 60 * 1000;
+  assert.equal(request('/contests/8/problems/2/submissions').allowed, true, 'the budget recovers when the oldest attempt expires');
 });
 
 test('anonymous write allowlist contains only public identity and markdown operations', () => {

@@ -476,6 +476,8 @@ function operationMiddleware(req, res, next) {
 
 const rateBuckets = new Map();
 const RATE_WINDOW_MS = 60 * 1000;
+const SUBMISSION_RATE_WINDOW_MS = 10 * 60 * 1000;
+const SUBMISSION_RATE_LIMIT = 30;
 const MAX_BODY_BYTES = 1024 * 1024;
 
 function gatewayLimits(req, res) {
@@ -505,12 +507,14 @@ function gatewayLimits(req, res) {
     return false;
   }
   const isWrite = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
+  const isSubmission = isWrite && apiHelpers.isSubmissionCreatePath(requestPath);
   const isTestdataChunk = isWrite && /^\/api\/v2\/problems\/\d+\/testdata\/upload\/chunk\/?$/.test(requestPath);
   // Chunks have a separate allowance so they cannot consume the normal writes
   // needed to merge an upload or save its configuration.
-  const limit = isTestdataChunk ? 1200 : (isWrite ? 60 : 180);
+  const limit = isSubmission ? SUBMISSION_RATE_LIMIT : isTestdataChunk ? 1200 : (isWrite ? 60 : 180);
+  const windowMs = isSubmission ? SUBMISSION_RATE_WINDOW_MS : RATE_WINDOW_MS;
   const actor = res.locals.user ? `user:${res.locals.user.id}` : `ip:${req.ip || 'unknown'}`;
-  const key = `${actor}:${isTestdataChunk ? 'testdata-chunk' : isWrite ? 'write' : 'read'}`;
+  const key = `${actor}:${isSubmission ? 'submission' : isTestdataChunk ? 'testdata-chunk' : isWrite ? 'write' : 'read'}`;
   if (rateBuckets.size > 10000) {
     const now = Date.now();
     for (const [bucketKey, bucket] of rateBuckets) {
@@ -518,13 +522,25 @@ function gatewayLimits(req, res) {
       if (rateBuckets.size <= 8000) break;
     }
   }
-  const decision = apiHelpers.consumeFixedWindow(rateBuckets, key, Date.now(), RATE_WINDOW_MS, limit);
+  const now = Date.now();
+  const decision = isSubmission
+    ? apiHelpers.consumeSlidingWindow(rateBuckets, key, now, windowMs, limit)
+    : apiHelpers.consumeFixedWindow(rateBuckets, key, now, windowMs, limit);
   res.set('X-RateLimit-Limit', String(limit));
   res.set('X-RateLimit-Remaining', String(decision.remaining));
   res.set('X-RateLimit-Reset', String(Math.ceil(decision.resetAt / 1000)));
   if (!decision.allowed) {
-    res.set('Retry-After', String(Math.max(1, Math.ceil((decision.resetAt - Date.now()) / 1000))));
-    apiFail(res, 429, 'RATE_LIMITED', 'Too many API requests. Retry after the current window.');
+    const retryAfter = Math.max(1, Math.ceil((decision.resetAt - now) / 1000));
+    res.set('Retry-After', String(retryAfter));
+    if (isSubmission) {
+      apiFail(res, 429, 'SUBMISSION_RATE_LIMITED', 'Too many submissions. Please wait before submitting again.', {
+        limit,
+        window_seconds: Math.ceil(windowMs / 1000),
+        retry_after_seconds: retryAfter
+      });
+    } else {
+      apiFail(res, 429, 'RATE_LIMITED', 'Too many API requests. Retry after the current window.');
+    }
     return false;
   }
   return true;

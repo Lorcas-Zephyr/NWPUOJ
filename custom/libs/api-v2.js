@@ -84,6 +84,12 @@ function requestBodyLimit(pathValue, contentType, options = {}) {
   return payloadBytes + Math.max(0, overheadBytes);
 }
 
+function isSubmissionCreatePath(pathValue) {
+  let pathname = String(pathValue || '').split('?')[0].replace(/\/+$/, '');
+  if (pathname.startsWith('/api/v2/')) pathname = pathname.slice('/api/v2'.length);
+  return /^\/(?:problems\/\d+\/(?:submissions|submit-answer)|contests\/\d+\/problems\/\d+\/(?:submissions|submit-answer)|problem-sets\/\d+\/problems\/\d+\/(?:submissions|submit-answer))$/.test(pathname);
+}
+
 function consumeFixedWindow(store, key, now, windowMs, limit) {
   let bucket = store.get(key);
   if (!bucket || bucket.resetAt <= now) {
@@ -96,6 +102,23 @@ function consumeFixedWindow(store, key, now, windowMs, limit) {
     remaining: Math.max(0, limit - bucket.count),
     resetAt: bucket.resetAt
   };
+}
+
+function consumeSlidingWindow(store, key, now, windowMs, limit) {
+  const previous = store.get(key);
+  const cutoff = now - windowMs;
+  const timestamps = previous && Array.isArray(previous.timestamps)
+    ? previous.timestamps.filter(timestamp => timestamp > cutoff)
+    : [];
+  const resetAt = timestamps.length ? timestamps[0] + windowMs : now + windowMs;
+  if (timestamps.length >= limit) {
+    store.set(key, { timestamps, resetAt });
+    return { allowed: false, remaining: 0, resetAt };
+  }
+  timestamps.push(now);
+  const nextResetAt = timestamps[0] + windowMs;
+  store.set(key, { timestamps, resetAt: nextResetAt });
+  return { allowed: true, remaining: Math.max(0, limit - timestamps.length), resetAt: nextResetAt };
 }
 
 function etagFor(value) {
@@ -192,7 +215,7 @@ const ERROR_CATALOG = Object.freeze(Object.assign(
     'RATING_PROFILE_INVALID', 'SUBMISSION_EVENT_INVALID', 'SUBMISSION_STATUS_INVALID', 'AI_PLAN_INVALID', 'AI_LANGUAGE_INVALID', 'AI_SOURCE_INVALID', 'IMAGE_HOST_UPLOAD_INVALID', 'IMAGE_HOST_UNSUPPORTED_TYPE', 'IMAGE_HOST_UNSAFE_CONTENT'
   ]),
   catalogGroup(429, 'Too many requests.', [
-    'LOGIN_RATE_LIMITED', 'MFA_CHALLENGE_RATE_LIMITED', 'TICKET_DAILY_LIMIT_REACHED', 'UPSTREAM_RATE_LIMITED', 'AI_RATE_LIMITED'
+    'LOGIN_RATE_LIMITED', 'MFA_CHALLENGE_RATE_LIMITED', 'TICKET_DAILY_LIMIT_REACHED', 'UPSTREAM_RATE_LIMITED', 'AI_RATE_LIMITED', 'SUBMISSION_RATE_LIMITED'
   ]),
   catalogGroup(500, 'The request could not be completed because of an internal error.', [
     'BATCH_INTERRUPTED', 'BULK_REJUDGE_FAILED', 'CLIPBOARD_TOKEN_GENERATION_FAILED', 'HELP_PAGE_UPDATE_FAILED', 'MARKDOWN_RENDER_FAILED', 'LEGAL_UPDATE_FAILED',
@@ -277,7 +300,9 @@ module.exports = {
   classifyIdempotency,
   bodySize,
   requestBodyLimit,
+  isSubmissionCreatePath,
   consumeFixedWindow,
+  consumeSlidingWindow,
   etagFor,
   normalizeEtag,
   ifMatchSatisfied,
